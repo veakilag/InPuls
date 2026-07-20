@@ -3,9 +3,9 @@ import {
   SymbolState,
   filterUsdtPerpetualTicker,
   formatCompactUsd,
-} from "./engine.js?v=15";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=15";
-import { OrderBookFeed } from "./orderbook.js?v=15";
+} from "./engine.js?v=16";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=16";
+import { OrderBookFeed } from "./orderbook.js?v=16";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -13,11 +13,18 @@ const STORAGE_KEYS = {
   sound: "inpuls-sound-v1",
   chart: "inpuls-chart-v2",
   timeZone: "inpuls-timezone-v1",
+  timeZoneCity: "inpuls-timezone-city-v1",
   volume: "inpuls-volume-v1",
+  sessions: "inpuls-sessions-v1",
   comfort: "inpuls-comfort-v1",
   workspace: "inpuls-workspace-v4",
-  radarColumns: "inpuls-radar-columns-v1",
+  radarColumns: "inpuls-radar-columns-v2",
+  radarFilters: "inpuls-radar-filters-v1",
+  inplay: "inpuls-inplay-v1",
 };
+
+const DEFAULT_INPLAY = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "AVAXUSDT", "SUIUSDT"].map((symbol) => ({ symbol, minV24: null, minNatr1: null, minGrowth24: null }));
+const EMPTY_RADAR_FILTERS = Object.freeze({});
 
 const DEFAULT_WORKSPACE = {
   primary: { id: "primary", type: "chart", x: 0, y: 0, w: 18, h: 9 },
@@ -46,11 +53,15 @@ const state = {
   connectedAt: null,
   chartStats: { fundingRate: null, nextFundingTime: null, natr1m: null, natr5m: null, correlation: null },
   timeZone: localStorage.getItem(STORAGE_KEYS.timeZone) || "Europe/Moscow",
+  selectedTimeZoneCity: localStorage.getItem(STORAGE_KEYS.timeZoneCity) || "Москва",
   volumeVisible: loadJson(STORAGE_KEYS.volume, true),
+  sessionsVisible: loadJson(STORAGE_KEYS.sessions, true),
   comfort: Number(localStorage.getItem(STORAGE_KEYS.comfort) ?? 55),
   radarSearch: "",
   workspace: loadJson(STORAGE_KEYS.workspace, DEFAULT_WORKSPACE),
-  radarColumns: loadJson(STORAGE_KEYS.radarColumns, [1.3, 1, 1, 1, .8, .8]),
+  radarColumns: loadJson(STORAGE_KEYS.radarColumns, [1.35, 1, 1, 1, .85, .85, 1]),
+  radarFilters: loadJson(STORAGE_KEYS.radarFilters, EMPTY_RADAR_FILTERS),
+  inplayRules: loadJson(STORAGE_KEYS.inplay, DEFAULT_INPLAY),
 };
 
 const els = {
@@ -90,6 +101,13 @@ const els = {
   installButton: document.querySelector("#install-app"),
   marketFocus: document.querySelector("#market-focus"),
   inplayCoins: document.querySelector("#inplay-coins"),
+  inplaySettings: document.querySelector("#inplay-settings"),
+  inplayDialog: document.querySelector("#inplay-dialog"),
+  inplayClose: document.querySelector("#inplay-close"),
+  inplayCancel: document.querySelector("#inplay-cancel"),
+  inplayRulesList: document.querySelector("#inplay-rules-list"),
+  inplayAddSymbol: document.querySelector("#inplay-add-symbol"),
+  inplayAdd: document.querySelector("#inplay-add"),
   priceChart: document.querySelector("#price-chart"),
   chartTooltip: document.querySelector("#chart-tooltip"),
   chartSymbol: document.querySelector("#chart-symbol"),
@@ -102,6 +120,12 @@ const els = {
   topList: document.querySelector("#top-list"),
   topSortButtons: [...document.querySelectorAll("[data-top-sort]")],
   radarSearch: document.querySelector("#radar-search"),
+  radarFilterToggle: document.querySelector("#radar-filter-toggle"),
+  radarFilterPanel: document.querySelector("#radar-filter-panel"),
+  radarFilterCount: document.querySelector("#radar-filter-count"),
+  radarFilterInputs: [...document.querySelectorAll("[data-radar-filter]")],
+  radarFilterApply: document.querySelector("#radar-filter-apply"),
+  radarFilterReset: document.querySelector("#radar-filter-reset"),
   columnResizers: [...document.querySelectorAll("[data-column-index]")],
   radarResizer: document.querySelector("#radar-resizer"),
   scannerResizer: document.querySelector("#scanner-resizer"),
@@ -120,6 +144,7 @@ const els = {
   metricCorrelation: document.querySelector("#metric-correlation"),
   volumeToggle: document.querySelector("#volume-toggle"),
   chartResizer: document.querySelector("#chart-resizer"),
+  mobileViewButtons: [...document.querySelectorAll("[data-mobile-view]")],
 };
 
 class BinanceFeed {
@@ -147,7 +172,7 @@ class BinanceFeed {
       setConnection("online", "Онлайн");
       this.#send("SUBSCRIBE", ["!miniTicker@arr", "!markPrice@arr@1s", "!forceOrder@arr"]);
       if (this.trackedAggTrades.size) {
-        this.#send("SUBSCRIBE", [...this.trackedAggTrades].map((symbol) => `${symbol.toLowerCase()}@aggTrade`));
+        this.#send("SUBSCRIBE", [...this.trackedAggTrades].flatMap((symbol) => [`${symbol.toLowerCase()}@aggTrade`, `${symbol.toLowerCase()}@bookTicker`]));
       }
     });
 
@@ -182,8 +207,8 @@ class BinanceFeed {
     const unsubscribe = [...this.trackedAggTrades].filter((symbol) => !next.has(symbol));
     this.trackedAggTrades = next;
     if (this.socket?.readyState !== WebSocket.OPEN) return;
-    if (unsubscribe.length) this.#send("UNSUBSCRIBE", unsubscribe.map((symbol) => `${symbol.toLowerCase()}@aggTrade`));
-    if (subscribe.length) this.#send("SUBSCRIBE", subscribe.map((symbol) => `${symbol.toLowerCase()}@aggTrade`));
+    if (unsubscribe.length) this.#send("UNSUBSCRIBE", unsubscribe.flatMap((symbol) => [`${symbol.toLowerCase()}@aggTrade`, `${symbol.toLowerCase()}@bookTicker`]));
+    if (subscribe.length) this.#send("SUBSCRIBE", subscribe.flatMap((symbol) => [`${symbol.toLowerCase()}@aggTrade`, `${symbol.toLowerCase()}@bookTicker`]));
   }
 
   #send(method, params) {
@@ -201,23 +226,39 @@ class BinanceFeed {
         if (!filterUsdtPerpetualTicker(ticker)) continue;
         getSymbol(ticker.s, Number(ticker.E) || Date.now()).updateTicker(ticker);
       }
+      scheduleRender();
       return;
     }
     if (!data || typeof data !== "object") return;
+    if (data.e === "bookTicker" && data.s?.endsWith("USDT")) {
+      getSymbol(data.s, Number(data.E) || Date.now()).updateBookTicker(data);
+      scheduleRender();
+      return;
+    }
     if (data.e === "aggTrade" && filterUsdtPerpetualTicker(data)) {
       getSymbol(data.s).updateTrade(data);
+      scheduleRender();
       return;
     }
     if (data.e === "forceOrder") {
       const symbol = data.o?.s;
       if (symbol?.endsWith("USDT") && (data.st === undefined || Number(data.st) === 1)) {
         getSymbol(symbol).updateLiquidation(data);
+        scheduleRender();
       }
     }
   }
 }
 
 const feed = new BinanceFeed();
+let scheduledMarketRender = null;
+function scheduleRender() {
+  if (scheduledMarketRender !== null) return;
+  scheduledMarketRender = setTimeout(() => {
+    scheduledMarketRender = null;
+    render();
+  }, 180);
+}
 const radarHistoryLoaded = new Set();
 const radarHistoryLoading = new Set();
 const extraCharts = new Map();
@@ -227,6 +268,7 @@ let activeChartTheme = null;
 const priceChart = new CandlestickChart(els.priceChart, els.chartTooltip);
 priceChart.setTimeZone(state.timeZone === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : state.timeZone);
 priceChart.setVolumeVisible(state.volumeVisible);
+priceChart.setSessionsVisible(state.sessionsVisible);
 applyComfort(state.comfort);
 const klineFeed = new KlineFeed({
   onData(candles, meta) {
@@ -405,34 +447,66 @@ function render() {
 
 function renderInPlay(metrics) {
   if (!els.inplayCoins) return;
-  const leaders = metrics
-    .filter((item) => Number.isFinite(item.price) && Number.isFinite(item.quoteVolume24h))
-    .slice()
-    .sort((left, right) => {
-      const leftImpulse = Math.abs(left.change1m || 0) + Math.abs(left.change15s || 0) + (left.natr1m || 0);
-      const rightImpulse = Math.abs(right.change1m || 0) + Math.abs(right.change15s || 0) + (right.natr1m || 0);
-      return right.score - left.score || rightImpulse - leftImpulse || right.quoteVolume24h - left.quoteVolume24h;
-    })
-    .slice(0, 18);
-  if (!leaders.length) return;
+  if (!Array.isArray(state.inplayRules) || !state.inplayRules.length) state.inplayRules = DEFAULT_INPLAY.map((item) => ({ ...item }));
   const fragment = document.createDocumentFragment();
-  for (const item of leaders) {
+  for (const rule of state.inplayRules.slice(0, 18)) {
+    const item = metrics.find((candidate) => candidate.symbol === rule.symbol);
     const button = document.createElement("button");
     button.type = "button";
     button.className = "inplay-chip";
     button.draggable = true;
-    button.title = `${item.symbol} · V24 ${formatCompactUsd(item.quoteVolume24h)}`;
-    const change = Number(item.change1m || item.change15s || 0);
-    button.innerHTML = `<strong>${escapeHtml(item.symbol.replace("USDT", ""))}</strong><span class="${change > 0 ? "tone-positive" : change < 0 ? "tone-negative" : "tone-neutral"}">${change > 0 ? "+" : ""}${change.toFixed(2)}%</span>`;
-    button.addEventListener("click", () => selectChartSymbol(item.symbol));
+    const hasValue = (value) => value !== null && value !== "" && Number.isFinite(Number(value));
+    const checks = [
+      hasValue(rule.minV24) ? (item?.quoteVolume24h ?? -Infinity) >= Number(rule.minV24) * 1_000_000 : null,
+      hasValue(rule.minNatr1) ? (item?.natr1m ?? -Infinity) >= Number(rule.minNatr1) : null,
+      hasValue(rule.minGrowth24) ? (item?.change24h ?? -Infinity) >= Number(rule.minGrowth24) : null,
+    ].filter((value) => value !== null);
+    button.classList.toggle("is-triggered", checks.length > 0 && checks.every(Boolean));
+    button.title = `${rule.symbol} · V24 ${formatCompactUsd(item?.quoteVolume24h)}`;
+    const change = item?.change24h;
+    button.innerHTML = `<strong>${escapeHtml(rule.symbol.replace("USDT", ""))}</strong><span class="${Number.isFinite(change) ? toneClass(change) : "tone-neutral"}">${formatChange(change)}</span>`;
+    button.addEventListener("click", () => selectChartSymbol(rule.symbol));
     button.addEventListener("dragstart", (event) => {
       event.dataTransfer.effectAllowed = "copy";
-      event.dataTransfer.setData("text/inpuls-symbol", item.symbol);
-      event.dataTransfer.setData("text/plain", item.symbol);
+      event.dataTransfer.setData("text/inpuls-symbol", rule.symbol);
+      event.dataTransfer.setData("text/plain", rule.symbol);
     });
     fragment.append(button);
   }
   els.inplayCoins.replaceChildren(fragment);
+}
+
+function renderInPlayEditor() {
+  const ruleValue = (value) => value !== null && value !== "" && Number.isFinite(Number(value)) ? Number(value) : "";
+  const fragment = document.createDocumentFragment();
+  for (const rule of state.inplayRules) {
+    const row = document.createElement("div");
+    row.className = "inplay-rule";
+    row.dataset.symbol = rule.symbol;
+    row.innerHTML = `<strong>${escapeHtml(rule.symbol.replace("USDT", ""))}/USDT</strong>
+      <label><span>V24 от, $M</span><input data-rule="minV24" type="number" min="0" step="1" value="${ruleValue(rule.minV24)}"></label>
+      <label><span>NATR 1 от, %</span><input data-rule="minNatr1" type="number" min="0" step="0.01" value="${ruleValue(rule.minNatr1)}"></label>
+      <label><span>Рост 24ч от, %</span><input data-rule="minGrowth24" type="number" step="0.1" value="${ruleValue(rule.minGrowth24)}"></label>
+      <button type="button" title="Удалить ${escapeHtml(rule.symbol)}">×</button>`;
+    row.querySelector("button").addEventListener("click", () => {
+      state.inplayRules = state.inplayRules.filter((item) => item.symbol !== rule.symbol);
+      renderInPlayEditor();
+    });
+    fragment.append(row);
+  }
+  els.inplayRulesList.replaceChildren(fragment);
+}
+
+function collectInPlayRules() {
+  state.inplayRules = [...els.inplayRulesList.querySelectorAll(".inplay-rule")].map((row) => {
+    const rule = { symbol: row.dataset.symbol };
+    row.querySelectorAll("[data-rule]").forEach((input) => {
+      rule[input.dataset.rule] = input.value.trim() === "" ? null : Number(input.value);
+    });
+    return rule;
+  });
+  localStorage.setItem(STORAGE_KEYS.inplay, JSON.stringify(state.inplayRules));
+  updateTrackedSymbols();
 }
 
 function createRow(item) {
@@ -513,7 +587,18 @@ function renderSummary(metrics, now) {
 }
 
 function renderTopList(metrics) {
-  let candidates = metrics.filter((item) => !state.radarSearch || item.symbol.toLowerCase().includes(state.radarSearch));
+  let candidates = metrics.filter((item) => {
+    if (state.radarSearch && !item.symbol.toLowerCase().includes(state.radarSearch)) return false;
+    return Object.entries(state.radarFilters ?? {}).every(([filterKey, threshold]) => {
+      if (threshold === null || threshold === "" || !Number.isFinite(Number(threshold))) return true;
+      const [metric, edge] = filterKey.split(":");
+      let value = Number(item[metric]);
+      if (metric === "quoteVolume24h") value /= 1_000_000;
+      if (metric === "fundingRate") value *= 100;
+      if (!Number.isFinite(value)) return false;
+      return edge === "min" ? value >= Number(threshold) : value <= Number(threshold);
+    });
+  });
   const { key, direction } = state.topSort;
   const multiplier = direction === "asc" ? 1 : -1;
   candidates.sort((left, right) => {
@@ -569,7 +654,8 @@ function renderTopList(metrics) {
       valueCell("natr1m"),
       valueCell("natr5m"),
       valueCell("fundingRate", toneClass(item.fundingRate)),
-      valueCell("correlation", toneClass(item.correlation)),
+      valueCell("correlation", "tone-neutral correlation-value"),
+      valueCell("change24h", toneClass(item.change24h)),
     );
     button.addEventListener("dragstart", (event) => {
       event.dataTransfer.effectAllowed = "copy";
@@ -581,6 +667,26 @@ function renderTopList(metrics) {
   });
   els.topList.replaceChildren(fragment);
   updateExtraChartMetrics(metrics);
+}
+
+function syncRadarFilterUi() {
+  let count = 0;
+  for (const input of els.radarFilterInputs) {
+    const value = state.radarFilters?.[input.dataset.radarFilter];
+    input.value = value === null || value === undefined ? "" : String(value);
+    if (input.value !== "") count += 1;
+  }
+  els.radarFilterCount.textContent = String(count);
+}
+
+function collectRadarFilters() {
+  const next = {};
+  for (const input of els.radarFilterInputs) {
+    if (input.value.trim() !== "" && Number.isFinite(Number(input.value))) next[input.dataset.radarFilter] = Number(input.value);
+  }
+  state.radarFilters = next;
+  localStorage.setItem(STORAGE_KEYS.radarFilters, JSON.stringify(next));
+  syncRadarFilterUi();
 }
 
 function formatRadarMetric(item, metric) {
@@ -703,7 +809,7 @@ function findNearestFreePosition(model, targetX, targetY) {
 }
 
 function applyRadarColumns() {
-  if (!Array.isArray(state.radarColumns) || state.radarColumns.length !== 6) state.radarColumns = [1.3, 1, 1, 1, .8, .8];
+  if (!Array.isArray(state.radarColumns) || state.radarColumns.length !== 7) state.radarColumns = [1.35, 1, 1, 1, .85, .85, 1];
   state.radarColumns.forEach((value, index) => els.marketFocus.style.setProperty(`--radar-col-${index + 1}`, `${Math.max(.45, Number(value) || 1)}fr`));
 }
 
@@ -807,6 +913,40 @@ function intervalRange(interval) {
   return { "1s": "15m", "5s": "1h", "15s": "4h" }[interval] || "1h";
 }
 
+function bindChartToolbox(root, chart, persistSessions = false) {
+  const toggle = root.querySelector(".drawing-tools-toggle");
+  const menu = root.querySelector(".drawing-tools-menu");
+  if (!toggle || !menu) return;
+  const drawingButtons = [...menu.querySelectorAll("[data-drawing-tool]")];
+  const sessionButton = menu.querySelector("[data-session-toggle]");
+  const sync = () => {
+    toggle.classList.toggle("is-active", Boolean(chart.activeTool));
+    drawingButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.drawingTool === chart.activeTool));
+    sessionButton?.classList.toggle("is-off", !chart.sessionsVisible);
+    if (sessionButton) sessionButton.textContent = chart.sessionsVisible ? "◫ Сессии: вкл" : "◫ Сессии: выкл";
+  };
+  toggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    menu.hidden = !menu.hidden;
+    toggle.setAttribute("aria-expanded", String(!menu.hidden));
+  });
+  drawingButtons.forEach((button) => button.addEventListener("click", () => {
+    chart.setTool(chart.activeTool === button.dataset.drawingTool ? null : button.dataset.drawingTool);
+    menu.hidden = true;
+    toggle.setAttribute("aria-expanded", "false");
+    sync();
+  }));
+  sessionButton?.addEventListener("click", () => {
+    chart.setSessionsVisible(!chart.sessionsVisible);
+    if (persistSessions) {
+      state.sessionsVisible = chart.sessionsVisible;
+      localStorage.setItem(STORAGE_KEYS.sessions, JSON.stringify(state.sessionsVisible));
+    }
+    sync();
+  });
+  sync();
+}
+
 function mountExtraChart(model) {
   if (extraCharts.has(model.id)) return;
   const article = document.createElement("article");
@@ -827,6 +967,9 @@ function mountExtraChart(model) {
     </header>
     <div class="chart-stage">
       <div class="chart-metrics"><span><b>V24</b><strong data-mini-metric="quoteVolume24h">—</strong></span><span><b>NATR 1</b><strong data-mini-metric="natr1m">—</strong></span><span><b>NATR 5</b><strong data-mini-metric="natr5m">—</strong></span><span><b>F</b><strong data-mini-metric="fundingRate">—</strong></span><span><b>C</b><strong data-mini-metric="correlation">—</strong></span></div>
+      <div class="chart-toolbox"><button class="drawing-tools-toggle" type="button" title="Инструменты рисования" aria-expanded="false">✎</button><div class="drawing-tools-menu" hidden>
+        <button data-drawing-tool="trend" type="button">╱ Отрезок</button><button data-drawing-tool="horizontal" type="button">— Горизонталь</button><button data-drawing-tool="ruler" type="button">↕ Линейка</button><button data-drawing-tool="rectangle" type="button">▭ Прямоугольник</button><button data-drawing-tool="ray" type="button">→ Луч</button><button data-drawing-tool="freehand" type="button">∿ Рисование</button><button data-session-toggle type="button">◫ Сессии</button>
+      </div></div>
       <canvas aria-label="Дополнительный свечной график"></canvas><div class="chart-tooltip" hidden></div>
       <button class="chart-resizer" type="button" aria-label="Изменить размер графика"></button>
     </div>`;
@@ -834,10 +977,12 @@ function mountExtraChart(model) {
   const chart = new CandlestickChart(article.querySelector("canvas"), article.querySelector(".chart-tooltip"));
   chart.setTimeZone(state.timeZone === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : state.timeZone);
   chart.setVolumeVisible(false);
+  chart.setSessionsVisible(state.sessionsVisible);
   if (activeChartTheme) chart.setTheme(activeChartTheme);
   const panel = { model, element: article, chart, feed: null };
   panel.feed = new KlineFeed({ onData: (candles, meta) => chart.setData(candles, meta), onStatus() {} });
   extraCharts.set(model.id, panel);
+  bindChartToolbox(article, chart);
   article.querySelectorAll("[data-mini-interval]").forEach((button) => button.addEventListener("click", () => {
     model.interval = button.dataset.miniInterval;
     article.querySelectorAll("[data-mini-interval]").forEach((item) => item.classList.toggle("is-active", item === button));
@@ -1116,7 +1261,7 @@ function renderChartMetrics() {
   els.metricNatr1m.textContent = Number.isFinite(stats.natr1m) ? `${stats.natr1m.toFixed(2)}%` : "—";
   els.metricNatr5m.textContent = Number.isFinite(stats.natr5m) ? `${stats.natr5m.toFixed(2)}%` : "—";
   els.metricCorrelation.textContent = Number.isFinite(stats.correlation) ? `${stats.correlation >= 0 ? "+" : ""}${stats.correlation.toFixed(2)}` : "—";
-  els.metricCorrelation.className = Number.isFinite(stats.correlation) ? toneClass(stats.correlation) : "";
+  els.metricCorrelation.className = "tone-neutral correlation-value";
 }
 
 function updateAlerts(metrics, now) {
@@ -1194,16 +1339,16 @@ function closeDetail() {
 }
 
 function updateTrackedSymbols() {
-  const candidates = [...state.symbols.values()]
+  const ranked = [...state.symbols.values()]
     .filter((item) => item.quoteVolume24h >= state.settings.minTurnover24h)
     .map((item) => item.metrics(state.settings))
     .sort((a, b) => {
       const favoriteDiff = Number(state.favorites.has(b.symbol)) - Number(state.favorites.has(a.symbol));
       return favoriteDiff || b.score - a.score || b.turnoverPerMinute - a.turnoverPerMinute;
     })
-    .slice(0, state.settings.trackedTrades)
     .map((item) => item.symbol);
-  feed.updateAggTradeSubscriptions(candidates);
+  const pinned = state.inplayRules.map((item) => item.symbol);
+  feed.updateAggTradeSubscriptions([...new Set([...pinned, ...ranked])].slice(0, state.settings.trackedTrades));
 }
 
 function toggleFavorite(symbol) {
@@ -1329,16 +1474,19 @@ function timeZoneClock(zone, date = new Date()) {
   } catch { return "--:--"; }
 }
 
-function applySelectedTimeZone(zone) {
+function applySelectedTimeZone(zone, city = null) {
   if (zone === "local") zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   try { new Intl.DateTimeFormat("ru-RU", { timeZone: zone }).format(); } catch { zone = "Europe/Moscow"; }
   state.timeZone = zone;
+  state.selectedTimeZoneCity = city || state.selectedTimeZoneCity || cityForZone(zone);
+  if (!TIME_ZONE_CITIES.some((item) => item.city === state.selectedTimeZoneCity && item.zone === zone)) state.selectedTimeZoneCity = cityForZone(zone);
   localStorage.setItem(STORAGE_KEYS.timeZone, zone);
-  els.timeZoneCity.textContent = cityForZone(zone);
+  localStorage.setItem(STORAGE_KEYS.timeZoneCity, state.selectedTimeZoneCity);
+  els.timeZoneCity.textContent = state.selectedTimeZoneCity;
   els.timeZoneCity.title = `${zone} · ${timeZoneOffset(zone)}`;
   priceChart.setTimeZone(zone);
   for (const panel of extraCharts.values()) panel.chart.setTimeZone(zone);
-  els.timeZoneMarkers.querySelectorAll(".timezone-marker").forEach((marker) => marker.classList.toggle("is-active", marker.dataset.zone === zone));
+  els.timeZoneMarkers.querySelectorAll(".timezone-marker").forEach((marker) => marker.classList.toggle("is-active", marker.dataset.zone === zone && marker.getAttribute("aria-label")?.startsWith(state.selectedTimeZoneCity)));
   updateClock();
 }
 
@@ -1348,7 +1496,7 @@ function renderTimeZoneMarkers() {
     const marker = document.createElement("button");
     marker.type = "button";
     marker.className = "timezone-marker";
-    marker.classList.toggle("is-active", item.zone === state.timeZone);
+    marker.classList.toggle("is-active", item.zone === state.timeZone && item.city === state.selectedTimeZoneCity);
     marker.dataset.zone = item.zone;
     marker.dataset.city = `${item.city} · ${timeZoneClock(item.zone)}`;
     marker.style.left = `${((item.lon + 180) / 360) * 100}%`;
@@ -1356,7 +1504,7 @@ function renderTimeZoneMarkers() {
     marker.setAttribute("aria-label", `${item.city}, ${item.zone}`);
     marker.addEventListener("click", (event) => {
       event.stopPropagation();
-      applySelectedTimeZone(item.zone);
+      applySelectedTimeZone(item.zone, item.city);
       els.timeZoneDialog.close();
     });
     fragment.append(marker);
@@ -1373,16 +1521,16 @@ function renderTimeZoneResults() {
     const extra = SUPPORTED_TIME_ZONES.filter((zone) => `${zone} ${zone.replaceAll("_", " ")}`.toLocaleLowerCase("ru").includes(query)).map((zone) => ({ city: cityForZone(zone), zone }));
     candidates = [...curated, ...extra];
   }
-  const unique = [...new Map(candidates.map((item) => [item.zone, item])).values()].slice(0, 48);
+  const unique = [...new Map(candidates.map((item) => [`${item.city}:${item.zone}`, item])).values()].slice(0, 48);
   const fragment = document.createDocumentFragment();
   for (const item of unique) {
     const button = document.createElement("button");
     button.type = "button";
-    button.classList.toggle("is-active", item.zone === state.timeZone);
+    button.classList.toggle("is-active", item.zone === state.timeZone && item.city === state.selectedTimeZoneCity);
     button.textContent = `${item.city} · ${timeZoneClock(item.zone)} · ${timeZoneOffset(item.zone)}`;
     button.title = item.zone;
     button.addEventListener("click", () => {
-      applySelectedTimeZone(item.zone);
+      applySelectedTimeZone(item.zone, item.city);
       els.timeZoneDialog.close();
     });
     fragment.append(button);
@@ -1419,7 +1567,7 @@ function applyMapTransform() {
 }
 
 function bindTimeZonePicker() {
-  applySelectedTimeZone(state.timeZone);
+  applySelectedTimeZone(state.timeZone, state.selectedTimeZoneCity);
   renderTimeZoneLines();
   renderTimeZoneMarkers();
   els.timeZoneOpen.addEventListener("click", () => {
@@ -1433,7 +1581,7 @@ function bindTimeZonePicker() {
     event.preventDefault();
     const rect = els.timeZoneMap.getBoundingClientRect();
     const previousScale = mapView.scale;
-    const nextScale = Math.max(1, Math.min(5, previousScale * (event.deltaY < 0 ? 1.2 : .84)));
+    const nextScale = Math.max(1, Math.min(2.3, previousScale * (event.deltaY < 0 ? 1.18 : .86)));
     const pointerX = event.clientX - rect.left - rect.width / 2;
     const pointerY = event.clientY - rect.top - rect.height / 2;
     const ratio = nextScale / previousScale;
@@ -1488,6 +1636,24 @@ function bindEvents() {
 
   els.radarSearch.addEventListener("input", () => {
     state.radarSearch = els.radarSearch.value.trim().toLowerCase();
+    renderTopList(state.lastMetrics);
+  });
+  syncRadarFilterUi();
+  els.radarFilterToggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    els.radarFilterPanel.hidden = !els.radarFilterPanel.hidden;
+    els.radarFilterToggle.setAttribute("aria-expanded", String(!els.radarFilterPanel.hidden));
+  });
+  els.radarFilterApply.addEventListener("click", () => {
+    collectRadarFilters();
+    els.radarFilterPanel.hidden = true;
+    els.radarFilterToggle.setAttribute("aria-expanded", "false");
+    renderTopList(state.lastMetrics);
+  });
+  els.radarFilterReset.addEventListener("click", () => {
+    state.radarFilters = {};
+    localStorage.setItem(STORAGE_KEYS.radarFilters, "{}");
+    syncRadarFilterUi();
     renderTopList(state.lastMetrics);
   });
   for (const handle of els.columnResizers) {
@@ -1552,12 +1718,58 @@ function bindEvents() {
   els.addChartClose.addEventListener("click", () => els.addChartDialog.close());
   els.chartPickerSearch.addEventListener("input", renderChartPicker);
   bindTimeZonePicker();
+  bindChartToolbox(document.querySelector(".primary-chart"), priceChart, true);
+
+  let inplayEditorBackup = null;
+  const cancelInplayEditor = () => {
+    if (inplayEditorBackup) state.inplayRules = inplayEditorBackup;
+    inplayEditorBackup = null;
+    els.inplayDialog.close();
+    renderInPlay(state.lastMetrics);
+  };
+  els.inplaySettings.addEventListener("click", () => {
+    inplayEditorBackup = state.inplayRules.map((item) => ({ ...item }));
+    renderInPlayEditor();
+    els.inplayAddSymbol.value = "";
+    els.inplayDialog.showModal();
+  });
+  els.inplayClose.addEventListener("click", cancelInplayEditor);
+  els.inplayCancel.addEventListener("click", cancelInplayEditor);
+  els.inplayAdd.addEventListener("click", () => {
+    const base = els.inplayAddSymbol.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const symbol = base.endsWith("USDT") ? base : `${base}USDT`;
+    if (!base || state.inplayRules.some((item) => item.symbol === symbol)) return;
+    state.inplayRules.push({ symbol, minV24: null, minNatr1: null, minGrowth24: null });
+    els.inplayAddSymbol.value = "";
+    renderInPlayEditor();
+  });
+  els.inplayDialog.querySelector("form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    collectInPlayRules();
+    inplayEditorBackup = null;
+    els.inplayDialog.close();
+    renderInPlay(state.lastMetrics);
+  });
+
+  document.body.dataset.mobileView = "chart";
+  els.mobileViewButtons.forEach((button) => button.addEventListener("click", () => {
+    document.body.dataset.mobileView = button.dataset.mobileView;
+    els.mobileViewButtons.forEach((item) => item.classList.toggle("is-active", item === button));
+    requestAnimationFrame(() => {
+      applyWorkspaceLayout();
+      priceChart.render();
+    });
+  }));
 
   els.volumeToggle.classList.toggle("is-collapsed", !state.volumeVisible);
+  els.volumeToggle.setAttribute("aria-pressed", String(state.volumeVisible));
+  els.volumeToggle.textContent = state.volumeVisible ? "ОБЪЁМ ▾" : "ОБЪЁМ ▸";
   els.volumeToggle.addEventListener("click", () => {
     state.volumeVisible = !state.volumeVisible;
     localStorage.setItem(STORAGE_KEYS.volume, JSON.stringify(state.volumeVisible));
     els.volumeToggle.classList.toggle("is-collapsed", !state.volumeVisible);
+    els.volumeToggle.setAttribute("aria-pressed", String(state.volumeVisible));
+    els.volumeToggle.textContent = state.volumeVisible ? "ОБЪЁМ ▾" : "ОБЪЁМ ▸";
     priceChart.setVolumeVisible(state.volumeVisible);
   });
 

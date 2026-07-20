@@ -30,6 +30,15 @@ test("SymbolState calculates 15 second move", () => {
   assert.equal(metrics.volumeBoost, null, "volume acceleration stays muted during warm-up");
 });
 
+test("book ticker updates the live midpoint without waiting for mini ticker", () => {
+  const start = 1_700_000_000_000;
+  const symbol = new SymbolState("TESTUSDT", start);
+  symbol.updateTicker({ c: "100", q: "1000000", E: start }, start);
+  symbol.updateBookTicker({ b: "100.4", a: "100.6", E: start + 250 }, start + 250);
+  assert.equal(symbol.price, 100.5);
+  assert.equal(symbol.lastUpdate, start + 250);
+});
+
 test("trade flow counts fills and aggressive side", () => {
   const start = 1_700_000_000_000;
   const symbol = new SymbolState("TESTUSDT", start);

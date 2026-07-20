@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { aggregateCandles, calculateNatr, compactCandles, KlineFeed, nicePriceStep, niceTimeTickStep, parseRestKline, parseStreamKline, pearsonCorrelation, scaleFromDrag, sessionLabels, upsertCandle, visibleCountFromDrag } from "../chart.js";
+import { aggregateCandles, calculateNatr, compactCandles, drawingPercentChange, KlineFeed, nicePriceStep, niceTimeTickStep, parseRestKline, parseStreamKline, pearsonCorrelation, scaleFromDrag, sessionLabels, upsertCandle, visibleCountFromDrag } from "../chart.js";
 
 test("REST kline is normalized", () => {
   const candle = parseRestKline([1000, "10", "12", "9", "11", "25", 1999]);
@@ -140,6 +140,12 @@ test("NATR normalizes Wilder ATR as a percentage", () => {
 test("Pearson correlation detects aligned and inverse returns", () => {
   assert.equal(pearsonCorrelation([1, 2, 3, 4], [2, 4, 6, 8]), 1);
   assert.equal(pearsonCorrelation([1, 2, 3, 4], [8, 6, 4, 2]), -1);
+});
+
+test("drawing ruler reports signed price change", () => {
+  assert.equal(drawingPercentChange(100, 105), 5);
+  assert.equal(drawingPercentChange(100, 95), -5);
+  assert.equal(drawingPercentChange(0, 95), null);
 });
 
 test("time scale marks day and Moscow session times", () => {

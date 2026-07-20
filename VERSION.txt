@@ -1,3 +1,3 @@
-InPuls v15
-Build: fluid-cockpit
-Features: inplay, movable-scanner, real-timezone-map, compact-candles, persistent-free-zone
+InPuls v16
+Build: adaptive-drawing-cockpit
+Features: mobile-tabs, static-inplay-rules, radar-filters, depth20-100ms, chart-drawing-tools, generated-map

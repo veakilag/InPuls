@@ -88,6 +88,11 @@ export function pearsonCorrelation(left, right) {
   return denominator ? covariance / denominator : null;
 }
 
+export function drawingPercentChange(startPrice, endPrice) {
+  if (!Number.isFinite(startPrice) || !Number.isFinite(endPrice) || startPrice === 0) return null;
+  return ((endPrice - startPrice) / startPrice) * 100;
+}
+
 const TIME_TICK_STEPS = [
   1_000, 5_000, 10_000, 15_000, 30_000,
   60_000, 2 * 60_000, 5 * 60_000, 10 * 60_000, 15 * 60_000, 30 * 60_000,
@@ -312,6 +317,14 @@ export class CandlestickChart {
     this.followLatest = true;
     this.timeZone = "Europe/Moscow";
     this.volumeVisible = true;
+    this.sessionsVisible = true;
+    this.activeTool = null;
+    this.drawings = [];
+    this.drawingStore = new Map();
+    this.drawingSymbol = null;
+    this.undoStack = [];
+    this.draftDrawing = null;
+    this.drawingGesture = null;
     this.theme = {
       background: "#070605",
       bullFill: "#ddd2c2",
@@ -332,6 +345,8 @@ export class CandlestickChart {
     canvas.addEventListener("pointerdown", (event) => this.#handlePointerDown(event));
     canvas.addEventListener("pointerup", (event) => this.#handlePointerUp(event));
     canvas.addEventListener("pointercancel", (event) => this.#handlePointerUp(event));
+    canvas.addEventListener("pointerenter", () => { CandlestickChart.activeChart = this; });
+    canvas.addEventListener("contextmenu", (event) => this.#handleContextMenu(event));
     canvas.addEventListener("pointerleave", () => {
       if (this.drag) return;
       this.hoverX = null;
@@ -346,6 +361,13 @@ export class CandlestickChart {
       this.viewStart = Math.max(0, this.candles.length - (this.visibleCount ?? 80));
       this.render();
     });
+    this.keyHandler = (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && CandlestickChart.activeChart === this) {
+        event.preventDefault();
+        this.undoDrawing();
+      }
+    };
+    window.addEventListener("keydown", this.keyHandler);
   }
 
   setTimeZone(timeZone) {
@@ -358,6 +380,28 @@ export class CandlestickChart {
     this.render();
   }
 
+  setSessionsVisible(visible) {
+    this.sessionsVisible = Boolean(visible);
+    this.render();
+  }
+
+  setTool(tool) {
+    const allowed = new Set(["trend", "horizontal", "ruler", "rectangle", "ray", "freehand"]);
+    this.activeTool = allowed.has(tool) ? tool : null;
+    this.draftDrawing = null;
+    this.drawingGesture = null;
+    this.canvas.style.cursor = this.activeTool ? "crosshair" : "crosshair";
+    this.render();
+  }
+
+  undoDrawing() {
+    const action = this.undoStack.pop();
+    if (!action) return;
+    if (action.type === "add") this.drawings = this.drawings.filter((item) => item.id !== action.drawing.id);
+    else if (action.type === "delete") this.drawings.splice(Math.min(action.index, this.drawings.length), 0, action.drawing);
+    this.render();
+  }
+
   setTheme(theme) {
     this.theme = { ...this.theme, ...theme };
     this.render();
@@ -366,12 +410,21 @@ export class CandlestickChart {
   destroy() {
     this.resizeObserver.disconnect();
     this.drag = null;
+    window.removeEventListener("keydown", this.keyHandler);
   }
 
   setData(candles, meta) {
     const nextKey = `${meta?.symbol ?? ""}:${meta?.interval ?? ""}:${meta?.range ?? ""}`;
     const seriesChanged = nextKey !== this.seriesKey;
     const symbolChanged = this.meta?.symbol && this.meta.symbol !== meta?.symbol;
+    if (meta?.symbol && meta.symbol !== this.drawingSymbol) {
+      if (this.drawingSymbol) this.drawingStore.set(this.drawingSymbol, this.drawings.map((item) => structuredClone(item)));
+      this.drawingSymbol = meta.symbol;
+      this.drawings = (this.drawingStore.get(meta.symbol) ?? []).map((item) => structuredClone(item));
+      this.undoStack = [];
+      this.draftDrawing = null;
+      this.drawingGesture = null;
+    }
     const oldAnchorTime = !seriesChanged && !this.followLatest && this.candles.length
       ? this.candles[Math.max(0, Math.floor(this.viewStart ?? 0))]?.time
       : null;
@@ -505,9 +558,10 @@ export class CandlestickChart {
       ctx.globalAlpha = 1;
     }
 
+    this.layout = { visible, margins, step, plotWidth, plotHeight, priceBottom, width, height, startIndex: this.viewStart, minPrice, maxPrice };
+    this.#drawDrawings(ctx);
     const current = this.candles.at(-1);
     if (current) this.#drawLastPrice(ctx, width, margins, y(current.close), current.close, current.close >= current.open, margins.top, priceBottom);
-    this.layout = { visible, margins, step, plotWidth, plotHeight, priceBottom, width, height, startIndex: this.viewStart, minPrice, maxPrice };
     if (this.hoverX !== null && this.hoverY !== null) this.#drawCrosshair(ctx);
   }
 
@@ -573,6 +627,7 @@ export class CandlestickChart {
       const current = this.candles[index].time;
       const events = sessionEvents(previous, current, this.timeZone);
       for (const event of events) {
+        if (!this.sessionsVisible && event.label !== "D") continue;
         const fraction = Math.max(0, Math.min(1, (event.time - previous) / Math.max(1, current - previous)));
         const x = margins.left + (index - 1 + fraction - this.viewStart + .5) * this.layoutStep(margins);
         ctx.save();
@@ -586,8 +641,7 @@ export class CandlestickChart {
         ctx.fillStyle = this.theme.session;
         ctx.font = "bold 7px Arial, sans-serif";
         ctx.textAlign = "center";
-        const label = event.label === "D" ? "D" : `${event.label} ${formatTime(event.time, false, this.timeZone)}`;
-        ctx.fillText(label, x, height - margins.bottom + 9);
+        ctx.fillText(event.label, x, height - margins.bottom + 9);
       }
     }
   }
@@ -648,10 +702,183 @@ export class CandlestickChart {
     ctx.fillText(formatChartPrice(price), width - margins.right / 2, visibleY + 3);
   }
 
+  #pointAt(x, y) {
+    if (!this.layout) return null;
+    const { margins, plotWidth, plotHeight, priceBottom, minPrice, maxPrice } = this.layout;
+    const safeX = Math.max(margins.left, Math.min(x, margins.left + plotWidth));
+    const safeY = Math.max(margins.top, Math.min(y, priceBottom));
+    const slot = this.viewStart + ((safeX - margins.left) / plotWidth) * this.visibleCount;
+    return {
+      time: this.#timeAtIndex(slot),
+      price: maxPrice - ((safeY - margins.top) / plotHeight) * (maxPrice - minPrice),
+    };
+  }
+
+  #screenPoint(point) {
+    const { margins, plotWidth, plotHeight, minPrice, maxPrice } = this.layout;
+    const index = this.#indexAtTime(point.time);
+    return {
+      x: margins.left + ((index - this.viewStart) / this.visibleCount) * plotWidth,
+      y: margins.top + ((maxPrice - point.price) / (maxPrice - minPrice)) * plotHeight,
+    };
+  }
+
+  #commitDrawing(drawing) {
+    const committed = { ...drawing, id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}` };
+    this.drawings.push(committed);
+    this.undoStack.push({ type: "add", drawing: committed });
+    this.draftDrawing = null;
+    this.drawingGesture = null;
+    this.render();
+  }
+
+  #drawDrawings(ctx) {
+    if (!this.layout) return;
+    const { margins, plotWidth, plotHeight, priceBottom, width } = this.layout;
+    const items = this.draftDrawing ? [...this.drawings, this.draftDrawing] : this.drawings;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(margins.left, margins.top, plotWidth, plotHeight);
+    ctx.clip();
+    ctx.strokeStyle = this.theme.session;
+    ctx.fillStyle = `${this.theme.session}22`;
+    ctx.lineWidth = 1.35;
+    ctx.setLineDash([]);
+    for (const drawing of items) {
+      const a = this.#screenPoint(drawing.a);
+      const b = drawing.b ? this.#screenPoint(drawing.b) : a;
+      ctx.beginPath();
+      if (drawing.type === "trend" || drawing.type === "ruler") {
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      } else if (drawing.type === "horizontal") {
+        ctx.moveTo(margins.left, a.y);
+        ctx.lineTo(margins.left + plotWidth, a.y);
+        ctx.stroke();
+      } else if (drawing.type === "ray") {
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(margins.left + plotWidth, a.y);
+        ctx.stroke();
+      } else if (drawing.type === "rectangle") {
+        const left = Math.min(a.x, b.x);
+        const top = Math.min(a.y, b.y);
+        const rectWidth = Math.abs(b.x - a.x);
+        const rectHeight = Math.abs(b.y - a.y);
+        ctx.fillRect(left, top, rectWidth, rectHeight);
+        ctx.strokeRect(left, top, rectWidth, rectHeight);
+      } else if (drawing.type === "freehand" && drawing.points?.length > 1) {
+        const first = this.#screenPoint(drawing.points[0]);
+        ctx.moveTo(first.x, first.y);
+        for (const point of drawing.points.slice(1)) {
+          const screen = this.#screenPoint(point);
+          ctx.lineTo(screen.x, screen.y);
+        }
+        ctx.stroke();
+      }
+      if (drawing.type === "ruler" && drawing.b && drawing.a.price) {
+        const percent = drawingPercentChange(drawing.a.price, drawing.b.price);
+        const text = `${percent >= 0 ? "+" : ""}${percent.toFixed(Math.abs(percent) >= 10 ? 1 : 2)}%`;
+        const x = (a.x + b.x) / 2;
+        const y = (a.y + b.y) / 2;
+        ctx.font = "bold 9px Arial, sans-serif";
+        const textWidth = ctx.measureText(text).width + 10;
+        ctx.fillStyle = this.theme.crosshairFill;
+        ctx.fillRect(x - textWidth / 2, y - 16, textWidth, 15);
+        ctx.fillStyle = this.theme.crosshairText;
+        ctx.textAlign = "center";
+        ctx.fillText(text, x, y - 5);
+        ctx.fillStyle = `${this.theme.session}22`;
+      }
+    }
+    ctx.restore();
+
+    const rays = items.filter((item) => item.type === "ray").map((item) => ({ item, y: this.#screenPoint(item.a).y }));
+    for (const ray of rays) {
+      if (ray.y < margins.top || ray.y > priceBottom) continue;
+      const crowd = rays.filter((other) => Math.abs(other.y - ray.y) < 13).length;
+      const fontSize = Math.max(6, 9 - Math.max(0, crowd - 1));
+      const label = formatChartPrice(ray.item.a.price);
+      ctx.font = `bold ${fontSize}px Arial, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillStyle = this.theme.crosshairFill;
+      ctx.fillRect(width - margins.right, ray.y - 7, margins.right, 14);
+      ctx.fillStyle = this.theme.crosshairText;
+      ctx.fillText(label, width - margins.right / 2, ray.y + fontSize / 3);
+    }
+  }
+
+  #distanceToSegment(point, start, end) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    if (!dx && !dy) return Math.hypot(point.x - start.x, point.y - start.y);
+    const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / (dx * dx + dy * dy)));
+    return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
+  }
+
+  #drawingDistance(drawing, point) {
+    const a = this.#screenPoint(drawing.a);
+    const b = drawing.b ? this.#screenPoint(drawing.b) : a;
+    if (drawing.type === "horizontal") return Math.abs(point.y - a.y);
+    if (drawing.type === "ray") return point.x >= a.x ? Math.abs(point.y - a.y) : Math.hypot(point.x - a.x, point.y - a.y);
+    if (drawing.type === "trend" || drawing.type === "ruler") return this.#distanceToSegment(point, a, b);
+    if (drawing.type === "rectangle") {
+      const corners = [{ x: a.x, y: b.y }, { x: b.x, y: a.y }];
+      return Math.min(
+        this.#distanceToSegment(point, a, corners[0]),
+        this.#distanceToSegment(point, corners[0], b),
+        this.#distanceToSegment(point, b, corners[1]),
+        this.#distanceToSegment(point, corners[1], a),
+      );
+    }
+    if (drawing.type === "freehand") {
+      const points = drawing.points?.map((item) => this.#screenPoint(item)) ?? [];
+      let distance = Infinity;
+      for (let index = 1; index < points.length; index += 1) distance = Math.min(distance, this.#distanceToSegment(point, points[index - 1], points[index]));
+      return distance;
+    }
+    return Infinity;
+  }
+
+  #handleContextMenu(event) {
+    event.preventDefault();
+    this.draftDrawing = null;
+    if (!this.layout || !this.drawings.length) {
+      this.render();
+      return;
+    }
+    const rect = this.canvas.getBoundingClientRect();
+    const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    let best = { index: -1, distance: 9 };
+    this.drawings.forEach((drawing, index) => {
+      const distance = this.#drawingDistance(drawing, point);
+      if (distance < best.distance) best = { index, distance };
+    });
+    if (best.index >= 0) {
+      const [drawing] = this.drawings.splice(best.index, 1);
+      this.undoStack.push({ type: "delete", drawing, index: best.index });
+    }
+    this.render();
+  }
+
   #handlePointer(event) {
     const rect = this.canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
+    if (this.drawingGesture?.type === "freehand") {
+      const point = this.#pointAt(x, y);
+      if (point) this.drawingGesture.drawing.points.push(point);
+      this.render();
+      return;
+    }
+    if (this.activeTool && this.draftDrawing) {
+      const point = this.#pointAt(x, y);
+      if (point) this.draftDrawing.b = point;
+      this.hoverX = x;
+      this.hoverY = y;
+      this.render();
+      return;
+    }
     if (this.drag?.type === "price") {
       const deltaY = y - this.drag.startY;
       this.priceScale = scaleFromDrag(this.drag.startScale, deltaY);
@@ -696,10 +923,33 @@ export class CandlestickChart {
 
   #handlePointerDown(event) {
     if (!this.layout) return;
+    if (event.button === 2) return;
     const rect = this.canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const axis = this.#axisAt(x, y);
+    CandlestickChart.activeChart = this;
+    if (this.activeTool && !axis) {
+      event.preventDefault();
+      const point = this.#pointAt(x, y);
+      if (!point) return;
+      if (this.activeTool === "horizontal" || this.activeTool === "ray") {
+        this.#commitDrawing({ type: this.activeTool, a: point });
+      } else if (this.activeTool === "freehand") {
+        this.canvas.setPointerCapture(event.pointerId);
+        const drawing = { type: "freehand", a: point, points: [point] };
+        this.drawingGesture = { type: "freehand", drawing };
+        this.draftDrawing = drawing;
+      } else if (!this.draftDrawing) {
+        this.draftDrawing = { type: this.activeTool, a: point, b: point };
+      } else {
+        this.draftDrawing.b = point;
+        this.#commitDrawing(this.draftDrawing);
+      }
+      this.tooltip.hidden = true;
+      this.render();
+      return;
+    }
     event.preventDefault();
     this.canvas.setPointerCapture(event.pointerId);
     this.hoverX = null;
@@ -713,6 +963,17 @@ export class CandlestickChart {
   }
 
   #handlePointerUp(event) {
+    if (this.drawingGesture?.type === "freehand") {
+      if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
+      const drawing = this.drawingGesture.drawing;
+      if (drawing.points.length > 1) this.#commitDrawing(drawing);
+      else {
+        this.draftDrawing = null;
+        this.drawingGesture = null;
+        this.render();
+      }
+      return;
+    }
     if (!this.drag) return;
     if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
     this.drag = null;

@@ -101,6 +101,22 @@ export class SymbolState {
     }
   }
 
+  updateBookTicker(ticker, now = Number(ticker.E) || Date.now()) {
+    const bid = Number(ticker.b);
+    const ask = Number(ticker.a);
+    const price = Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0 ? (bid + ask) / 2 : null;
+    if (!Number.isFinite(price)) return;
+    this.price = price;
+    this.lastUpdate = now;
+    const previousSnapshot = this.history.at(-1);
+    if (!previousSnapshot || now - previousSnapshot.t >= 200) this.history.push({ t: now, p: price });
+    else {
+      previousSnapshot.p = price;
+      previousSnapshot.t = now;
+    }
+    this.#trim(now);
+  }
+
   updateTrade(trade) {
     const time = Number(trade.T) || Number(trade.E) || Date.now();
     const price = Number(trade.p);

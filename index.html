@@ -7,8 +7,8 @@
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="15" />
-    <link rel="stylesheet" href="./styles.css?v=15" />
+    <meta name="inpuls-build" content="16" />
+    <link rel="stylesheet" href="./styles.css?v=16" />
     <title>InPuls — в ритме рынка</title>
   </head>
   <body>
@@ -16,10 +16,10 @@
     <header class="topbar">
       <a class="brand" href="./" aria-label="InPuls — главная">
         <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span><strong>INPULS</strong><em>SCREENER <small>v15</small></em></span>
+        <span><strong>INPULS</strong><em>SCREENER <small>v16</small></em></span>
       </a>
       <div class="inplay-strip" aria-label="Монеты в игре сейчас">
-        <span class="inplay-label">INPLAY</span>
+        <div class="inplay-title"><span class="inplay-label">INPLAY</span><button id="inplay-settings" type="button" title="Настроить статичные монеты и правила">⚙</button></div>
         <div id="inplay-coins" class="inplay-coins"><span class="inplay-loading">Собираю активные монеты…</span></div>
       </div>
       <div class="topbar-actions">
@@ -84,15 +84,47 @@
               <span><b>F</b><strong id="metric-funding">—</strong><em id="metric-funding-time">—</em></span>
               <span title="Корреляция минутных доходностей с BTC"><b>C</b><strong id="metric-correlation">—</strong></span>
             </div>
+            <div class="chart-toolbox">
+              <button class="drawing-tools-toggle" type="button" title="Инструменты рисования" aria-label="Инструменты рисования" aria-expanded="false">✎</button>
+              <div class="drawing-tools-menu" hidden>
+                <button data-drawing-tool="trend" type="button">╱ Отрезок</button>
+                <button data-drawing-tool="horizontal" type="button">— Горизонталь</button>
+                <button data-drawing-tool="ruler" type="button">↕ Линейка</button>
+                <button data-drawing-tool="rectangle" type="button">▭ Прямоугольник</button>
+                <button data-drawing-tool="ray" type="button">→ Луч</button>
+                <button data-drawing-tool="freehand" type="button">∿ Рисование</button>
+                <button data-session-toggle type="button">◫ Сессии</button>
+              </div>
+            </div>
             <canvas id="price-chart" aria-label="Свечной график выбранной монеты"></canvas>
             <div id="chart-tooltip" class="chart-tooltip" hidden></div>
-            <button id="volume-toggle" class="volume-toggle" type="button" title="Скрыть или показать объём">VOL</button>
+            <button id="volume-toggle" class="volume-toggle" type="button" title="Нажми, чтобы скрыть или показать объём" aria-pressed="true">ОБЪЁМ ▾</button>
             <span class="zoom-hint">Колесо · масштаб</span>
             <button id="chart-resizer" class="chart-resizer" type="button" aria-label="Изменить размер графика" title="Потяни по диагонали, чтобы изменить размер"></button>
           </div>
         </article>
 
         <aside class="top-card" data-panel="radar" data-panel-id="radar">
+          <div class="radar-filterbar">
+            <button id="radar-filter-toggle" type="button" aria-expanded="false">ФИЛЬТРЫ <span id="radar-filter-count">0</span></button>
+            <div id="radar-filter-panel" class="radar-filter-panel" hidden>
+              <div class="radar-filter-grid">
+                <label><span>V24 от, $M</span><input data-radar-filter="quoteVolume24h:min" type="number" step="1" placeholder="0" /></label>
+                <label><span>V24 до, $M</span><input data-radar-filter="quoteVolume24h:max" type="number" step="1" placeholder="∞" /></label>
+                <label><span>NATR 1 от</span><input data-radar-filter="natr1m:min" type="number" step="0.01" /></label>
+                <label><span>NATR 1 до</span><input data-radar-filter="natr1m:max" type="number" step="0.01" /></label>
+                <label><span>NATR 5 от</span><input data-radar-filter="natr5m:min" type="number" step="0.01" /></label>
+                <label><span>NATR 5 до</span><input data-radar-filter="natr5m:max" type="number" step="0.01" /></label>
+                <label><span>F от, %</span><input data-radar-filter="fundingRate:min" type="number" step="0.001" /></label>
+                <label><span>F до, %</span><input data-radar-filter="fundingRate:max" type="number" step="0.001" /></label>
+                <label><span>C от</span><input data-radar-filter="correlation:min" type="number" step="0.05" min="-1" max="1" /></label>
+                <label><span>C до</span><input data-radar-filter="correlation:max" type="number" step="0.05" min="-1" max="1" /></label>
+                <label><span>Рост 24ч от</span><input data-radar-filter="change24h:min" type="number" step="0.1" /></label>
+                <label><span>Рост 24ч до</span><input data-radar-filter="change24h:max" type="number" step="0.1" /></label>
+              </div>
+              <div class="radar-filter-actions"><button id="radar-filter-reset" type="button">Сбросить</button><button id="radar-filter-apply" type="button">Применить</button></div>
+            </div>
+          </div>
           <div class="top-columns" aria-label="Сортировка монет">
             <span class="panel-grip radar-grip" title="Радар монет">⠿</span>
             <label class="radar-search"><input id="radar-search" type="search" autocomplete="off" placeholder="Поиск" aria-label="Поиск монеты" /><span class="column-resizer" data-column-index="0"></span></label>
@@ -100,7 +132,8 @@
             <button data-top-sort="natr1m" type="button">NATR 1 <i>↕</i><span class="column-resizer" data-column-index="2"></span></button>
             <button data-top-sort="natr5m" type="button">NATR 5 <i>↕</i><span class="column-resizer" data-column-index="3"></span></button>
             <button data-top-sort="fundingRate" type="button">F <i>↕</i><span class="column-resizer" data-column-index="4"></span></button>
-            <button data-top-sort="correlation" type="button">C <i>↕</i></button>
+            <button data-top-sort="correlation" type="button">C <i>↕</i><span class="column-resizer" data-column-index="5"></span></button>
+            <button data-top-sort="change24h" type="button" title="Рост за 24 часа">РОСТ <i>↕</i></button>
           </div>
           <div id="top-list" class="top-list" aria-live="polite">
             <div class="top-placeholder">Собираю лидеров рынка…</div>
@@ -119,6 +152,7 @@
       <section class="workspace-panel" data-panel="scanner" data-panel-id="scanner">
         <div class="toolbar">
           <span class="panel-grip scanner-grip" title="Переместить скринер">⠿</span>
+          <strong class="activity-name">АКТИВНОСТЬ</strong>
           <div class="filters" role="group" aria-label="Фильтр сигналов">
             <button class="filter-button is-active" data-filter="all" type="button">Все</button>
             <button class="filter-button" data-filter="signals" type="button">С сигналом</button>
@@ -167,6 +201,12 @@
       </section>
       <p class="risk-note">Скринер ищет рыночную активность, а не даёт команду на вход. Решение — только после чтения графика, стакана и оценки риска.</p>
     </main>
+
+    <nav class="mobile-dock" aria-label="Мобильная навигация">
+      <button class="is-active" data-mobile-view="chart" type="button">График</button>
+      <button data-mobile-view="radar" type="button">Радар</button>
+      <button data-mobile-view="activity" type="button">Активность</button>
+    </nav>
 
     <template id="row-template">
       <tr>
@@ -228,17 +268,26 @@
         <label class="timezone-search"><input id="timezone-search" type="search" autocomplete="off" placeholder="Найти город или страну: Рим, Италия, Сеул…" /></label>
         <div id="timezone-map" class="timezone-map" aria-label="Интерактивная карта часовых поясов">
           <div id="timezone-map-world" class="timezone-map-world">
-            <img src="./assets/world-time-zones.svg" alt="Карта часовых поясов мира" draggable="false" />
+            <img src="./assets/inpuls-world-map-v16.png" alt="Карта мира с координатной сеткой" draggable="false" />
             <div id="timezone-zone-lines" class="timezone-zone-lines" aria-hidden="true"></div>
             <div id="timezone-markers" class="timezone-markers"></div>
           </div>
           <span class="map-help">Колесо — масштаб · удержание — перемещение</span>
-          <a class="map-source" href="https://commons.wikimedia.org/wiki/File:World_Time_Zones_Map.svg" target="_blank" rel="noopener">Карта: Wikimedia · Public Domain</a>
         </div>
         <div id="timezone-results" class="timezone-results"></div>
       </form>
     </dialog>
 
-    <script type="module" src="./app.js?v=15"></script>
+    <dialog id="inplay-dialog" class="settings-dialog inplay-dialog">
+      <form method="dialog">
+        <div class="dialog-heading"><div><span class="eyebrow">INPLAY</span><h2>Статичные монеты и правила</h2></div><button id="inplay-close" class="detail-close" type="button" aria-label="Закрыть">×</button></div>
+        <p class="inplay-help">Монеты остаются в шапке. Порог срабатывает, когда выполнены все заполненные условия.</p>
+        <div id="inplay-rules-list" class="inplay-rules-list"></div>
+        <div class="inplay-add"><input id="inplay-add-symbol" type="text" autocomplete="off" placeholder="Добавить тикер, например ETH" /><button id="inplay-add" type="button">Добавить</button></div>
+        <div class="settings-actions"><button id="inplay-cancel" class="button" type="button">Отмена</button><button class="button button-primary" value="save">Сохранить</button></div>
+      </form>
+    </dialog>
+
+    <script type="module" src="./app.js?v=16"></script>
   </body>
 </html>
