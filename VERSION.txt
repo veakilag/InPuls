@@ -1,3 +1,3 @@
-InPuls v16
-Build: adaptive-drawing-cockpit
-Features: mobile-tabs, static-inplay-rules, radar-filters, depth20-100ms, chart-drawing-tools, generated-map
+InPuls v17
+Build: alert-snapping-cockpit
+Features: ctrl-ohlc-snap, one-shot-tools, price-alerts, compact-filters, robust-depth, global-font-scale, progressive-timezones

@@ -33,7 +33,7 @@ export class OrderBookFeed {
     this.socket = null;
     this.symbol = null;
     this.generation = 0;
-    this.endpointIndex = 0;
+    this.attemptIndex = 0;
     this.reconnectTimer = null;
     this.watchdogTimer = null;
   }
@@ -49,31 +49,43 @@ export class OrderBookFeed {
     clearTimeout(this.watchdogTimer);
     this.socket?.close();
     this.onStatus({ state: "loading", text: "Подключение" });
-    const stream = `${this.symbol.toLowerCase()}@depth20@100ms`;
-    const endpoints = ["wss://fstream.binance.com/market/ws", "wss://stream.binancefuture.com/market/ws"];
-    const socket = new this.WebSocketImpl(`${endpoints[this.endpointIndex % endpoints.length]}/${stream}`);
+    const streams = [`${this.symbol.toLowerCase()}@depth20@100ms`, `${this.symbol.toLowerCase()}@depth20@250ms`];
+    const transports = [
+      { url: "wss://fstream.binance.com/public/stream", subscribe: true },
+      { url: "wss://fstream.binance.com/public/ws", subscribe: false },
+      { url: "wss://stream.binancefuture.com/public/stream", subscribe: true },
+      { url: "wss://stream.binancefuture.com/public/ws", subscribe: false },
+    ];
+    const attempt = this.attemptIndex % (transports.length * streams.length);
+    const transport = transports[attempt % transports.length];
+    const stream = streams[Math.floor(attempt / transports.length)];
+    const socket = new this.WebSocketImpl(transport.subscribe ? transport.url : `${transport.url}/${stream}`);
     this.socket = socket;
     socket.addEventListener("open", () => {
       if (generation !== this.generation) return;
-      this.onStatus({ state: "loading", text: "Жду глубину" });
-      this.watchdogTimer = setTimeout(() => socket.close(), 5000);
+      if (transport.subscribe) socket.send(JSON.stringify({ method: "SUBSCRIBE", params: [stream], id: Date.now() % 2_147_483_647 }));
+      this.onStatus({ state: "loading", text: "Синхронизация" });
+      this.watchdogTimer = setTimeout(() => socket.close(), 4200);
     });
     socket.addEventListener("message", (event) => {
       if (generation !== this.generation) return;
       let update;
       try { update = JSON.parse(event.data); } catch { return; }
+      if (update.result === null || update.id) return;
+      update = update.data ?? update;
       const view = partialDepthView(update, 20);
       if (!view.bids.length || !view.asks.length) return;
       clearTimeout(this.watchdogTimer);
       this.onData({ symbol: this.symbol, ...view, lastUpdateId: Number(update.u) || null, eventTime: Number(update.E) || Date.now() });
-      this.onStatus({ state: "online", text: "LIVE 100ms" });
+      this.attemptIndex = 0;
+      this.onStatus({ state: "online", text: stream.endsWith("250ms") ? "LIVE 250ms" : "LIVE 100ms" });
     });
     socket.addEventListener("close", () => {
       if (generation !== this.generation) return;
       clearTimeout(this.watchdogTimer);
-      this.endpointIndex += 1;
+      this.attemptIndex += 1;
       this.onStatus({ state: "offline", text: "Переподключение" });
-      this.reconnectTimer = setTimeout(() => this.#start(generation), 800);
+      this.reconnectTimer = setTimeout(() => this.#start(generation), 450);
     });
     socket.addEventListener("error", () => this.onStatus({ state: "offline", text: "Ошибка потока" }));
   }

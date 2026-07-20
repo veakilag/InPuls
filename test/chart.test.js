@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { aggregateCandles, calculateNatr, compactCandles, drawingPercentChange, KlineFeed, nicePriceStep, niceTimeTickStep, parseRestKline, parseStreamKline, pearsonCorrelation, scaleFromDrag, sessionLabels, upsertCandle, visibleCountFromDrag } from "../chart.js";
+import { aggregateCandles, calculateNatr, compactCandles, drawingPercentChange, KlineFeed, nicePriceStep, niceTimeTickStep, parseRestKline, parseStreamKline, pearsonCorrelation, scaleFromDrag, sessionLabels, snapPriceToCandle, upsertCandle, visibleCountFromDrag } from "../chart.js";
 
 test("REST kline is normalized", () => {
   const candle = parseRestKline([1000, "10", "12", "9", "11", "25", 1999]);
@@ -146,6 +146,13 @@ test("drawing ruler reports signed price change", () => {
   assert.equal(drawingPercentChange(100, 105), 5);
   assert.equal(drawingPercentChange(100, 95), -5);
   assert.equal(drawingPercentChange(0, 95), null);
+});
+
+test("Ctrl magnet snaps to nearest candle body or wick extreme", () => {
+  const candle = { open: 100, high: 112, low: 94, close: 106 };
+  assert.equal(snapPriceToCandle(candle, 110.8), 112);
+  assert.equal(snapPriceToCandle(candle, 104.9), 106);
+  assert.equal(snapPriceToCandle(candle, 96), 94);
 });
 
 test("time scale marks day and Moscow session times", () => {

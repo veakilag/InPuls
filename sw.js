@@ -1,5 +1,5 @@
-const CACHE = "inpuls-v16";
-const SHELL = ["./", "./index.html", "./styles.css?v=16", "./app.js?v=16", "./chart.js?v=16", "./engine.js?v=16", "./orderbook.js?v=16", "./assets/inpuls-world-map-v16.png", "./manifest.webmanifest", "./icon.svg"];
+const CACHE = "inpuls-v17";
+const SHELL = ["./", "./index.html", "./styles.css?v=17", "./app.js?v=17", "./chart.js?v=17", "./engine.js?v=17", "./orderbook.js?v=17", "./assets/inpuls-world-map-v17.png", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));

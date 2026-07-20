@@ -7,8 +7,8 @@
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="16" />
-    <link rel="stylesheet" href="./styles.css?v=16" />
+    <meta name="inpuls-build" content="17" />
+    <link rel="stylesheet" href="./styles.css?v=17" />
     <title>InPuls — в ритме рынка</title>
   </head>
   <body>
@@ -16,7 +16,7 @@
     <header class="topbar">
       <a class="brand" href="./" aria-label="InPuls — главная">
         <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span><strong>INPULS</strong><em>SCREENER <small>v16</small></em></span>
+        <span><strong>INPULS</strong><em>SCREENER <small>v17</small></em></span>
       </a>
       <div class="inplay-strip" aria-label="Монеты в игре сейчас">
         <div class="inplay-title"><span class="inplay-label">INPLAY</span><button id="inplay-settings" type="button" title="Настроить статичные монеты и правила">⚙</button></div>
@@ -41,6 +41,7 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9v6h4l5 4V5L9 9H5Zm12.5 1a4 4 0 0 1 0 4"/></svg>
           <span>Звук выключен</span>
         </button>
+        <button id="settings-open" class="icon-button" type="button" title="Настройки и размер шрифта" aria-label="Настройки">⚙</button>
       </div>
     </header>
 
@@ -93,12 +94,14 @@
                 <button data-drawing-tool="rectangle" type="button">▭ Прямоугольник</button>
                 <button data-drawing-tool="ray" type="button">→ Луч</button>
                 <button data-drawing-tool="freehand" type="button">∿ Рисование</button>
-                <button data-session-toggle type="button">◫ Сессии</button>
+                <button data-drawing-tool="alert" type="button">◉ Alert</button>
               </div>
+              <button class="drawing-clear-button" type="button" title="Очистить все рисунки">⌫ Очистить</button>
             </div>
             <canvas id="price-chart" aria-label="Свечной график выбранной монеты"></canvas>
             <div id="chart-tooltip" class="chart-tooltip" hidden></div>
             <button id="volume-toggle" class="volume-toggle" type="button" title="Нажми, чтобы скрыть или показать объём" aria-pressed="true">ОБЪЁМ ▾</button>
+            <button id="session-toggle" class="session-toggle" type="button" title="Скрыть или показать торговые сессии" aria-pressed="true">СЕССИИ ON</button>
             <span class="zoom-hint">Колесо · масштаб</span>
             <button id="chart-resizer" class="chart-resizer" type="button" aria-label="Изменить размер графика" title="Потяни по диагонали, чтобы изменить размер"></button>
           </div>
@@ -108,21 +111,14 @@
           <div class="radar-filterbar">
             <button id="radar-filter-toggle" type="button" aria-expanded="false">ФИЛЬТРЫ <span id="radar-filter-count">0</span></button>
             <div id="radar-filter-panel" class="radar-filter-panel" hidden>
-              <div class="radar-filter-grid">
-                <label><span>V24 от, $M</span><input data-radar-filter="quoteVolume24h:min" type="number" step="1" placeholder="0" /></label>
-                <label><span>V24 до, $M</span><input data-radar-filter="quoteVolume24h:max" type="number" step="1" placeholder="∞" /></label>
-                <label><span>NATR 1 от</span><input data-radar-filter="natr1m:min" type="number" step="0.01" /></label>
-                <label><span>NATR 1 до</span><input data-radar-filter="natr1m:max" type="number" step="0.01" /></label>
-                <label><span>NATR 5 от</span><input data-radar-filter="natr5m:min" type="number" step="0.01" /></label>
-                <label><span>NATR 5 до</span><input data-radar-filter="natr5m:max" type="number" step="0.01" /></label>
-                <label><span>F от, %</span><input data-radar-filter="fundingRate:min" type="number" step="0.001" /></label>
-                <label><span>F до, %</span><input data-radar-filter="fundingRate:max" type="number" step="0.001" /></label>
-                <label><span>C от</span><input data-radar-filter="correlation:min" type="number" step="0.05" min="-1" max="1" /></label>
-                <label><span>C до</span><input data-radar-filter="correlation:max" type="number" step="0.05" min="-1" max="1" /></label>
-                <label><span>Рост 24ч от</span><input data-radar-filter="change24h:min" type="number" step="0.1" /></label>
-                <label><span>Рост 24ч до</span><input data-radar-filter="change24h:max" type="number" step="0.1" /></label>
+              <div class="radar-filter-builder">
+                <select id="radar-filter-metric" aria-label="Показатель фильтра"><option value="quoteVolume24h">V24, $M</option><option value="natr1m">NATR 1</option><option value="natr5m">NATR 5</option><option value="fundingRate">F, %</option><option value="correlation">C</option><option value="change24h">Рост 24ч</option></select>
+                <select id="radar-filter-operator" aria-label="Условие"><option value="gte">≥</option><option value="lte">≤</option><option value="gt">&gt;</option><option value="lt">&lt;</option></select>
+                <input id="radar-filter-value" type="number" step="any" placeholder="Значение" aria-label="Значение фильтра" />
+                <button id="radar-filter-add" type="button">＋</button>
               </div>
-              <div class="radar-filter-actions"><button id="radar-filter-reset" type="button">Сбросить</button><button id="radar-filter-apply" type="button">Применить</button></div>
+              <div id="radar-filter-chips" class="radar-filter-chips"></div>
+              <button id="radar-filter-reset" class="radar-filter-reset" type="button">Сбросить всё</button>
             </div>
           </div>
           <div class="top-columns" aria-label="Сортировка монет">
@@ -236,6 +232,7 @@
       <form id="settings-form" method="dialog">
         <div class="dialog-heading"><div><span class="eyebrow">Твоя система</span><h2>Пороги скринера</h2></div><button id="settings-close" class="detail-close" type="button" aria-label="Закрыть">×</button></div>
         <p class="dialog-intro">Стартовые значения умеренные. После недели наблюдений их лучше корректировать по сохранённым примерам, а не по ощущениям.</p>
+        <label class="font-scale-control"><span>Шрифт всего сайта</span><input id="font-scale" type="range" min="80" max="130" step="5" value="100" /><strong id="font-scale-value">100%</strong></label>
         <div class="settings-grid">
           <label><span>Мин. оборот 24ч, $</span><input name="minTurnover24h" type="number" min="100000" step="100000" required /></label>
           <label><span>Импульс за 15с, %</span><input name="impulse15s" type="number" min="0.05" step="0.05" required /></label>
@@ -268,7 +265,7 @@
         <label class="timezone-search"><input id="timezone-search" type="search" autocomplete="off" placeholder="Найти город или страну: Рим, Италия, Сеул…" /></label>
         <div id="timezone-map" class="timezone-map" aria-label="Интерактивная карта часовых поясов">
           <div id="timezone-map-world" class="timezone-map-world">
-            <img src="./assets/inpuls-world-map-v16.png" alt="Карта мира с координатной сеткой" draggable="false" />
+            <img src="./assets/inpuls-world-map-v17.png" alt="Тёмная карта мира" draggable="false" />
             <div id="timezone-zone-lines" class="timezone-zone-lines" aria-hidden="true"></div>
             <div id="timezone-markers" class="timezone-markers"></div>
           </div>
@@ -281,13 +278,18 @@
     <dialog id="inplay-dialog" class="settings-dialog inplay-dialog">
       <form method="dialog">
         <div class="dialog-heading"><div><span class="eyebrow">INPLAY</span><h2>Статичные монеты и правила</h2></div><button id="inplay-close" class="detail-close" type="button" aria-label="Закрыть">×</button></div>
-        <p class="inplay-help">Монеты остаются в шапке. Порог срабатывает, когда выполнены все заполненные условия.</p>
-        <div id="inplay-rules-list" class="inplay-rules-list"></div>
-        <div class="inplay-add"><input id="inplay-add-symbol" type="text" autocomplete="off" placeholder="Добавить тикер, например ETH" /><button id="inplay-add" type="button">Добавить</button></div>
+        <p class="inplay-help">Один набор правил применяется ко всем монетам INPLAY.</p>
+        <label class="inplay-symbols-field"><span>Тикеры через запятую</span><textarea id="inplay-symbols" rows="3" placeholder="BTC, ETH, SOL"></textarea></label>
+        <div class="inplay-global-rules">
+          <label><span>V24 от, $M</span><input id="inplay-min-v24" type="number" min="0" step="1" /></label>
+          <label><span>NATR 1 от, %</span><input id="inplay-min-natr1" type="number" min="0" step="0.01" /></label>
+          <label><span>Рост 24ч от, %</span><input id="inplay-min-growth24" type="number" step="0.1" /></label>
+        </div>
         <div class="settings-actions"><button id="inplay-cancel" class="button" type="button">Отмена</button><button class="button button-primary" value="save">Сохранить</button></div>
       </form>
     </dialog>
 
-    <script type="module" src="./app.js?v=16"></script>
+    <div id="alert-toast" class="alert-toast" role="status" aria-live="assertive" hidden></div>
+    <script type="module" src="./app.js?v=17"></script>
   </body>
 </html>

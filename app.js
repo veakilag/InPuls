@@ -3,9 +3,9 @@ import {
   SymbolState,
   filterUsdtPerpetualTicker,
   formatCompactUsd,
-} from "./engine.js?v=16";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=16";
-import { OrderBookFeed } from "./orderbook.js?v=16";
+} from "./engine.js?v=17";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=17";
+import { OrderBookFeed } from "./orderbook.js?v=17";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -17,14 +17,20 @@ const STORAGE_KEYS = {
   volume: "inpuls-volume-v1",
   sessions: "inpuls-sessions-v1",
   comfort: "inpuls-comfort-v1",
+  fontScale: "inpuls-font-scale-v1",
   workspace: "inpuls-workspace-v4",
   radarColumns: "inpuls-radar-columns-v2",
-  radarFilters: "inpuls-radar-filters-v1",
-  inplay: "inpuls-inplay-v1",
+  radarFilters: "inpuls-radar-filters-v2",
+  inplay: "inpuls-inplay-v2",
 };
 
-const DEFAULT_INPLAY = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "AVAXUSDT", "SUIUSDT"].map((symbol) => ({ symbol, minV24: null, minNatr1: null, minGrowth24: null }));
-const EMPTY_RADAR_FILTERS = Object.freeze({});
+const DEFAULT_INPLAY = Object.freeze({ symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "AVAXUSDT", "SUIUSDT"], minV24: null, minNatr1: null, minGrowth24: null });
+const EMPTY_RADAR_FILTERS = Object.freeze([]);
+
+function normalizeInPlay(value) {
+  if (Array.isArray(value)) return { ...DEFAULT_INPLAY, symbols: value.map((item) => typeof item === "string" ? item : item?.symbol).filter(Boolean) };
+  return { ...DEFAULT_INPLAY, ...(value && typeof value === "object" ? value : {}), symbols: Array.isArray(value?.symbols) ? value.symbols : [...DEFAULT_INPLAY.symbols] };
+}
 
 const DEFAULT_WORKSPACE = {
   primary: { id: "primary", type: "chart", x: 0, y: 0, w: 18, h: 9 },
@@ -57,11 +63,12 @@ const state = {
   volumeVisible: loadJson(STORAGE_KEYS.volume, true),
   sessionsVisible: loadJson(STORAGE_KEYS.sessions, true),
   comfort: Number(localStorage.getItem(STORAGE_KEYS.comfort) ?? 55),
+  fontScale: Number(localStorage.getItem(STORAGE_KEYS.fontScale) ?? 100),
   radarSearch: "",
   workspace: loadJson(STORAGE_KEYS.workspace, DEFAULT_WORKSPACE),
   radarColumns: loadJson(STORAGE_KEYS.radarColumns, [1.35, 1, 1, 1, .85, .85, 1]),
   radarFilters: loadJson(STORAGE_KEYS.radarFilters, EMPTY_RADAR_FILTERS),
-  inplayRules: loadJson(STORAGE_KEYS.inplay, DEFAULT_INPLAY),
+  inplay: normalizeInPlay(loadJson(STORAGE_KEYS.inplay, DEFAULT_INPLAY)),
 };
 
 const els = {
@@ -105,9 +112,10 @@ const els = {
   inplayDialog: document.querySelector("#inplay-dialog"),
   inplayClose: document.querySelector("#inplay-close"),
   inplayCancel: document.querySelector("#inplay-cancel"),
-  inplayRulesList: document.querySelector("#inplay-rules-list"),
-  inplayAddSymbol: document.querySelector("#inplay-add-symbol"),
-  inplayAdd: document.querySelector("#inplay-add"),
+  inplaySymbols: document.querySelector("#inplay-symbols"),
+  inplayMinV24: document.querySelector("#inplay-min-v24"),
+  inplayMinNatr1: document.querySelector("#inplay-min-natr1"),
+  inplayMinGrowth24: document.querySelector("#inplay-min-growth24"),
   priceChart: document.querySelector("#price-chart"),
   chartTooltip: document.querySelector("#chart-tooltip"),
   chartSymbol: document.querySelector("#chart-symbol"),
@@ -123,8 +131,11 @@ const els = {
   radarFilterToggle: document.querySelector("#radar-filter-toggle"),
   radarFilterPanel: document.querySelector("#radar-filter-panel"),
   radarFilterCount: document.querySelector("#radar-filter-count"),
-  radarFilterInputs: [...document.querySelectorAll("[data-radar-filter]")],
-  radarFilterApply: document.querySelector("#radar-filter-apply"),
+  radarFilterMetric: document.querySelector("#radar-filter-metric"),
+  radarFilterOperator: document.querySelector("#radar-filter-operator"),
+  radarFilterValue: document.querySelector("#radar-filter-value"),
+  radarFilterAdd: document.querySelector("#radar-filter-add"),
+  radarFilterChips: document.querySelector("#radar-filter-chips"),
   radarFilterReset: document.querySelector("#radar-filter-reset"),
   columnResizers: [...document.querySelectorAll("[data-column-index]")],
   radarResizer: document.querySelector("#radar-resizer"),
@@ -143,6 +154,10 @@ const els = {
   metricNatr5m: document.querySelector("#metric-natr-5m"),
   metricCorrelation: document.querySelector("#metric-correlation"),
   volumeToggle: document.querySelector("#volume-toggle"),
+  sessionToggle: document.querySelector("#session-toggle"),
+  fontScale: document.querySelector("#font-scale"),
+  fontScaleValue: document.querySelector("#font-scale-value"),
+  alertToast: document.querySelector("#alert-toast"),
   chartResizer: document.querySelector("#chart-resizer"),
   mobileViewButtons: [...document.querySelectorAll("[data-mobile-view]")],
 };
@@ -213,7 +228,7 @@ class BinanceFeed {
 
   #send(method, params) {
     if (this.socket?.readyState !== WebSocket.OPEN || !params.length) return;
-    this.socket.send(JSON.stringify({ method, params, id: String(this.requestId++) }));
+    this.socket.send(JSON.stringify({ method, params, id: this.requestId++ }));
   }
 
   #handle(data) {
@@ -265,10 +280,11 @@ const extraCharts = new Map();
 const orderBookPanels = new Map();
 let panelPickerType = "chart";
 let activeChartTheme = null;
-const priceChart = new CandlestickChart(els.priceChart, els.chartTooltip);
+const priceChart = new CandlestickChart(els.priceChart, els.chartTooltip, { onAlert: handleChartAlert });
 priceChart.setTimeZone(state.timeZone === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : state.timeZone);
 priceChart.setVolumeVisible(state.volumeVisible);
 priceChart.setSessionsVisible(state.sessionsVisible);
+applyFontScale(state.fontScale);
 applyComfort(state.comfort);
 const klineFeed = new KlineFeed({
   onData(candles, meta) {
@@ -312,7 +328,9 @@ function applyComfort(rawValue) {
     crosshair: mixColor("#929aa1", "#918a80", amount),
     crosshairFill: mixColor("#355f56", "#594464", amount),
     crosshairText: mixColor("#eef1f2", "#e6dfd4", amount),
-    accent: mixColor("#46c7a1", "#9567c5", amount),
+    accent: amount <= .5
+      ? mixColor("#39dba2", "#35cbd4", amount * 2)
+      : mixColor("#35cbd4", "#9567c5", (amount - .5) * 2),
   };
   const root = document.documentElement;
   root.style.setProperty("--bg", palette.bg);
@@ -347,6 +365,65 @@ function applyComfort(rawValue) {
   };
   priceChart.setTheme(activeChartTheme);
   for (const panel of extraCharts.values()) panel.chart.setTheme(activeChartTheme);
+}
+
+function applyFontScale(rawValue) {
+  const value = Math.max(80, Math.min(130, Number(rawValue) || 100));
+  state.fontScale = value;
+  document.documentElement.style.setProperty("--font-scale", `${value / 100}px`);
+  if (els.fontScale) els.fontScale.value = String(value);
+  if (els.fontScaleValue) els.fontScaleValue.textContent = `${value}%`;
+  priceChart?.setFontScale(value / 100);
+  for (const panel of extraCharts.values()) panel.chart.setFontScale(value / 100);
+}
+
+let titleBlinkTimer = null;
+let toastTimer = null;
+function showToast(message, isAlert = false) {
+  if (!els.alertToast) return;
+  clearTimeout(toastTimer);
+  els.alertToast.hidden = false;
+  els.alertToast.classList.remove("is-price-alert");
+  if (isAlert) {
+    void els.alertToast.offsetWidth;
+    els.alertToast.classList.add("is-price-alert");
+  }
+  els.alertToast.textContent = message;
+  toastTimer = setTimeout(() => { els.alertToast.hidden = true; }, isAlert ? 7000 : 1800);
+}
+
+function handleChartAlert({ symbol, price }) {
+  const pair = symbol || state.selectedChartSymbol;
+  const message = `ALERT · ${pair} · ${formatPrice(price)}`;
+  if (state.soundEnabled) playAlert("up", 100);
+  showToast(message, true);
+  if (globalThis.Notification?.permission === "granted") new Notification(`InPuls · ${pair}`, { body: `Цена коснулась ${formatPrice(price)}` });
+  clearInterval(titleBlinkTimer);
+  let flashes = 0;
+  titleBlinkTimer = setInterval(() => {
+    document.title = flashes % 2 ? "InPuls — в ритме рынка" : `ALERT · ${pair}`;
+    if (++flashes >= 10) {
+      clearInterval(titleBlinkTimer);
+      document.title = "InPuls — в ритме рынка";
+    }
+  }, 650);
+}
+
+async function copyTicker(symbol) {
+  const clean = String(symbol || "").replace("/", "");
+  if (!clean) return;
+  try { await navigator.clipboard.writeText(clean); }
+  catch {
+    const area = document.createElement("textarea");
+    area.value = clean;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+  showToast(`Скопировано: ${clean}`);
 }
 
 function selectInterval(interval) {
@@ -447,29 +524,29 @@ function render() {
 
 function renderInPlay(metrics) {
   if (!els.inplayCoins) return;
-  if (!Array.isArray(state.inplayRules) || !state.inplayRules.length) state.inplayRules = DEFAULT_INPLAY.map((item) => ({ ...item }));
+  if (!Array.isArray(state.inplay.symbols) || !state.inplay.symbols.length) state.inplay = { ...DEFAULT_INPLAY, symbols: [...DEFAULT_INPLAY.symbols] };
   const fragment = document.createDocumentFragment();
-  for (const rule of state.inplayRules.slice(0, 18)) {
-    const item = metrics.find((candidate) => candidate.symbol === rule.symbol);
+  for (const symbol of state.inplay.symbols.slice(0, 18)) {
+    const item = metrics.find((candidate) => candidate.symbol === symbol);
     const button = document.createElement("button");
     button.type = "button";
     button.className = "inplay-chip";
     button.draggable = true;
     const hasValue = (value) => value !== null && value !== "" && Number.isFinite(Number(value));
     const checks = [
-      hasValue(rule.minV24) ? (item?.quoteVolume24h ?? -Infinity) >= Number(rule.minV24) * 1_000_000 : null,
-      hasValue(rule.minNatr1) ? (item?.natr1m ?? -Infinity) >= Number(rule.minNatr1) : null,
-      hasValue(rule.minGrowth24) ? (item?.change24h ?? -Infinity) >= Number(rule.minGrowth24) : null,
+      hasValue(state.inplay.minV24) ? (item?.quoteVolume24h ?? -Infinity) >= Number(state.inplay.minV24) * 1_000_000 : null,
+      hasValue(state.inplay.minNatr1) ? (item?.natr1m ?? -Infinity) >= Number(state.inplay.minNatr1) : null,
+      hasValue(state.inplay.minGrowth24) ? (item?.change24h ?? -Infinity) >= Number(state.inplay.minGrowth24) : null,
     ].filter((value) => value !== null);
     button.classList.toggle("is-triggered", checks.length > 0 && checks.every(Boolean));
-    button.title = `${rule.symbol} · V24 ${formatCompactUsd(item?.quoteVolume24h)}`;
+    button.title = `${symbol} · V24 ${formatCompactUsd(item?.quoteVolume24h)}`;
     const change = item?.change24h;
-    button.innerHTML = `<strong>${escapeHtml(rule.symbol.replace("USDT", ""))}</strong><span class="${Number.isFinite(change) ? toneClass(change) : "tone-neutral"}">${formatChange(change)}</span>`;
-    button.addEventListener("click", () => selectChartSymbol(rule.symbol));
+    button.innerHTML = `<strong>${escapeHtml(symbol.replace("USDT", ""))}</strong><span class="${Number.isFinite(change) ? toneClass(change) : "tone-neutral"}">${formatChange(change)}</span>`;
+    button.addEventListener("click", () => selectChartSymbol(symbol));
     button.addEventListener("dragstart", (event) => {
       event.dataTransfer.effectAllowed = "copy";
-      event.dataTransfer.setData("text/inpuls-symbol", rule.symbol);
-      event.dataTransfer.setData("text/plain", rule.symbol);
+      event.dataTransfer.setData("text/inpuls-symbol", symbol);
+      event.dataTransfer.setData("text/plain", symbol);
     });
     fragment.append(button);
   }
@@ -477,35 +554,18 @@ function renderInPlay(metrics) {
 }
 
 function renderInPlayEditor() {
-  const ruleValue = (value) => value !== null && value !== "" && Number.isFinite(Number(value)) ? Number(value) : "";
-  const fragment = document.createDocumentFragment();
-  for (const rule of state.inplayRules) {
-    const row = document.createElement("div");
-    row.className = "inplay-rule";
-    row.dataset.symbol = rule.symbol;
-    row.innerHTML = `<strong>${escapeHtml(rule.symbol.replace("USDT", ""))}/USDT</strong>
-      <label><span>V24 от, $M</span><input data-rule="minV24" type="number" min="0" step="1" value="${ruleValue(rule.minV24)}"></label>
-      <label><span>NATR 1 от, %</span><input data-rule="minNatr1" type="number" min="0" step="0.01" value="${ruleValue(rule.minNatr1)}"></label>
-      <label><span>Рост 24ч от, %</span><input data-rule="minGrowth24" type="number" step="0.1" value="${ruleValue(rule.minGrowth24)}"></label>
-      <button type="button" title="Удалить ${escapeHtml(rule.symbol)}">×</button>`;
-    row.querySelector("button").addEventListener("click", () => {
-      state.inplayRules = state.inplayRules.filter((item) => item.symbol !== rule.symbol);
-      renderInPlayEditor();
-    });
-    fragment.append(row);
-  }
-  els.inplayRulesList.replaceChildren(fragment);
+  const value = (next) => next !== null && Number.isFinite(Number(next)) ? String(next) : "";
+  els.inplaySymbols.value = state.inplay.symbols.map((symbol) => symbol.replace("USDT", "")).join(", ");
+  els.inplayMinV24.value = value(state.inplay.minV24);
+  els.inplayMinNatr1.value = value(state.inplay.minNatr1);
+  els.inplayMinGrowth24.value = value(state.inplay.minGrowth24);
 }
 
 function collectInPlayRules() {
-  state.inplayRules = [...els.inplayRulesList.querySelectorAll(".inplay-rule")].map((row) => {
-    const rule = { symbol: row.dataset.symbol };
-    row.querySelectorAll("[data-rule]").forEach((input) => {
-      rule[input.dataset.rule] = input.value.trim() === "" ? null : Number(input.value);
-    });
-    return rule;
-  });
-  localStorage.setItem(STORAGE_KEYS.inplay, JSON.stringify(state.inplayRules));
+  const symbols = [...new Set(els.inplaySymbols.value.split(/[\s,;]+/).map((value) => value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "")).filter(Boolean).map((value) => value.endsWith("USDT") ? value : `${value}USDT`))].slice(0, 18);
+  const read = (input) => input.value.trim() === "" ? null : Number(input.value);
+  state.inplay = { symbols: symbols.length ? symbols : [...DEFAULT_INPLAY.symbols], minV24: read(els.inplayMinV24), minNatr1: read(els.inplayMinNatr1), minGrowth24: read(els.inplayMinGrowth24) };
+  localStorage.setItem(STORAGE_KEYS.inplay, JSON.stringify(state.inplay));
   updateTrackedSymbols();
 }
 
@@ -589,14 +649,13 @@ function renderSummary(metrics, now) {
 function renderTopList(metrics) {
   let candidates = metrics.filter((item) => {
     if (state.radarSearch && !item.symbol.toLowerCase().includes(state.radarSearch)) return false;
-    return Object.entries(state.radarFilters ?? {}).every(([filterKey, threshold]) => {
-      if (threshold === null || threshold === "" || !Number.isFinite(Number(threshold))) return true;
-      const [metric, edge] = filterKey.split(":");
-      let value = Number(item[metric]);
-      if (metric === "quoteVolume24h") value /= 1_000_000;
-      if (metric === "fundingRate") value *= 100;
+    return (Array.isArray(state.radarFilters) ? state.radarFilters : []).every((rule) => {
+      let value = Number(item[rule.metric]);
+      if (rule.metric === "quoteVolume24h") value /= 1_000_000;
+      if (rule.metric === "fundingRate") value *= 100;
       if (!Number.isFinite(value)) return false;
-      return edge === "min" ? value >= Number(threshold) : value <= Number(threshold);
+      const target = Number(rule.value);
+      return rule.operator === "lte" ? value <= target : rule.operator === "lt" ? value < target : rule.operator === "gt" ? value > target : value >= target;
     });
   });
   const { key, direction } = state.topSort;
@@ -670,23 +729,26 @@ function renderTopList(metrics) {
 }
 
 function syncRadarFilterUi() {
-  let count = 0;
-  for (const input of els.radarFilterInputs) {
-    const value = state.radarFilters?.[input.dataset.radarFilter];
-    input.value = value === null || value === undefined ? "" : String(value);
-    if (input.value !== "") count += 1;
-  }
-  els.radarFilterCount.textContent = String(count);
-}
-
-function collectRadarFilters() {
-  const next = {};
-  for (const input of els.radarFilterInputs) {
-    if (input.value.trim() !== "" && Number.isFinite(Number(input.value))) next[input.dataset.radarFilter] = Number(input.value);
-  }
-  state.radarFilters = next;
-  localStorage.setItem(STORAGE_KEYS.radarFilters, JSON.stringify(next));
-  syncRadarFilterUi();
+  if (!Array.isArray(state.radarFilters)) state.radarFilters = [];
+  const labels = { quoteVolume24h: "V24 $M", natr1m: "NATR 1", natr5m: "NATR 5", fundingRate: "F %", correlation: "C", change24h: "Рост 24ч" };
+  const operators = { gte: "≥", lte: "≤", gt: ">", lt: "<" };
+  const fragment = document.createDocumentFragment();
+  state.radarFilters.forEach((rule, index) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "radar-filter-chip";
+    chip.title = "Удалить условие";
+    chip.textContent = `${labels[rule.metric] ?? rule.metric} ${operators[rule.operator] ?? "≥"} ${rule.value} ×`;
+    chip.addEventListener("click", () => {
+      state.radarFilters.splice(index, 1);
+      localStorage.setItem(STORAGE_KEYS.radarFilters, JSON.stringify(state.radarFilters));
+      syncRadarFilterUi();
+      renderTopList(state.lastMetrics);
+    });
+    fragment.append(chip);
+  });
+  els.radarFilterChips.replaceChildren(fragment);
+  els.radarFilterCount.textContent = String(state.radarFilters.length);
 }
 
 function formatRadarMetric(item, metric) {
@@ -919,23 +981,31 @@ function bindChartToolbox(root, chart, persistSessions = false) {
   if (!toggle || !menu) return;
   const drawingButtons = [...menu.querySelectorAll("[data-drawing-tool]")];
   const sessionButton = menu.querySelector("[data-session-toggle]");
+  const clearButton = root.querySelector(".drawing-clear-button");
+  menu.hidden = false;
+  const setOpen = (open) => {
+    root.querySelector(".chart-toolbox")?.classList.toggle("is-open", open);
+    menu.classList.toggle("is-open", open);
+    toggle.setAttribute("aria-expanded", String(open));
+  };
   const sync = () => {
     toggle.classList.toggle("is-active", Boolean(chart.activeTool));
     drawingButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.drawingTool === chart.activeTool));
     sessionButton?.classList.toggle("is-off", !chart.sessionsVisible);
     if (sessionButton) sessionButton.textContent = chart.sessionsVisible ? "◫ Сессии: вкл" : "◫ Сессии: выкл";
   };
+  chart.onToolChange = () => sync();
   toggle.addEventListener("click", (event) => {
     event.stopPropagation();
-    menu.hidden = !menu.hidden;
-    toggle.setAttribute("aria-expanded", String(!menu.hidden));
+    setOpen(!menu.classList.contains("is-open"));
   });
   drawingButtons.forEach((button) => button.addEventListener("click", () => {
     chart.setTool(chart.activeTool === button.dataset.drawingTool ? null : button.dataset.drawingTool);
-    menu.hidden = true;
-    toggle.setAttribute("aria-expanded", "false");
+    if (button.dataset.drawingTool === "alert" && globalThis.Notification?.permission === "default") Notification.requestPermission().catch(() => {});
+    setOpen(false);
     sync();
   }));
+  clearButton?.addEventListener("click", () => chart.clearDrawings());
   sessionButton?.addEventListener("click", () => {
     chart.setSessionsVisible(!chart.sessionsVisible);
     if (persistSessions) {
@@ -967,22 +1037,28 @@ function mountExtraChart(model) {
     </header>
     <div class="chart-stage">
       <div class="chart-metrics"><span><b>V24</b><strong data-mini-metric="quoteVolume24h">—</strong></span><span><b>NATR 1</b><strong data-mini-metric="natr1m">—</strong></span><span><b>NATR 5</b><strong data-mini-metric="natr5m">—</strong></span><span><b>F</b><strong data-mini-metric="fundingRate">—</strong></span><span><b>C</b><strong data-mini-metric="correlation">—</strong></span></div>
-      <div class="chart-toolbox"><button class="drawing-tools-toggle" type="button" title="Инструменты рисования" aria-expanded="false">✎</button><div class="drawing-tools-menu" hidden>
-        <button data-drawing-tool="trend" type="button">╱ Отрезок</button><button data-drawing-tool="horizontal" type="button">— Горизонталь</button><button data-drawing-tool="ruler" type="button">↕ Линейка</button><button data-drawing-tool="rectangle" type="button">▭ Прямоугольник</button><button data-drawing-tool="ray" type="button">→ Луч</button><button data-drawing-tool="freehand" type="button">∿ Рисование</button><button data-session-toggle type="button">◫ Сессии</button>
-      </div></div>
+      <div class="chart-toolbox"><button class="drawing-tools-toggle" type="button" title="Инструменты рисования" aria-expanded="false">✎</button><div class="drawing-tools-menu">
+        <button data-drawing-tool="trend" type="button">╱ Отрезок</button><button data-drawing-tool="horizontal" type="button">— Горизонталь</button><button data-drawing-tool="ruler" type="button">↕ Линейка</button><button data-drawing-tool="rectangle" type="button">▭ Прямоугольник</button><button data-drawing-tool="ray" type="button">→ Луч</button><button data-drawing-tool="freehand" type="button">∿ Рисование</button><button data-drawing-tool="alert" type="button">◉ Alert</button><button data-session-toggle type="button">◫ Сессии</button>
+      </div><button class="drawing-clear-button" type="button">⌫ Очистить</button></div>
       <canvas aria-label="Дополнительный свечной график"></canvas><div class="chart-tooltip" hidden></div>
       <button class="chart-resizer" type="button" aria-label="Изменить размер графика"></button>
     </div>`;
   els.marketFocus.insertBefore(article, els.addChartTile);
-  const chart = new CandlestickChart(article.querySelector("canvas"), article.querySelector(".chart-tooltip"));
+  const chart = new CandlestickChart(article.querySelector("canvas"), article.querySelector(".chart-tooltip"), { onAlert: handleChartAlert });
   chart.setTimeZone(state.timeZone === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : state.timeZone);
   chart.setVolumeVisible(false);
   chart.setSessionsVisible(state.sessionsVisible);
+  chart.setFontScale(state.fontScale / 100);
   if (activeChartTheme) chart.setTheme(activeChartTheme);
   const panel = { model, element: article, chart, feed: null };
   panel.feed = new KlineFeed({ onData: (candles, meta) => chart.setData(candles, meta), onStatus() {} });
   extraCharts.set(model.id, panel);
   bindChartToolbox(article, chart);
+  article.querySelector(".chart-quote h2").title = "Нажми, чтобы скопировать тикер";
+  article.querySelector(".chart-quote h2").addEventListener("click", (event) => {
+    event.stopPropagation();
+    copyTicker(model.symbol);
+  });
   article.querySelectorAll("[data-mini-interval]").forEach((button) => button.addEventListener("click", () => {
     model.interval = button.dataset.miniInterval;
     article.querySelectorAll("[data-mini-interval]").forEach((item) => item.classList.toggle("is-active", item === button));
@@ -1347,7 +1423,7 @@ function updateTrackedSymbols() {
       return favoriteDiff || b.score - a.score || b.turnoverPerMinute - a.turnoverPerMinute;
     })
     .map((item) => item.symbol);
-  const pinned = state.inplayRules.map((item) => item.symbol);
+  const pinned = state.inplay.symbols;
   feed.updateAggTradeSubscriptions([...new Set([...pinned, ...ranked])].slice(0, state.settings.trackedTrades));
 }
 
@@ -1499,8 +1575,8 @@ function renderTimeZoneMarkers() {
     marker.classList.toggle("is-active", item.zone === state.timeZone && item.city === state.selectedTimeZoneCity);
     marker.dataset.zone = item.zone;
     marker.dataset.city = `${item.city} · ${timeZoneClock(item.zone)}`;
-    marker.style.left = `${((item.lon + 180) / 360) * 100}%`;
-    marker.style.top = `${((90 - item.lat) / 180) * 100}%`;
+    marker.style.left = `${((item.lon + 180) / 360) * 100 - .35}%`;
+    marker.style.top = `${((90 - item.lat) / 180) * 100 + 2.25}%`;
     marker.setAttribute("aria-label", `${item.city}, ${item.zone}`);
     marker.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -1541,13 +1617,15 @@ function renderTimeZoneResults() {
 function renderTimeZoneLines() {
   if (!els.timeZoneZoneLines) return;
   const fragment = document.createDocumentFragment();
-  for (let offset = -12; offset <= 12; offset += 2) {
+  for (let offset = -12; offset <= 14; offset += .5) {
     const line = document.createElement("span");
-    line.className = `timezone-zone-line${offset === 0 ? " is-zero" : ""}`;
-    line.style.left = `${((offset + 12) / 24) * 100}%`;
+    const isInteger = Number.isInteger(offset);
+    const isMajor = isInteger && Math.abs(offset) % 3 === 0;
+    line.className = `timezone-zone-line${offset === 0 ? " is-zero" : ""}${isMajor ? " is-major" : isInteger ? " is-minor" : " is-half"}`;
+    line.style.left = `${((offset * 15 + 180) / 360) * 100}%`;
     line.dataset.offset = String(offset);
     const label = document.createElement("span");
-    label.textContent = `UTC${offset >= 0 ? "+" : ""}${offset}`;
+    label.textContent = isInteger ? `UTC${offset >= 0 ? "+" : ""}${offset}` : "";
     line.append(label);
     fragment.append(line);
   }
@@ -1564,12 +1642,14 @@ function updateTimeZoneClocks() {
 
 function applyMapTransform() {
   els.timeZoneMapWorld.style.transform = `translate(${mapView.x}px, ${mapView.y}px) scale(${mapView.scale})`;
+  els.timeZoneMap.dataset.zoom = mapView.scale >= 1.85 ? "fine" : mapView.scale >= 1.3 ? "medium" : "wide";
 }
 
 function bindTimeZonePicker() {
   applySelectedTimeZone(state.timeZone, state.selectedTimeZoneCity);
   renderTimeZoneLines();
   renderTimeZoneMarkers();
+  applyMapTransform();
   els.timeZoneOpen.addEventListener("click", () => {
     els.timeZoneSearch.value = "";
     renderTimeZoneResults();
@@ -1644,15 +1724,27 @@ function bindEvents() {
     els.radarFilterPanel.hidden = !els.radarFilterPanel.hidden;
     els.radarFilterToggle.setAttribute("aria-expanded", String(!els.radarFilterPanel.hidden));
   });
-  els.radarFilterApply.addEventListener("click", () => {
-    collectRadarFilters();
-    els.radarFilterPanel.hidden = true;
-    els.radarFilterToggle.setAttribute("aria-expanded", "false");
+  els.radarFilterAdd.addEventListener("click", () => {
+    const value = Number(els.radarFilterValue.value);
+    if (!Number.isFinite(value)) {
+      els.radarFilterValue.focus();
+      return;
+    }
+    state.radarFilters.push({ metric: els.radarFilterMetric.value, operator: els.radarFilterOperator.value, value });
+    localStorage.setItem(STORAGE_KEYS.radarFilters, JSON.stringify(state.radarFilters));
+    els.radarFilterValue.value = "";
+    syncRadarFilterUi();
     renderTopList(state.lastMetrics);
   });
+  els.radarFilterValue.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      els.radarFilterAdd.click();
+    }
+  });
   els.radarFilterReset.addEventListener("click", () => {
-    state.radarFilters = {};
-    localStorage.setItem(STORAGE_KEYS.radarFilters, "{}");
+    state.radarFilters = [];
+    localStorage.setItem(STORAGE_KEYS.radarFilters, "[]");
     syncRadarFilterUi();
     renderTopList(state.lastMetrics);
   });
@@ -1719,30 +1811,23 @@ function bindEvents() {
   els.chartPickerSearch.addEventListener("input", renderChartPicker);
   bindTimeZonePicker();
   bindChartToolbox(document.querySelector(".primary-chart"), priceChart, true);
+  els.chartSymbol.title = "Нажми, чтобы скопировать тикер";
+  els.chartSymbol.addEventListener("click", () => copyTicker(state.selectedChartSymbol));
 
   let inplayEditorBackup = null;
   const cancelInplayEditor = () => {
-    if (inplayEditorBackup) state.inplayRules = inplayEditorBackup;
+    if (inplayEditorBackup) state.inplay = inplayEditorBackup;
     inplayEditorBackup = null;
     els.inplayDialog.close();
     renderInPlay(state.lastMetrics);
   };
   els.inplaySettings.addEventListener("click", () => {
-    inplayEditorBackup = state.inplayRules.map((item) => ({ ...item }));
+    inplayEditorBackup = structuredClone(state.inplay);
     renderInPlayEditor();
-    els.inplayAddSymbol.value = "";
     els.inplayDialog.showModal();
   });
   els.inplayClose.addEventListener("click", cancelInplayEditor);
   els.inplayCancel.addEventListener("click", cancelInplayEditor);
-  els.inplayAdd.addEventListener("click", () => {
-    const base = els.inplayAddSymbol.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-    const symbol = base.endsWith("USDT") ? base : `${base}USDT`;
-    if (!base || state.inplayRules.some((item) => item.symbol === symbol)) return;
-    state.inplayRules.push({ symbol, minV24: null, minNatr1: null, minGrowth24: null });
-    els.inplayAddSymbol.value = "";
-    renderInPlayEditor();
-  });
   els.inplayDialog.querySelector("form").addEventListener("submit", (event) => {
     event.preventDefault();
     collectInPlayRules();
@@ -1771,6 +1856,20 @@ function bindEvents() {
     els.volumeToggle.setAttribute("aria-pressed", String(state.volumeVisible));
     els.volumeToggle.textContent = state.volumeVisible ? "ОБЪЁМ ▾" : "ОБЪЁМ ▸";
     priceChart.setVolumeVisible(state.volumeVisible);
+  });
+
+  const syncSessionButton = () => {
+    els.sessionToggle.classList.toggle("is-collapsed", !state.sessionsVisible);
+    els.sessionToggle.setAttribute("aria-pressed", String(state.sessionsVisible));
+    els.sessionToggle.textContent = state.sessionsVisible ? "СЕССИИ ON" : "СЕССИИ OFF";
+  };
+  syncSessionButton();
+  els.sessionToggle.addEventListener("click", () => {
+    state.sessionsVisible = !state.sessionsVisible;
+    localStorage.setItem(STORAGE_KEYS.sessions, JSON.stringify(state.sessionsVisible));
+    priceChart.setSessionsVisible(state.sessionsVisible);
+    for (const panel of extraCharts.values()) panel.chart.setSessionsVisible(state.sessionsVisible);
+    syncSessionButton();
   });
 
   els.soundButton.classList.toggle("is-active", state.soundEnabled);
@@ -1822,6 +1921,14 @@ function bindEvents() {
       if (input) input.value = value;
     }
     els.settingsDialog.showModal();
+  });
+  els.fontScale?.addEventListener("input", () => {
+    applyFontScale(els.fontScale.value);
+    localStorage.setItem(STORAGE_KEYS.fontScale, String(state.fontScale));
+    requestAnimationFrame(() => {
+      priceChart.render();
+      for (const panel of extraCharts.values()) panel.chart.render();
+    });
   });
   els.settingsForm.addEventListener("submit", (event) => {
     event.preventDefault();

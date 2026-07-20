@@ -93,6 +93,12 @@ export function drawingPercentChange(startPrice, endPrice) {
   return ((endPrice - startPrice) / startPrice) * 100;
 }
 
+export function snapPriceToCandle(candle, price) {
+  const levels = [candle?.low, candle?.high, candle?.open, candle?.close].filter(Number.isFinite);
+  if (!levels.length || !Number.isFinite(price)) return price;
+  return levels.reduce((nearest, level) => Math.abs(level - price) < Math.abs(nearest - price) ? level : nearest, levels[0]);
+}
+
 const TIME_TICK_STEPS = [
   1_000, 5_000, 10_000, 15_000, 30_000,
   60_000, 2 * 60_000, 5 * 60_000, 10 * 60_000, 15 * 60_000, 30 * 60_000,
@@ -302,7 +308,7 @@ export class KlineFeed {
 }
 
 export class CandlestickChart {
-  constructor(canvas, tooltip) {
+  constructor(canvas, tooltip, { onAlert = null } = {}) {
     this.canvas = canvas;
     this.tooltip = tooltip;
     this.context = canvas.getContext("2d");
@@ -325,6 +331,9 @@ export class CandlestickChart {
     this.undoStack = [];
     this.draftDrawing = null;
     this.drawingGesture = null;
+    this.onAlert = onAlert;
+    this.onToolChange = null;
+    this.fontScale = 1;
     this.theme = {
       background: "#070605",
       bullFill: "#ddd2c2",
@@ -385,13 +394,32 @@ export class CandlestickChart {
     this.render();
   }
 
+  setFontScale(scale) {
+    this.fontScale = Math.max(.8, Math.min(1.3, Number(scale) || 1));
+    this.render();
+  }
+
+  #font(size, bold = false) {
+    return `${bold ? "bold " : ""}${Math.max(6, size * this.fontScale).toFixed(1)}px Arial, sans-serif`;
+  }
+
   setTool(tool) {
-    const allowed = new Set(["trend", "horizontal", "ruler", "rectangle", "ray", "freehand"]);
+    const allowed = new Set(["trend", "horizontal", "ruler", "rectangle", "ray", "freehand", "alert"]);
     this.activeTool = allowed.has(tool) ? tool : null;
     this.draftDrawing = null;
     this.drawingGesture = null;
     this.canvas.style.cursor = this.activeTool ? "crosshair" : "crosshair";
+    this.onToolChange?.(this.activeTool);
     this.render();
+  }
+
+  clearDrawings() {
+    if (!this.drawings.length) return;
+    this.undoStack.push({ type: "clear", drawings: this.drawings.map((item) => structuredClone(item)) });
+    this.drawings = [];
+    this.draftDrawing = null;
+    this.drawingGesture = null;
+    this.setTool(null);
   }
 
   undoDrawing() {
@@ -399,6 +427,7 @@ export class CandlestickChart {
     if (!action) return;
     if (action.type === "add") this.drawings = this.drawings.filter((item) => item.id !== action.drawing.id);
     else if (action.type === "delete") this.drawings.splice(Math.min(action.index, this.drawings.length), 0, action.drawing);
+    else if (action.type === "clear") this.drawings = action.drawings.map((item) => structuredClone(item));
     this.render();
   }
 
@@ -442,6 +471,7 @@ export class CandlestickChart {
     }
     this.candles = candles;
     this.meta = meta;
+    this.#checkAlerts();
     if (oldAnchorTime !== null) {
       const nextAnchor = candles.findIndex((candle) => candle.time === oldAnchorTime);
       if (nextAnchor >= 0) this.viewStart = nextAnchor;
@@ -489,7 +519,7 @@ export class CandlestickChart {
     this.#drawBackground(ctx, width, height, margins, priceBottom, volumeHeight);
     if (!visible.length) {
       ctx.fillStyle = this.theme.text;
-      ctx.font = "11px Arial, sans-serif";
+      ctx.font = this.#font(11);
       ctx.textAlign = "center";
       ctx.fillText("Свечной график загружается…", margins.left + plotWidth / 2, margins.top + plotHeight / 2);
       return;
@@ -581,7 +611,7 @@ export class CandlestickChart {
     const targetTicks = Math.max(3, Math.floor(plotHeight / 52));
     const step = nicePriceStep(maxPrice - minPrice, targetTicks);
     const first = Math.ceil(minPrice / step) * step;
-    ctx.font = "9px Arial, sans-serif";
+    ctx.font = this.#font(9);
     ctx.textAlign = "left";
     for (let price = first, guard = 0; price <= maxPrice + step * .001 && guard < 40; price += step, guard += 1) {
       const lineY = y(price);
@@ -602,7 +632,7 @@ export class CandlestickChart {
     const targetTicks = Math.max(2, Math.floor(plotWidth / 105));
     const tickStep = niceTimeTickStep(range, targetTicks);
     const firstTick = alignedTimeTick(startTime, tickStep, this.timeZone);
-    ctx.font = "8px Arial, sans-serif";
+    ctx.font = this.#font(8);
     ctx.textAlign = "center";
     for (let tick = firstTick, guard = 0; tick <= endTime && guard < 60; tick += tickStep, guard += 1) {
       const globalIndex = this.#indexAtTime(tick);
@@ -639,7 +669,7 @@ export class CandlestickChart {
         ctx.stroke();
         ctx.restore();
         ctx.fillStyle = this.theme.session;
-        ctx.font = "bold 7px Arial, sans-serif";
+        ctx.font = this.#font(7, true);
         ctx.textAlign = "center";
         ctx.fillText(event.label, x, height - margins.bottom + 9);
       }
@@ -697,21 +727,23 @@ export class CandlestickChart {
       ctx.strokeRect(width - margins.right + .5, visibleY - 8.5, margins.right - 1, 17);
     }
     ctx.fillStyle = up ? this.theme.bearFill : this.theme.bullFill;
-    ctx.font = "bold 9px Arial, sans-serif";
+    ctx.font = this.#font(9, true);
     ctx.textAlign = "center";
     ctx.fillText(formatChartPrice(price), width - margins.right / 2, visibleY + 3);
   }
 
-  #pointAt(x, y) {
+  #pointAt(x, y, snap = false) {
     if (!this.layout) return null;
     const { margins, plotWidth, plotHeight, priceBottom, minPrice, maxPrice } = this.layout;
     const safeX = Math.max(margins.left, Math.min(x, margins.left + plotWidth));
     const safeY = Math.max(margins.top, Math.min(y, priceBottom));
     const slot = this.viewStart + ((safeX - margins.left) / plotWidth) * this.visibleCount;
-    return {
-      time: this.#timeAtIndex(slot),
-      price: maxPrice - ((safeY - margins.top) / plotHeight) * (maxPrice - minPrice),
-    };
+    const price = maxPrice - ((safeY - margins.top) / plotHeight) * (maxPrice - minPrice);
+    if (snap && this.candles.length) {
+      const index = Math.max(0, Math.min(this.candles.length - 1, Math.round(slot)));
+      return { time: this.candles[index].time, price: snapPriceToCandle(this.candles[index], price), snapped: true };
+    }
+    return { time: this.#timeAtIndex(slot), price };
   }
 
   #screenPoint(point) {
@@ -724,12 +756,32 @@ export class CandlestickChart {
   }
 
   #commitDrawing(drawing) {
-    const committed = { ...drawing, id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}` };
+    const committed = {
+      ...drawing,
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      ...(drawing.type === "alert" ? { triggered: false, referencePrice: this.candles.at(-1)?.close ?? drawing.a.price } : {}),
+    };
     this.drawings.push(committed);
     this.undoStack.push({ type: "add", drawing: committed });
     this.draftDrawing = null;
     this.drawingGesture = null;
+    this.activeTool = null;
+    this.onToolChange?.(null);
     this.render();
+  }
+
+  #checkAlerts() {
+    const current = this.candles.at(-1)?.close;
+    if (!Number.isFinite(current)) return;
+    for (const alert of this.drawings.filter((item) => item.type === "alert" && !item.triggered)) {
+      const previous = Number(alert.referencePrice);
+      const target = Number(alert.a?.price);
+      if (Number.isFinite(previous) && Number.isFinite(target) && previous !== current && (previous - target) * (current - target) <= 0) {
+        alert.triggered = true;
+        this.onAlert?.({ symbol: this.meta?.symbol ?? "", price: target });
+      }
+      alert.referencePrice = current;
+    }
   }
 
   #drawDrawings(ctx) {
@@ -752,10 +804,16 @@ export class CandlestickChart {
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
         ctx.stroke();
-      } else if (drawing.type === "horizontal") {
+      } else if (drawing.type === "horizontal" || drawing.type === "alert") {
+        if (drawing.type === "alert") {
+          ctx.setLineDash([5, 4]);
+          ctx.strokeStyle = drawing.triggered ? "#ff9f5c" : this.theme.session;
+        }
         ctx.moveTo(margins.left, a.y);
         ctx.lineTo(margins.left + plotWidth, a.y);
         ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.strokeStyle = this.theme.session;
       } else if (drawing.type === "ray") {
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(margins.left + plotWidth, a.y);
@@ -781,7 +839,7 @@ export class CandlestickChart {
         const text = `${percent >= 0 ? "+" : ""}${percent.toFixed(Math.abs(percent) >= 10 ? 1 : 2)}%`;
         const x = (a.x + b.x) / 2;
         const y = (a.y + b.y) / 2;
-        ctx.font = "bold 9px Arial, sans-serif";
+        ctx.font = this.#font(9, true);
         const textWidth = ctx.measureText(text).width + 10;
         ctx.fillStyle = this.theme.crosshairFill;
         ctx.fillRect(x - textWidth / 2, y - 16, textWidth, 15);
@@ -793,13 +851,22 @@ export class CandlestickChart {
     }
     ctx.restore();
 
+    for (const alert of items.filter((item) => item.type === "alert")) {
+      const point = this.#screenPoint(alert.a);
+      if (point.y < margins.top || point.y > priceBottom) continue;
+      ctx.font = this.#font(7, true);
+      ctx.textAlign = "left";
+      ctx.fillStyle = alert.triggered ? "#ff9f5c" : this.theme.session;
+      ctx.fillText(`ALERT ${formatChartPrice(alert.a.price)}`, margins.left + 4, point.y - 4);
+    }
+
     const rays = items.filter((item) => item.type === "ray").map((item) => ({ item, y: this.#screenPoint(item.a).y }));
     for (const ray of rays) {
       if (ray.y < margins.top || ray.y > priceBottom) continue;
       const crowd = rays.filter((other) => Math.abs(other.y - ray.y) < 13).length;
       const fontSize = Math.max(6, 9 - Math.max(0, crowd - 1));
       const label = formatChartPrice(ray.item.a.price);
-      ctx.font = `bold ${fontSize}px Arial, sans-serif`;
+      ctx.font = this.#font(fontSize, true);
       ctx.textAlign = "center";
       ctx.fillStyle = this.theme.crosshairFill;
       ctx.fillRect(width - margins.right, ray.y - 7, margins.right, 14);
@@ -819,7 +886,7 @@ export class CandlestickChart {
   #drawingDistance(drawing, point) {
     const a = this.#screenPoint(drawing.a);
     const b = drawing.b ? this.#screenPoint(drawing.b) : a;
-    if (drawing.type === "horizontal") return Math.abs(point.y - a.y);
+    if (drawing.type === "horizontal" || drawing.type === "alert") return Math.abs(point.y - a.y);
     if (drawing.type === "ray") return point.x >= a.x ? Math.abs(point.y - a.y) : Math.hypot(point.x - a.x, point.y - a.y);
     if (drawing.type === "trend" || drawing.type === "ruler") return this.#distanceToSegment(point, a, b);
     if (drawing.type === "rectangle") {
@@ -866,13 +933,13 @@ export class CandlestickChart {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     if (this.drawingGesture?.type === "freehand") {
-      const point = this.#pointAt(x, y);
+      const point = this.#pointAt(x, y, event.ctrlKey || event.metaKey);
       if (point) this.drawingGesture.drawing.points.push(point);
       this.render();
       return;
     }
     if (this.activeTool && this.draftDrawing) {
-      const point = this.#pointAt(x, y);
+      const point = this.#pointAt(x, y, event.ctrlKey || event.metaKey);
       if (point) this.draftDrawing.b = point;
       this.hoverX = x;
       this.hoverY = y;
@@ -931,9 +998,9 @@ export class CandlestickChart {
     CandlestickChart.activeChart = this;
     if (this.activeTool && !axis) {
       event.preventDefault();
-      const point = this.#pointAt(x, y);
+      const point = this.#pointAt(x, y, event.ctrlKey || event.metaKey);
       if (!point) return;
-      if (this.activeTool === "horizontal" || this.activeTool === "ray") {
+      if (this.activeTool === "horizontal" || this.activeTool === "ray" || this.activeTool === "alert") {
         this.#commitDrawing({ type: this.activeTool, a: point });
       } else if (this.activeTool === "freehand") {
         this.canvas.setPointerCapture(event.pointerId);
@@ -970,7 +1037,7 @@ export class CandlestickChart {
       else {
         this.draftDrawing = null;
         this.drawingGesture = null;
-        this.render();
+        this.setTool(null);
       }
       return;
     }
@@ -1019,7 +1086,7 @@ export class CandlestickChart {
     ctx.fillRect(width - margins.right, y - 8, margins.right, 16);
     ctx.fillRect(x - 36, height - margins.bottom, 72, margins.bottom);
     ctx.fillStyle = this.theme.crosshairText;
-    ctx.font = "bold 8px Arial, sans-serif";
+    ctx.font = this.#font(8, true);
     ctx.textAlign = "center";
     ctx.fillText(formatChartPrice(price), width - margins.right / 2, y + 3);
     ctx.fillText(formatTime(this.#timeAtIndex(slot), true, this.timeZone), x, height - 9);
