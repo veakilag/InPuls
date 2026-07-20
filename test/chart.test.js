@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { calculateNatr, parseRestKline, parseStreamKline, pearsonCorrelation, scaleFromDrag, upsertCandle, visibleCountFromDrag } from "../chart.js";
+import { calculateNatr, parseRestKline, parseStreamKline, pearsonCorrelation, scaleFromDrag, sessionLabels, upsertCandle, visibleCountFromDrag } from "../chart.js";
 
 test("REST kline is normalized", () => {
   const candle = parseRestKline([1000, "10", "12", "9", "11", "25", 1999]);
@@ -52,4 +52,12 @@ test("NATR normalizes Wilder ATR as a percentage", () => {
 test("Pearson correlation detects aligned and inverse returns", () => {
   assert.equal(pearsonCorrelation([1, 2, 3, 4], [2, 4, 6, 8]), 1);
   assert.equal(pearsonCorrelation([1, 2, 3, 4], [8, 6, 4, 2]), -1);
+});
+
+test("time scale marks UTC day and abbreviated sessions", () => {
+  const dayBoundary = sessionLabels(Date.UTC(2026, 6, 19, 23, 59), Date.UTC(2026, 6, 20, 0, 0));
+  assert.ok(dayBoundary.includes("D"));
+  assert.ok(dayBoundary.includes("AS"));
+  const newYorkOpen = sessionLabels(Date.UTC(2026, 6, 20, 13, 29), Date.UTC(2026, 6, 20, 13, 30));
+  assert.ok(newYorkOpen.includes("US"));
 });

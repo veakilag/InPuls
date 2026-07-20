@@ -27,7 +27,7 @@ const state = {
   chartInterval: savedChart.interval ?? "1m",
   chartRange: savedChart.range ?? "1h",
   chartCandles: [],
-  topFilter: "score",
+  topSort: { key: "turnoverPerMinute", direction: "desc" },
   lastMetrics: [],
   alerts: [],
   connectedAt: null,
@@ -68,9 +68,8 @@ const els = {
   timeframeButtons: [...document.querySelectorAll("[data-interval]")],
   rangeButtons: [...document.querySelectorAll("[data-range]")],
   moreTimeframe: document.querySelector("#more-timeframe"),
-  topFilter: document.querySelector("#top-filter"),
   topList: document.querySelector("#top-list"),
-  topTotal: document.querySelector("#top-total"),
+  topSortButtons: [...document.querySelectorAll("[data-top-sort]")],
   metricTurnover: document.querySelector("#metric-turnover"),
   metricFunding: document.querySelector("#metric-funding"),
   metricFundingTime: document.querySelector("#metric-funding-time"),
@@ -332,20 +331,25 @@ function renderSummary(metrics, now) {
 }
 
 function renderTopList(metrics) {
-  let candidates = [...metrics];
-  const finite = (value, fallback = -Infinity) => Number.isFinite(value) ? value : fallback;
-  const sorters = {
-    score: (a, b) => b.score - a.score || finite(b.turnoverPerMinute, 0) - finite(a.turnoverPerMinute, 0),
-    impulse: (a, b) => Math.abs(finite(b.change15s, 0)) - Math.abs(finite(a.change15s, 0)),
-    turnover: (a, b) => finite(b.turnoverPerMinute, 0) - finite(a.turnoverPerMinute, 0),
-    gainers: (a, b) => finite(b.change1m) - finite(a.change1m),
-    losers: (a, b) => finite(a.change1m, Infinity) - finite(b.change1m, Infinity),
-    liquidations: (a, b) => finite(b.liquidation.total, 0) - finite(a.liquidation.total, 0),
-    signals: (a, b) => b.score - a.score,
-  };
-  if (state.topFilter === "signals") candidates = candidates.filter((item) => item.primarySignal);
-  candidates.sort(sorters[state.topFilter] ?? sorters.score);
-  els.topTotal.textContent = String(candidates.length);
+  const candidates = [...metrics];
+  const { key, direction } = state.topSort;
+  const multiplier = direction === "asc" ? 1 : -1;
+  candidates.sort((left, right) => {
+    if (key === "symbol") return left.symbol.localeCompare(right.symbol) * multiplier;
+    const a = Number(left[key]);
+    const b = Number(right[key]);
+    if (!Number.isFinite(a) && !Number.isFinite(b)) return left.symbol.localeCompare(right.symbol);
+    if (!Number.isFinite(a)) return 1;
+    if (!Number.isFinite(b)) return -1;
+    return (a - b) * multiplier || left.symbol.localeCompare(right.symbol);
+  });
+  for (const button of els.topSortButtons) {
+    const active = button.dataset.topSort === key;
+    button.classList.toggle("is-active", active);
+    button.dataset.direction = active ? direction : "";
+    button.querySelector("i").textContent = active ? (direction === "asc" ? "↑" : "↓") : "↕";
+    button.setAttribute("aria-sort", active ? (direction === "asc" ? "ascending" : "descending") : "none");
+  }
   candidates = candidates.slice(0, 100);
 
   if (!candidates.length) {
@@ -383,15 +387,6 @@ function renderTopList(metrics) {
     fragment.append(button);
   });
   els.topList.replaceChildren(fragment);
-}
-
-function topDisplay(item, filter) {
-  if (filter === "impulse") return { primary: formatChange(item.change15s), secondary: "импульс 15с", tone: toneClass(item.change15s) };
-  if (filter === "turnover") return { primary: formatCompactUsd(item.turnoverPerMinute), secondary: "оборот / мин", tone: "" };
-  if (filter === "gainers" || filter === "losers") return { primary: formatChange(item.change1m), secondary: "движение 1м", tone: toneClass(item.change1m) };
-  if (filter === "liquidations") return { primary: formatCompactUsd(item.liquidation.total), secondary: "ликвидации 60с", tone: "" };
-  if (filter === "signals") return { primary: item.primarySignal?.label ?? "—", secondary: `рейтинг ${item.score}`, tone: "top-signal-value" };
-  return { primary: String(item.score), secondary: "рейтинг", tone: item.score >= state.settings.alertScore ? "tone-up" : "" };
 }
 
 function updateChartHeader(metrics = state.lastMetrics) {
@@ -649,11 +644,16 @@ function bindEvents() {
     });
   }
 
-  els.topFilter.value = state.topFilter;
-  els.topFilter.addEventListener("change", () => {
-    state.topFilter = els.topFilter.value;
-    renderTopList(state.lastMetrics);
-  });
+  for (const button of els.topSortButtons) {
+    button.addEventListener("click", () => {
+      const key = button.dataset.topSort;
+      state.topSort = {
+        key,
+        direction: state.topSort.key === key && state.topSort.direction === "desc" ? "asc" : "desc",
+      };
+      renderTopList(state.lastMetrics);
+    });
+  }
 
   for (const button of els.timeframeButtons) {
     button.addEventListener("click", () => {

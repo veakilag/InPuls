@@ -7,8 +7,8 @@
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="8" />
-    <link rel="stylesheet" href="./styles.css?v=8" />
+    <meta name="inpuls-build" content="9" />
+    <link rel="stylesheet" href="./styles.css?v=9" />
     <title>InPuls — в ритме рынка</title>
   </head>
   <body>
@@ -16,7 +16,7 @@
     <header class="topbar">
       <a class="brand" href="./" aria-label="InPuls — главная">
         <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span><strong>INPULS</strong><em>SCREENER <small>v8</small></em></span>
+        <span><strong>INPULS</strong><em>SCREENER <small>v9</small></em></span>
       </a>
       <div class="topbar-actions">
         <div id="connection-status" class="connection" data-status="connecting">
@@ -83,25 +83,12 @@
         </article>
 
         <aside class="top-card">
-          <header class="top-heading">
-            <div>
-              <span class="eyebrow">Market radar</span>
-              <h2>Монеты <small id="top-total">0</small></h2>
-            </div>
-            <label class="top-filter-label">
-              <span class="sr-only">Критерий сортировки</span>
-              <select id="top-filter">
-                <option value="score">По рейтингу</option>
-                <option value="impulse">По импульсу 15с</option>
-                <option value="turnover">По обороту/мин</option>
-                <option value="gainers">Рост за 1м</option>
-                <option value="losers">Падение за 1м</option>
-                <option value="liquidations">По ликвидациям</option>
-                <option value="signals">Только сигналы</option>
-              </select>
-            </label>
-          </header>
-          <div class="top-columns" aria-hidden="true"><span>Тикер</span><span>15с</span><span>1м</span><span>Оборот</span></div>
+          <div class="top-columns" aria-label="Сортировка монет">
+            <button data-top-sort="symbol" type="button">Тикер <i>↕</i></button>
+            <button data-top-sort="change15s" type="button">15с <i>↕</i></button>
+            <button data-top-sort="change1m" type="button">1м <i>↕</i></button>
+            <button class="is-active" data-top-sort="turnoverPerMinute" data-direction="desc" type="button">Оборот <i>↓</i></button>
+          </div>
           <div id="top-list" class="top-list" aria-live="polite">
             <div class="top-placeholder">Собираю лидеров рынка…</div>
           </div>
@@ -203,6 +190,6 @@
       </form>
     </dialog>
 
-    <script type="module" src="./app.js?v=8"></script>
+    <script type="module" src="./app.js?v=9"></script>
   </body>
 </html>
