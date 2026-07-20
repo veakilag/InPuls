@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#090c11" />
+    <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>InPuls — в ритме рынка</title>
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="InPuls — главная">
+        <span class="brand-mark"><i></i><i></i><i></i></span>
+        <span><strong>INPULS</strong><em>SCREENER</em></span>
+      </a>
+      <div class="topbar-actions">
+        <div id="connection-status" class="connection" data-status="connecting">
+          <span class="connection-dot"></span>
+          <span id="connection-text">Подключение…</span>
+        </div>
+        <time id="clock" class="clock">--:--:--</time>
+        <button id="install-app" class="icon-button install-button" type="button" hidden title="Установить приложение">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 17v3h14v-3"/></svg>
+        </button>
+        <button id="sound-toggle" class="control-button" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9v6h4l5 4V5L9 9H5Zm12.5 1a4 4 0 0 1 0 4"/></svg>
+          <span>Звук выключен</span>
+        </button>
+        <button id="settings-open" class="icon-button" type="button" aria-label="Настройки" title="Настройки">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6l-.04.08V21h-4v-.92A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1L3.92 14H3v-4h.92A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06L7.06 4.2l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6l.04-.08V3h4v.92A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 .6 1l.08.04H21v4h-.92a1.7 1.7 0 0 0-.68 1Z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <span class="eyebrow">Binance USDⓈ-M · real-time</span>
+          <h1>Рынок без шума.</h1>
+          <p>Монеты ранжируются по движению, ускорению оборота, потоку сделок и ликвидациям. Сигнал всегда объясняет, почему сработал.</p>
+        </div>
+        <div class="hero-stats">
+          <article><span>Рынок растёт</span><strong id="market-pulse">—</strong><small>доля монет в плюсе за 1м</small></article>
+          <article><span>Горячих сейчас</span><strong id="hot-count">0</strong><small>выше порога рейтинга</small></article>
+          <article><span>Сигналов / мин</span><strong id="alert-count">0</strong><small>с учётом паузы 45 сек</small></article>
+          <article><span>Монет в потоке</span><strong id="tracked-count">0</strong><small>ликвидные USDT-фьючерсы</small></article>
+        </div>
+      </section>
+
+      <section class="workspace-panel">
+        <div class="toolbar">
+          <div class="filters" role="group" aria-label="Фильтр сигналов">
+            <button class="filter-button is-active" data-filter="all" type="button">Все</button>
+            <button class="filter-button" data-filter="signals" type="button">С сигналом</button>
+            <button class="filter-button" data-filter="impulse" type="button">Импульс</button>
+            <button class="filter-button" data-filter="knife" type="button">Нож</button>
+            <button class="filter-button" data-filter="breakout" type="button">Пробой</button>
+            <button class="filter-button" data-filter="cascade" type="button">Каскад</button>
+            <button class="filter-button" data-filter="compression" type="button">Сжатие</button>
+            <button class="filter-button" data-filter="favorites" type="button">★ Избранное</button>
+          </div>
+          <label class="search-box">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg>
+            <input id="search" type="search" autocomplete="off" placeholder="Поиск монеты" />
+          </label>
+        </div>
+
+        <div id="warmup" class="warmup"><i></i><span>История: 0%</span><small>Полные показатели 5м появятся после разогрева</small></div>
+
+        <div id="table-wrap" class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="favorite-col" aria-label="Избранное"></th>
+                <th>Монета</th>
+                <th class="number-col">Цена</th>
+                <th class="number-col">15с</th>
+                <th class="number-col">1м</th>
+                <th class="number-col optional-tablet">5м</th>
+                <th class="number-col">Оборот / мин <span class="hint" title="Приблизительный оборот за минуту по изменению 24-часового счётчика">?</span></th>
+                <th class="number-col optional-desktop">Сделок / сек</th>
+                <th class="flow-col optional-desktop">Агрессия 10с</th>
+                <th class="signal-col">Сигнал</th>
+                <th class="score-col">Рейтинг</th>
+              </tr>
+            </thead>
+            <tbody id="market-body"></tbody>
+          </table>
+          <div id="empty-state" class="empty-state" hidden>
+            <span class="empty-radar"></span>
+            <strong>Подходящих монет пока нет</strong>
+            <p>Поток работает. Измени фильтр или дождись движения.</p>
+          </div>
+        </div>
+      </section>
+      <p class="risk-note">Скринер ищет рыночную активность, а не даёт команду на вход. Решение — только после чтения графика, стакана и оценки риска.</p>
+    </main>
+
+    <template id="row-template">
+      <tr>
+        <td><button class="favorite-button" type="button">★</button></td>
+        <td><span class="pair-name"></span><small class="pair-quote"></small></td>
+        <td class="number-col price"></td>
+        <td class="number-col change-15s"></td>
+        <td class="number-col change-1m"></td>
+        <td class="number-col change-5m optional-tablet"></td>
+        <td class="number-col turnover-cell"><strong class="turnover"></strong><small class="volume-boost"></small></td>
+        <td class="number-col tps optional-desktop"></td>
+        <td class="flow optional-desktop"></td>
+        <td class="signal-cell"></td>
+        <td><div class="score-ring"><span class="score-value"></span></div></td>
+      </tr>
+    </template>
+
+    <aside id="detail-drawer" class="detail-drawer" aria-hidden="true">
+      <button id="detail-backdrop" class="detail-backdrop" type="button" aria-label="Закрыть"></button>
+      <div class="detail-panel">
+        <button id="detail-close" class="detail-close" type="button" aria-label="Закрыть">×</button>
+        <div id="detail-content"></div>
+      </div>
+    </aside>
+
+    <dialog id="settings-dialog" class="settings-dialog">
+      <form id="settings-form" method="dialog">
+        <div class="dialog-heading"><div><span class="eyebrow">Твоя система</span><h2>Пороги скринера</h2></div><button id="settings-close" class="detail-close" type="button" aria-label="Закрыть">×</button></div>
+        <p class="dialog-intro">Стартовые значения умеренные. После недели наблюдений их лучше корректировать по сохранённым примерам, а не по ощущениям.</p>
+        <div class="settings-grid">
+          <label><span>Мин. оборот 24ч, $</span><input name="minTurnover24h" type="number" min="100000" step="100000" required /></label>
+          <label><span>Импульс за 15с, %</span><input name="impulse15s" type="number" min="0.05" step="0.05" required /></label>
+          <label><span>Нож за 15с, %</span><input name="knife15s" type="number" min="0.1" step="0.05" required /></label>
+          <label><span>Пробой за 15с, %</span><input name="breakout15s" type="number" min="0.05" step="0.05" required /></label>
+          <label><span>Ускорение объёма, ×</span><input name="volumeBoost" type="number" min="1" step="0.1" required /></label>
+          <label><span>Каскад: движение 15с, %</span><input name="cascadeMove15s" type="number" min="0.1" step="0.05" required /></label>
+          <label><span>Каскад: ликвидации 60с, $</span><input name="cascadeLiquidationUsd" type="number" min="1000" step="1000" required /></label>
+          <label><span>Сжатие: диапазон 60с, %</span><input name="compressionRange60s" type="number" min="0.05" step="0.01" required /></label>
+          <label><span>Сжатие: объём, ×</span><input name="compressionVolumeBoost" type="number" min="1" step="0.1" required /></label>
+          <label><span>Звуковой сигнал от рейтинга</span><input name="alertScore" type="number" min="1" max="100" step="1" required /></label>
+          <label><span>Монет с потоком сделок</span><input name="trackedTrades" type="number" min="5" max="100" step="1" required /></label>
+          <label><span>Строк в таблице</span><input name="maxRows" type="number" min="10" max="250" step="10" required /></label>
+        </div>
+        <div class="dialog-actions"><button id="settings-reset" class="button" type="button">Сбросить</button><button class="button button-primary" type="submit">Сохранить настройки</button></div>
+      </form>
+    </dialog>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
