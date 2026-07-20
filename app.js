@@ -3,9 +3,9 @@ import {
   SymbolState,
   filterUsdtPerpetualTicker,
   formatCompactUsd,
-} from "./engine.js?v=17";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=17";
-import { OrderBookFeed } from "./orderbook.js?v=17";
+} from "./engine.js?v=18";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=18";
+import { OrderBookFeed } from "./orderbook.js?v=18";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -22,14 +22,15 @@ const STORAGE_KEYS = {
   radarColumns: "inpuls-radar-columns-v2",
   radarFilters: "inpuls-radar-filters-v2",
   inplay: "inpuls-inplay-v2",
+  selectedSymbol: "inpuls-selected-symbol-v1",
+  topSort: "inpuls-radar-sort-v1",
 };
 
-const DEFAULT_INPLAY = Object.freeze({ symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "AVAXUSDT", "SUIUSDT"], minV24: null, minNatr1: null, minGrowth24: null });
+const DEFAULT_INPLAY = Object.freeze({ minV24: 100, minNatr1: null, minGrowth24: null });
 const EMPTY_RADAR_FILTERS = Object.freeze([]);
 
 function normalizeInPlay(value) {
-  if (Array.isArray(value)) return { ...DEFAULT_INPLAY, symbols: value.map((item) => typeof item === "string" ? item : item?.symbol).filter(Boolean) };
-  return { ...DEFAULT_INPLAY, ...(value && typeof value === "object" ? value : {}), symbols: Array.isArray(value?.symbols) ? value.symbols : [...DEFAULT_INPLAY.symbols] };
+  return { ...DEFAULT_INPLAY, ...(value && typeof value === "object" && !Array.isArray(value) ? value : {}) };
 }
 
 const DEFAULT_WORKSPACE = {
@@ -49,11 +50,11 @@ const state = {
   filter: "all",
   search: "",
   selectedSymbol: null,
-  selectedChartSymbol: "BTCUSDT",
+  selectedChartSymbol: localStorage.getItem(STORAGE_KEYS.selectedSymbol) || "BTCUSDT",
   chartInterval: savedChart.interval ?? "1m",
   chartRange: savedChart.range ?? "1h",
   chartCandles: [],
-  topSort: { key: "quoteVolume24h", direction: "desc" },
+  topSort: loadJson(STORAGE_KEYS.topSort, { key: "quoteVolume24h", direction: "desc" }),
   lastMetrics: [],
   alerts: [],
   connectedAt: null,
@@ -112,7 +113,6 @@ const els = {
   inplayDialog: document.querySelector("#inplay-dialog"),
   inplayClose: document.querySelector("#inplay-close"),
   inplayCancel: document.querySelector("#inplay-cancel"),
-  inplaySymbols: document.querySelector("#inplay-symbols"),
   inplayMinV24: document.querySelector("#inplay-min-v24"),
   inplayMinNatr1: document.querySelector("#inplay-min-natr1"),
   inplayMinGrowth24: document.querySelector("#inplay-min-growth24"),
@@ -128,18 +128,14 @@ const els = {
   topList: document.querySelector("#top-list"),
   topSortButtons: [...document.querySelectorAll("[data-top-sort]")],
   radarSearch: document.querySelector("#radar-search"),
-  radarFilterToggle: document.querySelector("#radar-filter-toggle"),
-  radarFilterPanel: document.querySelector("#radar-filter-panel"),
-  radarFilterCount: document.querySelector("#radar-filter-count"),
-  radarFilterMetric: document.querySelector("#radar-filter-metric"),
-  radarFilterOperator: document.querySelector("#radar-filter-operator"),
-  radarFilterValue: document.querySelector("#radar-filter-value"),
-  radarFilterAdd: document.querySelector("#radar-filter-add"),
-  radarFilterChips: document.querySelector("#radar-filter-chips"),
+  radarFilterInputs: [...document.querySelectorAll("[data-column-filter]")],
+  radarFilterOperators: [...document.querySelectorAll("[data-column-filter-operator]")],
   radarFilterReset: document.querySelector("#radar-filter-reset"),
   columnResizers: [...document.querySelectorAll("[data-column-index]")],
   radarResizer: document.querySelector("#radar-resizer"),
+  radarResizerNw: document.querySelector("#radar-resizer-nw"),
   scannerResizer: document.querySelector("#scanner-resizer"),
+  scannerResizerNw: document.querySelector("#scanner-resizer-nw"),
   addChartTile: document.querySelector("#add-chart-tile"),
   addChartDialog: document.querySelector("#add-chart-dialog"),
   addChartClose: document.querySelector("#add-chart-close"),
@@ -159,6 +155,9 @@ const els = {
   fontScaleValue: document.querySelector("#font-scale-value"),
   alertToast: document.querySelector("#alert-toast"),
   chartResizer: document.querySelector("#chart-resizer"),
+  chartResizerNw: document.querySelector("#chart-resizer-nw"),
+  coreCloseButtons: [...document.querySelectorAll("[data-close-core]")],
+  restorePanelButtons: [...document.querySelectorAll("[data-restore-panel]")],
   mobileViewButtons: [...document.querySelectorAll("[data-mobile-view]")],
 };
 
@@ -280,7 +279,10 @@ const extraCharts = new Map();
 const orderBookPanels = new Map();
 let panelPickerType = "chart";
 let activeChartTheme = null;
-const priceChart = new CandlestickChart(els.priceChart, els.chartTooltip, { onAlert: handleChartAlert });
+const priceChart = new CandlestickChart(els.priceChart, els.chartTooltip, {
+  onAlert: handleChartAlert,
+  storageKey: "inpuls-chart-primary-v1",
+});
 priceChart.setTimeZone(state.timeZone === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : state.timeZone);
 priceChart.setVolumeVisible(state.volumeVisible);
 priceChart.setSessionsVisible(state.sessionsVisible);
@@ -313,24 +315,25 @@ function mixColor(left, right, amount) {
 function applyComfort(rawValue) {
   const value = Math.max(0, Math.min(100, Number(rawValue) || 0));
   const amount = value / 100;
+  const accent = amount <= .5
+    ? mixColor("#39dba2", "#35cbd4", amount * 2)
+    : mixColor("#35cbd4", "#9567c5", (amount - .5) * 2);
   const palette = {
-    bg: mixColor("#0b0f12", "#050606", amount),
-    panel: mixColor("#11161b", "#0a0b0d", amount),
-    panel2: mixColor("#171d23", "#0f1013", amount),
-    line: mixColor("#2a353c", "#24212c", amount),
+    bg: mixColor("#070b0d", accent, .035 + amount * .012),
+    panel: mixColor("#0d1215", accent, .055 + amount * .025),
+    panel2: mixColor("#12191d", accent, .08 + amount * .035),
+    line: mixColor("#253238", accent, .24 + amount * .08),
     text: mixColor("#d6dde2", "#c9c5bc", amount),
     muted: mixColor("#87919b", "#807b72", amount),
-    chart: mixColor("#080b0d", "#040505", amount),
+    chart: mixColor("#05090b", accent, .022 + amount * .016),
     bull: mixColor("#d7dde0", "#d0cbc1", amount),
     bear: mixColor("#101417", "#0b0b0c", amount),
     bearStroke: mixColor("#7d8790", "#77716a", amount),
-    grid: mixColor("#56616a", "#4b4743", amount),
+    grid: mixColor("#4b5960", accent, .20 + amount * .06),
     crosshair: mixColor("#929aa1", "#918a80", amount),
-    crosshairFill: mixColor("#355f56", "#594464", amount),
+    crosshairFill: mixColor("#243a3c", accent, .44),
     crosshairText: mixColor("#eef1f2", "#e6dfd4", amount),
-    accent: amount <= .5
-      ? mixColor("#39dba2", "#35cbd4", amount * 2)
-      : mixColor("#35cbd4", "#9567c5", (amount - .5) * 2),
+    accent,
   };
   const root = document.documentElement;
   root.style.setProperty("--bg", palette.bg);
@@ -428,7 +431,7 @@ async function copyTicker(symbol) {
 
 function selectInterval(interval) {
   state.chartInterval = interval;
-  const secondRangeCaps = { "1s": "15m", "5s": "1h", "15s": "4h" };
+  const secondRangeCaps = { "1s": "4h", "5s": "1d", "15s": "7d" };
   if (secondRangeCaps[interval]) state.chartRange = secondRangeCaps[interval];
   persistChartSettings();
   els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === interval));
@@ -524,21 +527,20 @@ function render() {
 
 function renderInPlay(metrics) {
   if (!els.inplayCoins) return;
-  if (!Array.isArray(state.inplay.symbols) || !state.inplay.symbols.length) state.inplay = { ...DEFAULT_INPLAY, symbols: [...DEFAULT_INPLAY.symbols] };
+  const hasValue = (value) => value !== null && value !== "" && Number.isFinite(Number(value));
+  const matches = metrics.filter((item) => [
+    hasValue(state.inplay.minV24) ? (item.quoteVolume24h ?? -Infinity) >= Number(state.inplay.minV24) * 1_000_000 : true,
+    hasValue(state.inplay.minNatr1) ? (item.natr1m ?? -Infinity) >= Number(state.inplay.minNatr1) : true,
+    hasValue(state.inplay.minGrowth24) ? (item.change24h ?? -Infinity) >= Number(state.inplay.minGrowth24) : true,
+  ].every(Boolean)).sort((left, right) => (right.change24h ?? -Infinity) - (left.change24h ?? -Infinity) || (right.quoteVolume24h ?? 0) - (left.quoteVolume24h ?? 0)).slice(0, 18);
   const fragment = document.createDocumentFragment();
-  for (const symbol of state.inplay.symbols.slice(0, 18)) {
-    const item = metrics.find((candidate) => candidate.symbol === symbol);
+  for (const item of matches) {
+    const symbol = item.symbol;
     const button = document.createElement("button");
     button.type = "button";
     button.className = "inplay-chip";
     button.draggable = true;
-    const hasValue = (value) => value !== null && value !== "" && Number.isFinite(Number(value));
-    const checks = [
-      hasValue(state.inplay.minV24) ? (item?.quoteVolume24h ?? -Infinity) >= Number(state.inplay.minV24) * 1_000_000 : null,
-      hasValue(state.inplay.minNatr1) ? (item?.natr1m ?? -Infinity) >= Number(state.inplay.minNatr1) : null,
-      hasValue(state.inplay.minGrowth24) ? (item?.change24h ?? -Infinity) >= Number(state.inplay.minGrowth24) : null,
-    ].filter((value) => value !== null);
-    button.classList.toggle("is-triggered", checks.length > 0 && checks.every(Boolean));
+    button.classList.add("is-triggered");
     button.title = `${symbol} · V24 ${formatCompactUsd(item?.quoteVolume24h)}`;
     const change = item?.change24h;
     button.innerHTML = `<strong>${escapeHtml(symbol.replace("USDT", ""))}</strong><span class="${Number.isFinite(change) ? toneClass(change) : "tone-neutral"}">${formatChange(change)}</span>`;
@@ -550,21 +552,25 @@ function renderInPlay(metrics) {
     });
     fragment.append(button);
   }
+  if (!matches.length) {
+    const empty = document.createElement("span");
+    empty.className = "inplay-loading";
+    empty.textContent = metrics.length ? "Нет монет по правилам INPLAY" : "Собираю рынок…";
+    fragment.append(empty);
+  }
   els.inplayCoins.replaceChildren(fragment);
 }
 
 function renderInPlayEditor() {
   const value = (next) => next !== null && Number.isFinite(Number(next)) ? String(next) : "";
-  els.inplaySymbols.value = state.inplay.symbols.map((symbol) => symbol.replace("USDT", "")).join(", ");
   els.inplayMinV24.value = value(state.inplay.minV24);
   els.inplayMinNatr1.value = value(state.inplay.minNatr1);
   els.inplayMinGrowth24.value = value(state.inplay.minGrowth24);
 }
 
 function collectInPlayRules() {
-  const symbols = [...new Set(els.inplaySymbols.value.split(/[\s,;]+/).map((value) => value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "")).filter(Boolean).map((value) => value.endsWith("USDT") ? value : `${value}USDT`))].slice(0, 18);
   const read = (input) => input.value.trim() === "" ? null : Number(input.value);
-  state.inplay = { symbols: symbols.length ? symbols : [...DEFAULT_INPLAY.symbols], minV24: read(els.inplayMinV24), minNatr1: read(els.inplayMinNatr1), minGrowth24: read(els.inplayMinGrowth24) };
+  state.inplay = { minV24: read(els.inplayMinV24), minNatr1: read(els.inplayMinNatr1), minGrowth24: read(els.inplayMinGrowth24) };
   localStorage.setItem(STORAGE_KEYS.inplay, JSON.stringify(state.inplay));
   updateTrackedSymbols();
 }
@@ -730,25 +736,36 @@ function renderTopList(metrics) {
 
 function syncRadarFilterUi() {
   if (!Array.isArray(state.radarFilters)) state.radarFilters = [];
-  const labels = { quoteVolume24h: "V24 $M", natr1m: "NATR 1", natr5m: "NATR 5", fundingRate: "F %", correlation: "C", change24h: "Рост 24ч" };
-  const operators = { gte: "≥", lte: "≤", gt: ">", lt: "<" };
-  const fragment = document.createDocumentFragment();
-  state.radarFilters.forEach((rule, index) => {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "radar-filter-chip";
-    chip.title = "Удалить условие";
-    chip.textContent = `${labels[rule.metric] ?? rule.metric} ${operators[rule.operator] ?? "≥"} ${rule.value} ×`;
-    chip.addEventListener("click", () => {
-      state.radarFilters.splice(index, 1);
-      localStorage.setItem(STORAGE_KEYS.radarFilters, JSON.stringify(state.radarFilters));
-      syncRadarFilterUi();
-      renderTopList(state.lastMetrics);
-    });
-    fragment.append(chip);
-  });
-  els.radarFilterChips.replaceChildren(fragment);
-  els.radarFilterCount.textContent = String(state.radarFilters.length);
+  for (const input of els.radarFilterInputs) {
+    const rule = state.radarFilters.find((item) => item.metric === input.dataset.columnFilter);
+    const value = rule ? radarFilterDisplayValue(rule.metric, Number(rule.value)) : null;
+    input.value = Number.isFinite(value) ? String(value) : "";
+  }
+  for (const select of els.radarFilterOperators) {
+    const rule = state.radarFilters.find((item) => item.metric === select.dataset.columnFilterOperator);
+    select.value = rule?.operator === "lte" ? "lte" : "gte";
+  }
+}
+
+function updateColumnFilter(metric) {
+  const input = els.radarFilterInputs.find((item) => item.dataset.columnFilter === metric);
+  const select = els.radarFilterOperators.find((item) => item.dataset.columnFilterOperator === metric);
+  state.radarFilters = state.radarFilters.filter((item) => item.metric !== metric);
+  if (input?.value.trim() !== "" && Number.isFinite(Number(input.value))) state.radarFilters.push({ metric, operator: select?.value === "lte" ? "lte" : "gte", value: radarFilterRawValue(metric, Number(input.value)) });
+  localStorage.setItem(STORAGE_KEYS.radarFilters, JSON.stringify(state.radarFilters));
+  renderTopList(state.lastMetrics);
+}
+
+function radarFilterRawValue(metric, value) {
+  if (metric === "quoteVolume24h") return value * 1_000_000;
+  if (metric === "fundingRate") return value / 100;
+  return value;
+}
+
+function radarFilterDisplayValue(metric, value) {
+  if (metric === "quoteVolume24h") return value / 1_000_000;
+  if (metric === "fundingRate") return value * 100;
+  return value;
 }
 
 function formatRadarMetric(item, metric) {
@@ -766,6 +783,7 @@ function clampPanel(model, fallback, minimum = { w: 5, h: 3 }) {
   const next = { ...fallback, ...(model && typeof model === "object" ? model : {}) };
   next.id = String(next.id || fallback.id);
   next.type = next.type || fallback.type;
+  next.hidden = Boolean(next.hidden);
   next.w = Math.max(minimum.w, Math.min(WORKSPACE_COLS, Math.round(Number(next.w) || fallback.w)));
   next.h = Math.max(minimum.h, Math.min(WORKSPACE_ROWS, Math.round(Number(next.h) || fallback.h)));
   next.x = Math.max(0, Math.min(WORKSPACE_COLS - next.w, Math.round(Number(next.x) || 0)));
@@ -792,9 +810,9 @@ function normalizeWorkspace() {
     if (canPlacePanel(item, workspace)) workspace.extras.push(item);
   }
   state.workspace = workspace;
-  if (!canPlacePanel(workspace.scanner, workspace, "scanner")) workspace.scanner = { ...DEFAULT_WORKSPACE.scanner };
-  if (!canPlacePanel(workspace.radar, workspace, "radar")) workspace.radar = { ...DEFAULT_WORKSPACE.radar };
-  if (!canPlacePanel(workspace.primary, workspace, "primary")) workspace.primary = { ...DEFAULT_WORKSPACE.primary };
+  if (!workspace.scanner.hidden && !canPlacePanel(workspace.scanner, workspace, "scanner")) workspace.scanner = { ...DEFAULT_WORKSPACE.scanner };
+  if (!workspace.radar.hidden && !canPlacePanel(workspace.radar, workspace, "radar")) workspace.radar = { ...DEFAULT_WORKSPACE.radar };
+  if (!workspace.primary.hidden && !canPlacePanel(workspace.primary, workspace, "primary")) workspace.primary = { ...DEFAULT_WORKSPACE.primary };
 }
 
 function persistWorkspace() {
@@ -802,7 +820,7 @@ function persistWorkspace() {
 }
 
 function workspacePanels(workspace = state.workspace) {
-  return [workspace.primary, workspace.radar, workspace.scanner, ...(workspace.extras ?? [])].filter(Boolean);
+  return [workspace.primary, workspace.radar, workspace.scanner, ...(workspace.extras ?? [])].filter((panel) => panel && !panel.hidden);
 }
 
 function panelsOverlap(left, right) {
@@ -880,6 +898,7 @@ function applyWorkspaceLayout() {
   const radar = document.querySelector(".top-card");
   const scanner = document.querySelector(".workspace-panel");
   const place = (element, model) => {
+    element.hidden = Boolean(model.hidden);
     element.style.gridColumn = `${model.x + 1} / span ${model.w}`;
     element.style.gridRow = `${model.y + 1} / span ${model.h}`;
   };
@@ -889,6 +908,7 @@ function applyWorkspaceLayout() {
   for (const panel of [...extraCharts.values(), ...orderBookPanels.values()]) {
     place(panel.element, panel.model);
   }
+  for (const button of els.restorePanelButtons) button.hidden = !state.workspace[button.dataset.restorePanel]?.hidden;
   const addSlot = findLargestFreeSlot();
   els.addChartTile.hidden = !addSlot;
   if (addSlot) {
@@ -901,7 +921,8 @@ function applyWorkspaceLayout() {
   });
 }
 
-function bindGridResizer(handle, model, chart) {
+function bindGridResizer(handle, model, chart, direction = "se") {
+  if (!handle) return;
   handle.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -913,14 +934,27 @@ function bindGridResizer(handle, model, chart) {
     const startY = event.clientY;
     const startWidth = model.w;
     const startHeight = model.h;
+    const startLeft = model.x;
+    const startTop = model.y;
     const move = (moveEvent) => {
       const minimum = model.type === "scanner" ? { w: 5, h: 2 } : { w: 3, h: 2 };
-      const candidate = {
-        ...model,
-        w: Math.max(minimum.w, Math.min(WORKSPACE_COLS - model.x, startWidth + Math.round((moveEvent.clientX - startX) / columnUnit))),
-        h: Math.max(minimum.h, Math.min(WORKSPACE_ROWS - model.y, startHeight + Math.round((moveEvent.clientY - startY) / rowHeight))),
-      };
+      const dx = Math.round((moveEvent.clientX - startX) / columnUnit);
+      const dy = Math.round((moveEvent.clientY - startY) / rowHeight);
+      const candidate = { ...model };
+      if (direction === "nw") {
+        const right = startLeft + startWidth;
+        const bottom = startTop + startHeight;
+        candidate.x = Math.max(0, Math.min(right - minimum.w, startLeft + dx));
+        candidate.y = Math.max(0, Math.min(bottom - minimum.h, startTop + dy));
+        candidate.w = right - candidate.x;
+        candidate.h = bottom - candidate.y;
+      } else {
+        candidate.w = Math.max(minimum.w, Math.min(WORKSPACE_COLS - model.x, startWidth + dx));
+        candidate.h = Math.max(minimum.h, Math.min(WORKSPACE_ROWS - model.y, startHeight + dy));
+      }
       if (!canPlacePanel(candidate)) return;
+      model.x = candidate.x;
+      model.y = candidate.y;
       model.w = candidate.w;
       model.h = candidate.h;
       applyWorkspaceLayout();
@@ -938,12 +972,13 @@ function bindGridResizer(handle, model, chart) {
   });
 }
 
-function bindPanelDrag(grip, model) {
-  if (!grip) return;
-  grip.addEventListener("pointerdown", (event) => {
+function bindPanelDrag(handle, model) {
+  if (!handle) return;
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.target.closest("button, input, select, a, .panel-resizer, .column-resizer")) return;
     event.preventDefault();
     event.stopPropagation();
-    grip.setPointerCapture(event.pointerId);
+    handle.setPointerCapture(event.pointerId);
     els.marketFocus.classList.add("is-dragging-panel");
     const rect = els.marketFocus.getBoundingClientRect();
     const columnUnit = Math.max(10, (rect.width + 3) / WORKSPACE_COLS);
@@ -961,18 +996,18 @@ function bindPanelDrag(grip, model) {
     const stop = () => {
       els.marketFocus.classList.remove("is-dragging-panel");
       persistWorkspace();
-      grip.removeEventListener("pointermove", move);
-      grip.removeEventListener("pointerup", stop);
-      grip.removeEventListener("pointercancel", stop);
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", stop);
+      handle.removeEventListener("pointercancel", stop);
     };
-    grip.addEventListener("pointermove", move);
-    grip.addEventListener("pointerup", stop);
-    grip.addEventListener("pointercancel", stop);
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", stop);
+    handle.addEventListener("pointercancel", stop);
   });
 }
 
 function intervalRange(interval) {
-  return { "1s": "15m", "5s": "1h", "15s": "4h" }[interval] || "1h";
+  return { "1s": "4h", "5s": "1d", "15s": "7d" }[interval] || "1h";
 }
 
 function bindChartToolbox(root, chart, persistSessions = false) {
@@ -986,13 +1021,18 @@ function bindChartToolbox(root, chart, persistSessions = false) {
   const setOpen = (open) => {
     root.querySelector(".chart-toolbox")?.classList.toggle("is-open", open);
     menu.classList.toggle("is-open", open);
+    toggle.classList.toggle("is-menu-open", open);
     toggle.setAttribute("aria-expanded", String(open));
+    toggle.classList.toggle("is-active", open || Boolean(chart.activeTool));
   };
   const sync = () => {
-    toggle.classList.toggle("is-active", Boolean(chart.activeTool));
+    toggle.classList.toggle("is-active", menu.classList.contains("is-open") || Boolean(chart.activeTool));
     drawingButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.drawingTool === chart.activeTool));
     sessionButton?.classList.toggle("is-off", !chart.sessionsVisible);
-    if (sessionButton) sessionButton.textContent = chart.sessionsVisible ? "◫ Сессии: вкл" : "◫ Сессии: выкл";
+    if (sessionButton) {
+      sessionButton.textContent = "◫";
+      sessionButton.title = chart.sessionsVisible ? "Сессии включены" : "Сессии выключены";
+    }
   };
   chart.onToolChange = () => sync();
   toggle.addEventListener("click", (event) => {
@@ -1033,18 +1073,22 @@ function mountExtraChart(model) {
           ${["1s", "5s", "15s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "12h", "1d", "3d", "1w", "1M"].map((interval) => `<option value="${interval}"${interval === model.interval ? " selected" : ""}>${interval.replace("s", "с").replace("m", "м").replace("h", "ч").replace("d", "д").replace("w", "н")}</option>`).join("")}
         </select>
       </div></div>
-      <button class="mini-chart-close" type="button" title="Закрыть график">×</button>
+      <button class="mini-chart-close panel-close" type="button" title="Закрыть график">×</button>
     </header>
     <div class="chart-stage">
       <div class="chart-metrics"><span><b>V24</b><strong data-mini-metric="quoteVolume24h">—</strong></span><span><b>NATR 1</b><strong data-mini-metric="natr1m">—</strong></span><span><b>NATR 5</b><strong data-mini-metric="natr5m">—</strong></span><span><b>F</b><strong data-mini-metric="fundingRate">—</strong></span><span><b>C</b><strong data-mini-metric="correlation">—</strong></span></div>
       <div class="chart-toolbox"><button class="drawing-tools-toggle" type="button" title="Инструменты рисования" aria-expanded="false">✎</button><div class="drawing-tools-menu">
-        <button data-drawing-tool="trend" type="button">╱ Отрезок</button><button data-drawing-tool="horizontal" type="button">— Горизонталь</button><button data-drawing-tool="ruler" type="button">↕ Линейка</button><button data-drawing-tool="rectangle" type="button">▭ Прямоугольник</button><button data-drawing-tool="ray" type="button">→ Луч</button><button data-drawing-tool="freehand" type="button">∿ Рисование</button><button data-drawing-tool="alert" type="button">◉ Alert</button><button data-session-toggle type="button">◫ Сессии</button>
-      </div><button class="drawing-clear-button" type="button">⌫ Очистить</button></div>
+        <button data-drawing-tool="trend" type="button" title="Отрезок">╱</button><button data-drawing-tool="horizontal" type="button" title="Горизонталь">─</button><button data-drawing-tool="ruler" type="button" title="Линейка">↕</button><button data-drawing-tool="rectangle" type="button" title="Прямоугольник">▭</button><button data-drawing-tool="ray" type="button" title="Луч">→</button><button data-drawing-tool="freehand" type="button" title="Рисование">∿</button><button data-drawing-tool="alert" type="button" title="Alert">◉</button><button data-session-toggle type="button" title="Сессии">◫</button>
+      </div><button class="drawing-clear-button" type="button" title="Очистить всё">⌫</button></div>
       <canvas aria-label="Дополнительный свечной график"></canvas><div class="chart-tooltip" hidden></div>
       <button class="chart-resizer" type="button" aria-label="Изменить размер графика"></button>
-    </div>`;
+    </div>
+    <button class="panel-resizer panel-resizer-nw" type="button" aria-label="Изменить размер из левого верхнего угла"></button>`;
   els.marketFocus.insertBefore(article, els.addChartTile);
-  const chart = new CandlestickChart(article.querySelector("canvas"), article.querySelector(".chart-tooltip"), { onAlert: handleChartAlert });
+  const chart = new CandlestickChart(article.querySelector("canvas"), article.querySelector(".chart-tooltip"), {
+    onAlert: handleChartAlert,
+    storageKey: `inpuls-chart-${model.id}-v1`,
+  });
   chart.setTimeZone(state.timeZone === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : state.timeZone);
   chart.setVolumeVisible(false);
   chart.setSessionsVisible(state.sessionsVisible);
@@ -1074,7 +1118,8 @@ function mountExtraChart(model) {
   });
   article.querySelector(".mini-chart-close").addEventListener("click", () => removeExtraChart(model.id));
   bindGridResizer(article.querySelector(".chart-resizer"), model, chart);
-  bindPanelDrag(article.querySelector(".panel-grip"), model);
+  bindGridResizer(article.querySelector(".panel-resizer-nw"), model, chart, "nw");
+  bindPanelDrag(article.querySelector(".chart-heading"), model);
   article.addEventListener("dragover", (event) => {
     if (event.dataTransfer.types.includes("text/inpuls-symbol")) event.preventDefault();
   });
@@ -1116,6 +1161,28 @@ function createExtraChart(symbol) {
   return createExtraPanel(symbol, "chart");
 }
 
+function hideCorePanel(id) {
+  const model = state.workspace[id];
+  if (!model) return;
+  model.hidden = true;
+  persistWorkspace();
+  applyWorkspaceLayout();
+}
+
+function restoreCorePanel(id) {
+  const model = state.workspace[id];
+  if (!model?.hidden) return;
+  const minimum = model.type === "scanner" ? { w: 5, h: 2 } : { w: 3, h: 2 };
+  const slot = findFreeSlot(model.w, model.h) ?? findFreeSlot(minimum.w, minimum.h);
+  if (!slot) {
+    showToast("На рабочем поле пока нет места");
+    return;
+  }
+  Object.assign(model, { hidden: false, x: slot.x, y: slot.y, w: slot.w, h: slot.h });
+  persistWorkspace();
+  applyWorkspaceLayout();
+}
+
 function removeExtraChart(id) {
   const panel = extraCharts.get(id);
   if (!panel) return;
@@ -1142,10 +1209,11 @@ function mountOrderBook(model) {
       <button class="panel-close" type="button" title="Закрыть стакан">×</button>
     </header>
     <div class="orderbook-stage">
-      <div class="orderbook-columns"><span>Сумма</span><span>Цена</span><span>Объём</span></div>
+      <div class="orderbook-columns"><span>Σ BID</span><span>BID</span><span>ЦЕНА</span><span>ASK</span><span>Σ ASK</span></div>
       <div class="orderbook-rows"><div class="orderbook-empty">Загружаю глубину Binance…</div></div>
       <button class="panel-resizer" type="button" aria-label="Изменить размер стакана"></button>
-    </div>`;
+    </div>
+    <button class="panel-resizer panel-resizer-nw" type="button" aria-label="Изменить размер стакана из левого верхнего угла"></button>`;
   els.marketFocus.insertBefore(article, els.addChartTile);
   const panel = { model, element: article, feed: null, latest: null, frame: null };
   const draw = () => {
@@ -1166,7 +1234,8 @@ function mountOrderBook(model) {
   orderBookPanels.set(model.id, panel);
   article.querySelector(".panel-close").addEventListener("click", () => removeOrderBook(model.id));
   bindGridResizer(article.querySelector(".panel-resizer"), model);
-  bindPanelDrag(article.querySelector(".panel-grip"), model);
+  bindGridResizer(article.querySelector(".panel-resizer-nw"), model, null, "nw");
+  bindPanelDrag(article.querySelector(".orderbook-heading"), model);
   article.addEventListener("dragover", (event) => {
     if (event.dataTransfer.types.includes("text/inpuls-symbol")) event.preventDefault();
   });
@@ -1184,33 +1253,37 @@ function mountOrderBook(model) {
 
 function renderOrderBook(panel, data) {
   const body = panel.element.querySelector(".orderbook-rows");
-  const available = Math.max(1, Math.floor((body.getBoundingClientRect().height - 24) / 36));
+  const available = Math.max(1, Math.floor((body.getBoundingClientRect().height - 25) / 26));
   const bids = data.bids.slice(0, available);
   const asks = data.asks.slice(0, available).reverse();
-  const total = (levels) => levels.reduce((sum, [, quantity]) => sum + quantity, 0);
+  const total = (levels) => levels.reduce((sum, [price, quantity]) => sum + price * quantity, 0);
   const maxDepth = Math.max(total(bids), total(asks), 1);
   const rows = [];
   let askDepth = 0;
   for (const [price, quantity] of asks) {
-    askDepth += quantity;
+    askDepth += price * quantity;
     rows.push(bookRow("ask", price, quantity, askDepth, maxDepth));
   }
   const bestBid = data.bids[0]?.[0];
   const bestAsk = data.asks[0]?.[0];
   const spread = Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? bestAsk - bestBid : null;
   const spreadPercent = Number.isFinite(spread) && bestBid ? (spread / bestBid) * 100 : null;
-  rows.push(`<div class="book-spread"><span>${Number.isFinite(spread) ? formatPrice(spread) : "—"}</span><small>${Number.isFinite(spreadPercent) ? `${spreadPercent.toFixed(3)}%` : "спред"}</small></div>`);
+  rows.push(`<div class="book-spread"><span></span><span></span><strong>${Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? formatPrice((bestBid + bestAsk) / 2) : "—"}</strong><small>${Number.isFinite(spreadPercent) ? `${spreadPercent.toFixed(3)}%` : "спред"}</small></div>`);
   let bidDepth = 0;
   for (const [price, quantity] of bids) {
-    bidDepth += quantity;
+    bidDepth += price * quantity;
     rows.push(bookRow("bid", price, quantity, bidDepth, maxDepth));
   }
   body.innerHTML = rows.join("");
 }
 
 function bookRow(side, price, quantity, cumulative, maxDepth) {
-  const quote = price * quantity;
-  return `<div class="book-row is-${side}" style="--depth:${Math.min(100, (cumulative / maxDepth) * 100).toFixed(1)}%"><span>${formatCompactUsd(quote)}</span><span>${formatPrice(price)}</span><span>${formatBookQuantity(quantity)}</span></div>`;
+  const depth = Math.min(100, (cumulative / maxDepth) * 100).toFixed(1);
+  const sum = formatCompactUsd(cumulative);
+  const qty = formatBookQuantity(quantity);
+  return side === "bid"
+    ? `<div class="book-row is-bid" style="--depth:${depth}%"><span>${sum}</span><span>${qty}</span><strong>${formatPrice(price)}</strong><span></span><span></span></div>`
+    : `<div class="book-row is-ask" style="--depth:${depth}%"><span></span><span></span><strong>${formatPrice(price)}</strong><span>${qty}</span><span>${sum}</span></div>`;
 }
 
 function formatBookQuantity(value) {
@@ -1279,6 +1352,7 @@ function selectChartSymbol(symbol, scrollToChart = false) {
   if (!symbol?.endsWith("USDT")) return;
   const changed = symbol !== state.selectedChartSymbol;
   state.selectedChartSymbol = symbol;
+  localStorage.setItem(STORAGE_KEYS.selectedSymbol, symbol);
   updateChartHeader();
   renderTopList(state.lastMetrics);
   els.tableBody.querySelectorAll("tr").forEach((row) => row.classList.toggle("is-selected", row.dataset.symbol === symbol));
@@ -1423,8 +1497,8 @@ function updateTrackedSymbols() {
       return favoriteDiff || b.score - a.score || b.turnoverPerMinute - a.turnoverPerMinute;
     })
     .map((item) => item.symbol);
-  const pinned = state.inplay.symbols;
-  feed.updateAggTradeSubscriptions([...new Set([...pinned, ...ranked])].slice(0, state.settings.trackedTrades));
+  const selected = [state.selectedChartSymbol, ...state.workspace.extras.map((item) => item.symbol)].filter(Boolean);
+  feed.updateAggTradeSubscriptions([...new Set([...state.favorites, ...selected, ...ranked])].slice(0, Math.max(state.settings.trackedTrades, selected.length)));
 }
 
 function toggleFavorite(symbol) {
@@ -1575,8 +1649,8 @@ function renderTimeZoneMarkers() {
     marker.classList.toggle("is-active", item.zone === state.timeZone && item.city === state.selectedTimeZoneCity);
     marker.dataset.zone = item.zone;
     marker.dataset.city = `${item.city} · ${timeZoneClock(item.zone)}`;
-    marker.style.left = `${((item.lon + 180) / 360) * 100 - .35}%`;
-    marker.style.top = `${((90 - item.lat) / 180) * 100 + 2.25}%`;
+    marker.style.left = `${((item.lon + 180) / 360) * 100 - .8}%`;
+    marker.style.top = `${((90 - item.lat) / 180) * 100 + 8.55}%`;
     marker.setAttribute("aria-label", `${item.city}, ${item.zone}`);
     marker.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -1719,29 +1793,8 @@ function bindEvents() {
     renderTopList(state.lastMetrics);
   });
   syncRadarFilterUi();
-  els.radarFilterToggle.addEventListener("click", (event) => {
-    event.stopPropagation();
-    els.radarFilterPanel.hidden = !els.radarFilterPanel.hidden;
-    els.radarFilterToggle.setAttribute("aria-expanded", String(!els.radarFilterPanel.hidden));
-  });
-  els.radarFilterAdd.addEventListener("click", () => {
-    const value = Number(els.radarFilterValue.value);
-    if (!Number.isFinite(value)) {
-      els.radarFilterValue.focus();
-      return;
-    }
-    state.radarFilters.push({ metric: els.radarFilterMetric.value, operator: els.radarFilterOperator.value, value });
-    localStorage.setItem(STORAGE_KEYS.radarFilters, JSON.stringify(state.radarFilters));
-    els.radarFilterValue.value = "";
-    syncRadarFilterUi();
-    renderTopList(state.lastMetrics);
-  });
-  els.radarFilterValue.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      els.radarFilterAdd.click();
-    }
-  });
+  for (const input of els.radarFilterInputs) input.addEventListener("change", () => updateColumnFilter(input.dataset.columnFilter));
+  for (const select of els.radarFilterOperators) select.addEventListener("change", () => updateColumnFilter(select.dataset.columnFilterOperator));
   els.radarFilterReset.addEventListener("click", () => {
     state.radarFilters = [];
     localStorage.setItem(STORAGE_KEYS.radarFilters, "[]");
@@ -1782,11 +1835,16 @@ function bindEvents() {
     });
   }
   bindGridResizer(els.chartResizer, state.workspace.primary, priceChart);
+  bindGridResizer(els.chartResizerNw, state.workspace.primary, priceChart, "nw");
   bindGridResizer(els.radarResizer, state.workspace.radar);
+  bindGridResizer(els.radarResizerNw, state.workspace.radar, null, "nw");
   bindGridResizer(els.scannerResizer, state.workspace.scanner);
-  bindPanelDrag(document.querySelector(".primary-chart .panel-grip"), state.workspace.primary);
-  bindPanelDrag(document.querySelector(".top-card .panel-grip"), state.workspace.radar);
-  bindPanelDrag(document.querySelector(".workspace-panel .scanner-grip"), state.workspace.scanner);
+  bindGridResizer(els.scannerResizerNw, state.workspace.scanner, null, "nw");
+  bindPanelDrag(document.querySelector(".primary-chart .chart-heading"), state.workspace.primary);
+  bindPanelDrag(document.querySelector(".top-card .top-columns"), state.workspace.radar);
+  bindPanelDrag(document.querySelector(".workspace-panel .toolbar"), state.workspace.scanner);
+  for (const button of els.coreCloseButtons) button.addEventListener("click", () => hideCorePanel(button.dataset.closeCore));
+  for (const button of els.restorePanelButtons) button.addEventListener("click", () => restoreCorePanel(button.dataset.restorePanel));
   for (const button of els.addPanelButtons) {
     button.addEventListener("click", () => {
       panelPickerType = button.dataset.addPanel;
@@ -1902,6 +1960,7 @@ function bindEvents() {
         key,
         direction: state.topSort.key === key && state.topSort.direction === "desc" ? "asc" : "desc",
       };
+      localStorage.setItem(STORAGE_KEYS.topSort, JSON.stringify(state.topSort));
       renderTopList(state.lastMetrics);
     });
   }

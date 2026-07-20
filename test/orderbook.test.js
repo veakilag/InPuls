@@ -23,7 +23,7 @@ test("partial depth stream becomes a ready top-20 book without REST snapshot", (
   assert.deepEqual(view.asks, [[102, 1], [103, 3]]);
 });
 
-test("order book uses combined subscription and unwraps stream payload", () => {
+test("order book uses combined public stream and unwraps its payload", () => {
   class FakeSocket {
     static instances = [];
     constructor(url) { this.url = url; this.listeners = new Map(); this.sent = []; FakeSocket.instances.push(this); }
@@ -37,9 +37,9 @@ test("order book uses combined subscription and unwraps stream payload", () => {
   const feed = new OrderBookFeed({ WebSocketImpl: FakeSocket, onData: (data) => { latest = data; }, onStatus: (status) => statuses.push(status) });
   feed.select("BTCUSDT");
   const socket = FakeSocket.instances[0];
-  assert.equal(socket.url, "wss://fstream.binance.com/public/stream");
+  assert.equal(socket.url, "wss://fstream.binance.com/public/stream?streams=btcusdt@depth20@100ms");
   socket.emit("open");
-  assert.match(socket.sent[0], /btcusdt@depth20@100ms/);
+  assert.equal(socket.sent.length, 0);
   socket.emit("message", { stream: "btcusdt@depth20@100ms", data: { E: 123, u: 44, b: [["100", "2"]], a: [["101", "3"]] } });
   assert.deepEqual(latest.bids, [[100, 2]]);
   assert.equal(statuses.at(-1).text, "LIVE 100ms");

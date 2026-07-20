@@ -7,8 +7,8 @@
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="17" />
-    <link rel="stylesheet" href="./styles.css?v=17" />
+    <meta name="inpuls-build" content="18" />
+    <link rel="stylesheet" href="./styles.css?v=18" />
     <title>InPuls — в ритме рынка</title>
   </head>
   <body>
@@ -16,10 +16,10 @@
     <header class="topbar">
       <a class="brand" href="./" aria-label="InPuls — главная">
         <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span><strong>INPULS</strong><em>SCREENER <small>v17</small></em></span>
+        <span><strong>INPULS</strong><em>SCREENER <small>v18</small></em></span>
       </a>
       <div class="inplay-strip" aria-label="Монеты в игре сейчас">
-        <div class="inplay-title"><span class="inplay-label">INPLAY</span><button id="inplay-settings" type="button" title="Настроить статичные монеты и правила">⚙</button></div>
+        <div class="inplay-title"><span class="inplay-label">INPLAY</span><button id="inplay-settings" type="button" title="Настроить единые правила INPLAY">⚙</button></div>
         <div id="inplay-coins" class="inplay-coins"><span class="inplay-loading">Собираю активные монеты…</span></div>
       </div>
       <div class="topbar-actions">
@@ -76,6 +76,7 @@
                 </div>
               </div>
             </div>
+            <button class="panel-close core-panel-close" data-close-core="primary" type="button" title="Закрыть график" aria-label="Закрыть график">×</button>
           </header>
           <div class="chart-stage">
             <div class="chart-metrics" aria-label="Метрики выбранной монеты">
@@ -88,15 +89,15 @@
             <div class="chart-toolbox">
               <button class="drawing-tools-toggle" type="button" title="Инструменты рисования" aria-label="Инструменты рисования" aria-expanded="false">✎</button>
               <div class="drawing-tools-menu" hidden>
-                <button data-drawing-tool="trend" type="button">╱ Отрезок</button>
-                <button data-drawing-tool="horizontal" type="button">— Горизонталь</button>
-                <button data-drawing-tool="ruler" type="button">↕ Линейка</button>
-                <button data-drawing-tool="rectangle" type="button">▭ Прямоугольник</button>
-                <button data-drawing-tool="ray" type="button">→ Луч</button>
-                <button data-drawing-tool="freehand" type="button">∿ Рисование</button>
-                <button data-drawing-tool="alert" type="button">◉ Alert</button>
+                <button data-drawing-tool="trend" type="button" title="Отрезок" aria-label="Отрезок">╱</button>
+                <button data-drawing-tool="horizontal" type="button" title="Горизонталь" aria-label="Горизонталь">─</button>
+                <button data-drawing-tool="ruler" type="button" title="Линейка" aria-label="Линейка">↕</button>
+                <button data-drawing-tool="rectangle" type="button" title="Прямоугольник" aria-label="Прямоугольник">▭</button>
+                <button data-drawing-tool="ray" type="button" title="Луч" aria-label="Луч">→</button>
+                <button data-drawing-tool="freehand" type="button" title="Рисование" aria-label="Рисование">∿</button>
+                <button data-drawing-tool="alert" type="button" title="Alert" aria-label="Alert">◉</button>
               </div>
-              <button class="drawing-clear-button" type="button" title="Очистить все рисунки">⌫ Очистить</button>
+              <button class="drawing-clear-button" type="button" title="Очистить все рисунки" aria-label="Очистить все рисунки">⌫</button>
             </div>
             <canvas id="price-chart" aria-label="Свечной график выбранной монеты"></canvas>
             <div id="chart-tooltip" class="chart-tooltip" hidden></div>
@@ -105,21 +106,18 @@
             <span class="zoom-hint">Колесо · масштаб</span>
             <button id="chart-resizer" class="chart-resizer" type="button" aria-label="Изменить размер графика" title="Потяни по диагонали, чтобы изменить размер"></button>
           </div>
+          <button id="chart-resizer-nw" class="panel-resizer panel-resizer-nw" type="button" aria-label="Изменить размер графика из левого верхнего угла"></button>
         </article>
 
         <aside class="top-card" data-panel="radar" data-panel-id="radar">
-          <div class="radar-filterbar">
-            <button id="radar-filter-toggle" type="button" aria-expanded="false">ФИЛЬТРЫ <span id="radar-filter-count">0</span></button>
-            <div id="radar-filter-panel" class="radar-filter-panel" hidden>
-              <div class="radar-filter-builder">
-                <select id="radar-filter-metric" aria-label="Показатель фильтра"><option value="quoteVolume24h">V24, $M</option><option value="natr1m">NATR 1</option><option value="natr5m">NATR 5</option><option value="fundingRate">F, %</option><option value="correlation">C</option><option value="change24h">Рост 24ч</option></select>
-                <select id="radar-filter-operator" aria-label="Условие"><option value="gte">≥</option><option value="lte">≤</option><option value="gt">&gt;</option><option value="lt">&lt;</option></select>
-                <input id="radar-filter-value" type="number" step="any" placeholder="Значение" aria-label="Значение фильтра" />
-                <button id="radar-filter-add" type="button">＋</button>
-              </div>
-              <div id="radar-filter-chips" class="radar-filter-chips"></div>
-              <button id="radar-filter-reset" class="radar-filter-reset" type="button">Сбросить всё</button>
-            </div>
+          <div class="column-filters" aria-label="Фильтры показателей">
+            <button id="radar-filter-reset" class="column-filter-reset" type="button" title="Сбросить все фильтры">×</button>
+            <label><select data-column-filter-operator="quoteVolume24h" aria-label="Условие V24"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="quoteVolume24h" type="number" step="any" placeholder="V24 $M" /></label>
+            <label><select data-column-filter-operator="natr1m" aria-label="Условие NATR 1"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="natr1m" type="number" step="any" placeholder="NATR 1" /></label>
+            <label><select data-column-filter-operator="natr5m" aria-label="Условие NATR 5"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="natr5m" type="number" step="any" placeholder="NATR 5" /></label>
+            <label><select data-column-filter-operator="fundingRate" aria-label="Условие Funding"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="fundingRate" type="number" step="any" placeholder="F %" /></label>
+            <label><select data-column-filter-operator="correlation" aria-label="Условие корреляции"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="correlation" type="number" step="any" placeholder="C" /></label>
+            <label><select data-column-filter-operator="change24h" aria-label="Условие роста"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="change24h" type="number" step="any" placeholder="Рост %" /></label>
           </div>
           <div class="top-columns" aria-label="Сортировка монет">
             <span class="panel-grip radar-grip" title="Радар монет">⠿</span>
@@ -130,11 +128,13 @@
             <button data-top-sort="fundingRate" type="button">F <i>↕</i><span class="column-resizer" data-column-index="4"></span></button>
             <button data-top-sort="correlation" type="button">C <i>↕</i><span class="column-resizer" data-column-index="5"></span></button>
             <button data-top-sort="change24h" type="button" title="Рост за 24 часа">РОСТ <i>↕</i></button>
+            <button class="panel-close core-panel-close radar-core-close" data-close-core="radar" type="button" title="Закрыть список" aria-label="Закрыть список">×</button>
           </div>
           <div id="top-list" class="top-list" aria-live="polite">
             <div class="top-placeholder">Собираю лидеров рынка…</div>
           </div>
           <button id="radar-resizer" class="panel-resizer radar-resizer" type="button" aria-label="Изменить размер списка" title="Потяни, чтобы изменить размер списка"></button>
+          <button id="radar-resizer-nw" class="panel-resizer panel-resizer-nw" type="button" aria-label="Изменить размер списка из левого верхнего угла"></button>
         </aside>
 
         <div id="add-chart-tile" class="add-chart-tile" hidden>
@@ -142,6 +142,9 @@
           <div>
             <button data-add-panel="chart" type="button"><strong>＋ График</strong><small>или перетащи монету</small></button>
             <button data-add-panel="orderbook" type="button"><strong>＋ Стакан</strong><small>Binance Futures</small></button>
+            <button data-restore-panel="primary" type="button" hidden><strong>＋ Основной график</strong><small>Восстановить</small></button>
+            <button data-restore-panel="radar" type="button" hidden><strong>＋ Список монет</strong><small>Восстановить</small></button>
+            <button data-restore-panel="scanner" type="button" hidden><strong>＋ Активность</strong><small>Восстановить</small></button>
           </div>
         </div>
 
@@ -163,6 +166,7 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 4 4"/></svg>
             <input id="search" type="search" autocomplete="off" placeholder="Поиск монеты" />
           </label>
+          <button class="panel-close core-panel-close" data-close-core="scanner" type="button" title="Закрыть активность" aria-label="Закрыть активность">×</button>
         </div>
 
         <div id="warmup" class="warmup"><i></i><span>История: 0%</span><small>Полные показатели 5м появятся после разогрева</small></div>
@@ -193,6 +197,7 @@
           </div>
         </div>
         <button id="scanner-resizer" class="panel-resizer scanner-resizer" type="button" aria-label="Изменить размер скринера" title="Потяни, чтобы изменить размер"></button>
+        <button id="scanner-resizer-nw" class="panel-resizer panel-resizer-nw" type="button" aria-label="Изменить размер активности из левого верхнего угла"></button>
       </section>
       </section>
       <p class="risk-note">Скринер ищет рыночную активность, а не даёт команду на вход. Решение — только после чтения графика, стакана и оценки риска.</p>
@@ -277,9 +282,8 @@
 
     <dialog id="inplay-dialog" class="settings-dialog inplay-dialog">
       <form method="dialog">
-        <div class="dialog-heading"><div><span class="eyebrow">INPLAY</span><h2>Статичные монеты и правила</h2></div><button id="inplay-close" class="detail-close" type="button" aria-label="Закрыть">×</button></div>
-        <p class="inplay-help">Один набор правил применяется ко всем монетам INPLAY.</p>
-        <label class="inplay-symbols-field"><span>Тикеры через запятую</span><textarea id="inplay-symbols" rows="3" placeholder="BTC, ETH, SOL"></textarea></label>
+        <div class="dialog-heading"><div><span class="eyebrow">INPLAY</span><h2>Автоматический отбор монет</h2></div><button id="inplay-close" class="detail-close" type="button" aria-label="Закрыть">×</button></div>
+        <p class="inplay-help">INPLAY заполняется автоматически всеми монетами, которые одновременно проходят заданные условия.</p>
         <div class="inplay-global-rules">
           <label><span>V24 от, $M</span><input id="inplay-min-v24" type="number" min="0" step="1" /></label>
           <label><span>NATR 1 от, %</span><input id="inplay-min-natr1" type="number" min="0" step="0.01" /></label>
@@ -290,6 +294,6 @@
     </dialog>
 
     <div id="alert-toast" class="alert-toast" role="status" aria-live="assertive" hidden></div>
-    <script type="module" src="./app.js?v=17"></script>
+    <script type="module" src="./app.js?v=18"></script>
   </body>
 </html>

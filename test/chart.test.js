@@ -80,7 +80,7 @@ test("dense candles are compacted without losing OHLC range", () => {
   assert.equal(compacted[0].sourceSize, 4);
 });
 
-test("second-history fallback loads sampled trade pages in parallel", async () => {
+test("second-history fallback walks backward through aggregate-trade pages", async () => {
   const originalFetch = globalThis.fetch;
   const originalWebSocket = globalThis.WebSocket;
   let active = 0;
@@ -112,8 +112,8 @@ test("second-history fallback loads sampled trade pages in parallel", async () =
   try {
     const feed = new KlineFeed({ onData: (candles) => { latest = candles; }, onStatus() {} });
     await feed.select("BTCUSDT", "1s", "15m");
-    assert.equal(aggregateCalls, 10);
-    assert.ok(maxActive > 1);
+    assert.equal(aggregateCalls, 12);
+    assert.equal(maxActive, 1);
     assert.ok(latest.length > 40);
     feed.destroy();
   } finally {

@@ -49,23 +49,21 @@ export class OrderBookFeed {
     clearTimeout(this.watchdogTimer);
     this.socket?.close();
     this.onStatus({ state: "loading", text: "Подключение" });
-    const streams = [`${this.symbol.toLowerCase()}@depth20@100ms`, `${this.symbol.toLowerCase()}@depth20@250ms`];
+    const stream = `${this.symbol.toLowerCase()}@depth20@${this.attemptIndex % 4 === 3 ? "500ms" : "100ms"}`;
     const transports = [
+      { url: `wss://fstream.binance.com/public/stream?streams=${stream}`, subscribe: false },
+      { url: `wss://fstream.binance.com/public/ws/${stream}`, subscribe: false },
       { url: "wss://fstream.binance.com/public/stream", subscribe: true },
-      { url: "wss://fstream.binance.com/public/ws", subscribe: false },
-      { url: "wss://stream.binancefuture.com/public/stream", subscribe: true },
-      { url: "wss://stream.binancefuture.com/public/ws", subscribe: false },
+      { url: `wss://stream.binancefuture.com/public/ws/${stream}`, subscribe: false },
     ];
-    const attempt = this.attemptIndex % (transports.length * streams.length);
-    const transport = transports[attempt % transports.length];
-    const stream = streams[Math.floor(attempt / transports.length)];
-    const socket = new this.WebSocketImpl(transport.subscribe ? transport.url : `${transport.url}/${stream}`);
+    const transport = transports[this.attemptIndex % transports.length];
+    const socket = new this.WebSocketImpl(transport.url);
     this.socket = socket;
     socket.addEventListener("open", () => {
       if (generation !== this.generation) return;
       if (transport.subscribe) socket.send(JSON.stringify({ method: "SUBSCRIBE", params: [stream], id: Date.now() % 2_147_483_647 }));
       this.onStatus({ state: "loading", text: "Синхронизация" });
-      this.watchdogTimer = setTimeout(() => socket.close(), 4200);
+      this.watchdogTimer = setTimeout(() => socket.close(), 7000);
     });
     socket.addEventListener("message", (event) => {
       if (generation !== this.generation) return;
@@ -78,7 +76,7 @@ export class OrderBookFeed {
       clearTimeout(this.watchdogTimer);
       this.onData({ symbol: this.symbol, ...view, lastUpdateId: Number(update.u) || null, eventTime: Number(update.E) || Date.now() });
       this.attemptIndex = 0;
-      this.onStatus({ state: "online", text: stream.endsWith("250ms") ? "LIVE 250ms" : "LIVE 100ms" });
+      this.onStatus({ state: "online", text: stream.endsWith("500ms") ? "LIVE 500ms" : "LIVE 100ms" });
     });
     socket.addEventListener("close", () => {
       if (generation !== this.generation) return;

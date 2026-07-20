@@ -1,3 +1,3 @@
-InPuls v17
-Build: alert-snapping-cockpit
-Features: ctrl-ohlc-snap, one-shot-tools, price-alerts, compact-filters, robust-depth, global-font-scale, progressive-timezones
+InPuls v18
+Build: persistent-trading-cockpit
+Features: indexed-second-history, persistent-layout-and-drawings, dual-corner-resize, draggable-alerts, dom-orderbook, column-filters, full-accent-theme

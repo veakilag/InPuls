@@ -145,6 +145,44 @@ export function compactCandles(candles, maxBars) {
   return result;
 }
 
+class SecondHistoryStore {
+  constructor() { this.dbPromise = null; }
+
+  #open() {
+    if (!globalThis.indexedDB) return Promise.resolve(null);
+    if (this.dbPromise) return this.dbPromise;
+    this.dbPromise = new Promise((resolve) => {
+      const request = indexedDB.open("inpuls-second-history-v1", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("series", { keyPath: "key" });
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(null);
+    });
+    return this.dbPromise;
+  }
+
+  async get(key) {
+    const db = await this.#open();
+    if (!db) return [];
+    return new Promise((resolve) => {
+      const request = db.transaction("series", "readonly").objectStore("series").get(key);
+      request.onsuccess = () => resolve(Array.isArray(request.result?.candles) ? request.result.candles : []);
+      request.onerror = () => resolve([]);
+    });
+  }
+
+  async set(key, candles) {
+    const db = await this.#open();
+    if (!db) return;
+    await new Promise((resolve) => {
+      const transaction = db.transaction("series", "readwrite");
+      transaction.objectStore("series").put({ key, candles: candles.slice(-30_000), updatedAt: Date.now() });
+      transaction.oncomplete = transaction.onerror = transaction.onabort = () => resolve();
+    });
+  }
+}
+
+const secondHistoryStore = new SecondHistoryStore();
+
 export class KlineFeed {
   constructor({ onData, onStatus }) {
     this.onData = onData;
@@ -157,12 +195,13 @@ export class KlineFeed {
     this.reconnectTimer = null;
     this.generation = 0;
     this.seriesCache = new Map();
+    this.historyFlushTimer = null;
   }
 
   async select(symbol, interval = "1m", range = "1h") {
     if (symbol === this.symbol && interval === this.interval && range === this.range && this.socket) return;
     if (this.symbol && this.interval && this.candles.length) {
-      this.seriesCache.set(`${this.symbol}:${this.interval}`, this.candles.slice(-1500));
+      this.seriesCache.set(`${this.symbol}:${this.interval}`, this.candles.slice(-(this.interval.endsWith("s") ? 30_000 : 1500)));
     }
     this.symbol = symbol;
     this.interval = interval;
@@ -181,7 +220,14 @@ export class KlineFeed {
       const targetCandles = Math.max(30, Math.ceil((RANGE_MS[range] ?? RANGE_MS["1h"]) / (INTERVAL_MS[interval] ?? 60_000)));
       let loadedCandles;
       if (secondsMode) {
-        loadedCandles = await this.#fetchSecondCandles(symbol, INTERVAL_MS[interval], Math.min(1500, targetCandles), generation);
+        const saved = await secondHistoryStore.get(cacheKey);
+        if (generation !== this.generation) return;
+        if (saved.length) {
+          this.candles = mergeCandles(saved.filter(isValidCandle), this.candles).slice(-30_000);
+          this.onData(this.candles, { symbol, interval, range, targetCandles, historySource: "device" });
+          this.onStatus({ state: "loading", text: `История устройства: ${this.candles.length.toLocaleString("ru-RU")} свечей` });
+        }
+        loadedCandles = await this.#fetchSecondCandles(symbol, INTERVAL_MS[interval], Math.min(30_000, targetCandles), generation);
       } else {
         const query = new URLSearchParams({ symbol, interval, limit: "1500" });
         const response = await fetch(`${KLINES_REST}?${query}`, { signal: this.abortController.signal, cache: "no-store" });
@@ -190,9 +236,10 @@ export class KlineFeed {
         loadedCandles = rows.map(parseRestKline).filter(isValidCandle);
       }
       if (generation !== this.generation) return;
-      this.candles = mergeCandles(loadedCandles, this.candles).slice(-1500);
+      this.candles = mergeCandles(loadedCandles, this.candles).slice(-(secondsMode ? 30_000 : 1500));
       this.seriesCache.set(cacheKey, this.candles.slice());
       this.onData(this.candles, { symbol, interval, range, targetCandles });
+      if (secondsMode) this.#scheduleSecondHistorySave();
     } catch (error) {
       if (error.name !== "AbortError" && generation === this.generation) {
         this.onStatus({ state: "warning", text: "История недоступна — собираю новые свечи" });
@@ -203,33 +250,8 @@ export class KlineFeed {
   }
 
   async #fetchSecondCandles(symbol, bucketMs, desiredCandles, generation) {
-    try {
-      const secondsNeeded = Math.min(15_000, Math.max(60, Math.ceil((desiredCandles * bucketMs) / 1000)));
-      const rawSeconds = [];
-      let endTime;
-      for (let page = 0; page < 10 && rawSeconds.length < secondsNeeded && generation === this.generation; page += 1) {
-        const limit = Math.min(1500, secondsNeeded - rawSeconds.length);
-        const query = new URLSearchParams({ symbol, interval: "1s", limit: String(limit) });
-        if (Number.isFinite(endTime)) query.set("endTime", String(endTime));
-        const response = await fetch(`${KLINES_REST}?${query}`, { signal: this.abortController.signal, cache: "no-store" });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const rows = await response.json();
-        const pageCandles = rows.map(parseRestKline).filter(isValidCandle);
-        if (!pageCandles.length) break;
-        rawSeconds.unshift(...pageCandles);
-        const nextEnd = pageCandles[0].time - 1;
-        if (nextEnd === endTime) break;
-        endTime = nextEnd;
-      }
-      if (rawSeconds.length) return aggregateCandles(rawSeconds, bucketMs).slice(-desiredCandles);
-    } catch (error) {
-      if (error.name === "AbortError") throw error;
-      // Some USD-M clusters do not expose historical 1s klines yet.
-      // Fall back to public aggregate trades and keep accumulating locally.
-    }
-
-    const rows = await this.#fetchAggregateTradeHistory(symbol, bucketMs, Math.min(300, desiredCandles), generation);
-    return aggregateTrades(rows, bucketMs).slice(-Math.min(300, desiredCandles));
+    const rows = await this.#fetchAggregateTradeHistory(symbol, bucketMs, desiredCandles, generation);
+    return aggregateTrades(rows, bucketMs).slice(-desiredCandles);
   }
 
   async #fetchAggregateTradeHistory(symbol, bucketMs, desiredCandles, generation) {
@@ -240,17 +262,30 @@ export class KlineFeed {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.json();
     };
-    const now = Date.now();
-    const duration = Math.max(60_000, desiredCandles * bucketMs);
-    const pageCount = 10;
-    const endTimes = Array.from({ length: pageCount }, (_, index) => now - Math.round((duration * index) / (pageCount - 1)));
-    const results = await Promise.allSettled(endTimes.map((endTime) => fetchPage(endTime)));
-    const pages = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
-    if (generation !== this.generation) return [];
-    if (!pages.length) throw new Error("Aggregate trade history unavailable");
     const byId = new Map();
-    for (const trade of pages.flat()) byId.set(Number(trade.a), trade);
+    let endTime = Date.now();
+    const desiredDuration = Math.max(60_000, desiredCandles * bucketMs);
+    let newestTime = null;
+    for (let page = 0; page < 12 && generation === this.generation; page += 1) {
+      const rows = await fetchPage(endTime);
+      if (!Array.isArray(rows) || !rows.length) break;
+      for (const trade of rows) byId.set(Number(trade.a), trade);
+      const oldestTime = Number(rows[0]?.T);
+      newestTime ??= Number(rows.at(-1)?.T);
+      if (!Number.isFinite(oldestTime) || oldestTime >= endTime) break;
+      endTime = oldestTime - 1;
+      if (Number.isFinite(newestTime) && newestTime - oldestTime >= desiredDuration) break;
+    }
+    if (generation !== this.generation) return [];
+    if (!byId.size) throw new Error("Aggregate trade history unavailable");
     return [...byId.values()].sort((left, right) => Number(left.T) - Number(right.T));
+  }
+
+  #scheduleSecondHistorySave() {
+    if (!this.interval?.endsWith("s") || !this.symbol) return;
+    clearTimeout(this.historyFlushTimer);
+    const key = `${this.symbol}:${this.interval}`;
+    this.historyFlushTimer = setTimeout(() => secondHistoryStore.set(key, this.candles), 900);
   }
 
   destroy() {
@@ -279,9 +314,10 @@ export class KlineFeed {
           candle.low = Math.min(last.low, candle.low);
           candle.volume += last.volume;
         }
-        this.candles = upsertCandle(this.candles, candle, 1500);
+        this.candles = upsertCandle(this.candles, candle, secondsMode ? 30_000 : 1500);
         this.seriesCache.set(`${this.symbol}:${this.interval}`, this.candles.slice());
         this.onData(this.candles, { symbol: this.symbol, interval: this.interval, range: this.range });
+        if (secondsMode) this.#scheduleSecondHistorySave();
       } catch {
         // Ignore one malformed market message and keep the stream alive.
       }
@@ -298,6 +334,7 @@ export class KlineFeed {
 
   #cleanup() {
     clearTimeout(this.reconnectTimer);
+    clearTimeout(this.historyFlushTimer);
     this.abortController?.abort();
     if (this.socket) {
       this.socket.onclose = null;
@@ -308,7 +345,7 @@ export class KlineFeed {
 }
 
 export class CandlestickChart {
-  constructor(canvas, tooltip, { onAlert = null } = {}) {
+  constructor(canvas, tooltip, { onAlert = null, storageKey = null } = {}) {
     this.canvas = canvas;
     this.tooltip = tooltip;
     this.context = canvas.getContext("2d");
@@ -326,7 +363,9 @@ export class CandlestickChart {
     this.sessionsVisible = true;
     this.activeTool = null;
     this.drawings = [];
-    this.drawingStore = new Map();
+    this.storageKey = storageKey;
+    this.drawingStore = this.#loadDrawingStore();
+    this.viewportStore = this.#loadViewportStore();
     this.drawingSymbol = null;
     this.undoStack = [];
     this.draftDrawing = null;
@@ -368,6 +407,7 @@ export class CandlestickChart {
       this.followLatest = true;
       this.pricePan = 0;
       this.viewStart = Math.max(0, this.candles.length - (this.visibleCount ?? 80));
+      this.#persistViewport();
       this.render();
     });
     this.keyHandler = (event) => {
@@ -420,6 +460,7 @@ export class CandlestickChart {
     this.draftDrawing = null;
     this.drawingGesture = null;
     this.setTool(null);
+    this.#persistDrawings();
   }
 
   undoDrawing() {
@@ -428,7 +469,50 @@ export class CandlestickChart {
     if (action.type === "add") this.drawings = this.drawings.filter((item) => item.id !== action.drawing.id);
     else if (action.type === "delete") this.drawings.splice(Math.min(action.index, this.drawings.length), 0, action.drawing);
     else if (action.type === "clear") this.drawings = action.drawings.map((item) => structuredClone(item));
+    this.#persistDrawings();
     this.render();
+  }
+
+  #loadDrawingStore() {
+    if (!this.storageKey || typeof localStorage === "undefined") return new Map();
+    try {
+      const saved = JSON.parse(localStorage.getItem(this.storageKey) || "{}");
+      return new Map(Object.entries(saved).filter(([, value]) => Array.isArray(value)));
+    } catch {
+      return new Map();
+    }
+  }
+
+  #loadViewportStore() {
+    if (!this.storageKey || typeof localStorage === "undefined") return new Map();
+    try {
+      const saved = JSON.parse(localStorage.getItem(`${this.storageKey}-viewport`) || "{}");
+      return new Map(Object.entries(saved));
+    } catch {
+      return new Map();
+    }
+  }
+
+  #persistViewport() {
+    const symbol = this.meta?.symbol;
+    if (!symbol || !this.storageKey || typeof localStorage === "undefined") return;
+    const anchorTime = this.candles[Math.max(0, Math.min(this.candles.length - 1, Math.floor(this.viewStart ?? 0)))]?.time ?? null;
+    this.viewportStore.set(symbol, {
+      anchorTime,
+      visibleCount: this.visibleCount,
+      priceScale: this.priceScale,
+      pricePan: this.pricePan,
+      followLatest: this.followLatest,
+    });
+    try { localStorage.setItem(`${this.storageKey}-viewport`, JSON.stringify(Object.fromEntries(this.viewportStore))); } catch {}
+  }
+
+  #persistDrawings() {
+    if (this.drawingSymbol) this.drawingStore.set(this.drawingSymbol, this.drawings.map((item) => structuredClone(item)));
+    if (!this.storageKey || typeof localStorage === "undefined") return;
+    try {
+      localStorage.setItem(this.storageKey, JSON.stringify(Object.fromEntries(this.drawingStore)));
+    } catch {}
   }
 
   setTheme(theme) {
@@ -437,6 +521,8 @@ export class CandlestickChart {
   }
 
   destroy() {
+    this.#persistDrawings();
+    this.#persistViewport();
     this.resizeObserver.disconnect();
     this.drag = null;
     window.removeEventListener("keydown", this.keyHandler);
@@ -445,9 +531,10 @@ export class CandlestickChart {
   setData(candles, meta) {
     const nextKey = `${meta?.symbol ?? ""}:${meta?.interval ?? ""}:${meta?.range ?? ""}`;
     const seriesChanged = nextKey !== this.seriesKey;
-    const symbolChanged = this.meta?.symbol && this.meta.symbol !== meta?.symbol;
+    const symbolChanged = Boolean(meta?.symbol && this.meta?.symbol !== meta.symbol);
+    if (symbolChanged && this.meta?.symbol) this.#persistViewport();
     if (meta?.symbol && meta.symbol !== this.drawingSymbol) {
-      if (this.drawingSymbol) this.drawingStore.set(this.drawingSymbol, this.drawings.map((item) => structuredClone(item)));
+      if (this.drawingSymbol) this.#persistDrawings();
       this.drawingSymbol = meta.symbol;
       this.drawings = (this.drawingStore.get(meta.symbol) ?? []).map((item) => structuredClone(item));
       this.undoStack = [];
@@ -458,7 +545,7 @@ export class CandlestickChart {
       ? this.candles[Math.max(0, Math.floor(this.viewStart ?? 0))]?.time
       : null;
     if (seriesChanged) {
-      this.pendingViewport = this.candles.length && this.visibleCount
+      this.pendingViewport = !symbolChanged && this.candles.length && this.visibleCount
         ? {
             latestRatio: (this.candles.length - 1 - (this.viewStart ?? 0)) / this.visibleCount,
             followLatest: this.followLatest,
@@ -471,6 +558,17 @@ export class CandlestickChart {
     }
     this.candles = candles;
     this.meta = meta;
+    if (symbolChanged) {
+      const savedViewport = this.viewportStore.get(meta.symbol);
+      if (savedViewport) {
+        this.visibleCount = Number(savedViewport.visibleCount) || this.visibleCount;
+        this.priceScale = Number(savedViewport.priceScale) || 1;
+        this.pricePan = Number(savedViewport.pricePan) || 0;
+        this.followLatest = savedViewport.followLatest !== false;
+        const anchor = candles.findIndex((candle) => candle.time === savedViewport.anchorTime);
+        if (anchor >= 0) this.viewStart = anchor;
+      }
+    }
     this.#checkAlerts();
     if (oldAnchorTime !== null) {
       const nextAnchor = candles.findIndex((candle) => candle.time === oldAnchorTime);
@@ -767,21 +865,25 @@ export class CandlestickChart {
     this.drawingGesture = null;
     this.activeTool = null;
     this.onToolChange?.(null);
+    this.#persistDrawings();
     this.render();
   }
 
   #checkAlerts() {
     const current = this.candles.at(-1)?.close;
     if (!Number.isFinite(current)) return;
+    let changed = false;
     for (const alert of this.drawings.filter((item) => item.type === "alert" && !item.triggered)) {
       const previous = Number(alert.referencePrice);
       const target = Number(alert.a?.price);
       if (Number.isFinite(previous) && Number.isFinite(target) && previous !== current && (previous - target) * (current - target) <= 0) {
         alert.triggered = true;
+        changed = true;
         this.onAlert?.({ symbol: this.meta?.symbol ?? "", price: target });
       }
       alert.referencePrice = current;
     }
+    if (changed) this.#persistDrawings();
   }
 
   #drawDrawings(ctx) {
@@ -924,6 +1026,7 @@ export class CandlestickChart {
     if (best.index >= 0) {
       const [drawing] = this.drawings.splice(best.index, 1);
       this.undoStack.push({ type: "delete", drawing, index: best.index });
+      this.#persistDrawings();
     }
     this.render();
   }
@@ -953,6 +1056,15 @@ export class CandlestickChart {
       this.render();
       return;
     }
+    if (this.drag?.type === "alert") {
+      const deltaY = y - this.drag.startY;
+      this.drag.drawing.a.price = this.drag.startPrice - (deltaY / Math.max(this.drag.plotHeight, 1)) * this.drag.priceSpan;
+      this.drag.drawing.triggered = false;
+      this.drag.drawing.referencePrice = this.candles.at(-1)?.close ?? this.drag.drawing.a.price;
+      this.tooltip.hidden = true;
+      this.render();
+      return;
+    }
     if (this.drag?.type === "time") {
       const deltaX = x - this.drag.startX;
       const nextCount = visibleCountFromDrag(this.drag.startCount, deltaX, this.candles.length);
@@ -975,7 +1087,8 @@ export class CandlestickChart {
       return;
     }
     const axis = this.#axisAt(x, y);
-    this.canvas.style.cursor = axis === "price" ? "ns-resize" : axis === "time" ? "ew-resize" : "crosshair";
+    const nearAlert = !axis && this.drawings.some((drawing) => drawing.type === "alert" && this.#drawingDistance(drawing, { x, y }) < 8);
+    this.canvas.style.cursor = axis === "price" ? "ns-resize" : axis === "time" ? "ew-resize" : nearAlert ? "ns-resize" : "crosshair";
     this.hoverX = axis ? null : x;
     this.hoverY = axis ? null : y;
     this.render();
@@ -1017,11 +1130,23 @@ export class CandlestickChart {
       this.render();
       return;
     }
+    const alert = !axis
+      ? this.drawings.find((drawing) => drawing.type === "alert" && this.#drawingDistance(drawing, { x, y }) < 8)
+      : null;
     event.preventDefault();
     this.canvas.setPointerCapture(event.pointerId);
     this.hoverX = null;
     this.tooltip.hidden = true;
-    this.drag = axis === "price"
+    this.drag = alert
+      ? {
+          type: "alert",
+          drawing: alert,
+          startY: y,
+          startPrice: alert.a.price,
+          priceSpan: this.layout.maxPrice - this.layout.minPrice,
+          plotHeight: this.layout.plotHeight,
+        }
+      : axis === "price"
       ? { type: "price", startY: y, startScale: this.priceScale }
       : axis === "time"
         ? { type: "time", startX: x, startCount: this.visibleCount, endIndex: this.viewStart + this.visibleCount }
@@ -1043,6 +1168,8 @@ export class CandlestickChart {
     }
     if (!this.drag) return;
     if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
+    if (this.drag.type === "alert") this.#persistDrawings();
+    this.#persistViewport();
     this.drag = null;
     this.canvas.style.cursor = "crosshair";
   }
@@ -1061,6 +1188,7 @@ export class CandlestickChart {
     this.viewStart = Math.max(0, Math.min(this.viewStart, Math.max(0, this.candles.length - 1)));
     this.followLatest = false;
     this.tooltip.hidden = true;
+    this.#persistViewport();
     this.render();
   }
 
