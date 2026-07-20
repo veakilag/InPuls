@@ -3,6 +3,7 @@ const KLINES_REST = "https://fapi.binance.com/fapi/v1/klines";
 const AGG_TRADES_REST = "https://fapi.binance.com/fapi/v1/aggTrades";
 const RANGE_MS = { "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000, "7d": 604_800_000, "30d": 2_592_000_000, "90d": 7_776_000_000, "365d": 31_536_000_000 };
 const INTERVAL_MS = { "1s": 1_000, "5s": 5_000, "15s": 15_000, "1m": 60_000, "3m": 180_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000, "1h": 3_600_000, "2h": 7_200_000, "4h": 14_400_000, "12h": 43_200_000, "1d": 86_400_000, "3d": 259_200_000, "1w": 604_800_000, "1M": 2_592_000_000 };
+const MIN_VISIBLE_CANDLES = 5;
 
 export function parseRestKline(row) {
   return {
@@ -50,7 +51,7 @@ export function scaleFromDrag(initialScale, delta, sensitivity = 120) {
 }
 
 export function visibleCountFromDrag(initialCount, delta, total) {
-  return Math.round(Math.max(Math.min(20, total), Math.min(total, initialCount * Math.exp(delta / 180))));
+  return Math.round(Math.max(Math.min(MIN_VISIBLE_CANDLES, total), Math.min(total, initialCount * Math.exp(delta / 180))));
 }
 
 export function calculateNatr(candles, period = 14) {
@@ -194,10 +195,12 @@ export class CandlestickChart {
     this.context = canvas.getContext("2d");
     this.candles = [];
     this.hoverX = null;
+    this.hoverY = null;
     this.layout = null;
     this.visibleCount = null;
     this.viewStart = null;
     this.priceScale = 1;
+    this.priceOffset = 0;
     this.drag = null;
     this.resizeObserver = new ResizeObserver(() => this.render());
     this.resizeObserver.observe(canvas.parentElement);
@@ -208,20 +211,35 @@ export class CandlestickChart {
     canvas.addEventListener("pointerleave", () => {
       if (this.drag) return;
       this.hoverX = null;
+      this.hoverY = null;
       this.tooltip.hidden = true;
       this.render();
     });
     canvas.addEventListener("wheel", (event) => this.#handleWheel(event), { passive: false });
+    document.addEventListener("wheel", (event) => {
+      if (event.ctrlKey && event.target === this.canvas) event.preventDefault();
+    }, { passive: false, capture: true });
   }
 
   setData(candles, meta) {
     const nextKey = `${meta?.symbol ?? ""}:${meta?.interval ?? ""}:${meta?.range ?? ""}`;
     if (nextKey !== this.seriesKey) {
+      const sameSymbol = Boolean(this.meta?.symbol && this.meta.symbol === meta?.symbol);
+      if (sameSymbol && this.candles.length && this.visibleCount) {
+        const oldInterval = INTERVAL_MS[this.meta?.interval] ?? 60_000;
+        this.pendingViewport = {
+          startTime: this.candles[Math.min(this.viewStart ?? 0, this.candles.length - 1)]?.time,
+          duration: this.visibleCount * oldInterval,
+        };
+      } else {
+        this.pendingViewport = null;
+        this.priceScale = 1;
+        this.priceOffset = 0;
+      }
       this.seriesKey = nextKey;
       this.visibleCount = null;
       this.viewStart = null;
       this.autoViewport = true;
-      this.priceScale = 1;
     }
     const wasAtEnd = this.viewStart === null || !this.candles.length || this.viewStart + (this.visibleCount ?? 0) >= this.candles.length - 1;
     this.candles = candles;
@@ -251,14 +269,20 @@ export class CandlestickChart {
     const priceBottom = height - margins.bottom - volumeHeight - 14;
     const plotHeight = priceBottom - margins.top;
     const requested = this.meta?.targetCandles ?? this.candles.length;
-    const defaultVisible = Math.max(20, Math.min(Math.floor(plotWidth / 2), requested, this.candles.length));
+    const defaultVisible = Math.max(MIN_VISIBLE_CANDLES, Math.min(Math.floor(plotWidth / 2), requested, this.candles.length));
     if (!this.visibleCount || (this.autoViewport && this.candles.length)) {
-      this.visibleCount = defaultVisible;
+      if (this.pendingViewport) {
+        const intervalMs = INTERVAL_MS[this.meta?.interval] ?? 60_000;
+        this.visibleCount = Math.max(MIN_VISIBLE_CANDLES, Math.min(this.candles.length, Math.round(this.pendingViewport.duration / intervalMs)));
+        const index = this.candles.findIndex((candle) => candle.time >= this.pendingViewport.startTime);
+        this.viewStart = index < 0 ? Math.max(0, this.candles.length - this.visibleCount) : index;
+        this.pendingViewport = null;
+      } else this.visibleCount = defaultVisible;
       this.autoViewport = false;
     }
-    this.visibleCount = Math.max(20, Math.min(this.visibleCount, this.candles.length || 20));
+    this.visibleCount = Math.max(MIN_VISIBLE_CANDLES, Math.min(this.visibleCount, this.candles.length || MIN_VISIBLE_CANDLES));
     if (this.viewStart === null) this.viewStart = Math.max(0, this.candles.length - this.visibleCount);
-    this.viewStart = Math.max(0, Math.min(this.viewStart, Math.max(0, this.candles.length - this.visibleCount)));
+    this.viewStart = Math.max(0, Math.min(this.viewStart, this.#maxViewStart()));
     const visible = this.candles.slice(this.viewStart, this.viewStart + this.visibleCount);
 
     this.#drawBackground(ctx, width, height, margins, priceBottom, volumeHeight);
@@ -273,17 +297,18 @@ export class CandlestickChart {
     const rawMin = Math.min(...visible.map((item) => item.low));
     const rawMax = Math.max(...visible.map((item) => item.high));
     const priceSpan = rawMax - rawMin || rawMax * 0.001 || 1;
-    const priceCenter = (rawMax + rawMin) / 2;
+    const priceCenter = (rawMax + rawMin) / 2 + this.priceOffset;
     const scaledSpan = priceSpan * 1.16 * this.priceScale;
     const minPrice = priceCenter - scaledSpan / 2;
     const maxPrice = priceCenter + scaledSpan / 2;
     const maxVolume = Math.max(...visible.map((item) => item.volume), 1);
-    const step = plotWidth / visible.length;
+    const step = plotWidth / this.visibleCount;
     const bodyWidth = Math.max(2, Math.min(9, step * 0.68));
     const y = (price) => margins.top + ((maxPrice - price) / (maxPrice - minPrice)) * plotHeight;
 
     this.#drawPriceGrid(ctx, width, margins, minPrice, maxPrice, y);
-    this.#drawTimeGrid(ctx, visible, margins, plotWidth, height);
+    this.#drawTimeGrid(ctx, margins, plotWidth, height);
+    this.#drawSessionMarkers(ctx, margins, plotWidth, height);
 
     visible.forEach((candle, index) => {
       const x = margins.left + step * index + step / 2;
@@ -306,10 +331,11 @@ export class CandlestickChart {
       ctx.globalAlpha = 1;
     });
 
-    const last = visible.at(-1);
-    this.#drawLastPrice(ctx, width, margins, y(last.close), last.close, last.close >= last.open);
-    this.layout = { visible, margins, step, plotWidth, width, height, startIndex: this.viewStart };
-    if (this.hoverX !== null) this.#drawCrosshair(ctx);
+    const current = this.candles.at(-1);
+    const currentY = Math.max(margins.top, Math.min(priceBottom, y(current.close)));
+    this.#drawLastPrice(ctx, width, margins, currentY, current.close, current.close >= current.open);
+    this.layout = { visible, margins, step, plotWidth, plotHeight, priceBottom, minPrice, maxPrice, scaledSpan, width, height, startIndex: this.viewStart };
+    if (this.hoverX !== null && this.hoverY !== null) this.#drawCrosshair(ctx);
   }
 
   #drawBackground(ctx, width, height, margins, priceBottom, volumeHeight) {
@@ -342,21 +368,53 @@ export class CandlestickChart {
     }
   }
 
-  #drawTimeGrid(ctx, visible, margins, plotWidth, height) {
+  #drawTimeGrid(ctx, margins, plotWidth, height) {
     const divisions = Math.min(5, Math.max(2, Math.floor(plotWidth / 140)));
+    const intervalMs = INTERVAL_MS[this.meta?.interval] ?? 60_000;
+    const startTime = this.candles[Math.min(this.viewStart, this.candles.length - 1)]?.time ?? Date.now();
     ctx.font = "8px Inter, sans-serif";
     ctx.textAlign = "center";
     for (let index = 0; index <= divisions; index += 1) {
       const x = margins.left + (plotWidth / divisions) * index;
-      const candleIndex = Math.min(visible.length - 1, Math.round((visible.length - 1) * (index / divisions)));
+      const time = startTime + intervalMs * this.visibleCount * (index / divisions);
       ctx.strokeStyle = "rgba(113,139,171,.06)";
       ctx.beginPath();
       ctx.moveTo(x, margins.top);
       ctx.lineTo(x, height - margins.bottom);
       ctx.stroke();
       ctx.fillStyle = "#64738a";
-      ctx.fillText(formatTime(visible[candleIndex].time), x, height - 9);
+      ctx.fillText(formatTime(time), x, height - 9);
     }
+  }
+
+  #drawSessionMarkers(ctx, margins, plotWidth, height) {
+    if (!this.candles.length) return;
+    const intervalMs = INTERVAL_MS[this.meta?.interval] ?? 60_000;
+    const startTime = this.candles[Math.min(this.viewStart, this.candles.length - 1)]?.time;
+    const endTime = startTime + intervalMs * this.visibleCount;
+    const firstDay = Math.floor(startTime / 86_400_000) * 86_400_000;
+    const markers = [];
+    for (let day = firstDay; day <= endTime; day += 86_400_000) {
+      markers.push({ time: day, label: "DAY/ASIA 00:00 UTC", color: "rgba(55,230,161,.26)" });
+      markers.push({ time: newYorkOpenUtc(day), label: `US ${formatUtcTime(newYorkOpenUtc(day))} UTC`, color: "rgba(157,108,255,.28)" });
+    }
+    ctx.save();
+    ctx.font = "7px Inter, sans-serif";
+    ctx.textAlign = "left";
+    for (const marker of markers) {
+      if (marker.time < startTime || marker.time > endTime) continue;
+      const x = margins.left + ((marker.time - startTime) / (endTime - startTime)) * plotWidth;
+      ctx.setLineDash([3, 5]);
+      ctx.strokeStyle = marker.color;
+      ctx.beginPath();
+      ctx.moveTo(x, margins.top);
+      ctx.lineTo(x, height - margins.bottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = marker.color.replace(/\.[0-9]+\)/, ".85)");
+      ctx.fillText(marker.label, Math.min(x + 4, margins.left + plotWidth - 70), height - margins.bottom - 5);
+    }
+    ctx.restore();
   }
 
   #drawLastPrice(ctx, width, margins, lineY, price, up) {
@@ -393,15 +451,17 @@ export class CandlestickChart {
       const deltaX = x - this.drag.startX;
       const nextCount = visibleCountFromDrag(this.drag.startCount, deltaX, this.candles.length);
       this.visibleCount = nextCount;
-      this.viewStart = Math.max(0, Math.min(this.drag.endIndex - nextCount, Math.max(0, this.candles.length - nextCount)));
+      this.viewStart = Math.max(0, Math.min(this.drag.endIndex - nextCount, this.#maxViewStart()));
       this.tooltip.hidden = true;
       this.render();
       return;
     }
     if (this.drag?.type === "pan") {
       const deltaX = x - this.drag.startX;
+      const deltaY = y - this.drag.startY;
       const candleShift = Math.round(deltaX / Math.max(this.drag.step, 1));
-      this.viewStart = Math.max(0, Math.min(this.drag.startView - candleShift, Math.max(0, this.candles.length - this.visibleCount)));
+      this.viewStart = Math.max(0, Math.min(this.drag.startView - candleShift, this.#maxViewStart()));
+      this.priceOffset = this.drag.startPriceOffset + (deltaY / Math.max(this.drag.plotHeight, 1)) * this.drag.priceRange;
       this.tooltip.hidden = true;
       this.render();
       return;
@@ -409,6 +469,7 @@ export class CandlestickChart {
     const axis = this.#axisAt(x, y);
     this.canvas.style.cursor = axis === "price" ? "ns-resize" : axis === "time" ? "ew-resize" : "crosshair";
     this.hoverX = axis ? null : x;
+    this.hoverY = axis ? null : y;
     this.render();
   }
 
@@ -417,6 +478,10 @@ export class CandlestickChart {
     if (x >= this.layout.width - this.layout.margins.right) return "price";
     if (y >= this.layout.height - this.layout.margins.bottom) return "time";
     return null;
+  }
+
+  #maxViewStart() {
+    return Math.max(0, this.candles.length - Math.min(MIN_VISIBLE_CANDLES, this.visibleCount ?? MIN_VISIBLE_CANDLES));
   }
 
   #handlePointerDown(event) {
@@ -433,7 +498,7 @@ export class CandlestickChart {
       ? { type: "price", startY: y, startScale: this.priceScale }
       : axis === "time"
         ? { type: "time", startX: x, startCount: this.visibleCount, endIndex: this.viewStart + this.visibleCount }
-        : { type: "pan", startX: x, startView: this.viewStart, step: this.layout.step };
+        : { type: "pan", startX: x, startY: y, startView: this.viewStart, step: this.layout.step, startPriceOffset: this.priceOffset, plotHeight: this.layout.plotHeight, priceRange: this.layout.scaledSpan };
     this.canvas.style.cursor = axis === "price" ? "ns-resize" : axis === "time" ? "ew-resize" : "grabbing";
   }
 
@@ -452,35 +517,42 @@ export class CandlestickChart {
     const anchorRatio = (x - this.layout.margins.left) / this.layout.plotWidth;
     const anchorIndex = this.layout.startIndex + anchorRatio * this.visibleCount;
     const factor = event.deltaY < 0 ? 0.78 : 1.28;
-    const nextCount = Math.round(Math.max(20, Math.min(this.candles.length, this.visibleCount * factor)));
+    const nextCount = Math.round(Math.max(MIN_VISIBLE_CANDLES, Math.min(this.candles.length, this.visibleCount * factor)));
     this.visibleCount = nextCount;
     this.viewStart = Math.round(anchorIndex - anchorRatio * nextCount);
-    this.viewStart = Math.max(0, Math.min(this.viewStart, Math.max(0, this.candles.length - nextCount)));
+    this.viewStart = Math.max(0, Math.min(this.viewStart, this.#maxViewStart()));
     this.tooltip.hidden = true;
     this.render();
   }
 
   #drawCrosshair(ctx) {
     if (!this.layout) return;
-    const { visible, margins, step, plotWidth, height } = this.layout;
-    const rawIndex = Math.floor((this.hoverX - margins.left) / step);
-    const index = Math.max(0, Math.min(visible.length - 1, rawIndex));
-    const candle = visible[index];
-    const x = margins.left + step * index + step / 2;
+    const { margins, plotWidth, plotHeight, minPrice, maxPrice, priceBottom, height, width } = this.layout;
+    const x = Math.max(margins.left, Math.min(this.hoverX, margins.left + plotWidth));
+    const y = Math.max(margins.top, Math.min(this.hoverY, priceBottom));
+    const price = maxPrice - ((y - margins.top) / plotHeight) * (maxPrice - minPrice);
+    const intervalMs = INTERVAL_MS[this.meta?.interval] ?? 60_000;
+    const startTime = this.candles[Math.min(this.viewStart, this.candles.length - 1)]?.time ?? Date.now();
+    const time = startTime + ((x - margins.left) / plotWidth) * this.visibleCount * intervalMs;
     ctx.save();
     ctx.setLineDash([3, 4]);
-    ctx.strokeStyle = "rgba(200,214,232,.4)";
+    ctx.strokeStyle = "rgba(200,214,232,.22)";
     ctx.beginPath();
-    ctx.moveTo(x, margins.top);
+    ctx.moveTo(x, y);
     ctx.lineTo(x, height - margins.bottom);
+    ctx.moveTo(x, y);
+    ctx.lineTo(width - margins.right, y);
     ctx.stroke();
     ctx.restore();
-
-    this.tooltip.hidden = false;
-    this.tooltip.innerHTML = `<strong>${formatTime(candle.time, true)}</strong><span>O ${formatChartPrice(candle.open)}</span><span>H ${formatChartPrice(candle.high)}</span><span>L ${formatChartPrice(candle.low)}</span><span>C ${formatChartPrice(candle.close)}</span>`;
-    const tooltipWidth = 150;
-    this.tooltip.style.left = `${Math.min(plotWidth - tooltipWidth + margins.left, Math.max(margins.left, x + 12))}px`;
-    this.tooltip.style.top = "16px";
+    this.tooltip.hidden = true;
+    ctx.fillStyle = "rgba(126,116,145,.9)";
+    ctx.fillRect(width - margins.right, y - 8, margins.right, 16);
+    ctx.fillRect(Math.max(margins.left, Math.min(x - 28, width - margins.right - 56)), height - margins.bottom, 56, 17);
+    ctx.fillStyle = "#0a0811";
+    ctx.font = "bold 8px Inter, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(formatChartPrice(price), width - margins.right / 2, y + 3);
+    ctx.fillText(formatTime(time, true), Math.max(margins.left + 28, Math.min(x, width - margins.right - 28)), height - margins.bottom + 11);
   }
 }
 
@@ -516,9 +588,25 @@ function aggregateTrades(rows, bucketMs) {
 function formatTime(timestamp, withDate = false) {
   return new Intl.DateTimeFormat("ru-RU", {
     ...(withDate ? { day: "2-digit", month: "2-digit" } : {}),
+    timeZone: "UTC",
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(timestamp));
+}
+
+function newYorkOpenUtc(dayStartUtc) {
+  const noon = new Date(dayStartUtc + 12 * 3_600_000);
+  const zonePart = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", timeZoneName: "shortOffset" })
+    .formatToParts(noon)
+    .find((part) => part.type === "timeZoneName")?.value ?? "GMT-5";
+  const match = zonePart.match(/GMT([+-]\d+)(?::(\d+))?/);
+  const offsetHours = match ? Number(match[1]) : -5;
+  const offsetMinutes = match?.[2] ? Number(match[2]) * Math.sign(offsetHours) : 0;
+  return dayStartUtc + (9 * 60 + 30 - offsetHours * 60 - offsetMinutes) * 60_000;
+}
+
+function formatUtcTime(timestamp) {
+  return new Intl.DateTimeFormat("ru-RU", { timeZone: "UTC", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(timestamp));
 }
 
 function formatChartPrice(value) {
