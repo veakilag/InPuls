@@ -172,28 +172,33 @@ export class KlineFeed {
     }
 
     const rows = await this.#fetchAggregateTradeHistory(symbol, bucketMs, Math.min(300, desiredCandles), generation);
-    return aggregateTrades(rows, bucketMs);
+    return aggregateTrades(rows, bucketMs).slice(-Math.min(300, desiredCandles));
   }
 
   async #fetchAggregateTradeHistory(symbol, bucketMs, desiredCandles, generation) {
-    const fetchPage = async (fromId) => {
+    const fetchPage = async (endTime) => {
       const query = new URLSearchParams({ symbol, limit: "1000" });
-      if (Number.isFinite(fromId)) query.set("fromId", String(Math.max(0, Math.floor(fromId))));
+      if (Number.isFinite(endTime)) query.set("endTime", String(Math.floor(endTime)));
       const response = await fetch(`${AGG_TRADES_REST}?${query}`, { signal: this.abortController.signal, cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.json();
     };
-    let rows = await fetchPage();
-    for (let page = 1; page < 18 && generation === this.generation; page += 1) {
-      if (aggregateTrades(rows, bucketMs).length >= desiredCandles) break;
-      const firstId = Number(rows[0]?.a);
-      if (!Number.isFinite(firstId) || firstId <= 0) break;
-      const older = await fetchPage(firstId - 1000);
-      if (!older.length) break;
-      const existing = new Set(rows.map((trade) => Number(trade.a)));
-      rows = [...older.filter((trade) => !existing.has(Number(trade.a))), ...rows];
-    }
-    return rows;
+    const now = Date.now();
+    const duration = Math.max(60_000, desiredCandles * bucketMs);
+    const pageCount = 10;
+    const endTimes = Array.from({ length: pageCount }, (_, index) => now - Math.round((duration * index) / (pageCount - 1)));
+    const results = await Promise.allSettled(endTimes.map((endTime) => fetchPage(endTime)));
+    const pages = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
+    if (generation !== this.generation) return [];
+    if (!pages.length) throw new Error("Aggregate trade history unavailable");
+    const byId = new Map();
+    for (const trade of pages.flat()) byId.set(Number(trade.a), trade);
+    return [...byId.values()].sort((left, right) => Number(left.T) - Number(right.T));
+  }
+
+  destroy() {
+    this.generation += 1;
+    this.#cleanup();
   }
 
   #connect(generation) {
@@ -312,6 +317,11 @@ export class CandlestickChart {
     this.render();
   }
 
+  destroy() {
+    this.resizeObserver.disconnect();
+    this.drag = null;
+  }
+
   setData(candles, meta) {
     const nextKey = `${meta?.symbol ?? ""}:${meta?.interval ?? ""}:${meta?.range ?? ""}`;
     const seriesChanged = nextKey !== this.seriesKey;
@@ -348,8 +358,8 @@ export class CandlestickChart {
 
   render() {
     const rect = this.canvas.parentElement.getBoundingClientRect();
-    const width = Math.max(320, Math.floor(rect.width));
-    const height = Math.max(260, Math.floor(rect.height));
+    const width = Math.max(180, Math.floor(rect.width));
+    const height = Math.max(96, Math.floor(rect.height));
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     if (this.canvas.width !== width * dpr || this.canvas.height !== height * dpr) {
       this.canvas.width = width * dpr;
@@ -362,9 +372,10 @@ export class CandlestickChart {
     ctx.clearRect(0, 0, width, height);
 
     const margins = { left: 12, right: 72, top: 18, bottom: 28 };
-    const volumeHeight = this.volumeVisible ? Math.max(48, Math.round(height * 0.18)) : 0;
+    const showVolume = this.volumeVisible && height >= 170;
+    const volumeHeight = showVolume ? Math.max(28, Math.round(height * 0.18)) : 0;
     const plotWidth = width - margins.left - margins.right;
-    const priceBottom = height - margins.bottom - volumeHeight - (this.volumeVisible ? 14 : 0);
+    const priceBottom = height - margins.bottom - volumeHeight - (showVolume ? 14 : 0);
     const plotHeight = priceBottom - margins.top;
     const requested = this.meta?.targetCandles ?? this.candles.length;
     const defaultVisible = Math.max(20, Math.min(Math.floor(plotWidth / 2), requested, this.candles.length));
@@ -420,7 +431,7 @@ export class CandlestickChart {
       ctx.fillRect(x - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight);
       ctx.strokeRect(x - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight);
 
-      if (this.volumeVisible) {
+      if (showVolume) {
         const volumeTop = height - margins.bottom - (candle.volume / maxVolume) * volumeHeight;
         ctx.globalAlpha = up ? .3 : .2;
         ctx.fillStyle = up ? this.theme.bullFill : this.theme.bearStroke;
@@ -438,7 +449,7 @@ export class CandlestickChart {
   #drawBackground(ctx, width, height, margins, priceBottom, volumeHeight) {
     ctx.fillStyle = this.theme.background;
     ctx.fillRect(0, 0, width, height);
-    if (this.volumeVisible) {
+    if (volumeHeight > 0) {
       ctx.strokeStyle = "rgba(180,180,180,.12)";
       ctx.beginPath();
       ctx.moveTo(margins.left, priceBottom + 14);

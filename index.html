@@ -7,8 +7,8 @@
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="12" />
-    <link rel="stylesheet" href="./styles.css?v=12" />
+    <meta name="inpuls-build" content="13" />
+    <link rel="stylesheet" href="./styles.css?v=13" />
     <title>InPuls — в ритме рынка</title>
   </head>
   <body>
@@ -16,11 +16,11 @@
     <header class="topbar">
       <a class="brand" href="./" aria-label="InPuls — главная">
         <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span><strong>INPULS</strong><em>SCREENER <small>v12</small></em></span>
+        <span><strong>INPULS</strong><em>SCREENER <small>v13</small></em></span>
       </a>
       <div class="topbar-actions">
-        <label class="comfort-control" title="Комфорт для глаз: день → ночь">
-          <span>☀</span><input id="comfort-slider" type="range" min="0" max="100" value="78" aria-label="Баланс дневной и ночной темы" /><span>☾</span>
+        <label class="comfort-control" title="Комфорт для глаз: малахит → глубокая ночь">
+          <span>M</span><input id="comfort-slider" type="range" min="0" max="100" value="55" aria-label="Баланс малахитовой и ночной темы" /><span>N</span>
         </label>
         <label class="timezone-control" title="Часовой пояс интерфейса">
           <span>TIME</span>
@@ -51,9 +51,9 @@
 
     <main>
       <section id="market-focus" class="market-focus" aria-label="График и лидеры рынка">
-        <article class="chart-card" data-panel="chart">
+        <article class="chart-card primary-chart" data-panel="chart" data-panel-id="primary">
           <header class="chart-heading">
-            <button class="panel-grip" data-panel-grip="chart" draggable="true" type="button" title="Перетащи панель">⠿</button>
+            <span class="panel-grip" title="Основной график">⠿</span>
             <div class="chart-symbol-block">
               <div class="chart-quote">
                 <h2 id="chart-symbol">BTC/USDT</h2>
@@ -96,27 +96,25 @@
           </div>
         </article>
 
-        <aside class="top-card" data-panel="radar">
+        <aside class="top-card" data-panel="radar" data-panel-id="radar">
           <div class="top-columns" aria-label="Сортировка монет">
-            <button class="panel-grip radar-grip" data-panel-grip="radar" draggable="true" type="button" title="Перетащи панель">⠿</button>
-            <label class="radar-search"><input id="radar-search" type="search" autocomplete="off" placeholder="Поиск" aria-label="Поиск монеты" /></label>
-            <button data-top-sort="change15s" type="button">15с <i>↕</i></button>
-            <button data-top-sort="change1m" type="button">1м <i>↕</i></button>
-            <span class="radar-metric-picker">
-              <select id="radar-metric" aria-label="Показатель списка">
-                <option value="quoteVolume24h">V24</option>
-                <option value="natr1m">NATR 1</option>
-                <option value="natr5m">NATR 5</option>
-                <option value="fundingRate">F</option>
-                <option value="correlation">C</option>
-              </select>
-              <button id="radar-direction" type="button" title="Изменить направление сортировки">↓</button>
-            </span>
+            <span class="panel-grip radar-grip" title="Радар монет">⠿</span>
+            <label class="radar-search"><input id="radar-search" type="search" autocomplete="off" placeholder="Тикер" aria-label="Поиск монеты" /><span class="column-resizer" data-column-index="0"></span></label>
+            <button data-top-sort="quoteVolume24h" type="button">V24 <i>↓</i><span class="column-resizer" data-column-index="1"></span></button>
+            <button data-top-sort="natr1m" type="button">NATR 1 <i>↕</i><span class="column-resizer" data-column-index="2"></span></button>
+            <button data-top-sort="natr5m" type="button">NATR 5 <i>↕</i><span class="column-resizer" data-column-index="3"></span></button>
+            <button data-top-sort="fundingRate" type="button">F <i>↕</i><span class="column-resizer" data-column-index="4"></span></button>
+            <button data-top-sort="correlation" type="button">C <i>↕</i></button>
           </div>
           <div id="top-list" class="top-list" aria-live="polite">
             <div class="top-placeholder">Собираю лидеров рынка…</div>
           </div>
+          <button id="radar-resizer" class="panel-resizer radar-resizer" type="button" aria-label="Изменить размер списка" title="Потяни, чтобы изменить размер списка"></button>
         </aside>
+
+        <button id="add-chart-tile" class="add-chart-tile" type="button" hidden>
+          <strong>＋ График</strong><span>Нажми или перетащи сюда монету</span>
+        </button>
       </section>
 
       <section class="workspace-panel">
@@ -214,6 +212,14 @@
       </form>
     </dialog>
 
-    <script type="module" src="./app.js?v=12"></script>
+    <dialog id="add-chart-dialog" class="add-chart-dialog">
+      <form method="dialog">
+        <div class="dialog-heading"><div><span class="eyebrow">Рабочее поле</span><h2>Добавить график</h2></div><button id="add-chart-close" class="detail-close" type="button" aria-label="Закрыть">×</button></div>
+        <label class="chart-picker-search"><input id="chart-picker-search" type="search" autocomplete="off" placeholder="Найти тикер" /></label>
+        <div id="chart-picker-list" class="chart-picker-list"></div>
+      </form>
+    </dialog>
+
+    <script type="module" src="./app.js?v=13"></script>
   </body>
 </html>

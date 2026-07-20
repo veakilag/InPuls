@@ -1,3 +1,3 @@
-InPuls v12
-Build: eye-comfort-workspace
-Features: global-comfort-theme, monochrome-candles, metric-radar, draggable-panels, diagonal-resize, stable-tf-viewport, cached-second-history
+InPuls v13
+Build: grid-workspace
+Features: dual-dark-theme, six-column-radar, resizable-columns, collision-safe-grid, multi-chart-panels, parallel-second-history

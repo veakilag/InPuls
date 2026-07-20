@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { aggregateCandles, calculateNatr, parseRestKline, parseStreamKline, pearsonCorrelation, scaleFromDrag, sessionLabels, upsertCandle, visibleCountFromDrag } from "../chart.js";
+import { aggregateCandles, calculateNatr, KlineFeed, parseRestKline, parseStreamKline, pearsonCorrelation, scaleFromDrag, sessionLabels, upsertCandle, visibleCountFromDrag } from "../chart.js";
 
 test("REST kline is normalized", () => {
   const candle = parseRestKline([1000, "10", "12", "9", "11", "25", 1999]);
@@ -57,6 +57,48 @@ test("one-second candles aggregate into a five-second history", () => {
     closeTime: 4999,
     closed: true,
   });
+});
+
+test("second-history fallback loads sampled trade pages in parallel", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWebSocket = globalThis.WebSocket;
+  let active = 0;
+  let maxActive = 0;
+  let aggregateCalls = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("/klines")) return { ok: false, status: 400, json: async () => ({}) };
+    aggregateCalls += 1;
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    active -= 1;
+    const endTime = Number(new URL(url).searchParams.get("endTime"));
+    return {
+      ok: true,
+      json: async () => Array.from({ length: 40 }, (_, index) => ({
+        a: endTime + index,
+        p: String(100 + index / 100),
+        q: "1",
+        T: endTime - 40_000 + index * 1000,
+      })),
+    };
+  };
+  globalThis.WebSocket = class {
+    addEventListener() {}
+    close() {}
+  };
+  let latest = [];
+  try {
+    const feed = new KlineFeed({ onData: (candles) => { latest = candles; }, onStatus() {} });
+    await feed.select("BTCUSDT", "1s", "15m");
+    assert.equal(aggregateCalls, 10);
+    assert.ok(maxActive > 1);
+    assert.ok(latest.length > 40);
+    feed.destroy();
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.WebSocket = originalWebSocket;
+  }
 });
 
 test("price-axis drag changes vertical scale", () => {

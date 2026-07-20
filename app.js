@@ -3,8 +3,8 @@ import {
   SymbolState,
   filterUsdtPerpetualTicker,
   formatCompactUsd,
-} from "./engine.js?v=12";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=12";
+} from "./engine.js?v=13";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=13";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -14,8 +14,8 @@ const STORAGE_KEYS = {
   timeZone: "inpuls-timezone-v1",
   volume: "inpuls-volume-v1",
   comfort: "inpuls-comfort-v1",
-  layout: "inpuls-layout-v1",
-  workspaceSize: "inpuls-workspace-size-v1",
+  workspace: "inpuls-workspace-v2",
+  radarColumns: "inpuls-radar-columns-v1",
 };
 
 const savedChart = loadJson(STORAGE_KEYS.chart, { interval: "1m", range: "1h" });
@@ -39,11 +39,10 @@ const state = {
   chartStats: { fundingRate: null, nextFundingTime: null, natr1m: null, natr5m: null, correlation: null },
   timeZone: localStorage.getItem(STORAGE_KEYS.timeZone) || "Europe/Moscow",
   volumeVisible: loadJson(STORAGE_KEYS.volume, true),
-  comfort: Number(localStorage.getItem(STORAGE_KEYS.comfort) ?? 78),
+  comfort: Number(localStorage.getItem(STORAGE_KEYS.comfort) ?? 55),
   radarSearch: "",
-  radarMetric: "quoteVolume24h",
-  panelOrder: localStorage.getItem(STORAGE_KEYS.layout) || "chart-first",
-  workspaceSize: loadJson(STORAGE_KEYS.workspaceSize, { height: null, radarWidth: null }),
+  workspace: loadJson(STORAGE_KEYS.workspace, { primaryCols: 12, primaryRows: 2, radarCols: 4, radarRows: 2, extras: [] }),
+  radarColumns: loadJson(STORAGE_KEYS.radarColumns, [1.3, 1, 1, 1, .8, .8]),
 };
 
 const els = {
@@ -85,8 +84,13 @@ const els = {
   topList: document.querySelector("#top-list"),
   topSortButtons: [...document.querySelectorAll("[data-top-sort]")],
   radarSearch: document.querySelector("#radar-search"),
-  radarMetric: document.querySelector("#radar-metric"),
-  radarDirection: document.querySelector("#radar-direction"),
+  columnResizers: [...document.querySelectorAll("[data-column-index]")],
+  radarResizer: document.querySelector("#radar-resizer"),
+  addChartTile: document.querySelector("#add-chart-tile"),
+  addChartDialog: document.querySelector("#add-chart-dialog"),
+  addChartClose: document.querySelector("#add-chart-close"),
+  chartPickerSearch: document.querySelector("#chart-picker-search"),
+  chartPickerList: document.querySelector("#chart-picker-list"),
   metricTurnover: document.querySelector("#metric-turnover"),
   metricFunding: document.querySelector("#metric-funding"),
   metricFundingTime: document.querySelector("#metric-funding-time"),
@@ -95,7 +99,6 @@ const els = {
   metricCorrelation: document.querySelector("#metric-correlation"),
   volumeToggle: document.querySelector("#volume-toggle"),
   chartResizer: document.querySelector("#chart-resizer"),
-  panelGrips: [...document.querySelectorAll("[data-panel-grip]")],
 };
 
 class BinanceFeed {
@@ -196,6 +199,8 @@ class BinanceFeed {
 const feed = new BinanceFeed();
 const radarHistoryLoaded = new Set();
 const radarHistoryLoading = new Set();
+const extraCharts = new Map();
+let activeChartTheme = null;
 const priceChart = new CandlestickChart(els.priceChart, els.chartTooltip);
 priceChart.setTimeZone(state.timeZone === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : state.timeZone);
 priceChart.setVolumeVisible(state.volumeVisible);
@@ -228,22 +233,23 @@ function applyComfort(rawValue) {
   const value = Math.max(0, Math.min(100, Number(rawValue) || 0));
   const amount = value / 100;
   const palette = {
-    bg: mixColor("#d8d4ca", "#050403", amount),
-    panel: mixColor("#f1eee6", "#0d0a08", amount),
-    panel2: mixColor("#e5e0d5", "#15100d", amount),
-    line: mixColor("#b9b1a4", "#2a221c", amount),
-    text: mixColor("#1d1b18", "#ded4c6", amount),
-    muted: mixColor("#6b655c", "#8e8174", amount),
-    chart: mixColor("#e8e3d9", "#070605", amount),
-    bull: mixColor("#fffdf7", "#ddd2c2", amount),
-    bear: mixColor("#494640", "#15120f", amount),
-    bearStroke: mixColor("#282622", "#8c8175", amount),
-    grid: mixColor("#8e877c", "#4a4037", amount),
-    crosshair: mixColor("#665e54", "#a99a8c", amount),
-    crosshairFill: mixColor("#6d5b83", "#5e4968", amount),
-    crosshairText: mixColor("#fffdf8", "#eee5d9", amount),
-    violet: mixColor("#7657bc", "#8b5f9f", amount),
-    blue: mixColor("#4d78a0", "#7a6252", amount),
+    bg: mixColor("#091513", "#050409", amount),
+    panel: mixColor("#101d1a", "#0c0912", amount),
+    panel2: mixColor("#162622", "#15101e", amount),
+    line: mixColor("#29483f", "#30233f", amount),
+    text: mixColor("#e0ece7", "#dfd7e7", amount),
+    muted: mixColor("#80968e", "#897d95", amount),
+    chart: mixColor("#07110f", "#050407", amount),
+    bull: mixColor("#d9eee6", "#ddd6e4", amount),
+    bear: mixColor("#13231f", "#15121a", amount),
+    bearStroke: mixColor("#71958a", "#8e7f99", amount),
+    grid: mixColor("#34564d", "#493b51", amount),
+    crosshair: mixColor("#8aa89f", "#aa9bb5", amount),
+    crosshairFill: mixColor("#276b5a", "#5e4968", amount),
+    crosshairText: mixColor("#edf8f4", "#eee7f2", amount),
+    violet: mixColor("#4fb99b", "#9b6bd6", amount),
+    blue: mixColor("#6c9e90", "#80708d", amount),
+    green: mixColor("#35d9a1", "#56cfaa", amount),
   };
   const root = document.documentElement;
   root.style.setProperty("--bg", palette.bg);
@@ -256,12 +262,13 @@ function applyComfort(rawValue) {
   root.style.setProperty("--chart-bg", palette.chart);
   root.style.setProperty("--violet", palette.violet);
   root.style.setProperty("--blue", palette.blue);
+  root.style.setProperty("--green", palette.green);
   root.style.setProperty("--theme-level", String(amount));
-  root.style.colorScheme = amount > 0.52 ? "dark" : "light";
+  root.style.colorScheme = "dark";
   root.dataset.comfort = String(Math.round(value));
   const themeMeta = document.querySelector('meta[name="theme-color"]');
   if (themeMeta) themeMeta.content = palette.bg;
-  priceChart.setTheme({
+  activeChartTheme = {
     background: palette.chart,
     bullFill: palette.bull,
     bullStroke: palette.bull,
@@ -273,7 +280,9 @@ function applyComfort(rawValue) {
     crosshairFill: palette.crosshairFill,
     crosshairText: palette.crosshairText,
     session: palette.violet,
-  });
+  };
+  priceChart.setTheme(activeChartTheme);
+  for (const panel of extraCharts.values()) panel.chart.setTheme(activeChartTheme);
 }
 
 function selectInterval(interval) {
@@ -366,6 +375,7 @@ function render() {
 
   renderSummary(metrics, now);
   renderTopList(metrics);
+  updateExtraChartMetrics(metrics);
   updateChartHeader(metrics);
   if (state.selectedSymbol) renderDetail(state.selectedSymbol);
 }
@@ -467,7 +477,6 @@ function renderTopList(metrics) {
     button.querySelector("i").textContent = active ? (direction === "asc" ? "↑" : "↓") : "↕";
     button.setAttribute("aria-sort", active ? (direction === "asc" ? "ascending" : "descending") : "none");
   }
-  els.radarDirection.textContent = direction === "asc" ? "↑" : "↓";
   candidates = candidates.slice(0, 100);
 
   if (!candidates.length) {
@@ -479,10 +488,12 @@ function renderTopList(metrics) {
   }
 
   const fragment = document.createDocumentFragment();
-  candidates.forEach((item, index) => {
+  candidates.forEach((item) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "top-item";
+    button.draggable = true;
+    button.dataset.symbol = item.symbol;
     button.classList.toggle("is-selected", item.symbol === state.selectedChartSymbol);
     button.setAttribute("aria-label", `Открыть график ${item.symbol}`);
 
@@ -491,20 +502,30 @@ function renderTopList(metrics) {
     const pair = document.createElement("strong");
     pair.textContent = item.symbol.replace("USDT", "");
     identity.append(pair);
-    const impulse = document.createElement("strong");
-    impulse.textContent = formatChange(item.change15s);
-    impulse.className = toneClass(item.change15s);
-    const minute = document.createElement("strong");
-    minute.textContent = formatChange(item.change1m);
-    minute.className = toneClass(item.change1m);
-    const turnover = document.createElement("strong");
-    turnover.textContent = formatRadarMetric(item, state.radarMetric);
-    turnover.className = ["fundingRate", "correlation"].includes(state.radarMetric) ? toneClass(item[state.radarMetric]) : "top-turnover";
-    button.append(identity, impulse, minute, turnover);
+    const valueCell = (metric, className = "top-turnover") => {
+      const cell = document.createElement("strong");
+      cell.textContent = formatRadarMetric(item, metric);
+      cell.className = className;
+      return cell;
+    };
+    button.append(
+      identity,
+      valueCell("quoteVolume24h"),
+      valueCell("natr1m"),
+      valueCell("natr5m"),
+      valueCell("fundingRate", toneClass(item.fundingRate)),
+      valueCell("correlation", toneClass(item.correlation)),
+    );
+    button.addEventListener("dragstart", (event) => {
+      event.dataTransfer.effectAllowed = "copy";
+      event.dataTransfer.setData("text/inpuls-symbol", item.symbol);
+      event.dataTransfer.setData("text/plain", item.symbol);
+    });
     button.addEventListener("click", () => selectChartSymbol(item.symbol));
     fragment.append(button);
   });
   els.topList.replaceChildren(fragment);
+  updateExtraChartMetrics(metrics);
 }
 
 function formatRadarMetric(item, metric) {
@@ -513,6 +534,257 @@ function formatRadarMetric(item, metric) {
   if (metric === "fundingRate") return Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${(value * 100).toFixed(3)}%` : "—";
   if (metric === "correlation") return Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${value.toFixed(2)}` : "—";
   return Number.isFinite(value) ? `${value.toFixed(2)}%` : "—";
+}
+
+function normalizeWorkspace() {
+  const workspace = state.workspace && typeof state.workspace === "object" ? state.workspace : {};
+  workspace.primaryCols = Math.max(4, Math.min(13, Math.round(Number(workspace.primaryCols) || 12)));
+  workspace.primaryRows = workspace.primaryRows === 1 ? 1 : 2;
+  workspace.radarCols = Math.max(3, Math.min(8, Math.round(Number(workspace.radarCols) || 4)));
+  workspace.radarRows = workspace.radarRows === 1 ? 1 : 2;
+  workspace.extras = Array.isArray(workspace.extras)
+    ? workspace.extras.filter((item) => item?.id && item?.symbol?.endsWith("USDT")).map((item) => ({
+        id: String(item.id),
+        symbol: item.symbol,
+        interval: item.interval || "1m",
+        cols: Math.max(4, Math.min(12, Math.round(Number(item.cols) || 4))),
+        rows: item.rows === 2 ? 2 : 1,
+      }))
+    : [];
+  if (workspace.primaryCols + workspace.radarCols > 16) workspace.primaryCols = 16 - workspace.radarCols;
+  while (workspace.primaryCols * workspace.primaryRows + workspace.radarCols * workspace.radarRows + workspace.extras.reduce((sum, item) => sum + item.cols * item.rows, 0) > 32) workspace.extras.pop();
+  state.workspace = workspace;
+  while (state.workspace.extras.length && !canApplyWorkspace()) state.workspace.extras.pop();
+}
+
+function persistWorkspace() {
+  localStorage.setItem(STORAGE_KEYS.workspace, JSON.stringify(state.workspace));
+}
+
+function workspaceCells(overrides = {}) {
+  const primaryCols = overrides.primaryCols ?? state.workspace.primaryCols;
+  const primaryRows = overrides.primaryRows ?? state.workspace.primaryRows;
+  const radarCols = overrides.radarCols ?? state.workspace.radarCols;
+  const radarRows = overrides.radarRows ?? state.workspace.radarRows;
+  const extras = overrides.extras ?? state.workspace.extras;
+  return primaryCols * primaryRows + radarCols * radarRows + extras.reduce((sum, item) => sum + item.cols * item.rows, 0);
+}
+
+function canApplyWorkspace(overrides = {}) {
+  const primaryCols = overrides.primaryCols ?? state.workspace.primaryCols;
+  const primaryRows = overrides.primaryRows ?? state.workspace.primaryRows;
+  const radarCols = overrides.radarCols ?? state.workspace.radarCols;
+  const radarRows = overrides.radarRows ?? state.workspace.radarRows;
+  const extras = overrides.extras ?? state.workspace.extras;
+  if (primaryCols + radarCols > 16 || workspaceCells(overrides) > 32) return false;
+  const grid = Array.from({ length: 2 }, () => Array(16).fill(false));
+  const occupy = (start, cols, rows) => {
+    for (let row = 0; row < rows; row += 1) {
+      for (let col = start; col < start + cols; col += 1) {
+        if (grid[row]?.[col]) return false;
+        grid[row][col] = true;
+      }
+    }
+    return true;
+  };
+  if (!occupy(0, primaryCols, primaryRows) || !occupy(16 - radarCols, radarCols, radarRows)) return false;
+  for (const item of extras) {
+    let placed = false;
+    for (let row = 0; row <= 2 - item.rows && !placed; row += 1) {
+      for (let col = 0; col <= 16 - item.cols && !placed; col += 1) {
+        let free = true;
+        for (let y = row; y < row + item.rows; y += 1) {
+          for (let x = col; x < col + item.cols; x += 1) free &&= !grid[y][x];
+        }
+        if (!free) continue;
+        for (let y = row; y < row + item.rows; y += 1) {
+          for (let x = col; x < col + item.cols; x += 1) grid[y][x] = true;
+        }
+        placed = true;
+      }
+    }
+    if (!placed) return false;
+  }
+  return true;
+}
+
+function hasChartSlot() {
+  return canApplyWorkspace({ extras: [...state.workspace.extras, { id: "slot", cols: 4, rows: 1 }] });
+}
+
+function applyRadarColumns() {
+  if (!Array.isArray(state.radarColumns) || state.radarColumns.length !== 6) state.radarColumns = [1.3, 1, 1, 1, .8, .8];
+  state.radarColumns.forEach((value, index) => els.marketFocus.style.setProperty(`--radar-col-${index + 1}`, `${Math.max(.45, Number(value) || 1)}fr`));
+}
+
+function applyWorkspaceLayout() {
+  const primary = document.querySelector(".primary-chart");
+  primary.style.gridColumn = `1 / span ${state.workspace.primaryCols}`;
+  primary.style.gridRow = `1 / span ${state.workspace.primaryRows}`;
+  const radarStart = 17 - state.workspace.radarCols;
+  document.querySelector(".top-card").style.gridColumn = `${radarStart} / 17`;
+  document.querySelector(".top-card").style.gridRow = `1 / span ${state.workspace.radarRows}`;
+  for (const panel of extraCharts.values()) {
+    panel.element.style.gridColumn = `span ${panel.model.cols}`;
+    panel.element.style.gridRow = `span ${panel.model.rows}`;
+  }
+  els.addChartTile.hidden = !hasChartSlot();
+  requestAnimationFrame(() => {
+    priceChart.render();
+    for (const panel of extraCharts.values()) panel.chart.render();
+  });
+}
+
+function bindGridResizer(handle, model, type, chart) {
+  handle.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    handle.setPointerCapture(event.pointerId);
+    const rect = els.marketFocus.getBoundingClientRect();
+    const columnUnit = Math.max(28, (rect.width - 15) / 16);
+    const rowHeight = Math.max(80, (rect.height - 5) / 2);
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startCols = model.cols ?? (type === "primary" ? state.workspace.primaryCols : state.workspace.radarCols);
+    const startRows = model.rows ?? (type === "primary" ? state.workspace.primaryRows : state.workspace.radarRows);
+    const move = (moveEvent) => {
+      const direction = type === "radar" ? -1 : 1;
+      const minimum = type === "radar" ? 3 : 4;
+      const maximum = type === "primary" ? 13 : type === "radar" ? 8 : 12;
+      const cols = Math.max(minimum, Math.min(maximum, startCols + Math.round(((moveEvent.clientX - startX) * direction) / columnUnit)));
+      const rows = Math.max(1, Math.min(2, startRows + Math.round((moveEvent.clientY - startY) / rowHeight)));
+      if (type === "primary") {
+        if (!canApplyWorkspace({ primaryCols: cols, primaryRows: rows })) return;
+        state.workspace.primaryCols = cols;
+        state.workspace.primaryRows = rows;
+      } else if (type === "radar") {
+        if (!canApplyWorkspace({ radarCols: cols, radarRows: rows })) return;
+        state.workspace.radarCols = cols;
+        state.workspace.radarRows = rows;
+      } else {
+        const extras = state.workspace.extras.map((item) => item.id === model.id ? { ...item, cols, rows } : item);
+        if (!canApplyWorkspace({ extras })) return;
+        model.cols = cols;
+        model.rows = rows;
+        const stored = state.workspace.extras.find((item) => item.id === model.id);
+        if (stored && stored !== model) Object.assign(stored, { cols, rows });
+      }
+      applyWorkspaceLayout();
+      chart?.render();
+    };
+    const stop = () => {
+      persistWorkspace();
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", stop);
+      handle.removeEventListener("pointercancel", stop);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", stop);
+    handle.addEventListener("pointercancel", stop);
+  });
+}
+
+function intervalRange(interval) {
+  return { "1s": "15m", "5s": "1h", "15s": "4h" }[interval] || "1h";
+}
+
+function mountExtraChart(model) {
+  if (extraCharts.has(model.id)) return;
+  const article = document.createElement("article");
+  article.className = "chart-card secondary-chart";
+  article.dataset.panel = "chart";
+  article.dataset.panelId = model.id;
+  article.innerHTML = `
+    <header class="chart-heading">
+      <span class="panel-grip" title="Дополнительный график">⠿</span>
+      <div class="chart-quote"><h2>${escapeHtml(model.symbol.replace("USDT", ""))}/USDT</h2><strong data-mini-price>—</strong></div>
+      <div class="chart-controls"><div class="timeframes">
+        ${["1s", "15s", "1m", "5m", "15m", "1h"].map((interval) => `<button class="timeframe-button${interval === model.interval ? " is-active" : ""}" data-mini-interval="${interval}" type="button">${interval.replace("s", "с").replace("m", "м").replace("h", "ч")}</button>`).join("")}
+      </div></div>
+      <button class="mini-chart-close" type="button" title="Закрыть график">×</button>
+    </header>
+    <div class="chart-stage">
+      <div class="chart-metrics"><span><b>V24</b><strong data-mini-metric="quoteVolume24h">—</strong></span><span><b>NATR 1</b><strong data-mini-metric="natr1m">—</strong></span><span><b>NATR 5</b><strong data-mini-metric="natr5m">—</strong></span><span><b>F</b><strong data-mini-metric="fundingRate">—</strong></span><span><b>C</b><strong data-mini-metric="correlation">—</strong></span></div>
+      <canvas aria-label="Дополнительный свечной график"></canvas><div class="chart-tooltip" hidden></div>
+      <button class="chart-resizer" type="button" aria-label="Изменить размер графика"></button>
+    </div>`;
+  els.marketFocus.insertBefore(article, els.addChartTile);
+  const chart = new CandlestickChart(article.querySelector("canvas"), article.querySelector(".chart-tooltip"));
+  chart.setTimeZone(state.timeZone === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : state.timeZone);
+  chart.setVolumeVisible(false);
+  if (activeChartTheme) chart.setTheme(activeChartTheme);
+  const panel = { model, element: article, chart, feed: null };
+  panel.feed = new KlineFeed({ onData: (candles, meta) => chart.setData(candles, meta), onStatus() {} });
+  extraCharts.set(model.id, panel);
+  article.querySelectorAll("[data-mini-interval]").forEach((button) => button.addEventListener("click", () => {
+    model.interval = button.dataset.miniInterval;
+    article.querySelectorAll("[data-mini-interval]").forEach((item) => item.classList.toggle("is-active", item === button));
+    persistWorkspace();
+    panel.feed.select(model.symbol, model.interval, intervalRange(model.interval));
+  }));
+  article.querySelector(".mini-chart-close").addEventListener("click", () => removeExtraChart(model.id));
+  bindGridResizer(article.querySelector(".chart-resizer"), model, "extra", chart);
+  article.addEventListener("dragover", (event) => {
+    if (event.dataTransfer.types.includes("text/inpuls-symbol")) event.preventDefault();
+  });
+  article.addEventListener("drop", (event) => {
+    const symbol = event.dataTransfer.getData("text/inpuls-symbol");
+    if (!symbol?.endsWith("USDT")) return;
+    event.preventDefault();
+    model.symbol = symbol;
+    article.querySelector("h2").textContent = `${symbol.replace("USDT", "")}/USDT`;
+    persistWorkspace();
+    panel.feed.select(symbol, model.interval, intervalRange(model.interval));
+  });
+  panel.feed.select(model.symbol, model.interval, intervalRange(model.interval));
+}
+
+function createExtraChart(symbol) {
+  if (!symbol?.endsWith("USDT") || !hasChartSlot()) return false;
+  const model = { id: `chart-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, symbol, interval: "1m", cols: 4, rows: 1 };
+  state.workspace.extras.push(model);
+  persistWorkspace();
+  mountExtraChart(model);
+  applyWorkspaceLayout();
+  return true;
+}
+
+function removeExtraChart(id) {
+  const panel = extraCharts.get(id);
+  if (!panel) return;
+  panel.feed.destroy();
+  panel.chart.destroy();
+  panel.element.remove();
+  extraCharts.delete(id);
+  state.workspace.extras = state.workspace.extras.filter((item) => item.id !== id);
+  persistWorkspace();
+  applyWorkspaceLayout();
+}
+
+function updateExtraChartMetrics(metrics) {
+  for (const panel of extraCharts.values()) {
+    const item = metrics.find((candidate) => candidate.symbol === panel.model.symbol);
+    panel.element.querySelector("[data-mini-price]").textContent = formatPrice(item?.price);
+    panel.element.querySelectorAll("[data-mini-metric]").forEach((cell) => {
+      cell.textContent = item ? formatRadarMetric(item, cell.dataset.miniMetric) : "—";
+    });
+  }
+}
+
+function renderChartPicker() {
+  const query = els.chartPickerSearch.value.trim().toLowerCase();
+  const candidates = state.lastMetrics.filter((item) => !query || item.symbol.toLowerCase().includes(query)).sort((left, right) => right.quoteVolume24h - left.quoteVolume24h).slice(0, 120);
+  const fragment = document.createDocumentFragment();
+  for (const item of candidates) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = item.symbol.replace("USDT", "");
+    button.addEventListener("click", () => {
+      if (createExtraChart(item.symbol)) els.addChartDialog.close();
+    });
+    fragment.append(button);
+  }
+  els.chartPickerList.replaceChildren(fragment);
 }
 
 function updateChartHeader(metrics = state.lastMetrics) {
@@ -753,12 +1025,11 @@ function escapeHtml(value) {
 }
 
 function bindEvents() {
-  if (Number.isFinite(state.workspaceSize.height)) {
-    document.documentElement.style.setProperty("--focus-height", `${state.workspaceSize.height}px`);
-  }
-  if (Number.isFinite(state.workspaceSize.radarWidth)) {
-    document.documentElement.style.setProperty("--radar-width", `${state.workspaceSize.radarWidth}px`);
-  }
+  normalizeWorkspace();
+  persistWorkspace();
+  applyRadarColumns();
+  for (const model of state.workspace.extras) mountExtraChart(model);
+  applyWorkspaceLayout();
   els.comfortSlider.value = String(state.comfort);
   els.comfortSlider.addEventListener("input", () => {
     state.comfort = Number(els.comfortSlider.value);
@@ -766,48 +1037,70 @@ function bindEvents() {
     applyComfort(state.comfort);
   });
 
-  els.marketFocus.classList.toggle("is-reversed", state.panelOrder === "radar-first");
-  for (const grip of els.panelGrips) {
-    grip.addEventListener("dragstart", (event) => {
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", grip.dataset.panelGrip);
-      els.marketFocus.classList.add("is-dragging-panel");
-    });
-    grip.addEventListener("dragend", () => els.marketFocus.classList.remove("is-dragging-panel"));
-  }
-  els.marketFocus.addEventListener("dragover", (event) => event.preventDefault());
-  els.marketFocus.addEventListener("drop", (event) => {
-    event.preventDefault();
-    const source = event.dataTransfer.getData("text/plain");
-    const target = event.target.closest("[data-panel]")?.dataset.panel;
-    if (source && target && source !== target) {
-      state.panelOrder = state.panelOrder === "chart-first" ? "radar-first" : "chart-first";
-      localStorage.setItem(STORAGE_KEYS.layout, state.panelOrder);
-      els.marketFocus.classList.toggle("is-reversed", state.panelOrder === "radar-first");
-      priceChart.render();
-    }
-    els.marketFocus.classList.remove("is-dragging-panel");
-  });
-
   els.radarSearch.addEventListener("input", () => {
     state.radarSearch = els.radarSearch.value.trim().toLowerCase();
     renderTopList(state.lastMetrics);
   });
-  els.radarMetric.value = state.radarMetric;
-  els.radarMetric.addEventListener("change", () => {
-    state.radarMetric = els.radarMetric.value;
-    state.topSort = { key: state.radarMetric, direction: "desc" };
-    renderTopList(state.lastMetrics);
+  for (const handle of els.columnResizers) {
+    handle.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    handle.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      handle.setPointerCapture(event.pointerId);
+      const index = Number(handle.dataset.columnIndex);
+      const nextIndex = index + 1;
+      const startX = event.clientX;
+      const start = state.radarColumns.slice();
+      const total = start.reduce((sum, value) => sum + value, 0);
+      const width = Math.max(200, document.querySelector(".top-card").getBoundingClientRect().width);
+      const move = (moveEvent) => {
+        const delta = ((moveEvent.clientX - startX) / width) * total;
+        const safeDelta = Math.max(.45 - start[index], Math.min(start[nextIndex] - .45, delta));
+        state.radarColumns[index] = start[index] + safeDelta;
+        state.radarColumns[nextIndex] = start[nextIndex] - safeDelta;
+        applyRadarColumns();
+      };
+      const stop = () => {
+        localStorage.setItem(STORAGE_KEYS.radarColumns, JSON.stringify(state.radarColumns));
+        handle.removeEventListener("pointermove", move);
+        handle.removeEventListener("pointerup", stop);
+        handle.removeEventListener("pointercancel", stop);
+      };
+      handle.addEventListener("pointermove", move);
+      handle.addEventListener("pointerup", stop);
+      handle.addEventListener("pointercancel", stop);
+    });
+  }
+  bindGridResizer(els.chartResizer, state.workspace, "primary", priceChart);
+  bindGridResizer(els.radarResizer, state.workspace, "radar");
+  els.addChartTile.addEventListener("click", () => {
+    els.chartPickerSearch.value = "";
+    renderChartPicker();
+    els.addChartDialog.showModal();
   });
-  els.radarDirection.addEventListener("click", () => {
-    state.topSort.direction = state.topSort.direction === "desc" ? "asc" : "desc";
-    renderTopList(state.lastMetrics);
+  els.addChartTile.addEventListener("dragover", (event) => {
+    if (!event.dataTransfer.types.includes("text/inpuls-symbol")) return;
+    event.preventDefault();
+    els.addChartTile.classList.add("is-drop-target");
   });
+  els.addChartTile.addEventListener("dragleave", () => els.addChartTile.classList.remove("is-drop-target"));
+  els.addChartTile.addEventListener("drop", (event) => {
+    event.preventDefault();
+    els.addChartTile.classList.remove("is-drop-target");
+    createExtraChart(event.dataTransfer.getData("text/inpuls-symbol"));
+  });
+  els.addChartClose.addEventListener("click", () => els.addChartDialog.close());
+  els.chartPickerSearch.addEventListener("input", renderChartPicker);
   els.timeZoneSelect.value = state.timeZone;
   els.timeZoneSelect.addEventListener("change", () => {
     state.timeZone = els.timeZoneSelect.value;
     localStorage.setItem(STORAGE_KEYS.timeZone, state.timeZone);
-    priceChart.setTimeZone(state.timeZone === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : state.timeZone);
+    const zone = state.timeZone === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : state.timeZone;
+    priceChart.setTimeZone(zone);
+    for (const panel of extraCharts.values()) panel.chart.setTimeZone(zone);
     updateClock();
   });
 
@@ -817,33 +1110,6 @@ function bindEvents() {
     localStorage.setItem(STORAGE_KEYS.volume, JSON.stringify(state.volumeVisible));
     els.volumeToggle.classList.toggle("is-collapsed", !state.volumeVisible);
     priceChart.setVolumeVisible(state.volumeVisible);
-  });
-
-  els.chartResizer.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    els.chartResizer.setPointerCapture(event.pointerId);
-    const startY = event.clientY;
-    const startX = event.clientX;
-    const startHeight = els.marketFocus.getBoundingClientRect().height;
-    const startRadarWidth = document.querySelector(".top-card").getBoundingClientRect().width;
-    const move = (moveEvent) => {
-      const maxHeight = Math.max(300, window.innerHeight - 190);
-      const height = Math.max(260, Math.min(maxHeight, startHeight + moveEvent.clientY - startY));
-      document.documentElement.style.setProperty("--focus-height", `${height}px`);
-      const radarWidth = Math.max(210, Math.min(520, startRadarWidth - (moveEvent.clientX - startX)));
-      document.documentElement.style.setProperty("--radar-width", `${radarWidth}px`);
-      state.workspaceSize = { height, radarWidth };
-      priceChart.render();
-    };
-    const stop = () => {
-      localStorage.setItem(STORAGE_KEYS.workspaceSize, JSON.stringify(state.workspaceSize));
-      els.chartResizer.removeEventListener("pointermove", move);
-      els.chartResizer.removeEventListener("pointerup", stop);
-      els.chartResizer.removeEventListener("pointercancel", stop);
-    };
-    els.chartResizer.addEventListener("pointermove", move);
-    els.chartResizer.addEventListener("pointerup", stop);
-    els.chartResizer.addEventListener("pointercancel", stop);
   });
 
   els.soundButton.classList.toggle("is-active", state.soundEnabled);
