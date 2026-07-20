@@ -1,3 +1,3 @@
-InPuls v18
-Build: persistent-trading-cockpit
-Features: indexed-second-history, persistent-layout-and-drawings, dual-corner-resize, draggable-alerts, dom-orderbook, column-filters, full-accent-theme
+InPuls v19
+Build: stable-drawing-cockpit
+Features: stable-viewport, movable-drawings, fixed-ctrl-snap, custom-timeframes, per-chart-volume-sessions, attention-alert, neutral-accent-theme

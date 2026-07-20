@@ -7,8 +7,8 @@
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="18" />
-    <link rel="stylesheet" href="./styles.css?v=18" />
+    <meta name="inpuls-build" content="19" />
+    <link rel="stylesheet" href="./styles.css?v=19" />
     <title>InPuls — в ритме рынка</title>
   </head>
   <body>
@@ -16,7 +16,7 @@
     <header class="topbar">
       <a class="brand" href="./" aria-label="InPuls — главная">
         <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span><strong>INPULS</strong><em>SCREENER <small>v18</small></em></span>
+        <span><strong>INPULS</strong><em>SCREENER <small>v19</small></em></span>
       </a>
       <div class="inplay-strip" aria-label="Монеты в игре сейчас">
         <div class="inplay-title"><span class="inplay-label">INPLAY</span><button id="inplay-settings" type="button" title="Настроить единые правила INPLAY">⚙</button></div>
@@ -59,20 +59,14 @@
             </div>
             <div class="chart-controls">
               <div class="control-line">
-                <div class="timeframes" role="group" aria-label="Таймфрейм графика">
-                  <button class="timeframe-button" data-interval="1s" type="button">1с</button>
-                  <button class="timeframe-button" data-interval="5s" type="button">5с</button>
-                  <button class="timeframe-button" data-interval="15s" type="button">15с</button>
-                  <button class="timeframe-button is-active" data-interval="1m" type="button">1м</button>
-                  <button class="timeframe-button" data-interval="5m" type="button">5м</button>
-                  <button class="timeframe-button" data-interval="15m" type="button">15м</button>
-                  <button class="timeframe-button" data-interval="1h" type="button">1ч</button>
-                  <select id="more-timeframe" class="timeframe-more" aria-label="Выбрать таймфрейм">
-                    <option value="">ТФ</option><option value="1s">1с</option><option value="5s">5с</option><option value="15s">15с</option>
-                    <option value="1m">1м</option><option value="3m">3м</option><option value="5m">5м</option><option value="15m">15м</option><option value="30m">30м</option>
-                    <option value="2h">2ч</option><option value="4h">4ч</option><option value="12h">12ч</option>
-                    <option value="1d">1д</option><option value="3d">3д</option><option value="1w">1н</option><option value="1M">1мес</option>
-                  </select>
+                <div class="timeframes timeframe-picker" role="group" aria-label="Таймфрейм графика">
+                  <button id="more-timeframe" class="timeframe-more timeframe-menu-toggle" type="button" aria-expanded="false">1м ▾</button>
+                  <div id="timeframe-menu" class="timeframe-menu" hidden>
+                    <button data-interval="1s" type="button">1с</button><button data-interval="5s" type="button">5с</button><button data-interval="15s" type="button">15с</button>
+                    <button data-interval="1m" type="button">1м</button><button data-interval="3m" type="button">3м</button><button data-interval="5m" type="button">5м</button><button data-interval="15m" type="button">15м</button><button data-interval="30m" type="button">30м</button>
+                    <button data-interval="1h" type="button">1ч</button><button data-interval="2h" type="button">2ч</button><button data-interval="4h" type="button">4ч</button><button data-interval="12h" type="button">12ч</button>
+                    <button data-interval="1d" type="button">1д</button><button data-interval="3d" type="button">3д</button><button data-interval="1w" type="button">1н</button><button data-interval="1M" type="button">1мес</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -85,24 +79,26 @@
               <span><b>NATR 5</b><strong id="metric-natr-5m">—</strong></span>
               <span><b>F</b><strong id="metric-funding">—</strong><em id="metric-funding-time">—</em></span>
               <span title="Корреляция минутных доходностей с BTC"><b>C</b><strong id="metric-correlation">—</strong></span>
-            </div>
-            <div class="chart-toolbox">
-              <button class="drawing-tools-toggle" type="button" title="Инструменты рисования" aria-label="Инструменты рисования" aria-expanded="false">✎</button>
-              <div class="drawing-tools-menu" hidden>
-                <button data-drawing-tool="trend" type="button" title="Отрезок" aria-label="Отрезок">╱</button>
-                <button data-drawing-tool="horizontal" type="button" title="Горизонталь" aria-label="Горизонталь">─</button>
-                <button data-drawing-tool="ruler" type="button" title="Линейка" aria-label="Линейка">↕</button>
-                <button data-drawing-tool="rectangle" type="button" title="Прямоугольник" aria-label="Прямоугольник">▭</button>
-                <button data-drawing-tool="ray" type="button" title="Луч" aria-label="Луч">→</button>
-                <button data-drawing-tool="freehand" type="button" title="Рисование" aria-label="Рисование">∿</button>
-                <button data-drawing-tool="alert" type="button" title="Alert" aria-label="Alert">◉</button>
+              <div class="chart-metric-controls">
+                <div class="chart-toolbox">
+                  <button class="drawing-tools-toggle" type="button" title="Инструменты рисования" aria-label="Инструменты рисования" aria-expanded="false">✎</button>
+                  <div class="drawing-tools-menu" hidden>
+                    <button data-drawing-tool="trend" type="button" title="Отрезок" aria-label="Отрезок">╱</button>
+                    <button data-drawing-tool="horizontal" type="button" title="Горизонталь" aria-label="Горизонталь">─</button>
+                    <button data-drawing-tool="ruler" type="button" title="Линейка" aria-label="Линейка">↕</button>
+                    <button data-drawing-tool="rectangle" type="button" title="Прямоугольник" aria-label="Прямоугольник">▭</button>
+                    <button data-drawing-tool="ray" type="button" title="Луч" aria-label="Луч">→</button>
+                    <button data-drawing-tool="freehand" type="button" title="Рисование" aria-label="Рисование">∿</button>
+                    <button data-drawing-tool="alert" type="button" title="Alert" aria-label="Alert">!</button>
+                  </div>
+                  <button class="drawing-clear-button" type="button" title="Очистить все рисунки" aria-label="Очистить все рисунки">⌫</button>
+                </div>
+                <button id="volume-toggle" class="volume-toggle" type="button" title="Скрыть или показать объём" aria-pressed="true">V</button>
+                <button id="session-toggle" class="session-toggle" type="button" title="Скрыть или показать торговые сессии" aria-pressed="true">S</button>
               </div>
-              <button class="drawing-clear-button" type="button" title="Очистить все рисунки" aria-label="Очистить все рисунки">⌫</button>
             </div>
             <canvas id="price-chart" aria-label="Свечной график выбранной монеты"></canvas>
             <div id="chart-tooltip" class="chart-tooltip" hidden></div>
-            <button id="volume-toggle" class="volume-toggle" type="button" title="Нажми, чтобы скрыть или показать объём" aria-pressed="true">ОБЪЁМ ▾</button>
-            <button id="session-toggle" class="session-toggle" type="button" title="Скрыть или показать торговые сессии" aria-pressed="true">СЕССИИ ON</button>
             <span class="zoom-hint">Колесо · масштаб</span>
             <button id="chart-resizer" class="chart-resizer" type="button" aria-label="Изменить размер графика" title="Потяни по диагонали, чтобы изменить размер"></button>
           </div>
@@ -294,6 +290,6 @@
     </dialog>
 
     <div id="alert-toast" class="alert-toast" role="status" aria-live="assertive" hidden></div>
-    <script type="module" src="./app.js?v=18"></script>
+    <script type="module" src="./app.js?v=19"></script>
   </body>
 </html>

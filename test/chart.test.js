@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { aggregateCandles, calculateNatr, compactCandles, drawingPercentChange, KlineFeed, nicePriceStep, niceTimeTickStep, parseRestKline, parseStreamKline, pearsonCorrelation, scaleFromDrag, sessionLabels, snapPriceToCandle, upsertCandle, visibleCountFromDrag } from "../chart.js";
+import { aggregateCandles, calculateNatr, candleIndexAtSlot, compactCandles, drawingPercentChange, KlineFeed, nicePriceStep, niceTimeTickStep, parseRestKline, parseStreamKline, pearsonCorrelation, preserveViewFraction, scaleFromDrag, sessionLabels, snapPriceToCandle, upsertCandle, visibleCountFromDrag } from "../chart.js";
 
 test("REST kline is normalized", () => {
   const candle = parseRestKline([1000, "10", "12", "9", "11", "25", 1999]);
@@ -155,9 +155,18 @@ test("Ctrl magnet snaps to nearest candle body or wick extreme", () => {
   assert.equal(snapPriceToCandle(candle, 96), 94);
 });
 
-test("time scale marks day and Moscow session times", () => {
+test("Ctrl magnet resolves the candle centered under the cursor", () => {
+  assert.equal(candleIndexAtSlot(12.5, 100), 12);
+  assert.equal(candleIndexAtSlot(12.99, 100), 12);
+});
+
+test("live data keeps the fractional manual viewport offset", () => {
+  assert.equal(preserveViewFraction(44, 12.625), 44.625);
+});
+
+test("time scale marks trading sessions without a separate day marker", () => {
   const dayBoundary = sessionLabels(Date.UTC(2026, 6, 19, 23, 59), Date.UTC(2026, 6, 20, 0, 0));
-  assert.ok(dayBoundary.includes("D"));
+  assert.ok(!dayBoundary.includes("D"));
   assert.ok(dayBoundary.includes("Asia"));
   const usaOpen = sessionLabels(Date.UTC(2026, 6, 20, 13, 29), Date.UTC(2026, 6, 20, 13, 30));
   assert.ok(usaOpen.includes("USA"));

@@ -99,6 +99,14 @@ export function snapPriceToCandle(candle, price) {
   return levels.reduce((nearest, level) => Math.abs(level - price) < Math.abs(nearest - price) ? level : nearest, levels[0]);
 }
 
+export function candleIndexAtSlot(slot, length) {
+  return Math.max(0, Math.min(Math.max(0, length - 1), Math.floor(slot)));
+}
+
+export function preserveViewFraction(nextAnchor, previousViewStart) {
+  return nextAnchor + (previousViewStart - Math.floor(previousViewStart));
+}
+
 const TIME_TICK_STEPS = [
   1_000, 5_000, 10_000, 15_000, 30_000,
   60_000, 2 * 60_000, 5 * 60_000, 10 * 60_000, 15 * 60_000, 30 * 60_000,
@@ -357,6 +365,7 @@ export class CandlestickChart {
     this.viewStart = null;
     this.priceScale = 1;
     this.pricePan = 0;
+    this.fixedPriceDomain = null;
     this.followLatest = true;
     this.timeZone = "Europe/Moscow";
     this.volumeVisible = true;
@@ -406,6 +415,8 @@ export class CandlestickChart {
     canvas.addEventListener("dblclick", () => {
       this.followLatest = true;
       this.pricePan = 0;
+      this.priceScale = 1;
+      this.fixedPriceDomain = null;
       this.viewStart = Math.max(0, this.candles.length - (this.visibleCount ?? 80));
       this.#persistViewport();
       this.render();
@@ -439,6 +450,10 @@ export class CandlestickChart {
     this.render();
   }
 
+  lockPriceDomain() {
+    this.#lockPriceDomain();
+  }
+
   #font(size, bold = false) {
     return `${bold ? "bold " : ""}${Math.max(6, size * this.fontScale).toFixed(1)}px Arial, sans-serif`;
   }
@@ -469,6 +484,10 @@ export class CandlestickChart {
     if (action.type === "add") this.drawings = this.drawings.filter((item) => item.id !== action.drawing.id);
     else if (action.type === "delete") this.drawings.splice(Math.min(action.index, this.drawings.length), 0, action.drawing);
     else if (action.type === "clear") this.drawings = action.drawings.map((item) => structuredClone(item));
+    else if (action.type === "move") {
+      const index = this.drawings.findIndex((item) => item.id === action.before.id);
+      if (index >= 0) this.drawings[index] = structuredClone(action.before);
+    }
     this.#persistDrawings();
     this.render();
   }
@@ -503,6 +522,7 @@ export class CandlestickChart {
       priceScale: this.priceScale,
       pricePan: this.pricePan,
       followLatest: this.followLatest,
+      fixedPriceDomain: this.fixedPriceDomain,
     });
     try { localStorage.setItem(`${this.storageKey}-viewport`, JSON.stringify(Object.fromEntries(this.viewportStore))); } catch {}
   }
@@ -541,8 +561,10 @@ export class CandlestickChart {
       this.draftDrawing = null;
       this.drawingGesture = null;
     }
+    const oldViewStart = this.viewStart ?? 0;
+    const oldAnchorIndex = Math.max(0, Math.floor(oldViewStart));
     const oldAnchorTime = !seriesChanged && !this.followLatest && this.candles.length
-      ? this.candles[Math.max(0, Math.floor(this.viewStart ?? 0))]?.time
+      ? this.candles[oldAnchorIndex]?.time
       : null;
     if (seriesChanged) {
       this.pendingViewport = !symbolChanged && this.candles.length && this.visibleCount
@@ -565,14 +587,17 @@ export class CandlestickChart {
         this.priceScale = Number(savedViewport.priceScale) || 1;
         this.pricePan = Number(savedViewport.pricePan) || 0;
         this.followLatest = savedViewport.followLatest !== false;
+        this.fixedPriceDomain = savedViewport.fixedPriceDomain && Number.isFinite(savedViewport.fixedPriceDomain.min) && Number.isFinite(savedViewport.fixedPriceDomain.max)
+          ? { min: savedViewport.fixedPriceDomain.min, max: savedViewport.fixedPriceDomain.max }
+          : null;
         const anchor = candles.findIndex((candle) => candle.time === savedViewport.anchorTime);
         if (anchor >= 0) this.viewStart = anchor;
-      }
+      } else this.fixedPriceDomain = null;
     }
     this.#checkAlerts();
     if (oldAnchorTime !== null) {
       const nextAnchor = candles.findIndex((candle) => candle.time === oldAnchorTime);
-      if (nextAnchor >= 0) this.viewStart = nextAnchor;
+      if (nextAnchor >= 0) this.viewStart = preserveViewFraction(nextAnchor, oldViewStart);
     }
     if (candles.length && this.pendingViewport && this.visibleCount) {
       this.viewStart = candles.length - 1 - this.pendingViewport.latestRatio * this.visibleCount;
@@ -628,8 +653,10 @@ export class CandlestickChart {
     const priceSpan = rawMax - rawMin || rawMax * 0.001 || 1;
     const priceCenter = (rawMax + rawMin) / 2 + priceSpan * this.pricePan;
     const scaledSpan = priceSpan * 1.16 * this.priceScale;
-    const minPrice = priceCenter - scaledSpan / 2;
-    const maxPrice = priceCenter + scaledSpan / 2;
+    const autoMinPrice = priceCenter - scaledSpan / 2;
+    const autoMaxPrice = priceCenter + scaledSpan / 2;
+    const minPrice = this.fixedPriceDomain?.min ?? autoMinPrice;
+    const maxPrice = this.fixedPriceDomain?.max ?? autoMaxPrice;
     const displayCandles = compactCandles(visible, Math.max(10, Math.floor(plotWidth / 4)));
     const maxVolume = Math.max(...displayCandles.map((item) => item.volume), 1);
     const step = plotWidth / this.visibleCount;
@@ -687,9 +714,9 @@ export class CandlestickChart {
     }
 
     this.layout = { visible, margins, step, plotWidth, plotHeight, priceBottom, width, height, startIndex: this.viewStart, minPrice, maxPrice };
-    this.#drawDrawings(ctx);
     const current = this.candles.at(-1);
     if (current) this.#drawLastPrice(ctx, width, margins, y(current.close), current.close, current.close >= current.open, margins.top, priceBottom);
+    this.#drawDrawings(ctx);
     if (this.hoverX !== null && this.hoverY !== null) this.#drawCrosshair(ctx);
   }
 
@@ -755,7 +782,7 @@ export class CandlestickChart {
       const current = this.candles[index].time;
       const events = sessionEvents(previous, current, this.timeZone);
       for (const event of events) {
-        if (!this.sessionsVisible && event.label !== "D") continue;
+        if (event.label === "D" || !this.sessionsVisible) continue;
         const fraction = Math.max(0, Math.min(1, (event.time - previous) / Math.max(1, current - previous)));
         const x = margins.left + (index - 1 + fraction - this.viewStart + .5) * this.layoutStep(margins);
         ctx.save();
@@ -838,7 +865,7 @@ export class CandlestickChart {
     const slot = this.viewStart + ((safeX - margins.left) / plotWidth) * this.visibleCount;
     const price = maxPrice - ((safeY - margins.top) / plotHeight) * (maxPrice - minPrice);
     if (snap && this.candles.length) {
-      const index = Math.max(0, Math.min(this.candles.length - 1, Math.round(slot)));
+      const index = candleIndexAtSlot(slot, this.candles.length);
       return { time: this.candles[index].time, price: snapPriceToCandle(this.candles[index], price), snapped: true };
     }
     return { time: this.#timeAtIndex(slot), price };
@@ -955,11 +982,14 @@ export class CandlestickChart {
 
     for (const alert of items.filter((item) => item.type === "alert")) {
       const point = this.#screenPoint(alert.a);
-      if (point.y < margins.top || point.y > priceBottom) continue;
-      ctx.font = this.#font(7, true);
-      ctx.textAlign = "left";
-      ctx.fillStyle = alert.triggered ? "#ff9f5c" : this.theme.session;
-      ctx.fillText(`ALERT ${formatChartPrice(alert.a.price)}`, margins.left + 4, point.y - 4);
+      const labelY = Math.max(margins.top + 8, Math.min(priceBottom - 8, point.y));
+      const fill = alert.triggered ? "#ff9f5c" : this.theme.session;
+      ctx.fillStyle = fill;
+      ctx.fillRect(width - margins.right, labelY - 8, margins.right, 16);
+      ctx.fillStyle = this.theme.crosshairText;
+      ctx.font = this.#font(8, true);
+      ctx.textAlign = "center";
+      ctx.fillText(`! ${formatChartPrice(alert.a.price)}`, width - margins.right / 2, labelY + 3);
     }
 
     const rays = items.filter((item) => item.type === "ray").map((item) => ({ item, y: this.#screenPoint(item.a).y }));
@@ -992,6 +1022,7 @@ export class CandlestickChart {
     if (drawing.type === "ray") return point.x >= a.x ? Math.abs(point.y - a.y) : Math.hypot(point.x - a.x, point.y - a.y);
     if (drawing.type === "trend" || drawing.type === "ruler") return this.#distanceToSegment(point, a, b);
     if (drawing.type === "rectangle") {
+      if (point.x >= Math.min(a.x, b.x) && point.x <= Math.max(a.x, b.x) && point.y >= Math.min(a.y, b.y) && point.y <= Math.max(a.y, b.y)) return 0;
       const corners = [{ x: a.x, y: b.y }, { x: b.x, y: a.y }];
       return Math.min(
         this.#distanceToSegment(point, a, corners[0]),
@@ -1007,6 +1038,48 @@ export class CandlestickChart {
       return distance;
     }
     return Infinity;
+  }
+
+  #drawingAt(point, maximum = 10) {
+    let best = null;
+    for (let index = this.drawings.length - 1; index >= 0; index -= 1) {
+      const drawing = this.drawings[index];
+      const distance = this.#drawingDistance(drawing, point);
+      if (distance <= maximum && (!best || distance < best.distance)) best = { drawing, distance };
+    }
+    return best?.drawing ?? null;
+  }
+
+  #drawingHandleAt(drawing, point, maximum = 7) {
+    if (!drawing || drawing.type === "freehand") return null;
+    const a = this.#screenPoint(drawing.a);
+    if (Math.hypot(point.x - a.x, point.y - a.y) <= maximum) return "a";
+    if (drawing.b) {
+      const b = this.#screenPoint(drawing.b);
+      if (Math.hypot(point.x - b.x, point.y - b.y) <= maximum) return "b";
+    }
+    return null;
+  }
+
+  #moveDrawing(drawing, original, startPoint, nextPoint) {
+    const deltaTime = nextPoint.time - startPoint.time;
+    const deltaPrice = nextPoint.price - startPoint.price;
+    const movePoint = (point) => ({ ...point, time: point.time + deltaTime, price: point.price + deltaPrice });
+    if (drawing.type === "horizontal" || drawing.type === "alert") drawing.a = { ...original.a, price: original.a.price + deltaPrice };
+    else {
+      drawing.a = movePoint(original.a);
+      if (original.b) drawing.b = movePoint(original.b);
+      if (original.points) drawing.points = original.points.map(movePoint);
+    }
+    if (drawing.type === "alert") {
+      drawing.triggered = false;
+      drawing.referencePrice = this.candles.at(-1)?.close ?? drawing.a.price;
+    }
+  }
+
+  #lockPriceDomain() {
+    if (this.fixedPriceDomain || !this.layout) return;
+    this.fixedPriceDomain = { min: this.layout.minPrice, max: this.layout.maxPrice };
   }
 
   #handleContextMenu(event) {
@@ -1051,16 +1124,27 @@ export class CandlestickChart {
     }
     if (this.drag?.type === "price") {
       const deltaY = y - this.drag.startY;
-      this.priceScale = scaleFromDrag(this.drag.startScale, deltaY);
+      const factor = scaleFromDrag(1, deltaY);
+      const center = (this.drag.startDomain.min + this.drag.startDomain.max) / 2;
+      const span = (this.drag.startDomain.max - this.drag.startDomain.min) * factor;
+      this.fixedPriceDomain = { min: center - span / 2, max: center + span / 2 };
       this.tooltip.hidden = true;
       this.render();
       return;
     }
-    if (this.drag?.type === "alert") {
-      const deltaY = y - this.drag.startY;
-      this.drag.drawing.a.price = this.drag.startPrice - (deltaY / Math.max(this.drag.plotHeight, 1)) * this.drag.priceSpan;
-      this.drag.drawing.triggered = false;
-      this.drag.drawing.referencePrice = this.candles.at(-1)?.close ?? this.drag.drawing.a.price;
+    if (this.drag?.type === "drawing" || this.drag?.type === "drawing-handle") {
+      const point = this.#pointAt(x, y, event.ctrlKey || event.metaKey);
+      if (point) {
+        if (this.drag.type === "drawing-handle") {
+          if ((this.drag.drawing.type === "horizontal" || this.drag.drawing.type === "alert") && this.drag.handle === "a") this.drag.drawing.a = { ...this.drag.drawing.a, price: point.price };
+          else this.drag.drawing[this.drag.handle] = point;
+          if (this.drag.drawing.type === "alert") {
+            this.drag.drawing.triggered = false;
+            this.drag.drawing.referencePrice = this.candles.at(-1)?.close ?? point.price;
+          }
+        } else this.#moveDrawing(this.drag.drawing, this.drag.before, this.drag.startPoint, point);
+        this.drag.moved = true;
+      }
       this.tooltip.hidden = true;
       this.render();
       return;
@@ -1080,15 +1164,16 @@ export class CandlestickChart {
       const deltaY = y - this.drag.startY;
       const candleShift = deltaX / Math.max(this.drag.step, 1);
       this.viewStart = Math.max(0, Math.min(this.drag.startView - candleShift, Math.max(0, this.candles.length - 1)));
-      this.pricePan = this.drag.startPricePan + (deltaY / Math.max(this.drag.plotHeight, 1)) * this.priceScale;
+      const shift = (deltaY / Math.max(this.drag.plotHeight, 1)) * (this.drag.startDomain.max - this.drag.startDomain.min);
+      this.fixedPriceDomain = { min: this.drag.startDomain.min + shift, max: this.drag.startDomain.max + shift };
       this.followLatest = false;
       this.tooltip.hidden = true;
       this.render();
       return;
     }
     const axis = this.#axisAt(x, y);
-    const nearAlert = !axis && this.drawings.some((drawing) => drawing.type === "alert" && this.#drawingDistance(drawing, { x, y }) < 8);
-    this.canvas.style.cursor = axis === "price" ? "ns-resize" : axis === "time" ? "ew-resize" : nearAlert ? "ns-resize" : "crosshair";
+    const nearDrawing = !axis && this.#drawingAt({ x, y });
+    this.canvas.style.cursor = axis === "price" ? "ns-resize" : axis === "time" ? "ew-resize" : nearDrawing ? "move" : "crosshair";
     this.hoverX = axis ? null : x;
     this.hoverY = axis ? null : y;
     this.render();
@@ -1130,28 +1215,28 @@ export class CandlestickChart {
       this.render();
       return;
     }
-    const alert = !axis
-      ? this.drawings.find((drawing) => drawing.type === "alert" && this.#drawingDistance(drawing, { x, y }) < 8)
-      : null;
+    const drawing = !axis ? this.#drawingAt({ x, y }) : null;
+    const drawingHandle = drawing ? this.#drawingHandleAt(drawing, { x, y }) : null;
     event.preventDefault();
     this.canvas.setPointerCapture(event.pointerId);
     this.hoverX = null;
     this.tooltip.hidden = true;
-    this.drag = alert
+    if (!drawing) this.#lockPriceDomain();
+    this.drag = drawing
       ? {
-          type: "alert",
-          drawing: alert,
-          startY: y,
-          startPrice: alert.a.price,
-          priceSpan: this.layout.maxPrice - this.layout.minPrice,
-          plotHeight: this.layout.plotHeight,
+          type: drawingHandle ? "drawing-handle" : "drawing",
+          drawing,
+          handle: drawingHandle,
+          before: structuredClone(drawing),
+          startPoint: this.#pointAt(x, y, false),
+          moved: false,
         }
       : axis === "price"
-      ? { type: "price", startY: y, startScale: this.priceScale }
+      ? { type: "price", startY: y, startDomain: { ...this.fixedPriceDomain } }
       : axis === "time"
         ? { type: "time", startX: x, startCount: this.visibleCount, endIndex: this.viewStart + this.visibleCount }
-        : { type: "pan", startX: x, startY: y, startView: this.viewStart, startPricePan: this.pricePan, step: this.layout.step, plotHeight: this.layout.plotHeight };
-    this.canvas.style.cursor = axis === "price" ? "ns-resize" : axis === "time" ? "ew-resize" : "grabbing";
+        : { type: "pan", startX: x, startY: y, startView: this.viewStart, startDomain: { ...this.fixedPriceDomain }, step: this.layout.step, plotHeight: this.layout.plotHeight };
+    this.canvas.style.cursor = axis === "price" ? "ns-resize" : axis === "time" ? "ew-resize" : drawing ? "move" : "grabbing";
   }
 
   #handlePointerUp(event) {
@@ -1168,7 +1253,10 @@ export class CandlestickChart {
     }
     if (!this.drag) return;
     if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
-    if (this.drag.type === "alert") this.#persistDrawings();
+    if ((this.drag.type === "drawing" || this.drag.type === "drawing-handle") && this.drag.moved) {
+      this.undoStack.push({ type: "move", before: this.drag.before, after: structuredClone(this.drag.drawing) });
+      this.#persistDrawings();
+    }
     this.#persistViewport();
     this.drag = null;
     this.canvas.style.cursor = "crosshair";
@@ -1178,6 +1266,7 @@ export class CandlestickChart {
     event.preventDefault();
     if (!this.layout || this.candles.length < 2) return;
     const rect = this.canvas.getBoundingClientRect();
+    this.#lockPriceDomain();
     const x = Math.max(this.layout.margins.left, Math.min(event.clientX - rect.left, this.layout.margins.left + this.layout.plotWidth));
     const anchorRatio = (x - this.layout.margins.left) / this.layout.plotWidth;
     const anchorIndex = this.layout.startIndex + anchorRatio * this.visibleCount;
@@ -1278,7 +1367,6 @@ function mergeCandles(primary, secondary) {
   return [...byTime.values()].sort((left, right) => left.time - right.time);
 }
 
-const zoneFormatters = new Map();
 const zoneOffsetFormatters = new Map();
 
 function alignedTimeTick(timestamp, step, timeZone) {
@@ -1304,42 +1392,8 @@ function alignedTimeTick(timestamp, step, timeZone) {
   return Math.ceil((timestamp + offset) / step) * step - offset;
 }
 
-function zonedClock(timestamp, timeZone) {
-  if (!zoneFormatters.has(timeZone)) {
-    zoneFormatters.set(timeZone, new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }));
-  }
-  const values = {};
-  for (const part of zoneFormatters.get(timeZone).formatToParts(new Date(timestamp))) {
-    if (part.type !== "literal") values[part.type] = part.value;
-  }
-  return {
-    date: `${values.year}-${values.month}-${values.day}`,
-    minute: Number(values.hour) * 60 + Number(values.minute),
-  };
-}
-
-export function sessionEvents(previous, current, timeZone = "UTC") {
+export function sessionEvents(previous, current) {
   const events = [];
-  const before = zonedClock(previous, timeZone);
-  const after = zonedClock(current, timeZone);
-  if (before.date !== after.date) {
-    let left = previous;
-    let right = current;
-    while (right - left > 60_000) {
-      const middle = Math.floor((left + right) / 2);
-      if (zonedClock(middle, timeZone).date === before.date) left = middle;
-      else right = middle;
-    }
-    events.push({ label: "D", time: right });
-  }
   const dayMs = 86_400_000;
   const firstDay = Math.floor(previous / dayMs) * dayMs;
   for (let day = firstDay; day <= current; day += dayMs) {

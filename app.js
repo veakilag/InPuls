@@ -3,9 +3,9 @@ import {
   SymbolState,
   filterUsdtPerpetualTicker,
   formatCompactUsd,
-} from "./engine.js?v=18";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=18";
-import { OrderBookFeed } from "./orderbook.js?v=18";
+} from "./engine.js?v=19";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=19";
+import { OrderBookFeed } from "./orderbook.js?v=19";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -28,6 +28,11 @@ const STORAGE_KEYS = {
 
 const DEFAULT_INPLAY = Object.freeze({ minV24: 100, minNatr1: null, minGrowth24: null });
 const EMPTY_RADAR_FILTERS = Object.freeze([]);
+const CHART_INTERVALS = Object.freeze(["1s", "5s", "15s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "12h", "1d", "3d", "1w", "1M"]);
+
+function intervalLabel(interval) {
+  return String(interval).replace("1M", "1мес").replace("s", "с").replace("m", "м").replace("h", "ч").replace("d", "д").replace("w", "н");
+}
 
 function normalizeInPlay(value) {
   return { ...DEFAULT_INPLAY, ...(value && typeof value === "object" && !Array.isArray(value) ? value : {}) };
@@ -125,6 +130,7 @@ const els = {
   timeframeButtons: [...document.querySelectorAll("[data-interval]")],
   rangeButtons: [...document.querySelectorAll("[data-range]")],
   moreTimeframe: document.querySelector("#more-timeframe"),
+  timeframeMenu: document.querySelector("#timeframe-menu"),
   topList: document.querySelector("#top-list"),
   topSortButtons: [...document.querySelectorAll("[data-top-sort]")],
   radarSearch: document.querySelector("#radar-search"),
@@ -319,20 +325,20 @@ function applyComfort(rawValue) {
     ? mixColor("#39dba2", "#35cbd4", amount * 2)
     : mixColor("#35cbd4", "#9567c5", (amount - .5) * 2);
   const palette = {
-    bg: mixColor("#070b0d", accent, .035 + amount * .012),
-    panel: mixColor("#0d1215", accent, .055 + amount * .025),
-    panel2: mixColor("#12191d", accent, .08 + amount * .035),
-    line: mixColor("#253238", accent, .24 + amount * .08),
-    text: mixColor("#d6dde2", "#c9c5bc", amount),
-    muted: mixColor("#87919b", "#807b72", amount),
-    chart: mixColor("#05090b", accent, .022 + amount * .016),
-    bull: mixColor("#d7dde0", "#d0cbc1", amount),
-    bear: mixColor("#101417", "#0b0b0c", amount),
-    bearStroke: mixColor("#7d8790", "#77716a", amount),
-    grid: mixColor("#4b5960", accent, .20 + amount * .06),
-    crosshair: mixColor("#929aa1", "#918a80", amount),
-    crosshairFill: mixColor("#243a3c", accent, .44),
-    crosshairText: mixColor("#eef1f2", "#e6dfd4", amount),
+    bg: mixColor("#0a0f11", "#050507", amount),
+    panel: mixColor("#11181b", "#0a0a0e", amount),
+    panel2: mixColor("#172024", "#111018", amount),
+    line: mixColor("#2b3a3d", accent, .22 + amount * .08),
+    text: mixColor("#dce4e5", "#cac8d2", amount),
+    muted: mixColor("#89979a", "#777581", amount),
+    chart: mixColor("#080d0f", "#060608", amount),
+    bull: mixColor("#e0e5e4", "#cbc9d0", amount),
+    bear: mixColor("#111719", "#0b0a0d", amount),
+    bearStroke: mixColor("#829093", "#706d77", amount),
+    grid: mixColor("#526063", accent, .17 + amount * .05),
+    crosshair: mixColor("#9ba6a7", "#898591", amount),
+    crosshairFill: mixColor("#293538", accent, .38),
+    crosshairText: mixColor("#f0f4f3", "#e3dfe8", amount),
     accent,
   };
   const root = document.documentElement;
@@ -398,7 +404,7 @@ function showToast(message, isAlert = false) {
 function handleChartAlert({ symbol, price }) {
   const pair = symbol || state.selectedChartSymbol;
   const message = `ALERT · ${pair} · ${formatPrice(price)}`;
-  if (state.soundEnabled) playAlert("up", 100);
+  if (state.soundEnabled) playAttentionAlert();
   showToast(message, true);
   if (globalThis.Notification?.permission === "granted") new Notification(`InPuls · ${pair}`, { body: `Цена коснулась ${formatPrice(price)}` });
   clearInterval(titleBlinkTimer);
@@ -430,17 +436,19 @@ async function copyTicker(symbol) {
 }
 
 function selectInterval(interval) {
+  priceChart.lockPriceDomain();
   state.chartInterval = interval;
   const secondRangeCaps = { "1s": "4h", "5s": "1d", "15s": "7d" };
   if (secondRangeCaps[interval]) state.chartRange = secondRangeCaps[interval];
   persistChartSettings();
   els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === interval));
   els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === state.chartRange));
-  els.moreTimeframe.value = interval;
+  els.moreTimeframe.textContent = `${intervalLabel(interval)} ▾`;
   klineFeed.select(state.selectedChartSymbol, interval, state.chartRange);
 }
 
 function selectRange(range) {
+  priceChart.lockPriceDomain();
   state.chartRange = range;
   const sensibleInterval = { "15m": "1s", "1h": "5s", "4h": "15s", "1d": "1m", "7d": "15m", "30d": "1h", "90d": "4h", "365d": "1d" };
   const allowedSecondRanges = { "1s": ["15m"], "5s": ["15m", "1h"], "15s": ["15m", "1h", "4h"] };
@@ -448,7 +456,7 @@ function selectRange(range) {
   persistChartSettings();
   els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === range));
   els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === state.chartInterval));
-  els.moreTimeframe.value = state.chartInterval;
+  els.moreTimeframe.textContent = `${intervalLabel(state.chartInterval)} ▾`;
   klineFeed.select(state.selectedChartSymbol, state.chartInterval, range);
 }
 
@@ -803,10 +811,12 @@ function normalizeWorkspace() {
   for (const source of sourceExtras) {
     if (!source?.id || !source?.symbol?.endsWith("USDT")) continue;
     const type = source.type === "orderbook" ? "orderbook" : "chart";
-    const fallback = { id: String(source.id), type, symbol: source.symbol, interval: source.interval || "1m", x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
+    const fallback = { id: String(source.id), type, symbol: source.symbol, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
     const item = clampPanel(source, fallback, { w: 3, h: 2 });
     item.symbol = source.symbol;
-    item.interval = source.interval || "1m";
+    item.interval = source.interval || state.chartInterval;
+    item.volumeVisible = source.volumeVisible ?? state.volumeVisible;
+    item.sessionsVisible = source.sessionsVisible ?? state.sessionsVisible;
     if (canPlacePanel(item, workspace)) workspace.extras.push(item);
   }
   state.workspace = workspace;
@@ -1067,19 +1077,21 @@ function mountExtraChart(model) {
     <header class="chart-heading">
       <span class="panel-grip" title="Дополнительный график">⠿</span>
       <div class="chart-quote"><h2>${escapeHtml(model.symbol.replace("USDT", ""))}/USDT</h2><strong data-mini-price>—</strong></div>
-      <div class="chart-controls"><div class="timeframes">
-        ${["1s", "15s", "1m", "5m", "15m", "1h"].map((interval) => `<button class="timeframe-button${interval === model.interval ? " is-active" : ""}" data-mini-interval="${interval}" type="button">${interval.replace("s", "с").replace("m", "м").replace("h", "ч")}</button>`).join("")}
-        <select class="compact-tf-select" data-mini-timeframe-select aria-label="Выбрать таймфрейм">
-          ${["1s", "5s", "15s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "12h", "1d", "3d", "1w", "1M"].map((interval) => `<option value="${interval}"${interval === model.interval ? " selected" : ""}>${interval.replace("s", "с").replace("m", "м").replace("h", "ч").replace("d", "д").replace("w", "н")}</option>`).join("")}
-        </select>
+      <div class="chart-controls"><div class="timeframes timeframe-picker">
+        <button class="timeframe-more timeframe-menu-toggle" data-mini-timeframe-toggle type="button" aria-expanded="false">${intervalLabel(model.interval)} ▾</button>
+        <div class="timeframe-menu" data-mini-timeframe-menu>${CHART_INTERVALS.map((interval) => `<button class="${interval === model.interval ? "is-active" : ""}" data-mini-interval="${interval}" type="button">${intervalLabel(interval)}</button>`).join("")}</div>
       </div></div>
       <button class="mini-chart-close panel-close" type="button" title="Закрыть график">×</button>
     </header>
     <div class="chart-stage">
-      <div class="chart-metrics"><span><b>V24</b><strong data-mini-metric="quoteVolume24h">—</strong></span><span><b>NATR 1</b><strong data-mini-metric="natr1m">—</strong></span><span><b>NATR 5</b><strong data-mini-metric="natr5m">—</strong></span><span><b>F</b><strong data-mini-metric="fundingRate">—</strong></span><span><b>C</b><strong data-mini-metric="correlation">—</strong></span></div>
-      <div class="chart-toolbox"><button class="drawing-tools-toggle" type="button" title="Инструменты рисования" aria-expanded="false">✎</button><div class="drawing-tools-menu">
-        <button data-drawing-tool="trend" type="button" title="Отрезок">╱</button><button data-drawing-tool="horizontal" type="button" title="Горизонталь">─</button><button data-drawing-tool="ruler" type="button" title="Линейка">↕</button><button data-drawing-tool="rectangle" type="button" title="Прямоугольник">▭</button><button data-drawing-tool="ray" type="button" title="Луч">→</button><button data-drawing-tool="freehand" type="button" title="Рисование">∿</button><button data-drawing-tool="alert" type="button" title="Alert">◉</button><button data-session-toggle type="button" title="Сессии">◫</button>
-      </div><button class="drawing-clear-button" type="button" title="Очистить всё">⌫</button></div>
+      <div class="chart-metrics"><span><b>V24</b><strong data-mini-metric="quoteVolume24h">—</strong></span><span><b>NATR 1</b><strong data-mini-metric="natr1m">—</strong></span><span><b>NATR 5</b><strong data-mini-metric="natr5m">—</strong></span><span><b>F</b><strong data-mini-metric="fundingRate">—</strong></span><span><b>C</b><strong data-mini-metric="correlation">—</strong></span>
+        <div class="chart-metric-controls">
+          <div class="chart-toolbox"><button class="drawing-tools-toggle" type="button" title="Инструменты рисования" aria-expanded="false">✎</button><div class="drawing-tools-menu">
+            <button data-drawing-tool="trend" type="button" title="Отрезок">╱</button><button data-drawing-tool="horizontal" type="button" title="Горизонталь">─</button><button data-drawing-tool="ruler" type="button" title="Линейка">↕</button><button data-drawing-tool="rectangle" type="button" title="Прямоугольник">▭</button><button data-drawing-tool="ray" type="button" title="Луч">→</button><button data-drawing-tool="freehand" type="button" title="Рисование">∿</button><button data-drawing-tool="alert" type="button" title="Alert">!</button>
+          </div><button class="drawing-clear-button" type="button" title="Очистить всё">⌫</button></div>
+          <button class="volume-toggle" data-mini-volume type="button" title="Объём">V</button><button class="session-toggle" data-mini-session type="button" title="Сессии">S</button>
+        </div>
+      </div>
       <canvas aria-label="Дополнительный свечной график"></canvas><div class="chart-tooltip" hidden></div>
       <button class="chart-resizer" type="button" aria-label="Изменить размер графика"></button>
     </div>
@@ -1090,8 +1102,8 @@ function mountExtraChart(model) {
     storageKey: `inpuls-chart-${model.id}-v1`,
   });
   chart.setTimeZone(state.timeZone === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : state.timeZone);
-  chart.setVolumeVisible(false);
-  chart.setSessionsVisible(state.sessionsVisible);
+  chart.setVolumeVisible(model.volumeVisible);
+  chart.setSessionsVisible(model.sessionsVisible);
   chart.setFontScale(state.fontScale / 100);
   if (activeChartTheme) chart.setTheme(activeChartTheme);
   const panel = { model, element: article, chart, feed: null };
@@ -1103,19 +1115,38 @@ function mountExtraChart(model) {
     event.stopPropagation();
     copyTicker(model.symbol);
   });
-  article.querySelectorAll("[data-mini-interval]").forEach((button) => button.addEventListener("click", () => {
+  const miniTimeframeMenu = article.querySelector("[data-mini-timeframe-menu]");
+  const miniTimeframeToggle = article.querySelector("[data-mini-timeframe-toggle]");
+  miniTimeframeToggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = !miniTimeframeMenu.classList.contains("is-open");
+    miniTimeframeMenu.classList.toggle("is-open", open);
+    miniTimeframeToggle.classList.toggle("is-active", open);
+    miniTimeframeToggle.setAttribute("aria-expanded", String(open));
+  });
+  article.querySelectorAll("[data-mini-interval]").forEach((button) => button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    chart.lockPriceDomain();
     model.interval = button.dataset.miniInterval;
     article.querySelectorAll("[data-mini-interval]").forEach((item) => item.classList.toggle("is-active", item === button));
-    article.querySelector("[data-mini-timeframe-select]").value = model.interval;
+    miniTimeframeToggle.textContent = `${intervalLabel(model.interval)} ▾`;
+    miniTimeframeMenu.classList.remove("is-open");
+    miniTimeframeToggle.classList.remove("is-active");
+    miniTimeframeToggle.setAttribute("aria-expanded", "false");
     persistWorkspace();
     panel.feed.select(model.symbol, model.interval, intervalRange(model.interval));
   }));
-  article.querySelector("[data-mini-timeframe-select]").addEventListener("change", (event) => {
-    model.interval = event.target.value;
-    article.querySelectorAll("[data-mini-interval]").forEach((item) => item.classList.toggle("is-active", item.dataset.miniInterval === model.interval));
-    persistWorkspace();
-    panel.feed.select(model.symbol, model.interval, intervalRange(model.interval));
-  });
+  const volumeButton = article.querySelector("[data-mini-volume]");
+  const sessionButton = article.querySelector("[data-mini-session]");
+  const syncMiniSettings = () => {
+    volumeButton.classList.toggle("is-collapsed", !model.volumeVisible);
+    sessionButton.classList.toggle("is-collapsed", !model.sessionsVisible);
+    volumeButton.setAttribute("aria-pressed", String(model.volumeVisible));
+    sessionButton.setAttribute("aria-pressed", String(model.sessionsVisible));
+  };
+  volumeButton.addEventListener("click", () => { model.volumeVisible = !model.volumeVisible; chart.setVolumeVisible(model.volumeVisible); persistWorkspace(); syncMiniSettings(); });
+  sessionButton.addEventListener("click", () => { model.sessionsVisible = !model.sessionsVisible; chart.setSessionsVisible(model.sessionsVisible); persistWorkspace(); syncMiniSettings(); });
+  syncMiniSettings();
   article.querySelector(".mini-chart-close").addEventListener("click", () => removeExtraChart(model.id));
   bindGridResizer(article.querySelector(".chart-resizer"), model, chart);
   bindGridResizer(article.querySelector(".panel-resizer-nw"), model, chart, "nw");
@@ -1143,7 +1174,9 @@ function createExtraPanel(symbol, type = "chart") {
     id: `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     type,
     symbol,
-    interval: "1m",
+    interval: state.chartInterval,
+    volumeVisible: state.volumeVisible,
+    sessionsVisible: state.sessionsVisible,
     x: slot.x,
     y: slot.y,
     w: slot.w,
@@ -1566,6 +1599,25 @@ function playAlert(direction, score) {
   oscillator.stop(audioContext.currentTime + 0.2);
 }
 
+function playAttentionAlert() {
+  audioContext ||= new AudioContext();
+  if (audioContext.state === "suspended") audioContext.resume().catch(() => {});
+  const start = audioContext.currentTime + .01;
+  [0, .18, .36].forEach((offset, index) => {
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.type = index === 1 ? "sawtooth" : "square";
+    oscillator.frequency.setValueAtTime(index === 1 ? 1180 : 880, start + offset);
+    oscillator.frequency.exponentialRampToValueAtTime(index === 1 ? 760 : 1320, start + offset + .105);
+    gain.gain.setValueAtTime(.0001, start + offset);
+    gain.gain.exponentialRampToValueAtTime(.2, start + offset + .012);
+    gain.gain.exponentialRampToValueAtTime(.0001, start + offset + .135);
+    oscillator.connect(gain).connect(audioContext.destination);
+    oscillator.start(start + offset);
+    oscillator.stop(start + offset + .145);
+  });
+}
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
 }
@@ -1649,8 +1701,8 @@ function renderTimeZoneMarkers() {
     marker.classList.toggle("is-active", item.zone === state.timeZone && item.city === state.selectedTimeZoneCity);
     marker.dataset.zone = item.zone;
     marker.dataset.city = `${item.city} · ${timeZoneClock(item.zone)}`;
-    marker.style.left = `${((item.lon + 180) / 360) * 100 - .8}%`;
-    marker.style.top = `${((90 - item.lat) / 180) * 100 + 8.55}%`;
+    marker.style.left = `${((item.lon + 180) / 360) * 100 - .58}%`;
+    marker.style.top = `${((90 - item.lat) / 180) * 100 + 3.7}%`;
     marker.setAttribute("aria-label", `${item.city}, ${item.zone}`);
     marker.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -1869,6 +1921,16 @@ function bindEvents() {
   els.chartPickerSearch.addEventListener("input", renderChartPicker);
   bindTimeZonePicker();
   bindChartToolbox(document.querySelector(".primary-chart"), priceChart, true);
+  const primaryChartPanel = document.querySelector(".primary-chart");
+  primaryChartPanel.addEventListener("dragover", (event) => {
+    if (event.dataTransfer.types.includes("text/inpuls-symbol")) event.preventDefault();
+  });
+  primaryChartPanel.addEventListener("drop", (event) => {
+    const symbol = event.dataTransfer.getData("text/inpuls-symbol");
+    if (!symbol?.endsWith("USDT")) return;
+    event.preventDefault();
+    selectChartSymbol(symbol);
+  });
   els.chartSymbol.title = "Нажми, чтобы скопировать тикер";
   els.chartSymbol.addEventListener("click", () => copyTicker(state.selectedChartSymbol));
 
@@ -1906,27 +1968,29 @@ function bindEvents() {
 
   els.volumeToggle.classList.toggle("is-collapsed", !state.volumeVisible);
   els.volumeToggle.setAttribute("aria-pressed", String(state.volumeVisible));
-  els.volumeToggle.textContent = state.volumeVisible ? "ОБЪЁМ ▾" : "ОБЪЁМ ▸";
+  els.volumeToggle.textContent = "V";
+  els.volumeToggle.title = state.volumeVisible ? "Объём включён" : "Объём выключен";
   els.volumeToggle.addEventListener("click", () => {
     state.volumeVisible = !state.volumeVisible;
     localStorage.setItem(STORAGE_KEYS.volume, JSON.stringify(state.volumeVisible));
     els.volumeToggle.classList.toggle("is-collapsed", !state.volumeVisible);
     els.volumeToggle.setAttribute("aria-pressed", String(state.volumeVisible));
-    els.volumeToggle.textContent = state.volumeVisible ? "ОБЪЁМ ▾" : "ОБЪЁМ ▸";
+    els.volumeToggle.textContent = "V";
+    els.volumeToggle.title = state.volumeVisible ? "Объём включён" : "Объём выключен";
     priceChart.setVolumeVisible(state.volumeVisible);
   });
 
   const syncSessionButton = () => {
     els.sessionToggle.classList.toggle("is-collapsed", !state.sessionsVisible);
     els.sessionToggle.setAttribute("aria-pressed", String(state.sessionsVisible));
-    els.sessionToggle.textContent = state.sessionsVisible ? "СЕССИИ ON" : "СЕССИИ OFF";
+    els.sessionToggle.textContent = "S";
+    els.sessionToggle.title = state.sessionsVisible ? "Сессии включены" : "Сессии выключены";
   };
   syncSessionButton();
   els.sessionToggle.addEventListener("click", () => {
     state.sessionsVisible = !state.sessionsVisible;
     localStorage.setItem(STORAGE_KEYS.sessions, JSON.stringify(state.sessionsVisible));
     priceChart.setSessionsVisible(state.sessionsVisible);
-    for (const panel of extraCharts.values()) panel.chart.setSessionsVisible(state.sessionsVisible);
     syncSessionButton();
   });
 
@@ -1967,10 +2031,23 @@ function bindEvents() {
   for (const button of els.timeframeButtons) {
     button.addEventListener("click", () => {
       selectInterval(button.dataset.interval);
+      els.timeframeMenu.classList.remove("is-open");
+      els.moreTimeframe.classList.remove("is-active");
+      els.moreTimeframe.setAttribute("aria-expanded", "false");
     });
   }
-  els.moreTimeframe.addEventListener("change", () => {
-    if (els.moreTimeframe.value) selectInterval(els.moreTimeframe.value);
+  els.timeframeMenu.hidden = false;
+  els.moreTimeframe.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = !els.timeframeMenu.classList.contains("is-open");
+    els.timeframeMenu.classList.toggle("is-open", open);
+    els.moreTimeframe.classList.toggle("is-active", open);
+    els.moreTimeframe.setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", (event) => {
+    if (event.target.closest(".timeframe-picker")) return;
+    document.querySelectorAll(".timeframe-menu.is-open").forEach((menu) => menu.classList.remove("is-open"));
+    document.querySelectorAll(".timeframe-menu-toggle").forEach((button) => { button.classList.remove("is-active"); button.setAttribute("aria-expanded", "false"); });
   });
   for (const button of els.rangeButtons) button.addEventListener("click", () => selectRange(button.dataset.range));
 
@@ -2032,7 +2109,7 @@ bindEvents();
 feed.connect();
 els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === state.chartInterval));
 els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === state.chartRange));
-els.moreTimeframe.value = state.chartInterval;
+els.moreTimeframe.textContent = `${intervalLabel(state.chartInterval)} ▾`;
 klineFeed.select(state.selectedChartSymbol, state.chartInterval, state.chartRange);
 loadChartStats(state.selectedChartSymbol);
 setInterval(render, 1000);
