@@ -1,0 +1,3 @@
+InPuls v8
+Build: full-latest
+Features: chart-pan, price-scale, time-scale, cursor-zoom, funding, NATR-1m-5m, BTC-correlation, compact-radar

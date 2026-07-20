@@ -30,6 +30,7 @@ button { color: inherit; }
 .brand > span:last-child { display: flex; gap: 5px; align-items: baseline; }
 .brand strong { font-size: 14px; }
 .brand em { font-style: normal; font-size: 9px; color: var(--green); letter-spacing: .14em; }
+.brand em small { color: var(--violet); font-size: 7px; letter-spacing: .04em; }
 .brand-mark { width: 27px; height: 27px; display: flex; align-items: end; gap: 3px; padding: 6px; border: 1px solid rgba(80, 227, 164, .35); border-radius: 8px; background: rgba(80, 227, 164, .08); }
 .brand-mark i { display: block; width: 4px; background: var(--green); border-radius: 3px; box-shadow: 0 0 10px rgba(80, 227, 164, .4); }
 .brand-mark i:nth-child(1) { height: 6px; }.brand-mark i:nth-child(2) { height: 13px; }.brand-mark i:nth-child(3) { height: 9px; }

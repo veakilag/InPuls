@@ -729,6 +729,15 @@ setInterval(() => {
 }, 1000);
 render();
 
+// During active development always prefer the current GitHub Pages build.
+// Offline PWA caching will return after the interface stabilizes.
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+  window.addEventListener("load", async () => {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((key) => key.startsWith("inpuls-")).map((key) => caches.delete(key)));
+    }
+  });
 }
