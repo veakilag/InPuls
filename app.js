@@ -3,9 +3,9 @@ import {
   SymbolState,
   filterUsdtPerpetualTicker,
   formatCompactUsd,
-} from "./engine.js?v=19";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=19";
-import { OrderBookFeed } from "./orderbook.js?v=19";
+} from "./engine.js?v=20";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=20";
+import { aggregateDepthBands, OrderBookFeed } from "./orderbook.js?v=20";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -24,11 +24,13 @@ const STORAGE_KEYS = {
   inplay: "inpuls-inplay-v2",
   selectedSymbol: "inpuls-selected-symbol-v1",
   topSort: "inpuls-radar-sort-v1",
+  favoriteTimeframes: "inpuls-favorite-timeframes-v1",
 };
 
 const DEFAULT_INPLAY = Object.freeze({ minV24: 100, minNatr1: null, minGrowth24: null });
 const EMPTY_RADAR_FILTERS = Object.freeze([]);
 const CHART_INTERVALS = Object.freeze(["1s", "5s", "15s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "12h", "1d", "3d", "1w", "1M"]);
+const DEFAULT_FAVORITE_TIMEFRAMES = Object.freeze(["1m", "5m", "15m"]);
 
 function intervalLabel(interval) {
   return String(interval).replace("1M", "1мес").replace("s", "с").replace("m", "м").replace("h", "ч").replace("d", "д").replace("w", "н");
@@ -75,6 +77,7 @@ const state = {
   radarColumns: loadJson(STORAGE_KEYS.radarColumns, [1.35, 1, 1, 1, .85, .85, 1]),
   radarFilters: loadJson(STORAGE_KEYS.radarFilters, EMPTY_RADAR_FILTERS),
   inplay: normalizeInPlay(loadJson(STORAGE_KEYS.inplay, DEFAULT_INPLAY)),
+  favoriteTimeframes: [...new Set(loadJson(STORAGE_KEYS.favoriteTimeframes, DEFAULT_FAVORITE_TIMEFRAMES).filter((interval) => CHART_INTERVALS.includes(interval)))],
 };
 
 const els = {
@@ -131,6 +134,7 @@ const els = {
   rangeButtons: [...document.querySelectorAll("[data-range]")],
   moreTimeframe: document.querySelector("#more-timeframe"),
   timeframeMenu: document.querySelector("#timeframe-menu"),
+  timeframeFavorites: document.querySelector("#timeframe-favorites"),
   topList: document.querySelector("#top-list"),
   topSortButtons: [...document.querySelectorAll("[data-top-sort]")],
   radarSearch: document.querySelector("#radar-search"),
@@ -435,6 +439,82 @@ async function copyTicker(symbol) {
   showToast(`Скопировано: ${clean}`);
 }
 
+function timeframeMenuMarkup(current) {
+  return `<div class="timeframe-menu-list">${CHART_INTERVALS.map((interval) => `<span><button class="${interval === current ? "is-active" : ""}" data-interval-option="${interval}" type="button">${intervalLabel(interval)}</button><button class="timeframe-star" data-timeframe-favorite="${interval}" type="button" title="Добавить в избранное">☆</button></span>`).join("")}</div>`;
+}
+
+function renderTimeframePicker(root) {
+  if (!root?._getTimeframe || !root?._selectTimeframe) return;
+  const current = root._getTimeframe();
+  root.querySelectorAll("[data-interval-option], [data-interval]").forEach((button) => button.classList.toggle("is-active", (button.dataset.intervalOption ?? button.dataset.interval) === current));
+  root.querySelectorAll("[data-timeframe-favorite]").forEach((button) => {
+    const active = state.favoriteTimeframes.includes(button.dataset.timeframeFavorite);
+    button.classList.toggle("is-favorite", active);
+    button.textContent = active ? "★" : "☆";
+    button.title = active ? "Убрать из избранного" : "Добавить в избранное";
+  });
+  const favorites = root.querySelector(".timeframe-favorites");
+  if (!favorites) return;
+  favorites.replaceChildren(...state.favoriteTimeframes.map((interval) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `timeframe-favorite-button${interval === current ? " is-active" : ""}`;
+    button.textContent = intervalLabel(interval);
+    button.title = `Таймфрейм ${intervalLabel(interval)}`;
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      root._selectTimeframe(interval);
+      renderTimeframePickers();
+    });
+    return button;
+  }));
+}
+
+function renderTimeframePickers() {
+  document.querySelectorAll(".timeframe-picker").forEach((root) => renderTimeframePicker(root));
+}
+
+function toggleFavoriteTimeframe(interval) {
+  if (!CHART_INTERVALS.includes(interval)) return;
+  state.favoriteTimeframes = state.favoriteTimeframes.includes(interval)
+    ? state.favoriteTimeframes.filter((item) => item !== interval)
+    : [...state.favoriteTimeframes, interval];
+  localStorage.setItem(STORAGE_KEYS.favoriteTimeframes, JSON.stringify(state.favoriteTimeframes));
+  renderTimeframePickers();
+}
+
+function setupTimeframePicker(root, getCurrent, onSelect) {
+  if (!root || root.dataset.timeframeReady === "true") return;
+  root.dataset.timeframeReady = "true";
+  root._getTimeframe = getCurrent;
+  root._selectTimeframe = onSelect;
+  const toggle = root.querySelector(".timeframe-menu-toggle");
+  const menu = root.querySelector(".timeframe-menu");
+  menu.hidden = false;
+  toggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = !menu.classList.contains("is-open");
+    document.querySelectorAll(".timeframe-menu.is-open").forEach((item) => item.classList.remove("is-open"));
+    document.querySelectorAll(".timeframe-menu-toggle.is-active").forEach((item) => { item.classList.remove("is-active"); item.setAttribute("aria-expanded", "false"); });
+    menu.classList.toggle("is-open", open);
+    toggle.classList.toggle("is-active", open);
+    toggle.setAttribute("aria-expanded", String(open));
+  });
+  root.querySelectorAll("[data-interval-option], [data-interval]").forEach((button) => button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    onSelect(button.dataset.intervalOption ?? button.dataset.interval);
+    menu.classList.remove("is-open");
+    toggle.classList.remove("is-active");
+    toggle.setAttribute("aria-expanded", "false");
+    renderTimeframePickers();
+  }));
+  root.querySelectorAll("[data-timeframe-favorite]").forEach((button) => button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleFavoriteTimeframe(button.dataset.timeframeFavorite);
+  }));
+  renderTimeframePicker(root);
+}
+
 function selectInterval(interval) {
   priceChart.lockPriceDomain();
   state.chartInterval = interval;
@@ -443,7 +523,7 @@ function selectInterval(interval) {
   persistChartSettings();
   els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === interval));
   els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === state.chartRange));
-  els.moreTimeframe.textContent = `${intervalLabel(interval)} ▾`;
+  renderTimeframePickers();
   klineFeed.select(state.selectedChartSymbol, interval, state.chartRange);
 }
 
@@ -456,7 +536,7 @@ function selectRange(range) {
   persistChartSettings();
   els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === range));
   els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === state.chartInterval));
-  els.moreTimeframe.textContent = `${intervalLabel(state.chartInterval)} ▾`;
+  renderTimeframePickers();
   klineFeed.select(state.selectedChartSymbol, state.chartInterval, range);
 }
 
@@ -811,12 +891,13 @@ function normalizeWorkspace() {
   for (const source of sourceExtras) {
     if (!source?.id || !source?.symbol?.endsWith("USDT")) continue;
     const type = source.type === "orderbook" ? "orderbook" : "chart";
-    const fallback = { id: String(source.id), type, symbol: source.symbol, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
+    const fallback = { id: String(source.id), type, symbol: source.symbol, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, depthPercent: source.depthPercent ?? .5, x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
     const item = clampPanel(source, fallback, { w: 3, h: 2 });
     item.symbol = source.symbol;
     item.interval = source.interval || state.chartInterval;
     item.volumeVisible = source.volumeVisible ?? state.volumeVisible;
     item.sessionsVisible = source.sessionsVisible ?? state.sessionsVisible;
+    item.depthPercent = Math.max(.5, Math.min(100, Number(source.depthPercent) || .5));
     if (canPlacePanel(item, workspace)) workspace.extras.push(item);
   }
   state.workspace = workspace;
@@ -1078,8 +1159,9 @@ function mountExtraChart(model) {
       <span class="panel-grip" title="Дополнительный график">⠿</span>
       <div class="chart-quote"><h2>${escapeHtml(model.symbol.replace("USDT", ""))}/USDT</h2><strong data-mini-price>—</strong></div>
       <div class="chart-controls"><div class="timeframes timeframe-picker">
-        <button class="timeframe-more timeframe-menu-toggle" data-mini-timeframe-toggle type="button" aria-expanded="false">${intervalLabel(model.interval)} ▾</button>
-        <div class="timeframe-menu" data-mini-timeframe-menu>${CHART_INTERVALS.map((interval) => `<button class="${interval === model.interval ? "is-active" : ""}" data-mini-interval="${interval}" type="button">${intervalLabel(interval)}</button>`).join("")}</div>
+        <div class="timeframe-favorites" aria-label="Избранные таймфреймы"></div>
+        <button class="timeframe-more timeframe-menu-toggle" data-mini-timeframe-toggle type="button" aria-expanded="false" title="Все таймфреймы">ТФ ›</button>
+        <div class="timeframe-menu" data-mini-timeframe-menu>${timeframeMenuMarkup(model.interval)}</div>
       </div></div>
       <button class="mini-chart-close panel-close" type="button" title="Закрыть график">×</button>
     </header>
@@ -1115,27 +1197,12 @@ function mountExtraChart(model) {
     event.stopPropagation();
     copyTicker(model.symbol);
   });
-  const miniTimeframeMenu = article.querySelector("[data-mini-timeframe-menu]");
-  const miniTimeframeToggle = article.querySelector("[data-mini-timeframe-toggle]");
-  miniTimeframeToggle.addEventListener("click", (event) => {
-    event.stopPropagation();
-    const open = !miniTimeframeMenu.classList.contains("is-open");
-    miniTimeframeMenu.classList.toggle("is-open", open);
-    miniTimeframeToggle.classList.toggle("is-active", open);
-    miniTimeframeToggle.setAttribute("aria-expanded", String(open));
-  });
-  article.querySelectorAll("[data-mini-interval]").forEach((button) => button.addEventListener("click", (event) => {
-    event.stopPropagation();
+  setupTimeframePicker(article.querySelector(".timeframe-picker"), () => model.interval, (interval) => {
     chart.lockPriceDomain();
-    model.interval = button.dataset.miniInterval;
-    article.querySelectorAll("[data-mini-interval]").forEach((item) => item.classList.toggle("is-active", item === button));
-    miniTimeframeToggle.textContent = `${intervalLabel(model.interval)} ▾`;
-    miniTimeframeMenu.classList.remove("is-open");
-    miniTimeframeToggle.classList.remove("is-active");
-    miniTimeframeToggle.setAttribute("aria-expanded", "false");
+    model.interval = interval;
     persistWorkspace();
     panel.feed.select(model.symbol, model.interval, intervalRange(model.interval));
-  }));
+  });
   const volumeButton = article.querySelector("[data-mini-volume]");
   const sessionButton = article.querySelector("[data-mini-session]");
   const syncMiniSettings = () => {
@@ -1177,6 +1244,7 @@ function createExtraPanel(symbol, type = "chart") {
     interval: state.chartInterval,
     volumeVisible: state.volumeVisible,
     sessionsVisible: state.sessionsVisible,
+    depthPercent: .5,
     x: slot.x,
     y: slot.y,
     w: slot.w,
@@ -1242,10 +1310,21 @@ function mountOrderBook(model) {
       <button class="panel-close" type="button" title="Закрыть стакан">×</button>
     </header>
     <div class="orderbook-stage">
-      <div class="orderbook-columns"><span>Σ BID</span><span>BID</span><span>ЦЕНА</span><span>ASK</span><span>Σ ASK</span></div>
-      <div class="orderbook-rows"><div class="orderbook-empty">Загружаю глубину Binance…</div></div>
+      <section class="orderbook-tape" aria-label="Лента рыночных сделок">
+        <div class="book-pane-title"><span>ЛЕНТА</span><span>РЫНОЧНЫЙ САЙЗ</span></div>
+        <div class="trade-tape"><div class="orderbook-empty">Жду сделки…</div></div>
+      </section>
+      <section class="orderbook-ladder" aria-label="Стакан заявок">
+        <div class="book-pane-title"><span>САЙЗ</span><span>ЦЕНА</span></div>
+        <div class="orderbook-rows"><div class="orderbook-empty">Загружаю глубину Binance…</div></div>
+      </section>
+      <label class="book-depth-control" title="Видимая глубина цены в каждую сторону">
+        <strong data-book-depth-label>${Number(model.depthPercent ?? .5).toLocaleString("ru-RU")}%</strong>
+        <input data-book-depth type="range" min="5" max="1000" step="5" value="${Math.round((model.depthPercent ?? .5) * 10)}" aria-label="Глубина стакана от 0,5 до 100 процентов" />
+      </label>
       <button class="panel-resizer" type="button" aria-label="Изменить размер стакана"></button>
     </div>
+    <div class="panel-drop-shield"><strong>СМЕНИТЬ НА ЭТУ МОНЕТУ</strong></div>
     <button class="panel-resizer panel-resizer-nw" type="button" aria-label="Изменить размер стакана из левого верхнего угла"></button>`;
   els.marketFocus.insertBefore(article, els.addChartTile);
   const panel = { model, element: article, feed: null, latest: null, frame: null };
@@ -1269,54 +1348,77 @@ function mountOrderBook(model) {
   bindGridResizer(article.querySelector(".panel-resizer"), model);
   bindGridResizer(article.querySelector(".panel-resizer-nw"), model, null, "nw");
   bindPanelDrag(article.querySelector(".orderbook-heading"), model);
+  const clearDropState = () => article.classList.remove("is-symbol-drop-target");
+  article.addEventListener("dragenter", (event) => {
+    if (!event.dataTransfer.types.includes("text/inpuls-symbol")) return;
+    event.preventDefault();
+    article.classList.add("is-symbol-drop-target");
+  }, true);
   article.addEventListener("dragover", (event) => {
-    if (event.dataTransfer.types.includes("text/inpuls-symbol")) event.preventDefault();
-  });
+    if (!event.dataTransfer.types.includes("text/inpuls-symbol")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    article.classList.add("is-symbol-drop-target");
+  }, true);
   article.addEventListener("drop", (event) => {
     const symbol = event.dataTransfer.getData("text/inpuls-symbol");
     if (!symbol?.endsWith("USDT")) return;
     event.preventDefault();
+    event.stopPropagation();
+    clearDropState();
     model.symbol = symbol;
+    panel.latest = null;
+    article.querySelector(".trade-tape").innerHTML = '<div class="orderbook-empty">Жду сделки…</div>';
+    article.querySelector(".orderbook-rows").innerHTML = '<div class="orderbook-empty">Загружаю глубину Binance…</div>';
     article.querySelector("h2").textContent = `${symbol.replace("USDT", "")}/USDT · Стакан`;
     persistWorkspace();
     panel.feed.select(symbol);
+  }, true);
+  document.addEventListener("dragend", clearDropState);
+  const depthInput = article.querySelector("[data-book-depth]");
+  const depthLabel = article.querySelector("[data-book-depth-label]");
+  depthInput.addEventListener("input", () => {
+    model.depthPercent = Math.max(.5, Math.min(100, Number(depthInput.value) / 10));
+    depthLabel.textContent = `${model.depthPercent.toLocaleString("ru-RU")}%`;
+    if (panel.latest) renderOrderBook(panel, panel.latest);
   });
+  depthInput.addEventListener("change", persistWorkspace);
   panel.feed.select(model.symbol);
 }
 
 function renderOrderBook(panel, data) {
   const body = panel.element.querySelector(".orderbook-rows");
-  const available = Math.max(1, Math.floor((body.getBoundingClientRect().height - 25) / 26));
-  const bids = data.bids.slice(0, available);
-  const asks = data.asks.slice(0, available).reverse();
-  const total = (levels) => levels.reduce((sum, [price, quantity]) => sum + price * quantity, 0);
-  const maxDepth = Math.max(total(bids), total(asks), 1);
-  const rows = [];
-  let askDepth = 0;
-  for (const [price, quantity] of asks) {
-    askDepth += price * quantity;
-    rows.push(bookRow("ask", price, quantity, askDepth, maxDepth));
-  }
+  const tape = panel.element.querySelector(".trade-tape");
+  const sideRows = Math.max(2, Math.floor((body.getBoundingClientRect().height - 25) / 28));
   const bestBid = data.bids[0]?.[0];
   const bestAsk = data.asks[0]?.[0];
+  const middle = Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? (bestBid + bestAsk) / 2 : null;
+  if (!Number.isFinite(middle)) return;
+  const asks = aggregateDepthBands(data.asks, middle, panel.model.depthPercent, sideRows, "ask");
+  const bids = aggregateDepthBands(data.bids, middle, panel.model.depthPercent, sideRows, "bid");
+  const values = [...asks, ...bids].map((item) => item.quote).filter((value) => value > 0).sort((a, b) => a - b);
+  const median = values.length ? values[Math.floor(values.length / 2)] : 0;
+  const upper = values.length ? values[Math.floor(values.length * .9)] : Infinity;
+  const anomaly = Math.max(median * 4, upper, 1);
+  const maxSize = Math.max(...values, 1);
   const spread = Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? bestAsk - bestBid : null;
   const spreadPercent = Number.isFinite(spread) && bestBid ? (spread / bestBid) * 100 : null;
-  rows.push(`<div class="book-spread"><span></span><span></span><strong>${Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? formatPrice((bestBid + bestAsk) / 2) : "—"}</strong><small>${Number.isFinite(spreadPercent) ? `${spreadPercent.toFixed(3)}%` : "спред"}</small></div>`);
-  let bidDepth = 0;
-  for (const [price, quantity] of bids) {
-    bidDepth += price * quantity;
-    rows.push(bookRow("bid", price, quantity, bidDepth, maxDepth));
-  }
-  body.innerHTML = rows.join("");
+  body.innerHTML = `<div class="book-side book-asks">${asks.slice().reverse().map((item) => bookBandRow("ask", item, maxSize, anomaly)).join("")}</div><div class="book-mid"><strong>${formatPrice(middle)}</strong><small>${Number.isFinite(spreadPercent) ? `${spreadPercent.toFixed(3)}%` : "спред"}</small></div><div class="book-side book-bids">${bids.map((item) => bookBandRow("bid", item, maxSize, anomaly)).join("")}</div>`;
+  const tapeRows = Math.max(3, Math.floor((tape.getBoundingClientRect().height - 3) / 18));
+  const trades = (data.trades ?? []).slice(0, tapeRows);
+  tape.innerHTML = trades.length ? trades.map(tradeTapeRow).join("") : '<div class="orderbook-empty">Жду сделки…</div>';
 }
 
-function bookRow(side, price, quantity, cumulative, maxDepth) {
-  const depth = Math.min(100, (cumulative / maxDepth) * 100).toFixed(1);
-  const sum = formatCompactUsd(cumulative);
-  const qty = formatBookQuantity(quantity);
-  return side === "bid"
-    ? `<div class="book-row is-bid" style="--depth:${depth}%"><span>${sum}</span><span>${qty}</span><strong>${formatPrice(price)}</strong><span></span><span></span></div>`
-    : `<div class="book-row is-ask" style="--depth:${depth}%"><span></span><span></span><strong>${formatPrice(price)}</strong><span>${qty}</span><span>${sum}</span></div>`;
+function bookBandRow(side, band, maxSize, anomalyThreshold) {
+  const size = Math.min(100, (band.quote / maxSize) * 100).toFixed(1);
+  const anomalous = band.quote >= anomalyThreshold && band.quote > 0;
+  return `<div class="book-ladder-row is-${side}${anomalous ? " is-anomaly" : ""}" style="--size:${size}%"><span class="book-size">${band.quote > 0 ? formatCompactUsd(band.quote) : ""}</span><strong>${formatPrice(band.price)}</strong></div>`;
+}
+
+function tradeTapeRow(trade) {
+  const date = new Date(trade.time);
+  const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}:${String(date.getSeconds()).padStart(2, "0")}`;
+  return `<div class="trade-tape-row is-${trade.side}" title="${formatBookQuantity(trade.quantity)} @ ${formatPrice(trade.price)}"><time>${time}</time><span>${trade.side === "buy" ? "BUY" : "SELL"}</span><strong>${formatCompactUsd(trade.quote)}</strong></div>`;
 }
 
 function formatBookQuantity(value) {
@@ -2028,22 +2130,7 @@ function bindEvents() {
       renderTopList(state.lastMetrics);
     });
   }
-  for (const button of els.timeframeButtons) {
-    button.addEventListener("click", () => {
-      selectInterval(button.dataset.interval);
-      els.timeframeMenu.classList.remove("is-open");
-      els.moreTimeframe.classList.remove("is-active");
-      els.moreTimeframe.setAttribute("aria-expanded", "false");
-    });
-  }
-  els.timeframeMenu.hidden = false;
-  els.moreTimeframe.addEventListener("click", (event) => {
-    event.stopPropagation();
-    const open = !els.timeframeMenu.classList.contains("is-open");
-    els.timeframeMenu.classList.toggle("is-open", open);
-    els.moreTimeframe.classList.toggle("is-active", open);
-    els.moreTimeframe.setAttribute("aria-expanded", String(open));
-  });
+  setupTimeframePicker(document.querySelector(".primary-chart .timeframe-picker"), () => state.chartInterval, selectInterval);
   document.addEventListener("click", (event) => {
     if (event.target.closest(".timeframe-picker")) return;
     document.querySelectorAll(".timeframe-menu.is-open").forEach((menu) => menu.classList.remove("is-open"));
@@ -2109,7 +2196,7 @@ bindEvents();
 feed.connect();
 els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === state.chartInterval));
 els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === state.chartRange));
-els.moreTimeframe.textContent = `${intervalLabel(state.chartInterval)} ▾`;
+renderTimeframePickers();
 klineFeed.select(state.selectedChartSymbol, state.chartInterval, state.chartRange);
 loadChartStats(state.selectedChartSymbol);
 setInterval(render, 1000);

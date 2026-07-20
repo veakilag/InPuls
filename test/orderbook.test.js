@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyDepthUpdates, depthView, OrderBookFeed, partialDepthView } from "../orderbook.js";
+import { aggregateDepthBands, applyDepthUpdates, depthView, normalizeMarketTrade, OrderBookFeed, partialDepthView } from "../orderbook.js";
 
 test("depth updates add, replace and remove price levels", () => {
   const levels = new Map([[100, 2], [99, 4]]);
@@ -23,6 +23,18 @@ test("partial depth stream becomes a ready top-20 book without REST snapshot", (
   assert.deepEqual(view.asks, [[102, 1], [103, 3]]);
 });
 
+test("depth range is aggregated into stable price bands", () => {
+  const bands = aggregateDepthBands([[100.1, 2], [100.4, 3], [101.2, 8]], 100, 1, 2, "ask");
+  assert.equal(bands.length, 2);
+  assert.equal(bands[0].quantity, 5);
+  assert.equal(bands[1].quantity, 0);
+});
+
+test("aggregate trade identifies the aggressive market side", () => {
+  assert.equal(normalizeMarketTrade({ a: 1, p: "100", q: "3", T: 5, m: false }).side, "buy");
+  assert.equal(normalizeMarketTrade({ a: 2, p: "100", q: "2", T: 6, m: true }).side, "sell");
+});
+
 test("order book uses combined public stream and unwraps its payload", () => {
   class FakeSocket {
     static instances = [];
@@ -34,14 +46,16 @@ test("order book uses combined public stream and unwraps its payload", () => {
   }
   let latest = null;
   const statuses = [];
-  const feed = new OrderBookFeed({ WebSocketImpl: FakeSocket, onData: (data) => { latest = data; }, onStatus: (status) => statuses.push(status) });
+  const feed = new OrderBookFeed({ WebSocketImpl: FakeSocket, fetchImpl: null, onData: (data) => { latest = data; }, onStatus: (status) => statuses.push(status) });
   feed.select("BTCUSDT");
   const socket = FakeSocket.instances[0];
-  assert.equal(socket.url, "wss://fstream.binance.com/public/stream?streams=btcusdt@depth20@100ms");
+  assert.equal(socket.url, "wss://fstream.binance.com/public/stream?streams=btcusdt@depth20@100ms/btcusdt@aggTrade");
   socket.emit("open");
   assert.equal(socket.sent.length, 0);
   socket.emit("message", { stream: "btcusdt@depth20@100ms", data: { E: 123, u: 44, b: [["100", "2"]], a: [["101", "3"]] } });
   assert.deepEqual(latest.bids, [[100, 2]]);
+  socket.emit("message", { stream: "btcusdt@aggTrade", data: { e: "aggTrade", a: 7, p: "100.5", q: "4", T: 125, m: false } });
+  assert.equal(latest.trades[0].quote, 402);
   assert.equal(statuses.at(-1).text, "LIVE 100ms");
   feed.destroy();
 });

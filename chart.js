@@ -53,6 +53,10 @@ export function visibleCountFromDrag(initialCount, delta, total) {
   return Math.round(Math.max(Math.min(20, total), Math.min(total, initialCount * Math.exp(delta / 180))));
 }
 
+export function maximumVisibleCandles(plotWidth, minimumSpacing = 1.25) {
+  return Math.max(20, Math.floor(Math.max(1, Number(plotWidth) || 1) / Math.max(1, Number(minimumSpacing) || 1)));
+}
+
 export function calculateNatr(candles, period = 14) {
   if (!Array.isArray(candles) || candles.length <= period) return null;
   const ranges = [];
@@ -126,31 +130,6 @@ export function nicePriceStep(range, targetTicks = 6) {
   const fraction = rough / exponent;
   const niceFraction = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 2.5 ? 2.5 : fraction <= 5 ? 5 : 10;
   return niceFraction * exponent;
-}
-
-export function compactCandles(candles, maxBars) {
-  if (!Array.isArray(candles) || !candles.length) return [];
-  const safeMax = Math.max(1, Math.floor(Number(maxBars) || 1));
-  const groupSize = Math.max(1, Math.ceil(candles.length / safeMax));
-  const result = [];
-  for (let start = 0; start < candles.length; start += groupSize) {
-    const group = candles.slice(start, start + groupSize);
-    const first = group[0];
-    const last = group.at(-1);
-    result.push({
-      time: first.time,
-      open: first.open,
-      high: Math.max(...group.map((item) => item.high)),
-      low: Math.min(...group.map((item) => item.low)),
-      close: last.close,
-      volume: group.reduce((sum, item) => sum + item.volume, 0),
-      closeTime: last.closeTime,
-      closed: group.every((item) => item.closed),
-      sourceOffset: start + (group.length - 1) / 2,
-      sourceSize: group.length,
-    });
-  }
-  return result;
 }
 
 class SecondHistoryStore {
@@ -632,7 +611,8 @@ export class CandlestickChart {
     const requested = this.meta?.targetCandles ?? this.candles.length;
     const defaultVisible = Math.max(20, Math.min(Math.floor(plotWidth / 2), requested, this.candles.length));
     if (!this.visibleCount && this.candles.length) this.visibleCount = defaultVisible;
-    this.visibleCount = Math.max(20, Math.min(1500, this.visibleCount ?? 80));
+    const pixelVisibleLimit = maximumVisibleCandles(plotWidth);
+    this.visibleCount = Math.max(20, Math.min(1500, pixelVisibleLimit, this.visibleCount ?? 80));
     if (this.viewStart === null) this.viewStart = Math.max(0, this.candles.length - this.visibleCount);
     this.viewStart = Math.max(0, Math.min(this.viewStart, Math.max(0, this.candles.length - 1)));
     const sliceStart = Math.max(0, Math.floor(this.viewStart));
@@ -657,7 +637,10 @@ export class CandlestickChart {
     const autoMaxPrice = priceCenter + scaledSpan / 2;
     const minPrice = this.fixedPriceDomain?.min ?? autoMinPrice;
     const maxPrice = this.fixedPriceDomain?.max ?? autoMaxPrice;
-    const displayCandles = compactCandles(visible, Math.max(10, Math.floor(plotWidth / 4)));
+    // Never merge exchange candles into screen buckets. Bucket boundaries changed
+    // after a one-pixel pan and made the same place appear to have different OHLC.
+    // The zoom-out limit above guarantees a distinct screen slot for every candle.
+    const displayCandles = visible;
     const maxVolume = Math.max(...displayCandles.map((item) => item.volume), 1);
     const step = plotWidth / this.visibleCount;
     const y = (price) => margins.top + ((maxPrice - price) / (maxPrice - minPrice)) * plotHeight;
@@ -670,10 +653,10 @@ export class CandlestickChart {
     ctx.beginPath();
     ctx.rect(margins.left, margins.top, plotWidth, plotHeight);
     ctx.clip();
-    displayCandles.forEach((candle) => {
-      const globalIndex = sliceStart + candle.sourceOffset;
+    displayCandles.forEach((candle, sourceOffset) => {
+      const globalIndex = sliceStart + sourceOffset;
       const x = margins.left + (globalIndex - this.viewStart + .5) * step;
-      const bodyWidth = Math.max(1, Math.min(8, step * candle.sourceSize * 0.68));
+      const bodyWidth = Math.max(1, Math.min(8, step * 0.68));
       const up = candle.close >= candle.open;
       const fill = up ? this.theme.bullFill : this.theme.bearFill;
       const stroke = up ? this.theme.bullStroke : this.theme.bearStroke;
@@ -699,10 +682,10 @@ export class CandlestickChart {
       ctx.beginPath();
       ctx.rect(margins.left, volumeAreaTop, plotWidth, Math.max(0, height - margins.bottom - volumeAreaTop));
       ctx.clip();
-      displayCandles.forEach((candle) => {
-        const globalIndex = sliceStart + candle.sourceOffset;
+      displayCandles.forEach((candle, sourceOffset) => {
+        const globalIndex = sliceStart + sourceOffset;
         const x = margins.left + (globalIndex - this.viewStart + .5) * step;
-        const bodyWidth = Math.max(1, Math.min(8, step * candle.sourceSize * 0.68));
+        const bodyWidth = Math.max(1, Math.min(8, step * 0.68));
         const up = candle.close >= candle.open;
         const volumeTop = height - margins.bottom - (candle.volume / maxVolume) * volumeHeight;
         ctx.globalAlpha = up ? .3 : .2;
@@ -1151,7 +1134,7 @@ export class CandlestickChart {
     }
     if (this.drag?.type === "time") {
       const deltaX = x - this.drag.startX;
-      const nextCount = visibleCountFromDrag(this.drag.startCount, deltaX, this.candles.length);
+      const nextCount = Math.min(maximumVisibleCandles(this.layout.plotWidth), visibleCountFromDrag(this.drag.startCount, deltaX, this.candles.length));
       this.visibleCount = nextCount;
       this.viewStart = Math.max(0, Math.min(this.drag.endIndex - nextCount, Math.max(0, this.candles.length - 1)));
       this.followLatest = false;
@@ -1271,7 +1254,7 @@ export class CandlestickChart {
     const anchorRatio = (x - this.layout.margins.left) / this.layout.plotWidth;
     const anchorIndex = this.layout.startIndex + anchorRatio * this.visibleCount;
     const factor = event.deltaY < 0 ? 0.78 : 1.28;
-    const nextCount = Math.round(Math.max(20, Math.min(1500, this.visibleCount * factor)));
+    const nextCount = Math.round(Math.max(20, Math.min(1500, maximumVisibleCandles(this.layout.plotWidth), this.visibleCount * factor)));
     this.visibleCount = nextCount;
     this.viewStart = Math.round(anchorIndex - anchorRatio * nextCount);
     this.viewStart = Math.max(0, Math.min(this.viewStart, Math.max(0, this.candles.length - 1)));

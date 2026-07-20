@@ -7,8 +7,8 @@
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="19" />
-    <link rel="stylesheet" href="./styles.css?v=19" />
+    <meta name="inpuls-build" content="20" />
+    <link rel="stylesheet" href="./styles.css?v=20" />
     <title>InPuls — в ритме рынка</title>
   </head>
   <body>
@@ -16,7 +16,7 @@
     <header class="topbar">
       <a class="brand" href="./" aria-label="InPuls — главная">
         <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span><strong>INPULS</strong><em>SCREENER <small>v19</small></em></span>
+        <span><strong>INPULS</strong><em>SCREENER <small>v20</small></em></span>
       </a>
       <div class="inplay-strip" aria-label="Монеты в игре сейчас">
         <div class="inplay-title"><span class="inplay-label">INPLAY</span><button id="inplay-settings" type="button" title="Настроить единые правила INPLAY">⚙</button></div>
@@ -60,12 +60,15 @@
             <div class="chart-controls">
               <div class="control-line">
                 <div class="timeframes timeframe-picker" role="group" aria-label="Таймфрейм графика">
-                  <button id="more-timeframe" class="timeframe-more timeframe-menu-toggle" type="button" aria-expanded="false">1м ▾</button>
+                  <div id="timeframe-favorites" class="timeframe-favorites" aria-label="Избранные таймфреймы"></div>
+                  <button id="more-timeframe" class="timeframe-more timeframe-menu-toggle" type="button" aria-expanded="false" title="Все таймфреймы">ТФ ›</button>
                   <div id="timeframe-menu" class="timeframe-menu" hidden>
-                    <button data-interval="1s" type="button">1с</button><button data-interval="5s" type="button">5с</button><button data-interval="15s" type="button">15с</button>
-                    <button data-interval="1m" type="button">1м</button><button data-interval="3m" type="button">3м</button><button data-interval="5m" type="button">5м</button><button data-interval="15m" type="button">15м</button><button data-interval="30m" type="button">30м</button>
-                    <button data-interval="1h" type="button">1ч</button><button data-interval="2h" type="button">2ч</button><button data-interval="4h" type="button">4ч</button><button data-interval="12h" type="button">12ч</button>
-                    <button data-interval="1d" type="button">1д</button><button data-interval="3d" type="button">3д</button><button data-interval="1w" type="button">1н</button><button data-interval="1M" type="button">1мес</button>
+                    <div class="timeframe-menu-list">
+                      <span><button data-interval="1s" type="button">1с</button><button data-timeframe-favorite="1s" type="button" title="В избранное">☆</button></span><span><button data-interval="5s" type="button">5с</button><button data-timeframe-favorite="5s" type="button" title="В избранное">☆</button></span><span><button data-interval="15s" type="button">15с</button><button data-timeframe-favorite="15s" type="button" title="В избранное">☆</button></span>
+                      <span><button data-interval="1m" type="button">1м</button><button data-timeframe-favorite="1m" type="button" title="В избранное">☆</button></span><span><button data-interval="3m" type="button">3м</button><button data-timeframe-favorite="3m" type="button" title="В избранное">☆</button></span><span><button data-interval="5m" type="button">5м</button><button data-timeframe-favorite="5m" type="button" title="В избранное">☆</button></span><span><button data-interval="15m" type="button">15м</button><button data-timeframe-favorite="15m" type="button" title="В избранное">☆</button></span><span><button data-interval="30m" type="button">30м</button><button data-timeframe-favorite="30m" type="button" title="В избранное">☆</button></span>
+                      <span><button data-interval="1h" type="button">1ч</button><button data-timeframe-favorite="1h" type="button" title="В избранное">☆</button></span><span><button data-interval="2h" type="button">2ч</button><button data-timeframe-favorite="2h" type="button" title="В избранное">☆</button></span><span><button data-interval="4h" type="button">4ч</button><button data-timeframe-favorite="4h" type="button" title="В избранное">☆</button></span><span><button data-interval="12h" type="button">12ч</button><button data-timeframe-favorite="12h" type="button" title="В избранное">☆</button></span>
+                      <span><button data-interval="1d" type="button">1д</button><button data-timeframe-favorite="1d" type="button" title="В избранное">☆</button></span><span><button data-interval="3d" type="button">3д</button><button data-timeframe-favorite="3d" type="button" title="В избранное">☆</button></span><span><button data-interval="1w" type="button">1н</button><button data-timeframe-favorite="1w" type="button" title="В избранное">☆</button></span><span><button data-interval="1M" type="button">1мес</button><button data-timeframe-favorite="1M" type="button" title="В избранное">☆</button></span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -290,6 +293,6 @@
     </dialog>
 
     <div id="alert-toast" class="alert-toast" role="status" aria-live="assertive" hidden></div>
-    <script type="module" src="./app.js?v=19"></script>
+    <script type="module" src="./app.js?v=20"></script>
   </body>
 </html>
