@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseRestKline, parseStreamKline, scaleFromDrag, upsertCandle, visibleCountFromDrag } from "../chart.js";
+import { calculateNatr, parseRestKline, parseStreamKline, pearsonCorrelation, scaleFromDrag, upsertCandle, visibleCountFromDrag } from "../chart.js";
 
 test("REST kline is normalized", () => {
   const candle = parseRestKline([1000, "10", "12", "9", "11", "25", 1999]);
@@ -42,4 +42,14 @@ test("price-axis drag changes vertical scale", () => {
 test("time-axis drag changes visible history", () => {
   assert.ok(visibleCountFromDrag(100, 80, 500) > 100);
   assert.ok(visibleCountFromDrag(100, -80, 500) < 100);
+});
+
+test("NATR normalizes Wilder ATR as a percentage", () => {
+  const candles = Array.from({ length: 20 }, (_, index) => ({ high: 101 + index, low: 99 + index, close: 100 + index }));
+  assert.ok(calculateNatr(candles) > 0);
+});
+
+test("Pearson correlation detects aligned and inverse returns", () => {
+  assert.equal(pearsonCorrelation([1, 2, 3, 4], [2, 4, 6, 8]), 1);
+  assert.equal(pearsonCorrelation([1, 2, 3, 4], [8, 6, 4, 2]), -1);
 });

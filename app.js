@@ -4,7 +4,7 @@ import {
   filterUsdtPerpetualTicker,
   formatCompactUsd,
 } from "./engine.js";
-import { CandlestickChart, KlineFeed } from "./chart.js";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -31,6 +31,7 @@ const state = {
   lastMetrics: [],
   alerts: [],
   connectedAt: null,
+  chartStats: { fundingRate: null, nextFundingTime: null, natr1m: null, natr5m: null, correlation: null },
 };
 
 const els = {
@@ -70,6 +71,12 @@ const els = {
   topFilter: document.querySelector("#top-filter"),
   topList: document.querySelector("#top-list"),
   topTotal: document.querySelector("#top-total"),
+  metricTurnover: document.querySelector("#metric-turnover"),
+  metricFunding: document.querySelector("#metric-funding"),
+  metricFundingTime: document.querySelector("#metric-funding-time"),
+  metricNatr1m: document.querySelector("#metric-natr-1m"),
+  metricNatr5m: document.querySelector("#metric-natr-5m"),
+  metricCorrelation: document.querySelector("#metric-correlation"),
 };
 
 class BinanceFeed {
@@ -172,6 +179,7 @@ const klineFeed = new KlineFeed({
     updateChartHeader();
   },
   onStatus({ state: status, text }) {
+    if (!els.chartStatus) return;
     els.chartStatus.dataset.status = status;
     els.chartStatus.replaceChildren(document.createElement("i"), document.createTextNode(text));
   },
@@ -399,6 +407,7 @@ function updateChartHeader(metrics = state.lastMetrics) {
   els.chartPrice.textContent = formatPrice(price);
   els.chartChange.textContent = formatChange(change);
   els.chartChange.className = toneClass(change);
+  renderChartMetrics();
 }
 
 function selectChartSymbol(symbol, scrollToChart = false) {
@@ -409,7 +418,55 @@ function selectChartSymbol(symbol, scrollToChart = false) {
   renderTopList(state.lastMetrics);
   els.tableBody.querySelectorAll("tr").forEach((row) => row.classList.toggle("is-selected", row.dataset.symbol === symbol));
   if (changed || !state.chartCandles.length) klineFeed.select(symbol, state.chartInterval, state.chartRange);
+  if (changed) loadChartStats(symbol);
   if (scrollToChart) els.marketFocus.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function loadChartStats(symbol) {
+  const requestedSymbol = symbol;
+  state.chartStats = { fundingRate: null, nextFundingTime: null, natr1m: null, natr5m: null, correlation: null };
+  renderChartMetrics();
+  try {
+    const klineQuery = (pair, interval) => `https://fapi.binance.com/fapi/v1/klines?symbol=${pair}&interval=${interval}&limit=120`;
+    const [premiumResponse, minuteResponse, fiveMinuteResponse, bitcoinResponse] = await Promise.all([
+      fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`, { cache: "no-store" }),
+      fetch(klineQuery(symbol, "1m"), { cache: "no-store" }),
+      fetch(klineQuery(symbol, "5m"), { cache: "no-store" }),
+      symbol === "BTCUSDT" ? Promise.resolve(null) : fetch(klineQuery("BTCUSDT", "1m"), { cache: "no-store" }),
+    ]);
+    if (![premiumResponse, minuteResponse, fiveMinuteResponse].every((response) => response?.ok) || (bitcoinResponse && !bitcoinResponse.ok)) throw new Error("Market metrics unavailable");
+    const [premium, minuteRows, fiveMinuteRows, bitcoinRows] = await Promise.all([
+      premiumResponse.json(), minuteResponse.json(), fiveMinuteResponse.json(), bitcoinResponse ? bitcoinResponse.json() : Promise.resolve(null),
+    ]);
+    if (state.selectedChartSymbol !== requestedSymbol) return;
+    const minuteCandles = minuteRows.map(parseRestKline);
+    const fiveMinuteCandles = fiveMinuteRows.map(parseRestKline);
+    const returns = (candles) => candles.slice(1).map((candle, index) => (candle.close - candles[index].close) / candles[index].close);
+    state.chartStats = {
+      fundingRate: Number(premium.lastFundingRate),
+      nextFundingTime: Number(premium.nextFundingTime),
+      natr1m: calculateNatr(minuteCandles),
+      natr5m: calculateNatr(fiveMinuteCandles),
+      correlation: symbol === "BTCUSDT" ? 1 : pearsonCorrelation(returns(minuteCandles), returns(bitcoinRows.map(parseRestKline))),
+    };
+  } catch {
+    // Keep the chart usable if one auxiliary public endpoint is unavailable.
+  }
+  renderChartMetrics();
+}
+
+function renderChartMetrics() {
+  const item = state.lastMetrics.find((candidate) => candidate.symbol === state.selectedChartSymbol);
+  const stats = state.chartStats;
+  els.metricTurnover.textContent = formatCompactUsd(item?.quoteVolume24h);
+  els.metricFunding.textContent = Number.isFinite(stats.fundingRate) ? `${stats.fundingRate >= 0 ? "+" : ""}${(stats.fundingRate * 100).toFixed(4)}%` : "—";
+  els.metricFunding.className = Number.isFinite(stats.fundingRate) ? toneClass(stats.fundingRate) : "";
+  const remaining = Number.isFinite(stats.nextFundingTime) ? Math.max(0, stats.nextFundingTime - Date.now()) : null;
+  els.metricFundingTime.textContent = remaining === null ? "—" : `${String(Math.floor(remaining / 3_600_000)).padStart(2, "0")}:${String(Math.floor((remaining % 3_600_000) / 60_000)).padStart(2, "0")}`;
+  els.metricNatr1m.textContent = Number.isFinite(stats.natr1m) ? `${stats.natr1m.toFixed(2)}%` : "—";
+  els.metricNatr5m.textContent = Number.isFinite(stats.natr5m) ? `${stats.natr5m.toFixed(2)}%` : "—";
+  els.metricCorrelation.textContent = Number.isFinite(stats.correlation) ? `${stats.correlation >= 0 ? "+" : ""}${stats.correlation.toFixed(2)}` : "—";
+  els.metricCorrelation.className = Number.isFinite(stats.correlation) ? toneClass(stats.correlation) : "";
 }
 
 function updateAlerts(metrics, now) {
@@ -660,6 +717,7 @@ els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.d
 els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === state.chartRange));
 els.moreTimeframe.value = els.timeframeButtons.some((item) => item.dataset.interval === state.chartInterval) ? "" : state.chartInterval;
 klineFeed.select(state.selectedChartSymbol, state.chartInterval, state.chartRange);
+loadChartStats(state.selectedChartSymbol);
 setInterval(render, 1000);
 setInterval(updateTrackedSymbols, 15_000);
 setInterval(() => {

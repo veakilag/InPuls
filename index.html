@@ -63,11 +63,18 @@
                     <option value="1d">1д</option><option value="3d">3д</option><option value="1w">1н</option><option value="1M">1мес</option>
                   </select>
                 </div>
-                <span id="chart-status" class="chart-status" data-status="loading"><i></i>Загрузка</span>
               </div>
             </div>
           </header>
           <div class="chart-stage">
+            <div class="chart-metrics" aria-label="Метрики выбранной монеты">
+              <span>24ч <strong id="metric-turnover">—</strong></span>
+              <span>Funding <strong id="metric-funding">—</strong></span>
+              <span>До funding <strong id="metric-funding-time">—</strong></span>
+              <span>NATR 1м <strong id="metric-natr-1m">—</strong></span>
+              <span>NATR 5м <strong id="metric-natr-5m">—</strong></span>
+              <span title="Корреляция минутных доходностей с BTC">C:BTC <strong id="metric-correlation">—</strong></span>
+            </div>
             <canvas id="price-chart" aria-label="Свечной график выбранной монеты"></canvas>
             <div id="chart-tooltip" class="chart-tooltip" hidden></div>
             <span class="zoom-hint">Ctrl+колесо · масштаб</span>

@@ -1,4 +1,4 @@
-const CACHE = "inpuls-v5";
+const CACHE = "inpuls-v6";
 const SHELL = ["./", "./index.html", "./styles.css", "./app.js", "./chart.js", "./engine.js", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", (event) => {

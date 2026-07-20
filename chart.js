@@ -53,6 +53,41 @@ export function visibleCountFromDrag(initialCount, delta, total) {
   return Math.round(Math.max(Math.min(20, total), Math.min(total, initialCount * Math.exp(delta / 180))));
 }
 
+export function calculateNatr(candles, period = 14) {
+  if (!Array.isArray(candles) || candles.length <= period) return null;
+  const ranges = [];
+  for (let index = 1; index < candles.length; index += 1) {
+    const current = candles[index];
+    const previous = candles[index - 1];
+    ranges.push(Math.max(current.high - current.low, Math.abs(current.high - previous.close), Math.abs(current.low - previous.close)));
+  }
+  let atr = ranges.slice(0, period).reduce((sum, value) => sum + value, 0) / period;
+  for (let index = period; index < ranges.length; index += 1) atr = ((atr * (period - 1)) + ranges[index]) / period;
+  const close = candles.at(-1)?.close;
+  return Number.isFinite(close) && close !== 0 ? (atr / close) * 100 : null;
+}
+
+export function pearsonCorrelation(left, right) {
+  const length = Math.min(left?.length ?? 0, right?.length ?? 0);
+  if (length < 3) return null;
+  const a = left.slice(-length);
+  const b = right.slice(-length);
+  const meanA = a.reduce((sum, value) => sum + value, 0) / length;
+  const meanB = b.reduce((sum, value) => sum + value, 0) / length;
+  let covariance = 0;
+  let varianceA = 0;
+  let varianceB = 0;
+  for (let index = 0; index < length; index += 1) {
+    const deltaA = a[index] - meanA;
+    const deltaB = b[index] - meanB;
+    covariance += deltaA * deltaB;
+    varianceA += deltaA ** 2;
+    varianceB += deltaB ** 2;
+  }
+  const denominator = Math.sqrt(varianceA * varianceB);
+  return denominator ? covariance / denominator : null;
+}
+
 export class KlineFeed {
   constructor({ onData, onStatus }) {
     this.onData = onData;
@@ -84,7 +119,7 @@ export class KlineFeed {
       const targetCandles = Math.max(30, Math.ceil((RANGE_MS[range] ?? RANGE_MS["1h"]) / (INTERVAL_MS[interval] ?? 60_000)));
       const query = secondsMode
         ? new URLSearchParams({ symbol, limit: "1000" })
-        : new URLSearchParams({ symbol, interval, limit: String(Math.min(1500, targetCandles + 2)) });
+        : new URLSearchParams({ symbol, interval, limit: "1500" });
       const response = await fetch(`${secondsMode ? AGG_TRADES_REST : KLINES_REST}?${query}`, {
         signal: this.abortController.signal,
         cache: "no-store",
@@ -93,7 +128,7 @@ export class KlineFeed {
       const rows = await response.json();
       if (generation !== this.generation) return;
       this.candles = secondsMode ? aggregateTrades(rows, INTERVAL_MS[interval]) : rows.map(parseRestKline).filter(isValidCandle);
-      this.candles = this.candles.slice(-Math.min(1500, targetCandles));
+      this.candles = this.candles.slice(-1500);
       this.onData(this.candles, { symbol, interval, range, targetCandles });
     } catch (error) {
       if (error.name !== "AbortError" && generation === this.generation) {
@@ -363,6 +398,14 @@ export class CandlestickChart {
       this.render();
       return;
     }
+    if (this.drag?.type === "pan") {
+      const deltaX = x - this.drag.startX;
+      const candleShift = Math.round(deltaX / Math.max(this.drag.step, 1));
+      this.viewStart = Math.max(0, Math.min(this.drag.startView - candleShift, Math.max(0, this.candles.length - this.visibleCount)));
+      this.tooltip.hidden = true;
+      this.render();
+      return;
+    }
     const axis = this.#axisAt(x, y);
     this.canvas.style.cursor = axis === "price" ? "ns-resize" : axis === "time" ? "ew-resize" : "crosshair";
     this.hoverX = axis ? null : x;
@@ -382,21 +425,23 @@ export class CandlestickChart {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const axis = this.#axisAt(x, y);
-    if (!axis) return;
     event.preventDefault();
     this.canvas.setPointerCapture(event.pointerId);
     this.hoverX = null;
     this.tooltip.hidden = true;
     this.drag = axis === "price"
       ? { type: "price", startY: y, startScale: this.priceScale }
-      : { type: "time", startX: x, startCount: this.visibleCount, endIndex: this.viewStart + this.visibleCount };
-    this.canvas.style.cursor = axis === "price" ? "ns-resize" : "ew-resize";
+      : axis === "time"
+        ? { type: "time", startX: x, startCount: this.visibleCount, endIndex: this.viewStart + this.visibleCount }
+        : { type: "pan", startX: x, startView: this.viewStart, step: this.layout.step };
+    this.canvas.style.cursor = axis === "price" ? "ns-resize" : axis === "time" ? "ew-resize" : "grabbing";
   }
 
   #handlePointerUp(event) {
     if (!this.drag) return;
     if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
     this.drag = null;
+    this.canvas.style.cursor = "crosshair";
   }
 
   #handleWheel(event) {

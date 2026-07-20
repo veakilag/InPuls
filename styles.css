@@ -58,13 +58,13 @@ main { width: min(1900px, 100%); margin: 0 auto; padding: 6px clamp(6px, 1vw, 16
 
 .market-focus { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 6px; margin-bottom: 6px; scroll-margin-top: 50px; }
 .chart-card, .top-card { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(14, 19, 27, .88); box-shadow: 0 22px 70px rgba(0, 0, 0, .16); }
-.chart-heading { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 10px; border-bottom: 1px solid var(--line-soft); }
+.chart-heading { min-height: 52px; display: flex; align-items: center; justify-content: flex-start; gap: 14px; padding: 6px 10px; border-bottom: 1px solid var(--line-soft); }
 .chart-heading .eyebrow, .top-heading .eyebrow { margin-bottom: 7px; font-size: 8px; }
 .chart-quote { display: flex; align-items: baseline; gap: 11px; }
 .chart-quote h2 { margin: 0; font-size: 14px; letter-spacing: -.035em; }
 .chart-quote > strong { font-size: 11px; }
 .chart-quote > span { font-size: 11px; font-weight: 700; }
-.chart-controls { display: flex; align-items: center; }.control-line { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.chart-controls { display: flex; align-items: center; }.control-line { display: flex; align-items: center; justify-content: flex-start; gap: 7px; }
 .timeframes { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--line-soft); border-radius: 9px; background: #0a0f16; }
 .timeframe-button, .range-button { min-width: 34px; height: 27px; padding: 0 7px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-size: 9px; cursor: pointer; }
 .timeframe-button:hover, .range-button:hover { color: var(--text); background: rgba(157, 108, 255, .1); }
@@ -75,7 +75,8 @@ main { width: min(1900px, 100%); margin: 0 auto; padding: 6px clamp(6px, 1vw, 16
 .chart-status[data-status="online"] { color: #9ca9ba; }.chart-status[data-status="online"] i { background: var(--green); box-shadow: 0 0 9px rgba(80, 227, 164, .55); }
 .chart-status[data-status="warning"] { color: var(--amber); }.chart-status[data-status="warning"] i { animation: pulse 1.4s infinite; }
 .chart-stage { position: relative; height: 430px; min-height: 260px; background: #0a0f16; }
-.chart-stage canvas { display: block; width: 100%; height: 100%; touch-action: pan-y; }
+.chart-stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+.chart-metrics { position: absolute; top: 7px; left: 10px; z-index: 2; display: flex; flex-wrap: wrap; gap: 4px; max-width: calc(100% - 95px); pointer-events: none; }.chart-metrics span { min-height: 21px; display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; border: 1px solid rgba(157, 108, 255, .15); border-radius: 5px; color: #675f75; background: rgba(8, 7, 17, .74); backdrop-filter: blur(7px); font-size: 7px; white-space: nowrap; }.chart-metrics strong { color: #aaa1b9; font-size: 8px; }
 .zoom-hint { position: absolute; right: 12px; bottom: 8px; z-index: 2; padding: 4px 7px; border: 1px solid rgba(157, 108, 255, .18); border-radius: 5px; color: #706582; background: rgba(8, 7, 17, .78); pointer-events: none; font-size: 7px; }
 .chart-tooltip { position: absolute; z-index: 3; display: grid; grid-template-columns: repeat(2, auto); gap: 4px 10px; min-width: 140px; padding: 9px 10px; border: 1px solid #2a374a; border-radius: 8px; color: #aeb9c8; background: rgba(12, 17, 24, .94); box-shadow: 0 12px 30px rgba(0, 0, 0, .35); pointer-events: none; font-size: 8px; }
 .chart-tooltip[hidden] { display: none; }.chart-tooltip strong { grid-column: 1 / -1; color: var(--text); font-size: 9px; }
