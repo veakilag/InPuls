@@ -3,8 +3,9 @@ import {
   SymbolState,
   filterUsdtPerpetualTicker,
   formatCompactUsd,
-} from "./engine.js?v=13";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=13";
+} from "./engine.js?v=14";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=14";
+import { OrderBookFeed } from "./orderbook.js?v=14";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -14,8 +15,14 @@ const STORAGE_KEYS = {
   timeZone: "inpuls-timezone-v1",
   volume: "inpuls-volume-v1",
   comfort: "inpuls-comfort-v1",
-  workspace: "inpuls-workspace-v2",
+  workspace: "inpuls-workspace-v3",
   radarColumns: "inpuls-radar-columns-v1",
+};
+
+const DEFAULT_WORKSPACE = {
+  primary: { id: "primary", type: "chart", x: 0, y: 0, w: 18, h: 12 },
+  radar: { id: "radar", type: "radar", x: 18, y: 0, w: 6, h: 12 },
+  extras: [],
 };
 
 const savedChart = loadJson(STORAGE_KEYS.chart, { interval: "1m", range: "1h" });
@@ -41,7 +48,7 @@ const state = {
   volumeVisible: loadJson(STORAGE_KEYS.volume, true),
   comfort: Number(localStorage.getItem(STORAGE_KEYS.comfort) ?? 55),
   radarSearch: "",
-  workspace: loadJson(STORAGE_KEYS.workspace, { primaryCols: 12, primaryRows: 2, radarCols: 4, radarRows: 2, extras: [] }),
+  workspace: loadJson(STORAGE_KEYS.workspace, DEFAULT_WORKSPACE),
   radarColumns: loadJson(STORAGE_KEYS.radarColumns, [1.3, 1, 1, 1, .8, .8]),
 };
 
@@ -50,7 +57,15 @@ const els = {
   statusText: document.querySelector("#connection-text"),
   clock: document.querySelector("#clock"),
   comfortSlider: document.querySelector("#comfort-slider"),
-  timeZoneSelect: document.querySelector("#timezone-select"),
+  timeZoneOpen: document.querySelector("#timezone-open"),
+  timeZoneCity: document.querySelector("#timezone-city"),
+  timeZoneDialog: document.querySelector("#timezone-dialog"),
+  timeZoneClose: document.querySelector("#timezone-close"),
+  timeZoneSearch: document.querySelector("#timezone-search"),
+  timeZoneMap: document.querySelector("#timezone-map"),
+  timeZoneMapWorld: document.querySelector("#timezone-map-world"),
+  timeZoneMarkers: document.querySelector("#timezone-markers"),
+  timeZoneResults: document.querySelector("#timezone-results"),
   soundButton: document.querySelector("#sound-toggle"),
   settingsButton: document.querySelector("#settings-open"),
   settingsDialog: document.querySelector("#settings-dialog"),
@@ -89,6 +104,8 @@ const els = {
   addChartTile: document.querySelector("#add-chart-tile"),
   addChartDialog: document.querySelector("#add-chart-dialog"),
   addChartClose: document.querySelector("#add-chart-close"),
+  panelPickerTitle: document.querySelector("#panel-picker-title"),
+  addPanelButtons: [...document.querySelectorAll("[data-add-panel]")],
   chartPickerSearch: document.querySelector("#chart-picker-search"),
   chartPickerList: document.querySelector("#chart-picker-list"),
   metricTurnover: document.querySelector("#metric-turnover"),
@@ -200,6 +217,8 @@ const feed = new BinanceFeed();
 const radarHistoryLoaded = new Set();
 const radarHistoryLoading = new Set();
 const extraCharts = new Map();
+const orderBookPanels = new Map();
+let panelPickerType = "chart";
 let activeChartTheme = null;
 const priceChart = new CandlestickChart(els.priceChart, els.chartTooltip);
 priceChart.setTimeZone(state.timeZone === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : state.timeZone);
@@ -233,23 +252,21 @@ function applyComfort(rawValue) {
   const value = Math.max(0, Math.min(100, Number(rawValue) || 0));
   const amount = value / 100;
   const palette = {
-    bg: mixColor("#091513", "#050409", amount),
-    panel: mixColor("#101d1a", "#0c0912", amount),
-    panel2: mixColor("#162622", "#15101e", amount),
-    line: mixColor("#29483f", "#30233f", amount),
-    text: mixColor("#e0ece7", "#dfd7e7", amount),
-    muted: mixColor("#80968e", "#897d95", amount),
-    chart: mixColor("#07110f", "#050407", amount),
-    bull: mixColor("#d9eee6", "#ddd6e4", amount),
-    bear: mixColor("#13231f", "#15121a", amount),
-    bearStroke: mixColor("#71958a", "#8e7f99", amount),
-    grid: mixColor("#34564d", "#493b51", amount),
-    crosshair: mixColor("#8aa89f", "#aa9bb5", amount),
-    crosshairFill: mixColor("#276b5a", "#5e4968", amount),
-    crosshairText: mixColor("#edf8f4", "#eee7f2", amount),
-    violet: mixColor("#4fb99b", "#9b6bd6", amount),
-    blue: mixColor("#6c9e90", "#80708d", amount),
-    green: mixColor("#35d9a1", "#56cfaa", amount),
+    bg: mixColor("#0b0f12", "#050606", amount),
+    panel: mixColor("#11161b", "#0a0b0d", amount),
+    panel2: mixColor("#171d23", "#0f1013", amount),
+    line: mixColor("#2a353c", "#24212c", amount),
+    text: mixColor("#d6dde2", "#c9c5bc", amount),
+    muted: mixColor("#87919b", "#807b72", amount),
+    chart: mixColor("#080b0d", "#040505", amount),
+    bull: mixColor("#d7dde0", "#d0cbc1", amount),
+    bear: mixColor("#101417", "#0b0b0c", amount),
+    bearStroke: mixColor("#7d8790", "#77716a", amount),
+    grid: mixColor("#56616a", "#4b4743", amount),
+    crosshair: mixColor("#929aa1", "#918a80", amount),
+    crosshairFill: mixColor("#355f56", "#594464", amount),
+    crosshairText: mixColor("#eef1f2", "#e6dfd4", amount),
+    accent: mixColor("#46c7a1", "#9567c5", amount),
   };
   const root = document.documentElement;
   root.style.setProperty("--bg", palette.bg);
@@ -260,9 +277,10 @@ function applyComfort(rawValue) {
   root.style.setProperty("--text", palette.text);
   root.style.setProperty("--muted", palette.muted);
   root.style.setProperty("--chart-bg", palette.chart);
-  root.style.setProperty("--violet", palette.violet);
-  root.style.setProperty("--blue", palette.blue);
-  root.style.setProperty("--green", palette.green);
+  root.style.setProperty("--accent", palette.accent);
+  root.style.setProperty("--violet", palette.accent);
+  root.style.setProperty("--green", "#39dba2");
+  root.style.setProperty("--blue", "#7198b4");
   root.style.setProperty("--theme-level", String(amount));
   root.style.colorScheme = "dark";
   root.dataset.comfort = String(Math.round(value));
@@ -279,7 +297,7 @@ function applyComfort(rawValue) {
     crosshair: palette.crosshair,
     crosshairFill: palette.crosshairFill,
     crosshairText: palette.crosshairText,
-    session: palette.violet,
+    session: palette.accent,
   };
   priceChart.setTheme(activeChartTheme);
   for (const panel of extraCharts.values()) panel.chart.setTheme(activeChartTheme);
@@ -536,80 +554,87 @@ function formatRadarMetric(item, metric) {
   return Number.isFinite(value) ? `${value.toFixed(2)}%` : "—";
 }
 
+const WORKSPACE_COLS = 24;
+const WORKSPACE_ROWS = 12;
+
+function clampPanel(model, fallback, minimum = { w: 5, h: 3 }) {
+  const next = { ...fallback, ...(model && typeof model === "object" ? model : {}) };
+  next.id = String(next.id || fallback.id);
+  next.type = next.type || fallback.type;
+  next.w = Math.max(minimum.w, Math.min(WORKSPACE_COLS, Math.round(Number(next.w) || fallback.w)));
+  next.h = Math.max(minimum.h, Math.min(WORKSPACE_ROWS, Math.round(Number(next.h) || fallback.h)));
+  next.x = Math.max(0, Math.min(WORKSPACE_COLS - next.w, Math.round(Number(next.x) || 0)));
+  next.y = Math.max(0, Math.min(WORKSPACE_ROWS - next.h, Math.round(Number(next.y) || 0)));
+  return next;
+}
+
 function normalizeWorkspace() {
-  const workspace = state.workspace && typeof state.workspace === "object" ? state.workspace : {};
-  workspace.primaryCols = Math.max(4, Math.min(13, Math.round(Number(workspace.primaryCols) || 12)));
-  workspace.primaryRows = workspace.primaryRows === 1 ? 1 : 2;
-  workspace.radarCols = Math.max(3, Math.min(8, Math.round(Number(workspace.radarCols) || 4)));
-  workspace.radarRows = workspace.radarRows === 1 ? 1 : 2;
-  workspace.extras = Array.isArray(workspace.extras)
-    ? workspace.extras.filter((item) => item?.id && item?.symbol?.endsWith("USDT")).map((item) => ({
-        id: String(item.id),
-        symbol: item.symbol,
-        interval: item.interval || "1m",
-        cols: Math.max(4, Math.min(12, Math.round(Number(item.cols) || 4))),
-        rows: item.rows === 2 ? 2 : 1,
-      }))
-    : [];
-  if (workspace.primaryCols + workspace.radarCols > 16) workspace.primaryCols = 16 - workspace.radarCols;
-  while (workspace.primaryCols * workspace.primaryRows + workspace.radarCols * workspace.radarRows + workspace.extras.reduce((sum, item) => sum + item.cols * item.rows, 0) > 32) workspace.extras.pop();
+  const raw = state.workspace && typeof state.workspace === "object" ? state.workspace : {};
+  const workspace = {
+    primary: clampPanel(raw.primary, DEFAULT_WORKSPACE.primary, { w: 4, h: 3 }),
+    radar: clampPanel(raw.radar, DEFAULT_WORKSPACE.radar, { w: 4, h: 3 }),
+    extras: [],
+  };
+  const sourceExtras = Array.isArray(raw.extras) ? raw.extras : [];
+  for (const source of sourceExtras) {
+    if (!source?.id || !source?.symbol?.endsWith("USDT")) continue;
+    const type = source.type === "orderbook" ? "orderbook" : "chart";
+    const fallback = { id: String(source.id), type, symbol: source.symbol, interval: source.interval || "1m", x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
+    const item = clampPanel(source, fallback, { w: 4, h: 3 });
+    item.symbol = source.symbol;
+    item.interval = source.interval || "1m";
+    if (canPlacePanel(item, workspace)) workspace.extras.push(item);
+  }
   state.workspace = workspace;
-  while (state.workspace.extras.length && !canApplyWorkspace()) state.workspace.extras.pop();
+  if (!canPlacePanel(workspace.radar, workspace, "radar")) workspace.radar = { ...DEFAULT_WORKSPACE.radar };
+  if (!canPlacePanel(workspace.primary, workspace, "primary")) workspace.primary = { ...DEFAULT_WORKSPACE.primary };
 }
 
 function persistWorkspace() {
   localStorage.setItem(STORAGE_KEYS.workspace, JSON.stringify(state.workspace));
 }
 
-function workspaceCells(overrides = {}) {
-  const primaryCols = overrides.primaryCols ?? state.workspace.primaryCols;
-  const primaryRows = overrides.primaryRows ?? state.workspace.primaryRows;
-  const radarCols = overrides.radarCols ?? state.workspace.radarCols;
-  const radarRows = overrides.radarRows ?? state.workspace.radarRows;
-  const extras = overrides.extras ?? state.workspace.extras;
-  return primaryCols * primaryRows + radarCols * radarRows + extras.reduce((sum, item) => sum + item.cols * item.rows, 0);
+function workspacePanels(workspace = state.workspace) {
+  return [workspace.primary, workspace.radar, ...(workspace.extras ?? [])];
 }
 
-function canApplyWorkspace(overrides = {}) {
-  const primaryCols = overrides.primaryCols ?? state.workspace.primaryCols;
-  const primaryRows = overrides.primaryRows ?? state.workspace.primaryRows;
-  const radarCols = overrides.radarCols ?? state.workspace.radarCols;
-  const radarRows = overrides.radarRows ?? state.workspace.radarRows;
-  const extras = overrides.extras ?? state.workspace.extras;
-  if (primaryCols + radarCols > 16 || workspaceCells(overrides) > 32) return false;
-  const grid = Array.from({ length: 2 }, () => Array(16).fill(false));
-  const occupy = (start, cols, rows) => {
-    for (let row = 0; row < rows; row += 1) {
-      for (let col = start; col < start + cols; col += 1) {
-        if (grid[row]?.[col]) return false;
-        grid[row][col] = true;
-      }
+function panelsOverlap(left, right) {
+  return left.x < right.x + right.w && left.x + left.w > right.x && left.y < right.y + right.h && left.y + left.h > right.y;
+}
+
+function canPlacePanel(candidate, workspace = state.workspace, ignoreId = candidate.id) {
+  if (!candidate || candidate.x < 0 || candidate.y < 0 || candidate.w < 1 || candidate.h < 1) return false;
+  if (candidate.x + candidate.w > WORKSPACE_COLS || candidate.y + candidate.h > WORKSPACE_ROWS) return false;
+  return workspacePanels(workspace).every((panel) => panel.id === ignoreId || !panelsOverlap(candidate, panel));
+}
+
+function findFreeSlot(width = 6, height = 4) {
+  const w = Math.min(WORKSPACE_COLS, width);
+  const h = Math.min(WORKSPACE_ROWS, height);
+  for (let y = 0; y <= WORKSPACE_ROWS - h; y += 1) {
+    for (let x = 0; x <= WORKSPACE_COLS - w; x += 1) {
+      const slot = { id: "free-slot", x, y, w, h };
+      if (canPlacePanel(slot, state.workspace, "free-slot")) return slot;
     }
-    return true;
-  };
-  if (!occupy(0, primaryCols, primaryRows) || !occupy(16 - radarCols, radarCols, radarRows)) return false;
-  for (const item of extras) {
-    let placed = false;
-    for (let row = 0; row <= 2 - item.rows && !placed; row += 1) {
-      for (let col = 0; col <= 16 - item.cols && !placed; col += 1) {
-        let free = true;
-        for (let y = row; y < row + item.rows; y += 1) {
-          for (let x = col; x < col + item.cols; x += 1) free &&= !grid[y][x];
-        }
-        if (!free) continue;
-        for (let y = row; y < row + item.rows; y += 1) {
-          for (let x = col; x < col + item.cols; x += 1) grid[y][x] = true;
-        }
-        placed = true;
-      }
-    }
-    if (!placed) return false;
   }
-  return true;
+  return null;
 }
 
-function hasChartSlot() {
-  return canApplyWorkspace({ extras: [...state.workspace.extras, { id: "slot", cols: 4, rows: 1 }] });
+function findNearestFreePosition(model, targetX, targetY) {
+  const clampedX = Math.max(0, Math.min(WORKSPACE_COLS - model.w, targetX));
+  const clampedY = Math.max(0, Math.min(WORKSPACE_ROWS - model.h, targetY));
+  for (let radius = 0; radius <= WORKSPACE_COLS + WORKSPACE_ROWS; radius += 1) {
+    for (let dy = -radius; dy <= radius; dy += 1) {
+      const dx = radius - Math.abs(dy);
+      for (const sign of dx === 0 ? [0] : [-1, 1]) {
+        const candidate = { ...model, x: clampedX + dx * sign, y: clampedY + dy };
+        candidate.x = Math.max(0, Math.min(WORKSPACE_COLS - candidate.w, candidate.x));
+        candidate.y = Math.max(0, Math.min(WORKSPACE_ROWS - candidate.h, candidate.y));
+        if (canPlacePanel(candidate)) return { x: candidate.x, y: candidate.y };
+      }
+    }
+  }
+  return null;
 }
 
 function applyRadarColumns() {
@@ -619,56 +644,47 @@ function applyRadarColumns() {
 
 function applyWorkspaceLayout() {
   const primary = document.querySelector(".primary-chart");
-  primary.style.gridColumn = `1 / span ${state.workspace.primaryCols}`;
-  primary.style.gridRow = `1 / span ${state.workspace.primaryRows}`;
-  const radarStart = 17 - state.workspace.radarCols;
-  document.querySelector(".top-card").style.gridColumn = `${radarStart} / 17`;
-  document.querySelector(".top-card").style.gridRow = `1 / span ${state.workspace.radarRows}`;
-  for (const panel of extraCharts.values()) {
-    panel.element.style.gridColumn = `span ${panel.model.cols}`;
-    panel.element.style.gridRow = `span ${panel.model.rows}`;
+  const radar = document.querySelector(".top-card");
+  const place = (element, model) => {
+    element.style.gridColumn = `${model.x + 1} / span ${model.w}`;
+    element.style.gridRow = `${model.y + 1} / span ${model.h}`;
+  };
+  place(primary, state.workspace.primary);
+  place(radar, state.workspace.radar);
+  for (const panel of [...extraCharts.values(), ...orderBookPanels.values()]) {
+    place(panel.element, panel.model);
   }
-  els.addChartTile.hidden = !hasChartSlot();
+  const addSlot = findFreeSlot(6, 4) ?? findFreeSlot(4, 3);
+  els.addChartTile.hidden = !addSlot;
+  if (addSlot) place(els.addChartTile, addSlot);
   requestAnimationFrame(() => {
     priceChart.render();
     for (const panel of extraCharts.values()) panel.chart.render();
   });
 }
 
-function bindGridResizer(handle, model, type, chart) {
+function bindGridResizer(handle, model, chart) {
   handle.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     event.stopPropagation();
     handle.setPointerCapture(event.pointerId);
     const rect = els.marketFocus.getBoundingClientRect();
-    const columnUnit = Math.max(28, (rect.width - 15) / 16);
-    const rowHeight = Math.max(80, (rect.height - 5) / 2);
+    const columnUnit = Math.max(10, (rect.width + 3) / WORKSPACE_COLS);
+    const rowHeight = Math.max(12, (rect.height + 3) / WORKSPACE_ROWS);
     const startX = event.clientX;
     const startY = event.clientY;
-    const startCols = model.cols ?? (type === "primary" ? state.workspace.primaryCols : state.workspace.radarCols);
-    const startRows = model.rows ?? (type === "primary" ? state.workspace.primaryRows : state.workspace.radarRows);
+    const startWidth = model.w;
+    const startHeight = model.h;
     const move = (moveEvent) => {
-      const direction = type === "radar" ? -1 : 1;
-      const minimum = type === "radar" ? 3 : 4;
-      const maximum = type === "primary" ? 13 : type === "radar" ? 8 : 12;
-      const cols = Math.max(minimum, Math.min(maximum, startCols + Math.round(((moveEvent.clientX - startX) * direction) / columnUnit)));
-      const rows = Math.max(1, Math.min(2, startRows + Math.round((moveEvent.clientY - startY) / rowHeight)));
-      if (type === "primary") {
-        if (!canApplyWorkspace({ primaryCols: cols, primaryRows: rows })) return;
-        state.workspace.primaryCols = cols;
-        state.workspace.primaryRows = rows;
-      } else if (type === "radar") {
-        if (!canApplyWorkspace({ radarCols: cols, radarRows: rows })) return;
-        state.workspace.radarCols = cols;
-        state.workspace.radarRows = rows;
-      } else {
-        const extras = state.workspace.extras.map((item) => item.id === model.id ? { ...item, cols, rows } : item);
-        if (!canApplyWorkspace({ extras })) return;
-        model.cols = cols;
-        model.rows = rows;
-        const stored = state.workspace.extras.find((item) => item.id === model.id);
-        if (stored && stored !== model) Object.assign(stored, { cols, rows });
-      }
+      const minimum = { w: 4, h: 3 };
+      const candidate = {
+        ...model,
+        w: Math.max(minimum.w, Math.min(WORKSPACE_COLS - model.x, startWidth + Math.round((moveEvent.clientX - startX) / columnUnit))),
+        h: Math.max(minimum.h, Math.min(WORKSPACE_ROWS - model.y, startHeight + Math.round((moveEvent.clientY - startY) / rowHeight))),
+      };
+      if (!canPlacePanel(candidate)) return;
+      model.w = candidate.w;
+      model.h = candidate.h;
       applyWorkspaceLayout();
       chart?.render();
     };
@@ -681,6 +697,39 @@ function bindGridResizer(handle, model, type, chart) {
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", stop);
     handle.addEventListener("pointercancel", stop);
+  });
+}
+
+function bindPanelDrag(grip, model) {
+  if (!grip) return;
+  grip.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    grip.setPointerCapture(event.pointerId);
+    els.marketFocus.classList.add("is-dragging-panel");
+    const rect = els.marketFocus.getBoundingClientRect();
+    const columnUnit = Math.max(10, (rect.width + 3) / WORKSPACE_COLS);
+    const rowUnit = Math.max(12, (rect.height + 3) / WORKSPACE_ROWS);
+    const start = { x: model.x, y: model.y, pointerX: event.clientX, pointerY: event.clientY };
+    const move = (moveEvent) => {
+      const targetX = start.x + Math.round((moveEvent.clientX - start.pointerX) / columnUnit);
+      const targetY = start.y + Math.round((moveEvent.clientY - start.pointerY) / rowUnit);
+      const position = findNearestFreePosition(model, targetX, targetY);
+      if (!position || (position.x === model.x && position.y === model.y)) return;
+      model.x = position.x;
+      model.y = position.y;
+      applyWorkspaceLayout();
+    };
+    const stop = () => {
+      els.marketFocus.classList.remove("is-dragging-panel");
+      persistWorkspace();
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", stop);
+      grip.removeEventListener("pointercancel", stop);
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", stop);
+    grip.addEventListener("pointercancel", stop);
   });
 }
 
@@ -723,7 +772,8 @@ function mountExtraChart(model) {
     panel.feed.select(model.symbol, model.interval, intervalRange(model.interval));
   }));
   article.querySelector(".mini-chart-close").addEventListener("click", () => removeExtraChart(model.id));
-  bindGridResizer(article.querySelector(".chart-resizer"), model, "extra", chart);
+  bindGridResizer(article.querySelector(".chart-resizer"), model, chart);
+  bindPanelDrag(article.querySelector(".panel-grip"), model);
   article.addEventListener("dragover", (event) => {
     if (event.dataTransfer.types.includes("text/inpuls-symbol")) event.preventDefault();
   });
@@ -739,14 +789,30 @@ function mountExtraChart(model) {
   panel.feed.select(model.symbol, model.interval, intervalRange(model.interval));
 }
 
-function createExtraChart(symbol) {
-  if (!symbol?.endsWith("USDT") || !hasChartSlot()) return false;
-  const model = { id: `chart-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, symbol, interval: "1m", cols: 4, rows: 1 };
+function createExtraPanel(symbol, type = "chart") {
+  if (!symbol?.endsWith("USDT")) return false;
+  const slot = findFreeSlot(type === "orderbook" ? 6 : 8, 6) ?? findFreeSlot(4, 3);
+  if (!slot) return false;
+  const model = {
+    id: `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    type,
+    symbol,
+    interval: "1m",
+    x: slot.x,
+    y: slot.y,
+    w: slot.w,
+    h: slot.h,
+  };
   state.workspace.extras.push(model);
   persistWorkspace();
-  mountExtraChart(model);
+  if (type === "orderbook") mountOrderBook(model);
+  else mountExtraChart(model);
   applyWorkspaceLayout();
   return true;
+}
+
+function createExtraChart(symbol) {
+  return createExtraPanel(symbol, "chart");
 }
 
 function removeExtraChart(id) {
@@ -756,6 +822,110 @@ function removeExtraChart(id) {
   panel.chart.destroy();
   panel.element.remove();
   extraCharts.delete(id);
+  state.workspace.extras = state.workspace.extras.filter((item) => item.id !== id);
+  persistWorkspace();
+  applyWorkspaceLayout();
+}
+
+function mountOrderBook(model) {
+  if (orderBookPanels.has(model.id)) return;
+  const article = document.createElement("article");
+  article.className = "orderbook-card";
+  article.dataset.panel = "orderbook";
+  article.dataset.panelId = model.id;
+  article.innerHTML = `
+    <header class="orderbook-heading">
+      <span class="panel-grip" title="Переместить стакан">⠿</span>
+      <h2>${escapeHtml(model.symbol.replace("USDT", ""))}/USDT · Стакан</h2>
+      <span class="book-status">Синхронизация</span>
+      <button class="panel-close" type="button" title="Закрыть стакан">×</button>
+    </header>
+    <div class="orderbook-stage">
+      <div class="orderbook-columns"><span>Сумма</span><span>Цена</span><span>Объём</span></div>
+      <div class="orderbook-rows"><div class="orderbook-empty">Загружаю глубину Binance…</div></div>
+      <button class="panel-resizer" type="button" aria-label="Изменить размер стакана"></button>
+    </div>`;
+  els.marketFocus.insertBefore(article, els.addChartTile);
+  const panel = { model, element: article, feed: null, latest: null, frame: null };
+  const draw = () => {
+    panel.frame = null;
+    if (panel.latest) renderOrderBook(panel, panel.latest);
+  };
+  panel.feed = new OrderBookFeed({
+    onData(data) {
+      panel.latest = data;
+      if (!panel.frame) panel.frame = requestAnimationFrame(draw);
+    },
+    onStatus({ state: status, text }) {
+      const label = article.querySelector(".book-status");
+      label.textContent = text;
+      label.classList.toggle("is-live", status === "online");
+    },
+  });
+  orderBookPanels.set(model.id, panel);
+  article.querySelector(".panel-close").addEventListener("click", () => removeOrderBook(model.id));
+  bindGridResizer(article.querySelector(".panel-resizer"), model);
+  bindPanelDrag(article.querySelector(".panel-grip"), model);
+  article.addEventListener("dragover", (event) => {
+    if (event.dataTransfer.types.includes("text/inpuls-symbol")) event.preventDefault();
+  });
+  article.addEventListener("drop", (event) => {
+    const symbol = event.dataTransfer.getData("text/inpuls-symbol");
+    if (!symbol?.endsWith("USDT")) return;
+    event.preventDefault();
+    model.symbol = symbol;
+    article.querySelector("h2").textContent = `${symbol.replace("USDT", "")}/USDT · Стакан`;
+    persistWorkspace();
+    panel.feed.select(symbol);
+  });
+  panel.feed.select(model.symbol);
+}
+
+function renderOrderBook(panel, data) {
+  const body = panel.element.querySelector(".orderbook-rows");
+  const available = Math.max(1, Math.floor((body.getBoundingClientRect().height - 24) / 36));
+  const bids = data.bids.slice(0, available);
+  const asks = data.asks.slice(0, available).reverse();
+  const total = (levels) => levels.reduce((sum, [, quantity]) => sum + quantity, 0);
+  const maxDepth = Math.max(total(bids), total(asks), 1);
+  const rows = [];
+  let askDepth = 0;
+  for (const [price, quantity] of asks) {
+    askDepth += quantity;
+    rows.push(bookRow("ask", price, quantity, askDepth, maxDepth));
+  }
+  const bestBid = data.bids[0]?.[0];
+  const bestAsk = data.asks[0]?.[0];
+  const spread = Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? bestAsk - bestBid : null;
+  const spreadPercent = Number.isFinite(spread) && bestBid ? (spread / bestBid) * 100 : null;
+  rows.push(`<div class="book-spread"><span>${Number.isFinite(spread) ? formatPrice(spread) : "—"}</span><small>${Number.isFinite(spreadPercent) ? `${spreadPercent.toFixed(3)}%` : "спред"}</small></div>`);
+  let bidDepth = 0;
+  for (const [price, quantity] of bids) {
+    bidDepth += quantity;
+    rows.push(bookRow("bid", price, quantity, bidDepth, maxDepth));
+  }
+  body.innerHTML = rows.join("");
+}
+
+function bookRow(side, price, quantity, cumulative, maxDepth) {
+  const quote = price * quantity;
+  return `<div class="book-row is-${side}" style="--depth:${Math.min(100, (cumulative / maxDepth) * 100).toFixed(1)}%"><span>${formatCompactUsd(quote)}</span><span>${formatPrice(price)}</span><span>${formatBookQuantity(quantity)}</span></div>`;
+}
+
+function formatBookQuantity(value) {
+  if (!Number.isFinite(value)) return "—";
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
+  return value.toLocaleString("en-US", { maximumFractionDigits: value >= 10 ? 2 : 4 });
+}
+
+function removeOrderBook(id) {
+  const panel = orderBookPanels.get(id);
+  if (!panel) return;
+  panel.feed.destroy();
+  if (panel.frame) cancelAnimationFrame(panel.frame);
+  panel.element.remove();
+  orderBookPanels.delete(id);
   state.workspace.extras = state.workspace.extras.filter((item) => item.id !== id);
   persistWorkspace();
   applyWorkspaceLayout();
@@ -773,14 +943,15 @@ function updateExtraChartMetrics(metrics) {
 
 function renderChartPicker() {
   const query = els.chartPickerSearch.value.trim().toLowerCase();
-  const candidates = state.lastMetrics.filter((item) => !query || item.symbol.toLowerCase().includes(query)).sort((left, right) => right.quoteVolume24h - left.quoteVolume24h).slice(0, 120);
+  const universe = [...state.symbols.values()].map((item) => item.metrics(state.settings));
+  const candidates = universe.filter((item) => !query || item.symbol.toLowerCase().includes(query)).sort((left, right) => right.quoteVolume24h - left.quoteVolume24h).slice(0, 180);
   const fragment = document.createDocumentFragment();
   for (const item of candidates) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = item.symbol.replace("USDT", "");
     button.addEventListener("click", () => {
-      if (createExtraChart(item.symbol)) els.addChartDialog.close();
+      if (createExtraPanel(item.symbol, panelPickerType)) els.addChartDialog.close();
     });
     fragment.append(button);
   }
@@ -1024,11 +1195,162 @@ function escapeHtml(value) {
   return String(value).replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
 }
 
+const TIME_ZONE_CITIES = [
+  { city: "Москва", zone: "Europe/Moscow", lat: 55.8, lon: 37.6, aliases: "moscow москва" },
+  { city: "Санкт-Петербург", zone: "Europe/Moscow", lat: 59.9, lon: 30.3, aliases: "petersburg питер" },
+  { city: "Амстердам", zone: "Europe/Amsterdam", lat: 52.4, lon: 4.9, aliases: "amsterdam нидерланды" },
+  { city: "Лондон", zone: "Europe/London", lat: 51.5, lon: -.1, aliases: "london" },
+  { city: "Париж", zone: "Europe/Paris", lat: 48.9, lon: 2.3, aliases: "paris" },
+  { city: "Берлин", zone: "Europe/Berlin", lat: 52.5, lon: 13.4, aliases: "berlin" },
+  { city: "Стамбул", zone: "Europe/Istanbul", lat: 41, lon: 29, aliases: "istanbul" },
+  { city: "Дубай", zone: "Asia/Dubai", lat: 25.2, lon: 55.3, aliases: "dubai" },
+  { city: "Тбилиси", zone: "Asia/Tbilisi", lat: 41.7, lon: 44.8, aliases: "tbilisi" },
+  { city: "Алматы", zone: "Asia/Almaty", lat: 43.2, lon: 76.9, aliases: "almaty" },
+  { city: "Дели", zone: "Asia/Kolkata", lat: 28.6, lon: 77.2, aliases: "delhi india индия" },
+  { city: "Бангкок", zone: "Asia/Bangkok", lat: 13.8, lon: 100.5, aliases: "bangkok" },
+  { city: "Сингапур", zone: "Asia/Singapore", lat: 1.3, lon: 103.8, aliases: "singapore" },
+  { city: "Гонконг", zone: "Asia/Hong_Kong", lat: 22.3, lon: 114.2, aliases: "hong kong" },
+  { city: "Пекин", zone: "Asia/Shanghai", lat: 39.9, lon: 116.4, aliases: "beijing china китай" },
+  { city: "Сеул", zone: "Asia/Seoul", lat: 37.6, lon: 127, aliases: "seoul корея" },
+  { city: "Токио", zone: "Asia/Tokyo", lat: 35.7, lon: 139.7, aliases: "tokyo япония" },
+  { city: "Сидней", zone: "Australia/Sydney", lat: -33.9, lon: 151.2, aliases: "sydney" },
+  { city: "Нью-Йорк", zone: "America/New_York", lat: 40.7, lon: -74, aliases: "new york nyc" },
+  { city: "Чикаго", zone: "America/Chicago", lat: 41.9, lon: -87.6, aliases: "chicago" },
+  { city: "Денвер", zone: "America/Denver", lat: 39.7, lon: -105, aliases: "denver" },
+  { city: "Лос-Анджелес", zone: "America/Los_Angeles", lat: 34.1, lon: -118.2, aliases: "los angeles la" },
+  { city: "Торонто", zone: "America/Toronto", lat: 43.7, lon: -79.4, aliases: "toronto" },
+  { city: "Мехико", zone: "America/Mexico_City", lat: 19.4, lon: -99.1, aliases: "mexico city" },
+  { city: "Сан-Паулу", zone: "America/Sao_Paulo", lat: -23.6, lon: -46.6, aliases: "sao paulo" },
+];
+
+const SUPPORTED_TIME_ZONES = (() => {
+  const zones = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : TIME_ZONE_CITIES.map((item) => item.zone);
+  return [...new Set(["UTC", ...zones])];
+})();
+const mapView = { scale: 1, x: 0, y: 0 };
+
+function cityForZone(zone) {
+  return TIME_ZONE_CITIES.find((item) => item.zone === zone)?.city ?? zone.split("/").at(-1).replaceAll("_", " ");
+}
+
+function timeZoneOffset(zone) {
+  try {
+    return new Intl.DateTimeFormat("ru-RU", { timeZone: zone, timeZoneName: "shortOffset" }).formatToParts(new Date()).find((part) => part.type === "timeZoneName")?.value.replace("GMT", "UTC") ?? "";
+  } catch { return ""; }
+}
+
+function applySelectedTimeZone(zone) {
+  if (zone === "local") zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  try { new Intl.DateTimeFormat("ru-RU", { timeZone: zone }).format(); } catch { zone = "Europe/Moscow"; }
+  state.timeZone = zone;
+  localStorage.setItem(STORAGE_KEYS.timeZone, zone);
+  els.timeZoneCity.textContent = cityForZone(zone);
+  els.timeZoneCity.title = `${zone} · ${timeZoneOffset(zone)}`;
+  priceChart.setTimeZone(zone);
+  for (const panel of extraCharts.values()) panel.chart.setTimeZone(zone);
+  els.timeZoneMarkers.querySelectorAll(".timezone-marker").forEach((marker) => marker.classList.toggle("is-active", marker.dataset.zone === zone));
+  updateClock();
+}
+
+function renderTimeZoneMarkers() {
+  const fragment = document.createDocumentFragment();
+  for (const item of TIME_ZONE_CITIES) {
+    const marker = document.createElement("button");
+    marker.type = "button";
+    marker.className = "timezone-marker";
+    marker.classList.toggle("is-active", item.zone === state.timeZone);
+    marker.dataset.zone = item.zone;
+    marker.dataset.city = item.city;
+    marker.style.left = `${((item.lon + 180) / 360) * 100}%`;
+    marker.style.top = `${((90 - item.lat) / 180) * 100}%`;
+    marker.setAttribute("aria-label", `${item.city}, ${item.zone}`);
+    marker.addEventListener("click", (event) => {
+      event.stopPropagation();
+      applySelectedTimeZone(item.zone);
+      els.timeZoneDialog.close();
+    });
+    fragment.append(marker);
+  }
+  els.timeZoneMarkers.replaceChildren(fragment);
+}
+
+function renderTimeZoneResults() {
+  const query = els.timeZoneSearch.value.trim().toLocaleLowerCase("ru");
+  let candidates;
+  if (!query) candidates = TIME_ZONE_CITIES.map((item) => ({ city: item.city, zone: item.zone, aliases: item.aliases }));
+  else {
+    const curated = TIME_ZONE_CITIES.filter((item) => `${item.city} ${item.zone} ${item.aliases}`.toLocaleLowerCase("ru").includes(query));
+    const extra = SUPPORTED_TIME_ZONES.filter((zone) => `${zone} ${zone.replaceAll("_", " ")}`.toLocaleLowerCase("ru").includes(query)).map((zone) => ({ city: cityForZone(zone), zone }));
+    candidates = [...curated, ...extra];
+  }
+  const unique = [...new Map(candidates.map((item) => [item.zone, item])).values()].slice(0, 48);
+  const fragment = document.createDocumentFragment();
+  for (const item of unique) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.classList.toggle("is-active", item.zone === state.timeZone);
+    button.textContent = `${item.city} · ${timeZoneOffset(item.zone)}`;
+    button.title = item.zone;
+    button.addEventListener("click", () => {
+      applySelectedTimeZone(item.zone);
+      els.timeZoneDialog.close();
+    });
+    fragment.append(button);
+  }
+  els.timeZoneResults.replaceChildren(fragment);
+}
+
+function applyMapTransform() {
+  els.timeZoneMapWorld.style.transform = `translate(${mapView.x}px, ${mapView.y}px) scale(${mapView.scale})`;
+}
+
+function bindTimeZonePicker() {
+  applySelectedTimeZone(state.timeZone);
+  renderTimeZoneMarkers();
+  els.timeZoneOpen.addEventListener("click", () => {
+    els.timeZoneSearch.value = "";
+    renderTimeZoneResults();
+    els.timeZoneDialog.showModal();
+  });
+  els.timeZoneClose.addEventListener("click", () => els.timeZoneDialog.close());
+  els.timeZoneSearch.addEventListener("input", renderTimeZoneResults);
+  els.timeZoneMap.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    mapView.scale = Math.max(1, Math.min(4, mapView.scale * (event.deltaY < 0 ? 1.18 : .84)));
+    if (mapView.scale === 1) mapView.x = mapView.y = 0;
+    applyMapTransform();
+  }, { passive: false });
+  els.timeZoneMap.addEventListener("pointerdown", (event) => {
+    if (event.target.closest(".timezone-marker")) return;
+    els.timeZoneMap.setPointerCapture(event.pointerId);
+    const start = { x: event.clientX, y: event.clientY, mapX: mapView.x, mapY: mapView.y };
+    const move = (moveEvent) => {
+      const rect = els.timeZoneMap.getBoundingClientRect();
+      const limitX = rect.width * (mapView.scale - 1) / 2;
+      const limitY = rect.height * (mapView.scale - 1) / 2;
+      mapView.x = Math.max(-limitX, Math.min(limitX, start.mapX + moveEvent.clientX - start.x));
+      mapView.y = Math.max(-limitY, Math.min(limitY, start.mapY + moveEvent.clientY - start.y));
+      applyMapTransform();
+    };
+    const stop = () => {
+      els.timeZoneMap.removeEventListener("pointermove", move);
+      els.timeZoneMap.removeEventListener("pointerup", stop);
+      els.timeZoneMap.removeEventListener("pointercancel", stop);
+    };
+    els.timeZoneMap.addEventListener("pointermove", move);
+    els.timeZoneMap.addEventListener("pointerup", stop);
+    els.timeZoneMap.addEventListener("pointercancel", stop);
+  });
+}
+
 function bindEvents() {
   normalizeWorkspace();
   persistWorkspace();
   applyRadarColumns();
-  for (const model of state.workspace.extras) mountExtraChart(model);
+  for (const model of state.workspace.extras) {
+    if (model.type === "orderbook") mountOrderBook(model);
+    else mountExtraChart(model);
+  }
   applyWorkspaceLayout();
   els.comfortSlider.value = String(state.comfort);
   els.comfortSlider.addEventListener("input", () => {
@@ -1074,35 +1396,33 @@ function bindEvents() {
       handle.addEventListener("pointercancel", stop);
     });
   }
-  bindGridResizer(els.chartResizer, state.workspace, "primary", priceChart);
-  bindGridResizer(els.radarResizer, state.workspace, "radar");
-  els.addChartTile.addEventListener("click", () => {
-    els.chartPickerSearch.value = "";
-    renderChartPicker();
-    els.addChartDialog.showModal();
-  });
-  els.addChartTile.addEventListener("dragover", (event) => {
-    if (!event.dataTransfer.types.includes("text/inpuls-symbol")) return;
-    event.preventDefault();
-    els.addChartTile.classList.add("is-drop-target");
-  });
-  els.addChartTile.addEventListener("dragleave", () => els.addChartTile.classList.remove("is-drop-target"));
-  els.addChartTile.addEventListener("drop", (event) => {
-    event.preventDefault();
-    els.addChartTile.classList.remove("is-drop-target");
-    createExtraChart(event.dataTransfer.getData("text/inpuls-symbol"));
-  });
+  bindGridResizer(els.chartResizer, state.workspace.primary, priceChart);
+  bindGridResizer(els.radarResizer, state.workspace.radar);
+  bindPanelDrag(document.querySelector(".primary-chart .panel-grip"), state.workspace.primary);
+  bindPanelDrag(document.querySelector(".top-card .panel-grip"), state.workspace.radar);
+  for (const button of els.addPanelButtons) {
+    button.addEventListener("click", () => {
+      panelPickerType = button.dataset.addPanel;
+      els.panelPickerTitle.textContent = panelPickerType === "orderbook" ? "Добавить стакан" : "Добавить график";
+      els.chartPickerSearch.value = "";
+      renderChartPicker();
+      els.addChartDialog.showModal();
+    });
+    button.addEventListener("dragover", (event) => {
+      if (!event.dataTransfer.types.includes("text/inpuls-symbol")) return;
+      event.preventDefault();
+      button.classList.add("is-drop-target");
+    });
+    button.addEventListener("dragleave", () => button.classList.remove("is-drop-target"));
+    button.addEventListener("drop", (event) => {
+      event.preventDefault();
+      button.classList.remove("is-drop-target");
+      createExtraPanel(event.dataTransfer.getData("text/inpuls-symbol"), button.dataset.addPanel);
+    });
+  }
   els.addChartClose.addEventListener("click", () => els.addChartDialog.close());
   els.chartPickerSearch.addEventListener("input", renderChartPicker);
-  els.timeZoneSelect.value = state.timeZone;
-  els.timeZoneSelect.addEventListener("change", () => {
-    state.timeZone = els.timeZoneSelect.value;
-    localStorage.setItem(STORAGE_KEYS.timeZone, state.timeZone);
-    const zone = state.timeZone === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : state.timeZone;
-    priceChart.setTimeZone(zone);
-    for (const panel of extraCharts.values()) panel.chart.setTimeZone(zone);
-    updateClock();
-  });
+  bindTimeZonePicker();
 
   els.volumeToggle.classList.toggle("is-collapsed", !state.volumeVisible);
   els.volumeToggle.addEventListener("click", () => {
@@ -1155,7 +1475,7 @@ function bindEvents() {
   });
   for (const button of els.rangeButtons) button.addEventListener("click", () => selectRange(button.dataset.range));
 
-  els.settingsButton.addEventListener("click", () => {
+  els.settingsButton?.addEventListener("click", () => {
     for (const [key, value] of Object.entries(state.settings)) {
       const input = els.settingsForm.elements.namedItem(key);
       if (input) input.value = value;
@@ -1179,7 +1499,7 @@ function bindEvents() {
     els.settingsDialog.close();
     render();
   });
-  document.querySelector("#settings-close").addEventListener("click", () => els.settingsDialog.close());
+  document.querySelector("#settings-close")?.addEventListener("click", () => els.settingsDialog.close());
   els.detailClose.addEventListener("click", closeDetail);
   document.querySelector("#detail-backdrop").addEventListener("click", closeDetail);
   document.addEventListener("keydown", (event) => {

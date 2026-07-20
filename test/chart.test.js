@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { aggregateCandles, calculateNatr, KlineFeed, parseRestKline, parseStreamKline, pearsonCorrelation, scaleFromDrag, sessionLabels, upsertCandle, visibleCountFromDrag } from "../chart.js";
+import { aggregateCandles, calculateNatr, KlineFeed, nicePriceStep, niceTimeTickStep, parseRestKline, parseStreamKline, pearsonCorrelation, scaleFromDrag, sessionLabels, upsertCandle, visibleCountFromDrag } from "../chart.js";
 
 test("REST kline is normalized", () => {
   const candle = parseRestKline([1000, "10", "12", "9", "11", "25", 1999]);
@@ -127,4 +127,16 @@ test("time scale marks day and Moscow session times", () => {
   assert.ok(dayBoundary.includes("Asia"));
   const usaOpen = sessionLabels(Date.UTC(2026, 6, 20, 13, 29), Date.UTC(2026, 6, 20, 13, 30));
   assert.ok(usaOpen.includes("USA"));
+});
+
+test("progressive time scale selects round divisions", () => {
+  assert.equal(niceTimeTickStep(6 * 60_000, 6), 60_000);
+  assert.equal(niceTimeTickStep(12 * 3_600_000, 6), 2 * 3_600_000);
+  assert.equal(niceTimeTickStep(40 * 86_400_000, 6), 7 * 86_400_000);
+});
+
+test("price scale uses round and half-round increments", () => {
+  assert.equal(nicePriceStep(12, 6), 2);
+  assert.equal(nicePriceStep(.015, 6), .0025);
+  assert.equal(nicePriceStep(4300, 6), 1000);
 });

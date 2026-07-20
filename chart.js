@@ -88,6 +88,27 @@ export function pearsonCorrelation(left, right) {
   return denominator ? covariance / denominator : null;
 }
 
+const TIME_TICK_STEPS = [
+  1_000, 5_000, 10_000, 15_000, 30_000,
+  60_000, 2 * 60_000, 5 * 60_000, 10 * 60_000, 15 * 60_000, 30 * 60_000,
+  3_600_000, 2 * 3_600_000, 3 * 3_600_000, 4 * 3_600_000, 6 * 3_600_000, 12 * 3_600_000,
+  86_400_000, 2 * 86_400_000, 7 * 86_400_000, 14 * 86_400_000, 30 * 86_400_000,
+  90 * 86_400_000, 180 * 86_400_000, 365 * 86_400_000,
+];
+
+export function niceTimeTickStep(rangeMs, targetTicks = 6) {
+  const rough = Math.max(1, rangeMs) / Math.max(2, targetTicks);
+  return TIME_TICK_STEPS.find((step) => step >= rough) ?? TIME_TICK_STEPS.at(-1);
+}
+
+export function nicePriceStep(range, targetTicks = 6) {
+  const rough = Math.max(Number.MIN_VALUE, Math.abs(range) / Math.max(2, targetTicks));
+  const exponent = 10 ** Math.floor(Math.log10(rough));
+  const fraction = rough / exponent;
+  const niceFraction = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 2.5 ? 2.5 : fraction <= 5 ? 5 : 10;
+  return niceFraction * exponent;
+}
+
 export class KlineFeed {
   constructor({ onData, onStatus }) {
     this.onData = onData;
@@ -390,7 +411,7 @@ export class CandlestickChart {
     this.#drawBackground(ctx, width, height, margins, priceBottom, volumeHeight);
     if (!visible.length) {
       ctx.fillStyle = this.theme.text;
-      ctx.font = "11px Inter, sans-serif";
+      ctx.font = "11px Arial, sans-serif";
       ctx.textAlign = "center";
       ctx.fillText("Свечной график загружается…", margins.left + plotWidth / 2, margins.top + plotHeight / 2);
       return;
@@ -408,7 +429,7 @@ export class CandlestickChart {
     const bodyWidth = Math.max(2, Math.min(9, step * 0.68));
     const y = (price) => margins.top + ((maxPrice - price) / (maxPrice - minPrice)) * plotHeight;
 
-    this.#drawPriceGrid(ctx, width, margins, minPrice, maxPrice, y);
+    this.#drawPriceGrid(ctx, width, margins, minPrice, maxPrice, y, plotHeight);
     this.#drawTimeGrid(ctx, margins, plotWidth, height);
     this.#drawSessionMarkers(ctx, margins, height);
 
@@ -458,11 +479,13 @@ export class CandlestickChart {
     }
   }
 
-  #drawPriceGrid(ctx, width, margins, minPrice, maxPrice, y) {
-    ctx.font = "9px Inter, sans-serif";
+  #drawPriceGrid(ctx, width, margins, minPrice, maxPrice, y, plotHeight) {
+    const targetTicks = Math.max(3, Math.floor(plotHeight / 52));
+    const step = nicePriceStep(maxPrice - minPrice, targetTicks);
+    const first = Math.ceil(minPrice / step) * step;
+    ctx.font = "9px Arial, sans-serif";
     ctx.textAlign = "left";
-    for (let index = 0; index <= 5; index += 1) {
-      const price = maxPrice - ((maxPrice - minPrice) / 5) * index;
+    for (let price = first, guard = 0; price <= maxPrice + step * .001 && guard < 40; price += step, guard += 1) {
       const lineY = y(price);
       ctx.strokeStyle = `${this.theme.grid}22`;
       ctx.beginPath();
@@ -470,24 +493,30 @@ export class CandlestickChart {
       ctx.lineTo(width - margins.right, lineY);
       ctx.stroke();
       ctx.fillStyle = this.theme.text;
-      ctx.fillText(formatChartPrice(price), width - margins.right + 9, lineY + 3);
+      ctx.fillText(formatAxisPrice(price, step), width - margins.right + 9, lineY + 3);
     }
   }
 
   #drawTimeGrid(ctx, margins, plotWidth, height) {
-    const divisions = Math.min(5, Math.max(2, Math.floor(plotWidth / 140)));
-    ctx.font = "8px Inter, sans-serif";
+    const startTime = this.#timeAtIndex(this.viewStart);
+    const endTime = this.#timeAtIndex(this.viewStart + this.visibleCount);
+    const range = Math.max(1_000, endTime - startTime);
+    const targetTicks = Math.max(2, Math.floor(plotWidth / 105));
+    const tickStep = niceTimeTickStep(range, targetTicks);
+    const firstTick = alignedTimeTick(startTime, tickStep, this.timeZone);
+    ctx.font = "8px Arial, sans-serif";
     ctx.textAlign = "center";
-    for (let index = 0; index <= divisions; index += 1) {
-      const x = margins.left + (plotWidth / divisions) * index;
-      const globalIndex = this.viewStart + this.visibleCount * (index / divisions);
+    for (let tick = firstTick, guard = 0; tick <= endTime && guard < 60; tick += tickStep, guard += 1) {
+      const globalIndex = this.#indexAtTime(tick);
+      const x = margins.left + ((globalIndex - this.viewStart) / this.visibleCount) * plotWidth;
+      if (x < margins.left - 1 || x > margins.left + plotWidth + 1) continue;
       ctx.strokeStyle = `${this.theme.grid}18`;
       ctx.beginPath();
       ctx.moveTo(x, margins.top);
       ctx.lineTo(x, height - margins.bottom);
       ctx.stroke();
       ctx.fillStyle = this.theme.text;
-      ctx.fillText(formatTime(this.#timeAtIndex(globalIndex), false, this.timeZone), x, height - 9);
+      ctx.fillText(formatAxisTime(tick, range, tickStep, this.timeZone), x, height - 9);
     }
   }
 
@@ -511,7 +540,7 @@ export class CandlestickChart {
         ctx.stroke();
         ctx.restore();
         ctx.fillStyle = this.theme.session;
-        ctx.font = "bold 7px Inter, sans-serif";
+        ctx.font = "bold 7px Arial, sans-serif";
         ctx.textAlign = "center";
         const label = event.label === "D" ? "D" : `${event.label} ${formatTime(event.time, false, this.timeZone)}`;
         ctx.fillText(label, x, height - margins.bottom + 9);
@@ -531,6 +560,22 @@ export class CandlestickChart {
     const interval = INTERVAL_MS[this.meta?.interval] ?? 60_000;
     if (rounded < 0) return this.candles[0].time + rounded * interval;
     return this.candles.at(-1).time + (rounded - this.candles.length + 1) * interval;
+  }
+
+  #indexAtTime(timestamp) {
+    if (!this.candles.length) return 0;
+    const interval = INTERVAL_MS[this.meta?.interval] ?? 60_000;
+    if (timestamp <= this.candles[0].time) return (timestamp - this.candles[0].time) / interval;
+    if (timestamp >= this.candles.at(-1).time) return this.candles.length - 1 + (timestamp - this.candles.at(-1).time) / interval;
+    let low = 0;
+    let high = this.candles.length - 1;
+    while (high - low > 1) {
+      const middle = Math.floor((low + high) / 2);
+      if (this.candles[middle].time <= timestamp) low = middle;
+      else high = middle;
+    }
+    const span = Math.max(1, this.candles[high].time - this.candles[low].time);
+    return low + (timestamp - this.candles[low].time) / span;
   }
 
   #drawLastPrice(ctx, width, margins, lineY, price, up, top, bottom) {
@@ -554,7 +599,7 @@ export class CandlestickChart {
       ctx.strokeRect(width - margins.right + .5, visibleY - 8.5, margins.right - 1, 17);
     }
     ctx.fillStyle = up ? this.theme.bearFill : this.theme.bullFill;
-    ctx.font = "bold 9px Inter, sans-serif";
+    ctx.font = "bold 9px Arial, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(formatChartPrice(price), width - margins.right / 2, visibleY + 3);
   }
@@ -669,7 +714,7 @@ export class CandlestickChart {
     ctx.fillRect(width - margins.right, y - 8, margins.right, 16);
     ctx.fillRect(x - 36, height - margins.bottom, 72, margins.bottom);
     ctx.fillStyle = this.theme.crosshairText;
-    ctx.font = "bold 8px Inter, sans-serif";
+    ctx.font = "bold 8px Arial, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(formatChartPrice(price), width - margins.right / 2, y + 3);
     ctx.fillText(formatTime(this.#timeAtIndex(slot), true, this.timeZone), x, height - 9);
@@ -734,6 +779,30 @@ function mergeCandles(primary, secondary) {
 }
 
 const zoneFormatters = new Map();
+const zoneOffsetFormatters = new Map();
+
+function alignedTimeTick(timestamp, step, timeZone) {
+  if (!timeZone || step < 60_000) return Math.ceil(timestamp / step) * step;
+  if (!zoneOffsetFormatters.has(timeZone)) {
+    zoneOffsetFormatters.set(timeZone, new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }));
+  }
+  const values = {};
+  for (const part of zoneOffsetFormatters.get(timeZone).formatToParts(new Date(timestamp))) {
+    if (part.type !== "literal") values[part.type] = Number(part.value);
+  }
+  const roundedTimestamp = Math.floor(timestamp / 60_000) * 60_000;
+  const representedAsUtc = Date.UTC(values.year, values.month - 1, values.day, values.hour, values.minute);
+  const offset = representedAsUtc - roundedTimestamp;
+  return Math.ceil((timestamp + offset) / step) * step - offset;
+}
 
 function zonedClock(timestamp, timeZone) {
   if (!zoneFormatters.has(timeZone)) {
@@ -793,6 +862,21 @@ function formatTime(timestamp, withDate = false, timeZone) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(timestamp));
+}
+
+function formatAxisTime(timestamp, rangeMs, tickStep, timeZone) {
+  const options = timeZone ? { timeZone } : {};
+  if (tickStep < 60_000) return new Intl.DateTimeFormat("ru-RU", { ...options, hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(timestamp));
+  if (rangeMs <= 3 * 86_400_000) return new Intl.DateTimeFormat("ru-RU", { ...options, hour: "2-digit", minute: "2-digit" }).format(new Date(timestamp));
+  if (rangeMs <= 120 * 86_400_000) return new Intl.DateTimeFormat("ru-RU", { ...options, day: "2-digit", month: "short" }).format(new Date(timestamp)).replace(".", "");
+  return new Intl.DateTimeFormat("ru-RU", { ...options, month: "short", year: "2-digit" }).format(new Date(timestamp)).replace(".", "");
+}
+
+function formatAxisPrice(value, step) {
+  const exponent = Math.floor(Math.log10(Math.abs(step) || 1));
+  const normalized = step / (10 ** exponent);
+  const decimals = Math.min(10, Math.max(0, -exponent + (Math.abs(normalized - 2.5) < .001 ? 1 : 0)));
+  return value.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
 function formatChartPrice(value) {

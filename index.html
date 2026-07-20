@@ -7,8 +7,8 @@
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="13" />
-    <link rel="stylesheet" href="./styles.css?v=13" />
+    <meta name="inpuls-build" content="14" />
+    <link rel="stylesheet" href="./styles.css?v=14" />
     <title>InPuls — в ритме рынка</title>
   </head>
   <body>
@@ -16,21 +16,15 @@
     <header class="topbar">
       <a class="brand" href="./" aria-label="InPuls — главная">
         <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span><strong>INPULS</strong><em>SCREENER <small>v13</small></em></span>
+        <span><strong>INPULS</strong><em>SCREENER <small>v14</small></em></span>
       </a>
       <div class="topbar-actions">
-        <label class="comfort-control" title="Комфорт для глаз: малахит → глубокая ночь">
-          <span>M</span><input id="comfort-slider" type="range" min="0" max="100" value="55" aria-label="Баланс малахитовой и ночной темы" /><span>N</span>
+        <label class="comfort-control" title="Комфорт для глаз: сумерки → тёплая ночь">
+          <span>СУМЕРКИ</span><input id="comfort-slider" type="range" min="0" max="100" value="55" aria-label="Яркость и теплота ночной темы" /><span>НОЧЬ</span>
         </label>
-        <label class="timezone-control" title="Часовой пояс интерфейса">
-          <span>TIME</span>
-          <select id="timezone-select" aria-label="Часовой пояс">
-            <option value="Europe/Moscow">Москва</option>
-            <option value="Asia/Seoul">Сеул</option>
-            <option value="UTC">UTC</option>
-            <option value="local">Местное</option>
-          </select>
-        </label>
+        <button id="timezone-open" class="timezone-control" type="button" title="Выбрать город и часовой пояс">
+          <span>TIME</span><strong id="timezone-city">Москва</strong>
+        </button>
         <div id="connection-status" class="connection" data-status="connecting">
           <span class="connection-dot"></span>
           <span id="connection-text">Подключение…</span>
@@ -42,9 +36,6 @@
         <button id="sound-toggle" class="control-button" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9v6h4l5 4V5L9 9H5Zm12.5 1a4 4 0 0 1 0 4"/></svg>
           <span>Звук выключен</span>
-        </button>
-        <button id="settings-open" class="icon-button" type="button" aria-label="Настройки" title="Настройки">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6l-.04.08V21h-4v-.92A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1L3.92 14H3v-4h.92A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06L7.06 4.2l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6l.04-.08V3h4v.92A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 .6 1l.08.04H21v4h-.92a1.7 1.7 0 0 0-.68 1Z"/></svg>
         </button>
       </div>
     </header>
@@ -112,9 +103,13 @@
           <button id="radar-resizer" class="panel-resizer radar-resizer" type="button" aria-label="Изменить размер списка" title="Потяни, чтобы изменить размер списка"></button>
         </aside>
 
-        <button id="add-chart-tile" class="add-chart-tile" type="button" hidden>
-          <strong>＋ График</strong><span>Нажми или перетащи сюда монету</span>
-        </button>
+        <div id="add-chart-tile" class="add-chart-tile" hidden>
+          <span>СВОБОДНАЯ ЗОНА</span>
+          <div>
+            <button data-add-panel="chart" type="button"><strong>＋ График</strong><small>или перетащи монету</small></button>
+            <button data-add-panel="orderbook" type="button"><strong>＋ Стакан</strong><small>Binance Futures</small></button>
+          </div>
+        </div>
       </section>
 
       <section class="workspace-panel">
@@ -214,12 +209,29 @@
 
     <dialog id="add-chart-dialog" class="add-chart-dialog">
       <form method="dialog">
-        <div class="dialog-heading"><div><span class="eyebrow">Рабочее поле</span><h2>Добавить график</h2></div><button id="add-chart-close" class="detail-close" type="button" aria-label="Закрыть">×</button></div>
+        <div class="dialog-heading"><div><span class="eyebrow">Рабочее поле</span><h2 id="panel-picker-title">Добавить график</h2></div><button id="add-chart-close" class="detail-close" type="button" aria-label="Закрыть">×</button></div>
         <label class="chart-picker-search"><input id="chart-picker-search" type="search" autocomplete="off" placeholder="Найти тикер" /></label>
         <div id="chart-picker-list" class="chart-picker-list"></div>
       </form>
     </dialog>
 
-    <script type="module" src="./app.js?v=13"></script>
+    <dialog id="timezone-dialog" class="timezone-dialog">
+      <form method="dialog">
+        <div class="dialog-heading"><div><span class="eyebrow">Часовой пояс</span><h2>Где ты торгуешь?</h2></div><button id="timezone-close" class="detail-close" type="button" aria-label="Закрыть">×</button></div>
+        <label class="timezone-search"><input id="timezone-search" type="search" autocomplete="off" placeholder="Найти город: Москва, Сеул, Амстердам…" /></label>
+        <div id="timezone-map" class="timezone-map" aria-label="Интерактивная карта часовых поясов">
+          <div id="timezone-map-world" class="timezone-map-world">
+            <svg viewBox="0 0 1000 500" aria-hidden="true">
+              <path d="M65 111 123 72l92 8 59 38-20 46-43 12-19 51-38 13-22-38-42-13-31-42Z M218 248l52 20 28 62-18 81-37 61-28-79-32-63Z M436 92l60-32 91 22 55 44-15 38-66 8-30 48-42-14-8-58-55-21Z M526 216l61 11 40 65-15 100-49 58-43-72-21-89Z M641 101l89-38 122 25 85 66-33 65-88 7-52 55-72-25-30-69-49-25Z M818 328l59-14 57 43-18 57-79 13-41-50Z"/>
+            </svg>
+            <div id="timezone-markers" class="timezone-markers"></div>
+          </div>
+          <span class="map-help">Колесо — масштаб · удержание — перемещение</span>
+        </div>
+        <div id="timezone-results" class="timezone-results"></div>
+      </form>
+    </dialog>
+
+    <script type="module" src="./app.js?v=14"></script>
   </body>
 </html>
