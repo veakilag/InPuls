@@ -109,6 +109,31 @@ export function nicePriceStep(range, targetTicks = 6) {
   return niceFraction * exponent;
 }
 
+export function compactCandles(candles, maxBars) {
+  if (!Array.isArray(candles) || !candles.length) return [];
+  const safeMax = Math.max(1, Math.floor(Number(maxBars) || 1));
+  const groupSize = Math.max(1, Math.ceil(candles.length / safeMax));
+  const result = [];
+  for (let start = 0; start < candles.length; start += groupSize) {
+    const group = candles.slice(start, start + groupSize);
+    const first = group[0];
+    const last = group.at(-1);
+    result.push({
+      time: first.time,
+      open: first.open,
+      high: Math.max(...group.map((item) => item.high)),
+      low: Math.min(...group.map((item) => item.low)),
+      close: last.close,
+      volume: group.reduce((sum, item) => sum + item.volume, 0),
+      closeTime: last.closeTime,
+      closed: group.every((item) => item.closed),
+      sourceOffset: start + (group.length - 1) / 2,
+      sourceSize: group.length,
+    });
+  }
+  return result;
+}
+
 export class KlineFeed {
   constructor({ onData, onStatus }) {
     this.onData = onData;
@@ -424,18 +449,23 @@ export class CandlestickChart {
     const scaledSpan = priceSpan * 1.16 * this.priceScale;
     const minPrice = priceCenter - scaledSpan / 2;
     const maxPrice = priceCenter + scaledSpan / 2;
-    const maxVolume = Math.max(...visible.map((item) => item.volume), 1);
+    const displayCandles = compactCandles(visible, Math.max(10, Math.floor(plotWidth / 4)));
+    const maxVolume = Math.max(...displayCandles.map((item) => item.volume), 1);
     const step = plotWidth / this.visibleCount;
-    const bodyWidth = Math.max(2, Math.min(9, step * 0.68));
     const y = (price) => margins.top + ((maxPrice - price) / (maxPrice - minPrice)) * plotHeight;
 
     this.#drawPriceGrid(ctx, width, margins, minPrice, maxPrice, y, plotHeight);
     this.#drawTimeGrid(ctx, margins, plotWidth, height);
     this.#drawSessionMarkers(ctx, margins, height);
 
-    visible.forEach((candle, index) => {
-      const globalIndex = sliceStart + index;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(margins.left, margins.top, plotWidth, plotHeight);
+    ctx.clip();
+    displayCandles.forEach((candle) => {
+      const globalIndex = sliceStart + candle.sourceOffset;
       const x = margins.left + (globalIndex - this.viewStart + .5) * step;
+      const bodyWidth = Math.max(1, Math.min(8, step * candle.sourceSize * 0.68));
       const up = candle.close >= candle.open;
       const fill = up ? this.theme.bullFill : this.theme.bearFill;
       const stroke = up ? this.theme.bullStroke : this.theme.bearStroke;
@@ -452,14 +482,28 @@ export class CandlestickChart {
       ctx.fillRect(x - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight);
       ctx.strokeRect(x - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight);
 
-      if (showVolume) {
+    });
+    ctx.restore();
+
+    if (showVolume) {
+      const volumeAreaTop = priceBottom + 14;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(margins.left, volumeAreaTop, plotWidth, Math.max(0, height - margins.bottom - volumeAreaTop));
+      ctx.clip();
+      displayCandles.forEach((candle) => {
+        const globalIndex = sliceStart + candle.sourceOffset;
+        const x = margins.left + (globalIndex - this.viewStart + .5) * step;
+        const bodyWidth = Math.max(1, Math.min(8, step * candle.sourceSize * 0.68));
+        const up = candle.close >= candle.open;
         const volumeTop = height - margins.bottom - (candle.volume / maxVolume) * volumeHeight;
         ctx.globalAlpha = up ? .3 : .2;
         ctx.fillStyle = up ? this.theme.bullFill : this.theme.bearStroke;
         ctx.fillRect(x - bodyWidth / 2, volumeTop, bodyWidth, height - margins.bottom - volumeTop);
-        ctx.globalAlpha = 1;
-      }
-    });
+      });
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
 
     const current = this.candles.at(-1);
     if (current) this.#drawLastPrice(ctx, width, margins, y(current.close), current.close, current.close >= current.open, margins.top, priceBottom);

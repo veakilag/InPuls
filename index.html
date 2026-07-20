@@ -7,8 +7,8 @@
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="14" />
-    <link rel="stylesheet" href="./styles.css?v=14" />
+    <meta name="inpuls-build" content="15" />
+    <link rel="stylesheet" href="./styles.css?v=15" />
     <title>InPuls — в ритме рынка</title>
   </head>
   <body>
@@ -16,8 +16,12 @@
     <header class="topbar">
       <a class="brand" href="./" aria-label="InPuls — главная">
         <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span><strong>INPULS</strong><em>SCREENER <small>v14</small></em></span>
+        <span><strong>INPULS</strong><em>SCREENER <small>v15</small></em></span>
       </a>
+      <div class="inplay-strip" aria-label="Монеты в игре сейчас">
+        <span class="inplay-label">INPLAY</span>
+        <div id="inplay-coins" class="inplay-coins"><span class="inplay-loading">Собираю активные монеты…</span></div>
+      </div>
       <div class="topbar-actions">
         <label class="comfort-control" title="Комфорт для глаз: сумерки → тёплая ночь">
           <span>СУМЕРКИ</span><input id="comfort-slider" type="range" min="0" max="100" value="55" aria-label="Яркость и теплота ночной темы" /><span>НОЧЬ</span>
@@ -62,8 +66,9 @@
                   <button class="timeframe-button" data-interval="5m" type="button">5м</button>
                   <button class="timeframe-button" data-interval="15m" type="button">15м</button>
                   <button class="timeframe-button" data-interval="1h" type="button">1ч</button>
-                  <select id="more-timeframe" class="timeframe-more" aria-label="Другие таймфреймы">
-                    <option value="">Ещё</option><option value="3m">3м</option><option value="30m">30м</option>
+                  <select id="more-timeframe" class="timeframe-more" aria-label="Выбрать таймфрейм">
+                    <option value="">ТФ</option><option value="1s">1с</option><option value="5s">5с</option><option value="15s">15с</option>
+                    <option value="1m">1м</option><option value="3m">3м</option><option value="5m">5м</option><option value="15m">15м</option><option value="30m">30м</option>
                     <option value="2h">2ч</option><option value="4h">4ч</option><option value="12h">12ч</option>
                     <option value="1d">1д</option><option value="3d">3д</option><option value="1w">1н</option><option value="1M">1мес</option>
                   </select>
@@ -90,7 +95,7 @@
         <aside class="top-card" data-panel="radar" data-panel-id="radar">
           <div class="top-columns" aria-label="Сортировка монет">
             <span class="panel-grip radar-grip" title="Радар монет">⠿</span>
-            <label class="radar-search"><input id="radar-search" type="search" autocomplete="off" placeholder="Тикер" aria-label="Поиск монеты" /><span class="column-resizer" data-column-index="0"></span></label>
+            <label class="radar-search"><input id="radar-search" type="search" autocomplete="off" placeholder="Поиск" aria-label="Поиск монеты" /><span class="column-resizer" data-column-index="0"></span></label>
             <button data-top-sort="quoteVolume24h" type="button">V24 <i>↓</i><span class="column-resizer" data-column-index="1"></span></button>
             <button data-top-sort="natr1m" type="button">NATR 1 <i>↕</i><span class="column-resizer" data-column-index="2"></span></button>
             <button data-top-sort="natr5m" type="button">NATR 5 <i>↕</i><span class="column-resizer" data-column-index="3"></span></button>
@@ -110,10 +115,10 @@
             <button data-add-panel="orderbook" type="button"><strong>＋ Стакан</strong><small>Binance Futures</small></button>
           </div>
         </div>
-      </section>
 
-      <section class="workspace-panel">
+      <section class="workspace-panel" data-panel="scanner" data-panel-id="scanner">
         <div class="toolbar">
+          <span class="panel-grip scanner-grip" title="Переместить скринер">⠿</span>
           <div class="filters" role="group" aria-label="Фильтр сигналов">
             <button class="filter-button is-active" data-filter="all" type="button">Все</button>
             <button class="filter-button" data-filter="signals" type="button">С сигналом</button>
@@ -157,6 +162,8 @@
             <p>Поток работает. Измени фильтр или дождись движения.</p>
           </div>
         </div>
+        <button id="scanner-resizer" class="panel-resizer scanner-resizer" type="button" aria-label="Изменить размер скринера" title="Потяни, чтобы изменить размер"></button>
+      </section>
       </section>
       <p class="risk-note">Скринер ищет рыночную активность, а не даёт команду на вход. Решение — только после чтения графика, стакана и оценки риска.</p>
     </main>
@@ -218,20 +225,20 @@
     <dialog id="timezone-dialog" class="timezone-dialog">
       <form method="dialog">
         <div class="dialog-heading"><div><span class="eyebrow">Часовой пояс</span><h2>Где ты торгуешь?</h2></div><button id="timezone-close" class="detail-close" type="button" aria-label="Закрыть">×</button></div>
-        <label class="timezone-search"><input id="timezone-search" type="search" autocomplete="off" placeholder="Найти город: Москва, Сеул, Амстердам…" /></label>
+        <label class="timezone-search"><input id="timezone-search" type="search" autocomplete="off" placeholder="Найти город или страну: Рим, Италия, Сеул…" /></label>
         <div id="timezone-map" class="timezone-map" aria-label="Интерактивная карта часовых поясов">
           <div id="timezone-map-world" class="timezone-map-world">
-            <svg viewBox="0 0 1000 500" aria-hidden="true">
-              <path d="M65 111 123 72l92 8 59 38-20 46-43 12-19 51-38 13-22-38-42-13-31-42Z M218 248l52 20 28 62-18 81-37 61-28-79-32-63Z M436 92l60-32 91 22 55 44-15 38-66 8-30 48-42-14-8-58-55-21Z M526 216l61 11 40 65-15 100-49 58-43-72-21-89Z M641 101l89-38 122 25 85 66-33 65-88 7-52 55-72-25-30-69-49-25Z M818 328l59-14 57 43-18 57-79 13-41-50Z"/>
-            </svg>
+            <img src="./assets/world-time-zones.svg" alt="Карта часовых поясов мира" draggable="false" />
+            <div id="timezone-zone-lines" class="timezone-zone-lines" aria-hidden="true"></div>
             <div id="timezone-markers" class="timezone-markers"></div>
           </div>
           <span class="map-help">Колесо — масштаб · удержание — перемещение</span>
+          <a class="map-source" href="https://commons.wikimedia.org/wiki/File:World_Time_Zones_Map.svg" target="_blank" rel="noopener">Карта: Wikimedia · Public Domain</a>
         </div>
         <div id="timezone-results" class="timezone-results"></div>
       </form>
     </dialog>
 
-    <script type="module" src="./app.js?v=14"></script>
+    <script type="module" src="./app.js?v=15"></script>
   </body>
 </html>

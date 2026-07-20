@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { aggregateCandles, calculateNatr, KlineFeed, nicePriceStep, niceTimeTickStep, parseRestKline, parseStreamKline, pearsonCorrelation, scaleFromDrag, sessionLabels, upsertCandle, visibleCountFromDrag } from "../chart.js";
+import { aggregateCandles, calculateNatr, compactCandles, KlineFeed, nicePriceStep, niceTimeTickStep, parseRestKline, parseStreamKline, pearsonCorrelation, scaleFromDrag, sessionLabels, upsertCandle, visibleCountFromDrag } from "../chart.js";
 
 test("REST kline is normalized", () => {
   const candle = parseRestKline([1000, "10", "12", "9", "11", "25", 1999]);
@@ -57,6 +57,27 @@ test("one-second candles aggregate into a five-second history", () => {
     closeTime: 4999,
     closed: true,
   });
+});
+
+test("dense candles are compacted without losing OHLC range", () => {
+  const candles = Array.from({ length: 20 }, (_, index) => ({
+    time: index * 1000,
+    open: 100 + index,
+    high: 102 + index,
+    low: 98 + index,
+    close: 101 + index,
+    volume: 2,
+    closeTime: index * 1000 + 999,
+    closed: true,
+  }));
+  const compacted = compactCandles(candles, 5);
+  assert.equal(compacted.length, 5);
+  assert.equal(compacted[0].open, 100);
+  assert.equal(compacted[0].close, 104);
+  assert.equal(compacted[0].high, 105);
+  assert.equal(compacted[0].low, 98);
+  assert.equal(compacted[0].volume, 8);
+  assert.equal(compacted[0].sourceSize, 4);
 });
 
 test("second-history fallback loads sampled trade pages in parallel", async () => {

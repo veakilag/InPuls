@@ -3,9 +3,9 @@ import {
   SymbolState,
   filterUsdtPerpetualTicker,
   formatCompactUsd,
-} from "./engine.js?v=14";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=14";
-import { OrderBookFeed } from "./orderbook.js?v=14";
+} from "./engine.js?v=15";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=15";
+import { OrderBookFeed } from "./orderbook.js?v=15";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -15,13 +15,14 @@ const STORAGE_KEYS = {
   timeZone: "inpuls-timezone-v1",
   volume: "inpuls-volume-v1",
   comfort: "inpuls-comfort-v1",
-  workspace: "inpuls-workspace-v3",
+  workspace: "inpuls-workspace-v4",
   radarColumns: "inpuls-radar-columns-v1",
 };
 
 const DEFAULT_WORKSPACE = {
-  primary: { id: "primary", type: "chart", x: 0, y: 0, w: 18, h: 12 },
-  radar: { id: "radar", type: "radar", x: 18, y: 0, w: 6, h: 12 },
+  primary: { id: "primary", type: "chart", x: 0, y: 0, w: 18, h: 9 },
+  radar: { id: "radar", type: "radar", x: 18, y: 0, w: 6, h: 9 },
+  scanner: { id: "scanner", type: "scanner", x: 0, y: 9, w: 24, h: 3 },
   extras: [],
 };
 
@@ -65,6 +66,7 @@ const els = {
   timeZoneMap: document.querySelector("#timezone-map"),
   timeZoneMapWorld: document.querySelector("#timezone-map-world"),
   timeZoneMarkers: document.querySelector("#timezone-markers"),
+  timeZoneZoneLines: document.querySelector("#timezone-zone-lines"),
   timeZoneResults: document.querySelector("#timezone-results"),
   soundButton: document.querySelector("#sound-toggle"),
   settingsButton: document.querySelector("#settings-open"),
@@ -87,6 +89,7 @@ const els = {
   tbodyTemplate: document.querySelector("#row-template"),
   installButton: document.querySelector("#install-app"),
   marketFocus: document.querySelector("#market-focus"),
+  inplayCoins: document.querySelector("#inplay-coins"),
   priceChart: document.querySelector("#price-chart"),
   chartTooltip: document.querySelector("#chart-tooltip"),
   chartSymbol: document.querySelector("#chart-symbol"),
@@ -101,6 +104,7 @@ const els = {
   radarSearch: document.querySelector("#radar-search"),
   columnResizers: [...document.querySelectorAll("[data-column-index]")],
   radarResizer: document.querySelector("#radar-resizer"),
+  scannerResizer: document.querySelector("#scanner-resizer"),
   addChartTile: document.querySelector("#add-chart-tile"),
   addChartDialog: document.querySelector("#add-chart-dialog"),
   addChartClose: document.querySelector("#add-chart-close"),
@@ -310,7 +314,7 @@ function selectInterval(interval) {
   persistChartSettings();
   els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === interval));
   els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === state.chartRange));
-  els.moreTimeframe.value = els.timeframeButtons.some((item) => item.dataset.interval === interval) ? "" : interval;
+  els.moreTimeframe.value = interval;
   klineFeed.select(state.selectedChartSymbol, interval, state.chartRange);
 }
 
@@ -322,7 +326,7 @@ function selectRange(range) {
   persistChartSettings();
   els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === range));
   els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === state.chartInterval));
-  els.moreTimeframe.value = els.timeframeButtons.some((item) => item.dataset.interval === state.chartInterval) ? "" : state.chartInterval;
+  els.moreTimeframe.value = state.chartInterval;
   klineFeed.select(state.selectedChartSymbol, state.chartInterval, range);
 }
 
@@ -392,10 +396,43 @@ function render() {
   els.tableWrap.classList.toggle("is-empty", filtered.length === 0);
 
   renderSummary(metrics, now);
+  renderInPlay(metrics);
   renderTopList(metrics);
   updateExtraChartMetrics(metrics);
   updateChartHeader(metrics);
   if (state.selectedSymbol) renderDetail(state.selectedSymbol);
+}
+
+function renderInPlay(metrics) {
+  if (!els.inplayCoins) return;
+  const leaders = metrics
+    .filter((item) => Number.isFinite(item.price) && Number.isFinite(item.quoteVolume24h))
+    .slice()
+    .sort((left, right) => {
+      const leftImpulse = Math.abs(left.change1m || 0) + Math.abs(left.change15s || 0) + (left.natr1m || 0);
+      const rightImpulse = Math.abs(right.change1m || 0) + Math.abs(right.change15s || 0) + (right.natr1m || 0);
+      return right.score - left.score || rightImpulse - leftImpulse || right.quoteVolume24h - left.quoteVolume24h;
+    })
+    .slice(0, 18);
+  if (!leaders.length) return;
+  const fragment = document.createDocumentFragment();
+  for (const item of leaders) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "inplay-chip";
+    button.draggable = true;
+    button.title = `${item.symbol} · V24 ${formatCompactUsd(item.quoteVolume24h)}`;
+    const change = Number(item.change1m || item.change15s || 0);
+    button.innerHTML = `<strong>${escapeHtml(item.symbol.replace("USDT", ""))}</strong><span class="${change > 0 ? "tone-positive" : change < 0 ? "tone-negative" : "tone-neutral"}">${change > 0 ? "+" : ""}${change.toFixed(2)}%</span>`;
+    button.addEventListener("click", () => selectChartSymbol(item.symbol));
+    button.addEventListener("dragstart", (event) => {
+      event.dataTransfer.effectAllowed = "copy";
+      event.dataTransfer.setData("text/inpuls-symbol", item.symbol);
+      event.dataTransfer.setData("text/plain", item.symbol);
+    });
+    fragment.append(button);
+  }
+  els.inplayCoins.replaceChildren(fragment);
 }
 
 function createRow(item) {
@@ -571,8 +608,9 @@ function clampPanel(model, fallback, minimum = { w: 5, h: 3 }) {
 function normalizeWorkspace() {
   const raw = state.workspace && typeof state.workspace === "object" ? state.workspace : {};
   const workspace = {
-    primary: clampPanel(raw.primary, DEFAULT_WORKSPACE.primary, { w: 4, h: 3 }),
-    radar: clampPanel(raw.radar, DEFAULT_WORKSPACE.radar, { w: 4, h: 3 }),
+    primary: clampPanel(raw.primary, DEFAULT_WORKSPACE.primary, { w: 3, h: 2 }),
+    radar: clampPanel(raw.radar, DEFAULT_WORKSPACE.radar, { w: 3, h: 2 }),
+    scanner: clampPanel(raw.scanner, DEFAULT_WORKSPACE.scanner, { w: 5, h: 2 }),
     extras: [],
   };
   const sourceExtras = Array.isArray(raw.extras) ? raw.extras : [];
@@ -580,12 +618,13 @@ function normalizeWorkspace() {
     if (!source?.id || !source?.symbol?.endsWith("USDT")) continue;
     const type = source.type === "orderbook" ? "orderbook" : "chart";
     const fallback = { id: String(source.id), type, symbol: source.symbol, interval: source.interval || "1m", x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
-    const item = clampPanel(source, fallback, { w: 4, h: 3 });
+    const item = clampPanel(source, fallback, { w: 3, h: 2 });
     item.symbol = source.symbol;
     item.interval = source.interval || "1m";
     if (canPlacePanel(item, workspace)) workspace.extras.push(item);
   }
   state.workspace = workspace;
+  if (!canPlacePanel(workspace.scanner, workspace, "scanner")) workspace.scanner = { ...DEFAULT_WORKSPACE.scanner };
   if (!canPlacePanel(workspace.radar, workspace, "radar")) workspace.radar = { ...DEFAULT_WORKSPACE.radar };
   if (!canPlacePanel(workspace.primary, workspace, "primary")) workspace.primary = { ...DEFAULT_WORKSPACE.primary };
 }
@@ -595,7 +634,7 @@ function persistWorkspace() {
 }
 
 function workspacePanels(workspace = state.workspace) {
-  return [workspace.primary, workspace.radar, ...(workspace.extras ?? [])];
+  return [workspace.primary, workspace.radar, workspace.scanner, ...(workspace.extras ?? [])].filter(Boolean);
 }
 
 function panelsOverlap(left, right) {
@@ -618,6 +657,32 @@ function findFreeSlot(width = 6, height = 4) {
     }
   }
   return null;
+}
+
+function findLargestFreeSlot() {
+  const occupied = Array.from({ length: WORKSPACE_ROWS }, () => Array(WORKSPACE_COLS).fill(false));
+  for (const panel of workspacePanels()) {
+    for (let y = panel.y; y < panel.y + panel.h; y += 1) {
+      for (let x = panel.x; x < panel.x + panel.w; x += 1) occupied[y][x] = true;
+    }
+  }
+  let best = null;
+  for (let startY = 0; startY < WORKSPACE_ROWS; startY += 1) {
+    for (let startX = 0; startX < WORKSPACE_COLS; startX += 1) {
+      if (occupied[startY][startX]) continue;
+      let width = WORKSPACE_COLS - startX;
+      for (let endY = startY; endY < WORKSPACE_ROWS; endY += 1) {
+        let rowWidth = 0;
+        while (startX + rowWidth < WORKSPACE_COLS && !occupied[endY][startX + rowWidth]) rowWidth += 1;
+        width = Math.min(width, rowWidth);
+        if (!width) break;
+        const height = endY - startY + 1;
+        const area = width * height;
+        if (!best || area > best.w * best.h || (area === best.w * best.h && width > best.w)) best = { id: "free-slot", x: startX, y: startY, w: width, h: height };
+      }
+    }
+  }
+  return best;
 }
 
 function findNearestFreePosition(model, targetX, targetY) {
@@ -645,18 +710,23 @@ function applyRadarColumns() {
 function applyWorkspaceLayout() {
   const primary = document.querySelector(".primary-chart");
   const radar = document.querySelector(".top-card");
+  const scanner = document.querySelector(".workspace-panel");
   const place = (element, model) => {
     element.style.gridColumn = `${model.x + 1} / span ${model.w}`;
     element.style.gridRow = `${model.y + 1} / span ${model.h}`;
   };
   place(primary, state.workspace.primary);
   place(radar, state.workspace.radar);
+  place(scanner, state.workspace.scanner);
   for (const panel of [...extraCharts.values(), ...orderBookPanels.values()]) {
     place(panel.element, panel.model);
   }
-  const addSlot = findFreeSlot(6, 4) ?? findFreeSlot(4, 3);
+  const addSlot = findLargestFreeSlot();
   els.addChartTile.hidden = !addSlot;
-  if (addSlot) place(els.addChartTile, addSlot);
+  if (addSlot) {
+    place(els.addChartTile, addSlot);
+    els.addChartTile.classList.toggle("is-compact", addSlot.w < 5 || addSlot.h < 3);
+  }
   requestAnimationFrame(() => {
     priceChart.render();
     for (const panel of extraCharts.values()) panel.chart.render();
@@ -676,7 +746,7 @@ function bindGridResizer(handle, model, chart) {
     const startWidth = model.w;
     const startHeight = model.h;
     const move = (moveEvent) => {
-      const minimum = { w: 4, h: 3 };
+      const minimum = model.type === "scanner" ? { w: 5, h: 2 } : { w: 3, h: 2 };
       const candidate = {
         ...model,
         w: Math.max(minimum.w, Math.min(WORKSPACE_COLS - model.x, startWidth + Math.round((moveEvent.clientX - startX) / columnUnit))),
@@ -749,6 +819,9 @@ function mountExtraChart(model) {
       <div class="chart-quote"><h2>${escapeHtml(model.symbol.replace("USDT", ""))}/USDT</h2><strong data-mini-price>—</strong></div>
       <div class="chart-controls"><div class="timeframes">
         ${["1s", "15s", "1m", "5m", "15m", "1h"].map((interval) => `<button class="timeframe-button${interval === model.interval ? " is-active" : ""}" data-mini-interval="${interval}" type="button">${interval.replace("s", "с").replace("m", "м").replace("h", "ч")}</button>`).join("")}
+        <select class="compact-tf-select" data-mini-timeframe-select aria-label="Выбрать таймфрейм">
+          ${["1s", "5s", "15s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "12h", "1d", "3d", "1w", "1M"].map((interval) => `<option value="${interval}"${interval === model.interval ? " selected" : ""}>${interval.replace("s", "с").replace("m", "м").replace("h", "ч").replace("d", "д").replace("w", "н")}</option>`).join("")}
+        </select>
       </div></div>
       <button class="mini-chart-close" type="button" title="Закрыть график">×</button>
     </header>
@@ -768,9 +841,16 @@ function mountExtraChart(model) {
   article.querySelectorAll("[data-mini-interval]").forEach((button) => button.addEventListener("click", () => {
     model.interval = button.dataset.miniInterval;
     article.querySelectorAll("[data-mini-interval]").forEach((item) => item.classList.toggle("is-active", item === button));
+    article.querySelector("[data-mini-timeframe-select]").value = model.interval;
     persistWorkspace();
     panel.feed.select(model.symbol, model.interval, intervalRange(model.interval));
   }));
+  article.querySelector("[data-mini-timeframe-select]").addEventListener("change", (event) => {
+    model.interval = event.target.value;
+    article.querySelectorAll("[data-mini-interval]").forEach((item) => item.classList.toggle("is-active", item.dataset.miniInterval === model.interval));
+    persistWorkspace();
+    panel.feed.select(model.symbol, model.interval, intervalRange(model.interval));
+  });
   article.querySelector(".mini-chart-close").addEventListener("click", () => removeExtraChart(model.id));
   bindGridResizer(article.querySelector(".chart-resizer"), model, chart);
   bindPanelDrag(article.querySelector(".panel-grip"), model);
@@ -791,7 +871,7 @@ function mountExtraChart(model) {
 
 function createExtraPanel(symbol, type = "chart") {
   if (!symbol?.endsWith("USDT")) return false;
-  const slot = findFreeSlot(type === "orderbook" ? 6 : 8, 6) ?? findFreeSlot(4, 3);
+  const slot = findFreeSlot(type === "orderbook" ? 6 : 8, 6) ?? findFreeSlot(4, 3) ?? findFreeSlot(3, 2);
   if (!slot) return false;
   const model = {
     id: `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1202,6 +1282,10 @@ const TIME_ZONE_CITIES = [
   { city: "Лондон", zone: "Europe/London", lat: 51.5, lon: -.1, aliases: "london" },
   { city: "Париж", zone: "Europe/Paris", lat: 48.9, lon: 2.3, aliases: "paris" },
   { city: "Берлин", zone: "Europe/Berlin", lat: 52.5, lon: 13.4, aliases: "berlin" },
+  { city: "Рим", zone: "Europe/Rome", lat: 41.9, lon: 12.5, aliases: "rome roma рим italy italia италия италии" },
+  { city: "Милан", zone: "Europe/Rome", lat: 45.5, lon: 9.2, aliases: "milan milano милан italy italia италия италии" },
+  { city: "Мадрид", zone: "Europe/Madrid", lat: 40.4, lon: -3.7, aliases: "madrid мадрид spain испания" },
+  { city: "Лиссабон", zone: "Europe/Lisbon", lat: 38.7, lon: -9.1, aliases: "lisbon lisboa лиссабон portugal португалия" },
   { city: "Стамбул", zone: "Europe/Istanbul", lat: 41, lon: 29, aliases: "istanbul" },
   { city: "Дубай", zone: "Asia/Dubai", lat: 25.2, lon: 55.3, aliases: "dubai" },
   { city: "Тбилиси", zone: "Asia/Tbilisi", lat: 41.7, lon: 44.8, aliases: "tbilisi" },
@@ -1239,6 +1323,12 @@ function timeZoneOffset(zone) {
   } catch { return ""; }
 }
 
+function timeZoneClock(zone, date = new Date()) {
+  try {
+    return new Intl.DateTimeFormat("ru-RU", { timeZone: zone, hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  } catch { return "--:--"; }
+}
+
 function applySelectedTimeZone(zone) {
   if (zone === "local") zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   try { new Intl.DateTimeFormat("ru-RU", { timeZone: zone }).format(); } catch { zone = "Europe/Moscow"; }
@@ -1260,7 +1350,7 @@ function renderTimeZoneMarkers() {
     marker.className = "timezone-marker";
     marker.classList.toggle("is-active", item.zone === state.timeZone);
     marker.dataset.zone = item.zone;
-    marker.dataset.city = item.city;
+    marker.dataset.city = `${item.city} · ${timeZoneClock(item.zone)}`;
     marker.style.left = `${((item.lon + 180) / 360) * 100}%`;
     marker.style.top = `${((90 - item.lat) / 180) * 100}%`;
     marker.setAttribute("aria-label", `${item.city}, ${item.zone}`);
@@ -1289,7 +1379,7 @@ function renderTimeZoneResults() {
     const button = document.createElement("button");
     button.type = "button";
     button.classList.toggle("is-active", item.zone === state.timeZone);
-    button.textContent = `${item.city} · ${timeZoneOffset(item.zone)}`;
+    button.textContent = `${item.city} · ${timeZoneClock(item.zone)} · ${timeZoneOffset(item.zone)}`;
     button.title = item.zone;
     button.addEventListener("click", () => {
       applySelectedTimeZone(item.zone);
@@ -1300,12 +1390,37 @@ function renderTimeZoneResults() {
   els.timeZoneResults.replaceChildren(fragment);
 }
 
+function renderTimeZoneLines() {
+  if (!els.timeZoneZoneLines) return;
+  const fragment = document.createDocumentFragment();
+  for (let offset = -12; offset <= 12; offset += 2) {
+    const line = document.createElement("span");
+    line.className = `timezone-zone-line${offset === 0 ? " is-zero" : ""}`;
+    line.style.left = `${((offset + 12) / 24) * 100}%`;
+    line.dataset.offset = String(offset);
+    const label = document.createElement("span");
+    label.textContent = `UTC${offset >= 0 ? "+" : ""}${offset}`;
+    line.append(label);
+    fragment.append(line);
+  }
+  els.timeZoneZoneLines.replaceChildren(fragment);
+}
+
+function updateTimeZoneClocks() {
+  for (const marker of els.timeZoneMarkers?.querySelectorAll(".timezone-marker") ?? []) {
+    const item = TIME_ZONE_CITIES.find((city) => city.zone === marker.dataset.zone && marker.getAttribute("aria-label")?.startsWith(city.city));
+    if (item) marker.dataset.city = `${item.city} · ${timeZoneClock(item.zone)}`;
+  }
+  if (els.timeZoneDialog?.open) renderTimeZoneResults();
+}
+
 function applyMapTransform() {
   els.timeZoneMapWorld.style.transform = `translate(${mapView.x}px, ${mapView.y}px) scale(${mapView.scale})`;
 }
 
 function bindTimeZonePicker() {
   applySelectedTimeZone(state.timeZone);
+  renderTimeZoneLines();
   renderTimeZoneMarkers();
   els.timeZoneOpen.addEventListener("click", () => {
     els.timeZoneSearch.value = "";
@@ -1316,8 +1431,20 @@ function bindTimeZonePicker() {
   els.timeZoneSearch.addEventListener("input", renderTimeZoneResults);
   els.timeZoneMap.addEventListener("wheel", (event) => {
     event.preventDefault();
-    mapView.scale = Math.max(1, Math.min(4, mapView.scale * (event.deltaY < 0 ? 1.18 : .84)));
-    if (mapView.scale === 1) mapView.x = mapView.y = 0;
+    const rect = els.timeZoneMap.getBoundingClientRect();
+    const previousScale = mapView.scale;
+    const nextScale = Math.max(1, Math.min(5, previousScale * (event.deltaY < 0 ? 1.2 : .84)));
+    const pointerX = event.clientX - rect.left - rect.width / 2;
+    const pointerY = event.clientY - rect.top - rect.height / 2;
+    const ratio = nextScale / previousScale;
+    mapView.x = pointerX - (pointerX - mapView.x) * ratio;
+    mapView.y = pointerY - (pointerY - mapView.y) * ratio;
+    mapView.scale = nextScale;
+    const limitX = rect.width * (nextScale - 1) / 2;
+    const limitY = rect.height * (nextScale - 1) / 2;
+    mapView.x = Math.max(-limitX, Math.min(limitX, mapView.x));
+    mapView.y = Math.max(-limitY, Math.min(limitY, mapView.y));
+    if (nextScale === 1) mapView.x = mapView.y = 0;
     applyMapTransform();
   }, { passive: false });
   els.timeZoneMap.addEventListener("pointerdown", (event) => {
@@ -1398,8 +1525,10 @@ function bindEvents() {
   }
   bindGridResizer(els.chartResizer, state.workspace.primary, priceChart);
   bindGridResizer(els.radarResizer, state.workspace.radar);
+  bindGridResizer(els.scannerResizer, state.workspace.scanner);
   bindPanelDrag(document.querySelector(".primary-chart .panel-grip"), state.workspace.primary);
   bindPanelDrag(document.querySelector(".top-card .panel-grip"), state.workspace.radar);
+  bindPanelDrag(document.querySelector(".workspace-panel .scanner-grip"), state.workspace.scanner);
   for (const button of els.addPanelButtons) {
     button.addEventListener("click", () => {
       panelPickerType = button.dataset.addPanel;
@@ -1525,7 +1654,7 @@ bindEvents();
 feed.connect();
 els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === state.chartInterval));
 els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === state.chartRange));
-els.moreTimeframe.value = els.timeframeButtons.some((item) => item.dataset.interval === state.chartInterval) ? "" : state.chartInterval;
+els.moreTimeframe.value = state.chartInterval;
 klineFeed.select(state.selectedChartSymbol, state.chartInterval, state.chartRange);
 loadChartStats(state.selectedChartSymbol);
 setInterval(render, 1000);
@@ -1539,6 +1668,7 @@ function updateClock() {
     minute: "2-digit",
     second: "2-digit",
   }).format(new Date());
+  updateTimeZoneClocks();
 }
 setInterval(updateClock, 1000);
 updateClock();
