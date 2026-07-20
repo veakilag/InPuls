@@ -38,11 +38,7 @@
 
     <main>
       <section class="hero">
-        <div class="workspace-title">
-          <span class="eyebrow">Live workspace · Binance USDⓈ-M</span>
-          <h1>Market radar</h1>
-          <p>Импульс, поток и ликвидации в одном экране.</p>
-        </div>
+        <div class="workspace-title"><span class="live-chip"><i></i>BINANCE FUTURES · LIVE</span><strong>Рынок в фокусе</strong></div>
         <div class="hero-stats">
           <article><span>Рынок растёт</span><strong id="market-pulse">—</strong><small>доля монет в плюсе за 1м</small></article>
           <article><span>Горячих сейчас</span><strong id="hot-count">0</strong><small>выше порога рейтинга</small></article>
@@ -99,14 +95,15 @@
           <div class="chart-stage">
             <canvas id="price-chart" aria-label="Свечной график выбранной монеты"></canvas>
             <div id="chart-tooltip" class="chart-tooltip" hidden></div>
+            <span class="zoom-hint">Ctrl + колесо · масштаб от курсора</span>
           </div>
         </article>
 
         <aside class="top-card">
           <header class="top-heading">
             <div>
-              <span class="eyebrow">Radar top</span>
-              <h2>Монеты в фокусе</h2>
+              <span class="eyebrow">Market radar</span>
+              <h2>Монеты <small id="top-total">0</small></h2>
             </div>
             <label class="top-filter-label">
               <span class="sr-only">Критерий сортировки</span>
@@ -121,6 +118,7 @@
               </select>
             </label>
           </header>
+          <div class="top-columns" aria-hidden="true"><span>Тикер</span><span>15с</span><span>1м</span><span>Оборот</span></div>
           <div id="top-list" class="top-list" aria-live="polite">
             <div class="top-placeholder">Собираю лидеров рынка…</div>
           </div>

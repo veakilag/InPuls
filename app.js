@@ -69,6 +69,7 @@ const els = {
   moreTimeframe: document.querySelector("#more-timeframe"),
   topFilter: document.querySelector("#top-filter"),
   topList: document.querySelector("#top-list"),
+  topTotal: document.querySelector("#top-total"),
 };
 
 class BinanceFeed {
@@ -334,7 +335,8 @@ function renderTopList(metrics) {
   };
   if (state.topFilter === "signals") candidates = candidates.filter((item) => item.primarySignal);
   candidates.sort(sorters[state.topFilter] ?? sorters.score);
-  candidates = candidates.slice(0, 10);
+  els.topTotal.textContent = String(candidates.length);
+  candidates = candidates.slice(0, 100);
 
   if (!candidates.length) {
     const placeholder = document.createElement("div");
@@ -352,29 +354,21 @@ function renderTopList(metrics) {
     button.classList.toggle("is-selected", item.symbol === state.selectedChartSymbol);
     button.setAttribute("aria-label", `Открыть график ${item.symbol}`);
 
-    const rank = document.createElement("span");
-    rank.className = "top-rank";
-    rank.textContent = String(index + 1).padStart(2, "0");
-
     const identity = document.createElement("span");
     identity.className = "top-identity";
     const pair = document.createElement("strong");
     pair.textContent = item.symbol.replace("USDT", "");
-    const quote = document.createElement("small");
-    quote.textContent = `${formatPrice(item.price)} USDT`;
-    identity.append(pair, quote);
-
-    const value = document.createElement("span");
-    value.className = "top-value";
-    const primary = document.createElement("strong");
-    const secondary = document.createElement("small");
-    const display = topDisplay(item, state.topFilter);
-    primary.textContent = display.primary;
-    primary.className = display.tone;
-    secondary.textContent = display.secondary;
-    value.append(primary, secondary);
-
-    button.append(rank, identity, value);
+    identity.append(pair);
+    const impulse = document.createElement("strong");
+    impulse.textContent = formatChange(item.change15s);
+    impulse.className = toneClass(item.change15s);
+    const minute = document.createElement("strong");
+    minute.textContent = formatChange(item.change1m);
+    minute.className = toneClass(item.change1m);
+    const turnover = document.createElement("strong");
+    turnover.textContent = formatCompactUsd(item.turnoverPerMinute);
+    turnover.className = "top-turnover";
+    button.append(identity, impulse, minute, turnover);
     button.addEventListener("click", () => selectChartSymbol(item.symbol));
     fragment.append(button);
   });

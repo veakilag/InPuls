@@ -152,6 +152,8 @@ export class CandlestickChart {
     this.candles = [];
     this.hoverX = null;
     this.layout = null;
+    this.visibleCount = null;
+    this.viewStart = null;
     this.resizeObserver = new ResizeObserver(() => this.render());
     this.resizeObserver.observe(canvas.parentElement);
     canvas.addEventListener("pointermove", (event) => this.#handlePointer(event));
@@ -160,11 +162,21 @@ export class CandlestickChart {
       this.tooltip.hidden = true;
       this.render();
     });
+    canvas.addEventListener("wheel", (event) => this.#handleWheel(event), { passive: false });
   }
 
   setData(candles, meta) {
+    const nextKey = `${meta?.symbol ?? ""}:${meta?.interval ?? ""}:${meta?.range ?? ""}`;
+    if (nextKey !== this.seriesKey) {
+      this.seriesKey = nextKey;
+      this.visibleCount = null;
+      this.viewStart = null;
+      this.autoViewport = true;
+    }
+    const wasAtEnd = this.viewStart === null || !this.candles.length || this.viewStart + (this.visibleCount ?? 0) >= this.candles.length - 1;
     this.candles = candles;
     this.meta = meta;
+    if (wasAtEnd && this.visibleCount) this.viewStart = Math.max(0, candles.length - this.visibleCount);
     this.render();
   }
 
@@ -189,8 +201,15 @@ export class CandlestickChart {
     const priceBottom = height - margins.bottom - volumeHeight - 14;
     const plotHeight = priceBottom - margins.top;
     const requested = this.meta?.targetCandles ?? this.candles.length;
-    const maxVisible = Math.max(32, Math.min(Math.floor(plotWidth / 2), requested));
-    const visible = this.candles.slice(-maxVisible);
+    const defaultVisible = Math.max(20, Math.min(Math.floor(plotWidth / 2), requested, this.candles.length));
+    if (!this.visibleCount || (this.autoViewport && this.candles.length)) {
+      this.visibleCount = defaultVisible;
+      this.autoViewport = false;
+    }
+    this.visibleCount = Math.max(20, Math.min(this.visibleCount, this.candles.length || 20));
+    if (this.viewStart === null) this.viewStart = Math.max(0, this.candles.length - this.visibleCount);
+    this.viewStart = Math.max(0, Math.min(this.viewStart, Math.max(0, this.candles.length - this.visibleCount)));
+    const visible = this.candles.slice(this.viewStart, this.viewStart + this.visibleCount);
 
     this.#drawBackground(ctx, width, height, margins, priceBottom, volumeHeight);
     if (!visible.length) {
@@ -237,7 +256,7 @@ export class CandlestickChart {
 
     const last = visible.at(-1);
     this.#drawLastPrice(ctx, width, margins, y(last.close), last.close, last.close >= last.open);
-    this.layout = { visible, margins, step, plotWidth, height };
+    this.layout = { visible, margins, step, plotWidth, height, startIndex: this.viewStart };
     if (this.hoverX !== null) this.#drawCrosshair(ctx);
   }
 
@@ -310,6 +329,22 @@ export class CandlestickChart {
   #handlePointer(event) {
     const rect = this.canvas.getBoundingClientRect();
     this.hoverX = event.clientX - rect.left;
+    this.render();
+  }
+
+  #handleWheel(event) {
+    if (!event.ctrlKey || !this.layout || this.candles.length < 20) return;
+    event.preventDefault();
+    const rect = this.canvas.getBoundingClientRect();
+    const x = Math.max(this.layout.margins.left, Math.min(event.clientX - rect.left, this.layout.margins.left + this.layout.plotWidth));
+    const anchorRatio = (x - this.layout.margins.left) / this.layout.plotWidth;
+    const anchorIndex = this.layout.startIndex + anchorRatio * this.visibleCount;
+    const factor = event.deltaY < 0 ? 0.78 : 1.28;
+    const nextCount = Math.round(Math.max(20, Math.min(this.candles.length, this.visibleCount * factor)));
+    this.visibleCount = nextCount;
+    this.viewStart = Math.round(anchorIndex - anchorRatio * nextCount);
+    this.viewStart = Math.max(0, Math.min(this.viewStart, Math.max(0, this.candles.length - nextCount)));
+    this.tooltip.hidden = true;
     this.render();
   }
 
