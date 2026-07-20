@@ -45,6 +45,14 @@ export function upsertCandle(candles, candle, limit = 180) {
   return next.slice(-limit);
 }
 
+export function scaleFromDrag(initialScale, delta, sensitivity = 120) {
+  return Math.max(.15, Math.min(8, initialScale * Math.exp(delta / sensitivity)));
+}
+
+export function visibleCountFromDrag(initialCount, delta, total) {
+  return Math.round(Math.max(Math.min(20, total), Math.min(total, initialCount * Math.exp(delta / 180))));
+}
+
 export class KlineFeed {
   constructor({ onData, onStatus }) {
     this.onData = onData;
@@ -154,10 +162,16 @@ export class CandlestickChart {
     this.layout = null;
     this.visibleCount = null;
     this.viewStart = null;
+    this.priceScale = 1;
+    this.drag = null;
     this.resizeObserver = new ResizeObserver(() => this.render());
     this.resizeObserver.observe(canvas.parentElement);
     canvas.addEventListener("pointermove", (event) => this.#handlePointer(event));
+    canvas.addEventListener("pointerdown", (event) => this.#handlePointerDown(event));
+    canvas.addEventListener("pointerup", (event) => this.#handlePointerUp(event));
+    canvas.addEventListener("pointercancel", (event) => this.#handlePointerUp(event));
     canvas.addEventListener("pointerleave", () => {
+      if (this.drag) return;
       this.hoverX = null;
       this.tooltip.hidden = true;
       this.render();
@@ -172,6 +186,7 @@ export class CandlestickChart {
       this.visibleCount = null;
       this.viewStart = null;
       this.autoViewport = true;
+      this.priceScale = 1;
     }
     const wasAtEnd = this.viewStart === null || !this.candles.length || this.viewStart + (this.visibleCount ?? 0) >= this.candles.length - 1;
     this.candles = candles;
@@ -223,8 +238,10 @@ export class CandlestickChart {
     const rawMin = Math.min(...visible.map((item) => item.low));
     const rawMax = Math.max(...visible.map((item) => item.high));
     const priceSpan = rawMax - rawMin || rawMax * 0.001 || 1;
-    const minPrice = rawMin - priceSpan * 0.08;
-    const maxPrice = rawMax + priceSpan * 0.08;
+    const priceCenter = (rawMax + rawMin) / 2;
+    const scaledSpan = priceSpan * 1.16 * this.priceScale;
+    const minPrice = priceCenter - scaledSpan / 2;
+    const maxPrice = priceCenter + scaledSpan / 2;
     const maxVolume = Math.max(...visible.map((item) => item.volume), 1);
     const step = plotWidth / visible.length;
     const bodyWidth = Math.max(2, Math.min(9, step * 0.68));
@@ -256,7 +273,7 @@ export class CandlestickChart {
 
     const last = visible.at(-1);
     this.#drawLastPrice(ctx, width, margins, y(last.close), last.close, last.close >= last.open);
-    this.layout = { visible, margins, step, plotWidth, height, startIndex: this.viewStart };
+    this.layout = { visible, margins, step, plotWidth, width, height, startIndex: this.viewStart };
     if (this.hoverX !== null) this.#drawCrosshair(ctx);
   }
 
@@ -328,8 +345,58 @@ export class CandlestickChart {
 
   #handlePointer(event) {
     const rect = this.canvas.getBoundingClientRect();
-    this.hoverX = event.clientX - rect.left;
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    if (this.drag?.type === "price") {
+      const deltaY = y - this.drag.startY;
+      this.priceScale = scaleFromDrag(this.drag.startScale, deltaY);
+      this.tooltip.hidden = true;
+      this.render();
+      return;
+    }
+    if (this.drag?.type === "time") {
+      const deltaX = x - this.drag.startX;
+      const nextCount = visibleCountFromDrag(this.drag.startCount, deltaX, this.candles.length);
+      this.visibleCount = nextCount;
+      this.viewStart = Math.max(0, Math.min(this.drag.endIndex - nextCount, Math.max(0, this.candles.length - nextCount)));
+      this.tooltip.hidden = true;
+      this.render();
+      return;
+    }
+    const axis = this.#axisAt(x, y);
+    this.canvas.style.cursor = axis === "price" ? "ns-resize" : axis === "time" ? "ew-resize" : "crosshair";
+    this.hoverX = axis ? null : x;
     this.render();
+  }
+
+  #axisAt(x, y) {
+    if (!this.layout) return null;
+    if (x >= this.layout.width - this.layout.margins.right) return "price";
+    if (y >= this.layout.height - this.layout.margins.bottom) return "time";
+    return null;
+  }
+
+  #handlePointerDown(event) {
+    if (!this.layout) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const axis = this.#axisAt(x, y);
+    if (!axis) return;
+    event.preventDefault();
+    this.canvas.setPointerCapture(event.pointerId);
+    this.hoverX = null;
+    this.tooltip.hidden = true;
+    this.drag = axis === "price"
+      ? { type: "price", startY: y, startScale: this.priceScale }
+      : { type: "time", startX: x, startCount: this.visibleCount, endIndex: this.viewStart + this.visibleCount };
+    this.canvas.style.cursor = axis === "price" ? "ns-resize" : "ew-resize";
+  }
+
+  #handlePointerUp(event) {
+    if (!this.drag) return;
+    if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
+    this.drag = null;
   }
 
   #handleWheel(event) {

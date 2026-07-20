@@ -310,11 +310,13 @@ function renderSummary(metrics, now) {
   const validMoves = metrics.map((item) => item.change1m).filter(Number.isFinite);
   const advancers = validMoves.filter((value) => value > 0).length;
   const pulse = validMoves.length ? Math.round((advancers / validMoves.length) * 100) : null;
-  els.marketPulse.textContent = pulse === null ? "—" : `${pulse}%`;
-  els.marketPulse.dataset.tone = pulse === null ? "neutral" : pulse >= 55 ? "up" : pulse <= 45 ? "down" : "neutral";
-  els.hotCount.textContent = metrics.filter((item) => item.score >= state.settings.alertScore).length;
-  els.alertCount.textContent = state.alerts.filter((item) => item.time >= now - 60_000).length;
-  els.trackedCount.textContent = state.symbols.size;
+  if (els.marketPulse) {
+    els.marketPulse.textContent = pulse === null ? "—" : `${pulse}%`;
+    els.marketPulse.dataset.tone = pulse === null ? "neutral" : pulse >= 55 ? "up" : pulse <= 45 ? "down" : "neutral";
+  }
+  if (els.hotCount) els.hotCount.textContent = metrics.filter((item) => item.score >= state.settings.alertScore).length;
+  if (els.alertCount) els.alertCount.textContent = state.alerts.filter((item) => item.time >= now - 60_000).length;
+  if (els.trackedCount) els.trackedCount.textContent = state.symbols.size;
 
   const oldest = metrics.reduce((min, item) => Math.max(min, item.warmupSeconds), 0);
   els.warmup.hidden = oldest >= 300;

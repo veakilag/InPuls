@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseRestKline, parseStreamKline, upsertCandle } from "../chart.js";
+import { parseRestKline, parseStreamKline, scaleFromDrag, upsertCandle, visibleCountFromDrag } from "../chart.js";
 
 test("REST kline is normalized", () => {
   const candle = parseRestKline([1000, "10", "12", "9", "11", "25", 1999]);
@@ -32,4 +32,14 @@ test("live update replaces an open candle", () => {
 test("new candles append and respect the history limit", () => {
   const next = upsertCandle([{ time: 1000 }, { time: 2000 }], { time: 3000 }, 2);
   assert.deepEqual(next.map((item) => item.time), [2000, 3000]);
+});
+
+test("price-axis drag changes vertical scale", () => {
+  assert.ok(scaleFromDrag(1, 80) > 1);
+  assert.ok(scaleFromDrag(1, -80) < 1);
+});
+
+test("time-axis drag changes visible history", () => {
+  assert.ok(visibleCountFromDrag(100, 80, 500) > 100);
+  assert.ok(visibleCountFromDrag(100, -80, 500) < 100);
 });
