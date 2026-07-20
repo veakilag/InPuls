@@ -7,8 +7,8 @@
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="11" />
-    <link rel="stylesheet" href="./styles.css?v=11" />
+    <meta name="inpuls-build" content="12" />
+    <link rel="stylesheet" href="./styles.css?v=12" />
     <title>InPuls — в ритме рынка</title>
   </head>
   <body>
@@ -16,9 +16,12 @@
     <header class="topbar">
       <a class="brand" href="./" aria-label="InPuls — главная">
         <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span><strong>INPULS</strong><em>SCREENER <small>v11</small></em></span>
+        <span><strong>INPULS</strong><em>SCREENER <small>v12</small></em></span>
       </a>
       <div class="topbar-actions">
+        <label class="comfort-control" title="Комфорт для глаз: день → ночь">
+          <span>☀</span><input id="comfort-slider" type="range" min="0" max="100" value="78" aria-label="Баланс дневной и ночной темы" /><span>☾</span>
+        </label>
         <label class="timezone-control" title="Часовой пояс интерфейса">
           <span>TIME</span>
           <select id="timezone-select" aria-label="Часовой пояс">
@@ -48,8 +51,9 @@
 
     <main>
       <section id="market-focus" class="market-focus" aria-label="График и лидеры рынка">
-        <article class="chart-card">
+        <article class="chart-card" data-panel="chart">
           <header class="chart-heading">
+            <button class="panel-grip" data-panel-grip="chart" draggable="true" type="button" title="Перетащи панель">⠿</button>
             <div class="chart-symbol-block">
               <div class="chart-quote">
                 <h2 id="chart-symbol">BTC/USDT</h2>
@@ -88,16 +92,26 @@
             <div id="chart-tooltip" class="chart-tooltip" hidden></div>
             <button id="volume-toggle" class="volume-toggle" type="button" title="Скрыть или показать объём">VOL</button>
             <span class="zoom-hint">Колесо · масштаб</span>
-            <button id="chart-resizer" class="chart-resizer" type="button" aria-label="Изменить высоту графика" title="Потяни, чтобы изменить высоту"></button>
+            <button id="chart-resizer" class="chart-resizer" type="button" aria-label="Изменить размер графика" title="Потяни по диагонали, чтобы изменить размер"></button>
           </div>
         </article>
 
-        <aside class="top-card">
+        <aside class="top-card" data-panel="radar">
           <div class="top-columns" aria-label="Сортировка монет">
-            <button data-top-sort="symbol" type="button">Тикер <i>↕</i></button>
+            <button class="panel-grip radar-grip" data-panel-grip="radar" draggable="true" type="button" title="Перетащи панель">⠿</button>
+            <label class="radar-search"><input id="radar-search" type="search" autocomplete="off" placeholder="Поиск" aria-label="Поиск монеты" /></label>
             <button data-top-sort="change15s" type="button">15с <i>↕</i></button>
             <button data-top-sort="change1m" type="button">1м <i>↕</i></button>
-            <button class="is-active" data-top-sort="turnoverPerMinute" data-direction="desc" type="button">Оборот <i>↓</i></button>
+            <span class="radar-metric-picker">
+              <select id="radar-metric" aria-label="Показатель списка">
+                <option value="quoteVolume24h">V24</option>
+                <option value="natr1m">NATR 1</option>
+                <option value="natr5m">NATR 5</option>
+                <option value="fundingRate">F</option>
+                <option value="correlation">C</option>
+              </select>
+              <button id="radar-direction" type="button" title="Изменить направление сортировки">↓</button>
+            </span>
           </div>
           <div id="top-list" class="top-list" aria-live="polite">
             <div class="top-placeholder">Собираю лидеров рынка…</div>
@@ -200,6 +214,6 @@
       </form>
     </dialog>
 
-    <script type="module" src="./app.js?v=11"></script>
+    <script type="module" src="./app.js?v=12"></script>
   </body>
 </html>

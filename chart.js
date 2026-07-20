@@ -99,36 +99,42 @@ export class KlineFeed {
     this.abortController = null;
     this.reconnectTimer = null;
     this.generation = 0;
+    this.seriesCache = new Map();
   }
 
   async select(symbol, interval = "1m", range = "1h") {
     if (symbol === this.symbol && interval === this.interval && range === this.range && this.socket) return;
+    if (this.symbol && this.interval && this.candles.length) {
+      this.seriesCache.set(`${this.symbol}:${this.interval}`, this.candles.slice(-1500));
+    }
     this.symbol = symbol;
     this.interval = interval;
     this.range = range;
-    this.candles = [];
+    const cacheKey = `${symbol}:${interval}`;
+    this.candles = this.seriesCache.get(cacheKey)?.slice() ?? [];
     this.generation += 1;
     const generation = this.generation;
     this.#cleanup();
     this.onStatus({ state: "loading", text: `Загружаю ${symbol} · ${interval}` });
-    this.onData([], { symbol, interval, range });
+    this.onData(this.candles, { symbol, interval, range, targetCandles: this.candles.length || undefined });
 
     this.abortController = new AbortController();
     try {
       const secondsMode = interval.endsWith("s");
       const targetCandles = Math.max(30, Math.ceil((RANGE_MS[range] ?? RANGE_MS["1h"]) / (INTERVAL_MS[interval] ?? 60_000)));
-      const query = secondsMode
-        ? new URLSearchParams({ symbol, limit: "1000" })
-        : new URLSearchParams({ symbol, interval, limit: "1500" });
-      const response = await fetch(`${secondsMode ? AGG_TRADES_REST : KLINES_REST}?${query}`, {
-        signal: this.abortController.signal,
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const rows = await response.json();
+      let loadedCandles;
+      if (secondsMode) {
+        loadedCandles = await this.#fetchSecondCandles(symbol, INTERVAL_MS[interval], Math.min(1500, targetCandles), generation);
+      } else {
+        const query = new URLSearchParams({ symbol, interval, limit: "1500" });
+        const response = await fetch(`${KLINES_REST}?${query}`, { signal: this.abortController.signal, cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const rows = await response.json();
+        loadedCandles = rows.map(parseRestKline).filter(isValidCandle);
+      }
       if (generation !== this.generation) return;
-      this.candles = secondsMode ? aggregateTrades(rows, INTERVAL_MS[interval]) : rows.map(parseRestKline).filter(isValidCandle);
-      this.candles = this.candles.slice(-1500);
+      this.candles = mergeCandles(loadedCandles, this.candles).slice(-1500);
+      this.seriesCache.set(cacheKey, this.candles.slice());
       this.onData(this.candles, { symbol, interval, range, targetCandles });
     } catch (error) {
       if (error.name !== "AbortError" && generation === this.generation) {
@@ -137,6 +143,57 @@ export class KlineFeed {
     }
 
     if (generation === this.generation) this.#connect(generation);
+  }
+
+  async #fetchSecondCandles(symbol, bucketMs, desiredCandles, generation) {
+    try {
+      const secondsNeeded = Math.min(15_000, Math.max(60, Math.ceil((desiredCandles * bucketMs) / 1000)));
+      const rawSeconds = [];
+      let endTime;
+      for (let page = 0; page < 10 && rawSeconds.length < secondsNeeded && generation === this.generation; page += 1) {
+        const limit = Math.min(1500, secondsNeeded - rawSeconds.length);
+        const query = new URLSearchParams({ symbol, interval: "1s", limit: String(limit) });
+        if (Number.isFinite(endTime)) query.set("endTime", String(endTime));
+        const response = await fetch(`${KLINES_REST}?${query}`, { signal: this.abortController.signal, cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const rows = await response.json();
+        const pageCandles = rows.map(parseRestKline).filter(isValidCandle);
+        if (!pageCandles.length) break;
+        rawSeconds.unshift(...pageCandles);
+        const nextEnd = pageCandles[0].time - 1;
+        if (nextEnd === endTime) break;
+        endTime = nextEnd;
+      }
+      if (rawSeconds.length) return aggregateCandles(rawSeconds, bucketMs).slice(-desiredCandles);
+    } catch (error) {
+      if (error.name === "AbortError") throw error;
+      // Some USD-M clusters do not expose historical 1s klines yet.
+      // Fall back to public aggregate trades and keep accumulating locally.
+    }
+
+    const rows = await this.#fetchAggregateTradeHistory(symbol, bucketMs, Math.min(300, desiredCandles), generation);
+    return aggregateTrades(rows, bucketMs);
+  }
+
+  async #fetchAggregateTradeHistory(symbol, bucketMs, desiredCandles, generation) {
+    const fetchPage = async (fromId) => {
+      const query = new URLSearchParams({ symbol, limit: "1000" });
+      if (Number.isFinite(fromId)) query.set("fromId", String(Math.max(0, Math.floor(fromId))));
+      const response = await fetch(`${AGG_TRADES_REST}?${query}`, { signal: this.abortController.signal, cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    };
+    let rows = await fetchPage();
+    for (let page = 1; page < 18 && generation === this.generation; page += 1) {
+      if (aggregateTrades(rows, bucketMs).length >= desiredCandles) break;
+      const firstId = Number(rows[0]?.a);
+      if (!Number.isFinite(firstId) || firstId <= 0) break;
+      const older = await fetchPage(firstId - 1000);
+      if (!older.length) break;
+      const existing = new Set(rows.map((trade) => Number(trade.a)));
+      rows = [...older.filter((trade) => !existing.has(Number(trade.a))), ...rows];
+    }
+    return rows;
   }
 
   #connect(generation) {
@@ -161,6 +218,7 @@ export class KlineFeed {
           candle.volume += last.volume;
         }
         this.candles = upsertCandle(this.candles, candle, 1500);
+        this.seriesCache.set(`${this.symbol}:${this.interval}`, this.candles.slice());
         this.onData(this.candles, { symbol: this.symbol, interval: this.interval, range: this.range });
       } catch {
         // Ignore one malformed market message and keep the stream alive.
@@ -203,6 +261,19 @@ export class CandlestickChart {
     this.followLatest = true;
     this.timeZone = "Europe/Moscow";
     this.volumeVisible = true;
+    this.theme = {
+      background: "#070605",
+      bullFill: "#ddd2c2",
+      bullStroke: "#ddd2c2",
+      bearFill: "#15120f",
+      bearStroke: "#8c8175",
+      grid: "#4a4037",
+      text: "#8e8174",
+      crosshair: "#a99a8c",
+      crosshairFill: "#5e4968",
+      crosshairText: "#eee5d9",
+      session: "#8b5f9f",
+    };
     this.drag = null;
     this.resizeObserver = new ResizeObserver(() => this.render());
     this.resizeObserver.observe(canvas.parentElement);
@@ -236,6 +307,11 @@ export class CandlestickChart {
     this.render();
   }
 
+  setTheme(theme) {
+    this.theme = { ...this.theme, ...theme };
+    this.render();
+  }
+
   setData(candles, meta) {
     const nextKey = `${meta?.symbol ?? ""}:${meta?.interval ?? ""}:${meta?.range ?? ""}`;
     const seriesChanged = nextKey !== this.seriesKey;
@@ -244,9 +320,15 @@ export class CandlestickChart {
       ? this.candles[Math.max(0, Math.floor(this.viewStart ?? 0))]?.time
       : null;
     if (seriesChanged) {
+      this.pendingViewport = this.candles.length && this.visibleCount
+        ? {
+            latestRatio: (this.candles.length - 1 - (this.viewStart ?? 0)) / this.visibleCount,
+            followLatest: this.followLatest,
+          }
+        : null;
       this.seriesKey = nextKey;
       this.viewStart = null;
-      this.followLatest = true;
+      this.followLatest = !this.pendingViewport;
       if (symbolChanged) this.pricePan = 0;
     }
     this.candles = candles;
@@ -255,7 +337,12 @@ export class CandlestickChart {
       const nextAnchor = candles.findIndex((candle) => candle.time === oldAnchorTime);
       if (nextAnchor >= 0) this.viewStart = nextAnchor;
     }
-    if (this.followLatest && this.visibleCount) this.viewStart = Math.max(0, candles.length - this.visibleCount);
+    if (candles.length && this.pendingViewport && this.visibleCount) {
+      this.viewStart = candles.length - 1 - this.pendingViewport.latestRatio * this.visibleCount;
+      this.viewStart = Math.max(0, Math.min(this.viewStart, Math.max(0, candles.length - 1)));
+      this.followLatest = this.pendingViewport.followLatest;
+      this.pendingViewport = null;
+    } else if (this.followLatest && this.visibleCount) this.viewStart = Math.max(0, candles.length - this.visibleCount);
     this.render();
   }
 
@@ -291,7 +378,7 @@ export class CandlestickChart {
 
     this.#drawBackground(ctx, width, height, margins, priceBottom, volumeHeight);
     if (!visible.length) {
-      ctx.fillStyle = "#627086";
+      ctx.fillStyle = this.theme.text;
       ctx.font = "11px Inter, sans-serif";
       ctx.textAlign = "center";
       ctx.fillText("Свечной график загружается…", margins.left + plotWidth / 2, margins.top + plotHeight / 2);
@@ -318,8 +405,8 @@ export class CandlestickChart {
       const globalIndex = sliceStart + index;
       const x = margins.left + (globalIndex - this.viewStart + .5) * step;
       const up = candle.close >= candle.open;
-      const fill = up ? "#f2f2ef" : "#050505";
-      const stroke = up ? "#ffffff" : "#9a9a9a";
+      const fill = up ? this.theme.bullFill : this.theme.bearFill;
+      const stroke = up ? this.theme.bullStroke : this.theme.bearStroke;
       ctx.strokeStyle = stroke;
       ctx.fillStyle = fill;
       ctx.lineWidth = 1;
@@ -336,7 +423,7 @@ export class CandlestickChart {
       if (this.volumeVisible) {
         const volumeTop = height - margins.bottom - (candle.volume / maxVolume) * volumeHeight;
         ctx.globalAlpha = up ? .3 : .2;
-        ctx.fillStyle = up ? "#ffffff" : "#777777";
+        ctx.fillStyle = up ? this.theme.bullFill : this.theme.bearStroke;
         ctx.fillRect(x - bodyWidth / 2, volumeTop, bodyWidth, height - margins.bottom - volumeTop);
         ctx.globalAlpha = 1;
       }
@@ -349,7 +436,7 @@ export class CandlestickChart {
   }
 
   #drawBackground(ctx, width, height, margins, priceBottom, volumeHeight) {
-    ctx.fillStyle = "#090909";
+    ctx.fillStyle = this.theme.background;
     ctx.fillRect(0, 0, width, height);
     if (this.volumeVisible) {
       ctx.strokeStyle = "rgba(180,180,180,.12)";
@@ -366,12 +453,12 @@ export class CandlestickChart {
     for (let index = 0; index <= 5; index += 1) {
       const price = maxPrice - ((maxPrice - minPrice) / 5) * index;
       const lineY = y(price);
-      ctx.strokeStyle = "rgba(113,139,171,.09)";
+      ctx.strokeStyle = `${this.theme.grid}22`;
       ctx.beginPath();
       ctx.moveTo(margins.left, lineY);
       ctx.lineTo(width - margins.right, lineY);
       ctx.stroke();
-      ctx.fillStyle = "#64738a";
+      ctx.fillStyle = this.theme.text;
       ctx.fillText(formatChartPrice(price), width - margins.right + 9, lineY + 3);
     }
   }
@@ -383,12 +470,12 @@ export class CandlestickChart {
     for (let index = 0; index <= divisions; index += 1) {
       const x = margins.left + (plotWidth / divisions) * index;
       const globalIndex = this.viewStart + this.visibleCount * (index / divisions);
-      ctx.strokeStyle = "rgba(113,139,171,.06)";
+      ctx.strokeStyle = `${this.theme.grid}18`;
       ctx.beginPath();
       ctx.moveTo(x, margins.top);
       ctx.lineTo(x, height - margins.bottom);
       ctx.stroke();
-      ctx.fillStyle = "#64738a";
+      ctx.fillStyle = this.theme.text;
       ctx.fillText(formatTime(this.#timeAtIndex(globalIndex), false, this.timeZone), x, height - 9);
     }
   }
@@ -406,13 +493,13 @@ export class CandlestickChart {
         const x = margins.left + (index - 1 + fraction - this.viewStart + .5) * this.layoutStep(margins);
         ctx.save();
         ctx.setLineDash([2, 5]);
-        ctx.strokeStyle = "rgba(157,108,255,.24)";
+        ctx.strokeStyle = `${this.theme.session}55`;
         ctx.beginPath();
         ctx.moveTo(x, margins.top);
         ctx.lineTo(x, height - margins.bottom);
         ctx.stroke();
         ctx.restore();
-        ctx.fillStyle = "#b99ce8";
+        ctx.fillStyle = this.theme.session;
         ctx.font = "bold 7px Inter, sans-serif";
         ctx.textAlign = "center";
         const label = event.label === "D" ? "D" : `${event.label} ${formatTime(event.time, false, this.timeZone)}`;
@@ -436,11 +523,11 @@ export class CandlestickChart {
   }
 
   #drawLastPrice(ctx, width, margins, lineY, price, up, top, bottom) {
-    const color = up ? "#f2f2ef" : "#090909";
+    const color = up ? this.theme.bullFill : this.theme.bearFill;
     const visibleY = Math.max(top + 9, Math.min(bottom - 9, lineY));
     ctx.save();
     ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = up ? "#f2f2ef" : "#a0a0a0";
+    ctx.strokeStyle = up ? this.theme.bullStroke : this.theme.bearStroke;
     ctx.globalAlpha = 0.6;
     ctx.beginPath();
     if (lineY >= top && lineY <= bottom) {
@@ -452,10 +539,10 @@ export class CandlestickChart {
     ctx.fillStyle = color;
     ctx.fillRect(width - margins.right, visibleY - 9, margins.right, 18);
     if (!up) {
-      ctx.strokeStyle = "#8b8b8b";
+      ctx.strokeStyle = this.theme.bearStroke;
       ctx.strokeRect(width - margins.right + .5, visibleY - 8.5, margins.right - 1, 17);
     }
-    ctx.fillStyle = up ? "#080808" : "#f2f2ef";
+    ctx.fillStyle = up ? this.theme.bearFill : this.theme.bullFill;
     ctx.font = "bold 9px Inter, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(formatChartPrice(price), width - margins.right / 2, visibleY + 3);
@@ -558,7 +645,7 @@ export class CandlestickChart {
     const price = maxPrice - ((y - margins.top) / plotHeight) * (maxPrice - minPrice);
     ctx.save();
     ctx.setLineDash([3, 5]);
-    ctx.strokeStyle = "rgba(210,200,230,.24)";
+    ctx.strokeStyle = `${this.theme.crosshair}66`;
     ctx.beginPath();
     ctx.moveTo(x, y);
     ctx.lineTo(width - margins.right, y);
@@ -567,10 +654,10 @@ export class CandlestickChart {
     ctx.stroke();
     ctx.restore();
     this.tooltip.hidden = true;
-    ctx.fillStyle = "rgba(91,75,120,.92)";
+    ctx.fillStyle = this.theme.crosshairFill;
     ctx.fillRect(width - margins.right, y - 8, margins.right, 16);
     ctx.fillRect(x - 36, height - margins.bottom, 72, margins.bottom);
-    ctx.fillStyle = "#e5dff0";
+    ctx.fillStyle = this.theme.crosshairText;
     ctx.font = "bold 8px Inter, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(formatChartPrice(price), width - margins.right / 2, y + 3);
@@ -605,6 +692,34 @@ function aggregateTrades(rows, bucketMs) {
     } else candles.push(next);
   }
   return candles;
+}
+
+export function aggregateCandles(candles, bucketMs) {
+  const result = [];
+  for (const candle of candles) {
+    if (!isValidCandle(candle)) continue;
+    const time = Math.floor(candle.time / bucketMs) * bucketMs;
+    const last = result.at(-1);
+    if (last?.time === time) {
+      last.high = Math.max(last.high, candle.high);
+      last.low = Math.min(last.low, candle.low);
+      last.close = candle.close;
+      last.volume += candle.volume;
+      last.closeTime = Math.max(last.closeTime, candle.closeTime);
+      last.closed &&= candle.closed;
+    } else {
+      result.push({ ...candle, time, closeTime: time + bucketMs - 1 });
+    }
+  }
+  return result;
+}
+
+function mergeCandles(primary, secondary) {
+  const byTime = new Map();
+  for (const candle of [...primary, ...secondary]) {
+    if (isValidCandle(candle)) byTime.set(candle.time, candle);
+  }
+  return [...byTime.values()].sort((left, right) => left.time - right.time);
 }
 
 const zoneFormatters = new Map();

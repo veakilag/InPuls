@@ -40,6 +40,34 @@ test("trade flow counts fills and aggressive side", () => {
   assert.equal(Math.round(flow.buyShare), 67);
 });
 
+test("funding is exposed for radar sorting", () => {
+  const start = 1_700_000_000_000;
+  const symbol = new SymbolState("TESTUSDT", start);
+  symbol.updateTicker({ c: "100", q: "10000000", E: start }, start);
+  symbol.updateFunding({ r: "0.00025", T: start + 3_600_000 });
+  const metrics = symbol.metrics(DEFAULT_SETTINGS, start + 1000);
+  assert.equal(metrics.fundingRate, 0.00025);
+  assert.equal(metrics.nextFundingTime, start + 3_600_000);
+});
+
+test("historical minutes warm up NATR without waiting", () => {
+  const start = 1_700_000_000_000;
+  const symbol = new SymbolState("TESTUSDT", start);
+  const candles = Array.from({ length: 90 }, (_, index) => ({
+    time: start + index * 60_000,
+    open: 100 + index,
+    high: 101 + index,
+    low: 99 + index,
+    close: 100.5 + index,
+  }));
+  symbol.hydrateMinuteCandles(candles);
+  symbol.updateTicker({ c: "190", q: "10000000", E: start + 90 * 60_000 }, start + 90 * 60_000);
+  const metrics = symbol.metrics(DEFAULT_SETTINGS, start + 90 * 60_000);
+  assert.ok(metrics.natr1m > 0);
+  assert.ok(metrics.natr5m > 0);
+  assert.ok(metrics.minuteReturns.length >= 89);
+});
+
 test("liquidation snapshots are deduplicated", () => {
   const start = 1_700_000_000_000;
   const symbol = new SymbolState("TESTUSDT", start);

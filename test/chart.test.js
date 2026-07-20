@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { calculateNatr, parseRestKline, parseStreamKline, pearsonCorrelation, scaleFromDrag, sessionLabels, upsertCandle, visibleCountFromDrag } from "../chart.js";
+import { aggregateCandles, calculateNatr, parseRestKline, parseStreamKline, pearsonCorrelation, scaleFromDrag, sessionLabels, upsertCandle, visibleCountFromDrag } from "../chart.js";
 
 test("REST kline is normalized", () => {
   const candle = parseRestKline([1000, "10", "12", "9", "11", "25", 1999]);
@@ -32,6 +32,31 @@ test("live update replaces an open candle", () => {
 test("new candles append and respect the history limit", () => {
   const next = upsertCandle([{ time: 1000 }, { time: 2000 }], { time: 3000 }, 2);
   assert.deepEqual(next.map((item) => item.time), [2000, 3000]);
+});
+
+test("one-second candles aggregate into a five-second history", () => {
+  const candles = Array.from({ length: 10 }, (_, index) => ({
+    time: index * 1000,
+    open: 100 + index,
+    high: 101 + index,
+    low: 99 + index,
+    close: 100.5 + index,
+    volume: 2,
+    closeTime: index * 1000 + 999,
+    closed: true,
+  }));
+  const result = aggregateCandles(candles, 5000);
+  assert.equal(result.length, 2);
+  assert.deepEqual(result[0], {
+    time: 0,
+    open: 100,
+    high: 105,
+    low: 99,
+    close: 104.5,
+    volume: 10,
+    closeTime: 4999,
+    closed: true,
+  });
 });
 
 test("price-axis drag changes vertical scale", () => {

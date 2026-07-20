@@ -46,6 +46,9 @@ export class SymbolState {
     this.volumeFast = 0;
     this.volumeSlow = 0;
     this.history = [];
+    this.minuteCandles = [];
+    this.fundingRate = null;
+    this.nextFundingTime = null;
     this.tradeBuckets = new Map();
     this.liquidations = [];
     this.lastLiquidationKey = null;
@@ -62,6 +65,16 @@ export class SymbolState {
     this.high24h = Number(ticker.h) || this.high24h;
     this.low24h = Number(ticker.l) || this.low24h;
     this.lastUpdate = now;
+    const minute = Math.floor(now / 60_000) * 60_000;
+    const minuteCandle = this.minuteCandles.at(-1);
+    if (minuteCandle?.time === minute) {
+      minuteCandle.high = Math.max(minuteCandle.high, price);
+      minuteCandle.low = Math.min(minuteCandle.low, price);
+      minuteCandle.close = price;
+    } else {
+      this.minuteCandles.push({ time: minute, open: price, high: price, low: price, close: price });
+      this.minuteCandles = this.minuteCandles.slice(-100);
+    }
 
     const previousSnapshot = this.history.at(-1);
     if (!previousSnapshot || now - previousSnapshot.t >= 700) {
@@ -106,6 +119,29 @@ export class SymbolState {
     else bucket.buy += quote;
     this.tradeBuckets.set(second, bucket);
     this.#trim(time);
+  }
+
+  updateFunding(event) {
+    const rate = Number(event.r);
+    const nextTime = Number(event.T);
+    if (Number.isFinite(rate)) this.fundingRate = rate;
+    if (Number.isFinite(nextTime)) this.nextFundingTime = nextTime;
+  }
+
+  hydrateMinuteCandles(candles) {
+    if (!Array.isArray(candles)) return;
+    const byTime = new Map(this.minuteCandles.map((candle) => [candle.time, candle]));
+    for (const candle of candles) {
+      if (![candle?.time, candle?.open, candle?.high, candle?.low, candle?.close].every(Number.isFinite)) continue;
+      byTime.set(candle.time, {
+        time: candle.time,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+      });
+    }
+    this.minuteCandles = [...byTime.values()].sort((left, right) => left.time - right.time).slice(-100);
   }
 
   updateLiquidation(event) {
@@ -199,6 +235,12 @@ export class SymbolState {
       ? clamp(this.volumeFast / this.volumeSlow, 0, 99)
       : null;
     const turnoverPerMinute = this.volumeFast * 60;
+    const natr1m = natrFromCandles(this.minuteCandles);
+    const natr5m = natrFromCandles(aggregateMinuteCandles(this.minuteCandles, 5));
+    const minuteReturns = this.minuteCandles.slice(1).map((candle, index) => {
+      const previous = this.minuteCandles[index].close;
+      return previous ? (candle.close - previous) / previous : 0;
+    });
 
     const base = {
       symbol: this.symbol,
@@ -216,6 +258,11 @@ export class SymbolState {
       liquidation,
       warmupSeconds,
       sparkline: this.history.slice(-90).map((item) => item.p),
+      fundingRate: this.fundingRate,
+      nextFundingTime: this.nextFundingTime,
+      natr1m,
+      natr5m,
+      minuteReturns,
     };
 
     const signals = classifySignals(base, settings);
@@ -235,6 +282,33 @@ export class SymbolState {
       this.liquidations.shift();
     }
   }
+}
+
+function aggregateMinuteCandles(candles, size) {
+  const result = [];
+  for (const candle of candles) {
+    const time = Math.floor(candle.time / (size * 60_000)) * size * 60_000;
+    const last = result.at(-1);
+    if (last?.time === time) {
+      last.high = Math.max(last.high, candle.high);
+      last.low = Math.min(last.low, candle.low);
+      last.close = candle.close;
+    } else result.push({ ...candle, time });
+  }
+  return result;
+}
+
+function natrFromCandles(candles, period = 14) {
+  if (candles.length <= period) return null;
+  const ranges = [];
+  for (let index = 1; index < candles.length; index += 1) {
+    const candle = candles[index];
+    const previous = candles[index - 1];
+    ranges.push(Math.max(candle.high - candle.low, Math.abs(candle.high - previous.close), Math.abs(candle.low - previous.close)));
+  }
+  let atr = ranges.slice(0, period).reduce((sum, value) => sum + value, 0) / period;
+  for (let index = period; index < ranges.length; index += 1) atr = ((atr * (period - 1)) + ranges[index]) / period;
+  return candles.at(-1).close ? (atr / candles.at(-1).close) * 100 : null;
 }
 
 export function classifySignals(metrics, settings = DEFAULT_SETTINGS) {

@@ -3,8 +3,8 @@ import {
   SymbolState,
   filterUsdtPerpetualTicker,
   formatCompactUsd,
-} from "./engine.js?v=11";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=11";
+} from "./engine.js?v=12";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=12";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -13,6 +13,9 @@ const STORAGE_KEYS = {
   chart: "inpuls-chart-v2",
   timeZone: "inpuls-timezone-v1",
   volume: "inpuls-volume-v1",
+  comfort: "inpuls-comfort-v1",
+  layout: "inpuls-layout-v1",
+  workspaceSize: "inpuls-workspace-size-v1",
 };
 
 const savedChart = loadJson(STORAGE_KEYS.chart, { interval: "1m", range: "1h" });
@@ -29,19 +32,25 @@ const state = {
   chartInterval: savedChart.interval ?? "1m",
   chartRange: savedChart.range ?? "1h",
   chartCandles: [],
-  topSort: { key: "turnoverPerMinute", direction: "desc" },
+  topSort: { key: "quoteVolume24h", direction: "desc" },
   lastMetrics: [],
   alerts: [],
   connectedAt: null,
   chartStats: { fundingRate: null, nextFundingTime: null, natr1m: null, natr5m: null, correlation: null },
   timeZone: localStorage.getItem(STORAGE_KEYS.timeZone) || "Europe/Moscow",
   volumeVisible: loadJson(STORAGE_KEYS.volume, true),
+  comfort: Number(localStorage.getItem(STORAGE_KEYS.comfort) ?? 78),
+  radarSearch: "",
+  radarMetric: "quoteVolume24h",
+  panelOrder: localStorage.getItem(STORAGE_KEYS.layout) || "chart-first",
+  workspaceSize: loadJson(STORAGE_KEYS.workspaceSize, { height: null, radarWidth: null }),
 };
 
 const els = {
   status: document.querySelector("#connection-status"),
   statusText: document.querySelector("#connection-text"),
   clock: document.querySelector("#clock"),
+  comfortSlider: document.querySelector("#comfort-slider"),
   timeZoneSelect: document.querySelector("#timezone-select"),
   soundButton: document.querySelector("#sound-toggle"),
   settingsButton: document.querySelector("#settings-open"),
@@ -75,6 +84,9 @@ const els = {
   moreTimeframe: document.querySelector("#more-timeframe"),
   topList: document.querySelector("#top-list"),
   topSortButtons: [...document.querySelectorAll("[data-top-sort]")],
+  radarSearch: document.querySelector("#radar-search"),
+  radarMetric: document.querySelector("#radar-metric"),
+  radarDirection: document.querySelector("#radar-direction"),
   metricTurnover: document.querySelector("#metric-turnover"),
   metricFunding: document.querySelector("#metric-funding"),
   metricFundingTime: document.querySelector("#metric-funding-time"),
@@ -83,6 +95,7 @@ const els = {
   metricCorrelation: document.querySelector("#metric-correlation"),
   volumeToggle: document.querySelector("#volume-toggle"),
   chartResizer: document.querySelector("#chart-resizer"),
+  panelGrips: [...document.querySelectorAll("[data-panel-grip]")],
 };
 
 class BinanceFeed {
@@ -108,7 +121,7 @@ class BinanceFeed {
       this.reconnectAttempt = 0;
       state.connectedAt = Date.now();
       setConnection("online", "Онлайн");
-      this.#send("SUBSCRIBE", ["!miniTicker@arr", "!forceOrder@arr"]);
+      this.#send("SUBSCRIBE", ["!miniTicker@arr", "!markPrice@arr@1s", "!forceOrder@arr"]);
       if (this.trackedAggTrades.size) {
         this.#send("SUBSCRIBE", [...this.trackedAggTrades].map((symbol) => `${symbol.toLowerCase()}@aggTrade`));
       }
@@ -157,6 +170,10 @@ class BinanceFeed {
   #handle(data) {
     if (Array.isArray(data)) {
       for (const ticker of data) {
+        if (ticker?.e === "markPriceUpdate" && ticker.s?.endsWith("USDT")) {
+          getSymbol(ticker.s, Number(ticker.E) || Date.now()).updateFunding(ticker);
+          continue;
+        }
         if (!filterUsdtPerpetualTicker(ticker)) continue;
         getSymbol(ticker.s, Number(ticker.E) || Date.now()).updateTicker(ticker);
       }
@@ -177,9 +194,12 @@ class BinanceFeed {
 }
 
 const feed = new BinanceFeed();
+const radarHistoryLoaded = new Set();
+const radarHistoryLoading = new Set();
 const priceChart = new CandlestickChart(els.priceChart, els.chartTooltip);
 priceChart.setTimeZone(state.timeZone === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : state.timeZone);
 priceChart.setVolumeVisible(state.volumeVisible);
+applyComfort(state.comfort);
 const klineFeed = new KlineFeed({
   onData(candles, meta) {
     state.chartCandles = candles;
@@ -195,6 +215,65 @@ const klineFeed = new KlineFeed({
 
 function persistChartSettings() {
   localStorage.setItem(STORAGE_KEYS.chart, JSON.stringify({ interval: state.chartInterval, range: state.chartRange }));
+}
+
+function mixColor(left, right, amount) {
+  const read = (color) => color.match(/[a-f\d]{2}/gi).map((value) => parseInt(value, 16));
+  const a = read(left);
+  const b = read(right);
+  return `#${a.map((value, index) => Math.round(value + (b[index] - value) * amount).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function applyComfort(rawValue) {
+  const value = Math.max(0, Math.min(100, Number(rawValue) || 0));
+  const amount = value / 100;
+  const palette = {
+    bg: mixColor("#d8d4ca", "#050403", amount),
+    panel: mixColor("#f1eee6", "#0d0a08", amount),
+    panel2: mixColor("#e5e0d5", "#15100d", amount),
+    line: mixColor("#b9b1a4", "#2a221c", amount),
+    text: mixColor("#1d1b18", "#ded4c6", amount),
+    muted: mixColor("#6b655c", "#8e8174", amount),
+    chart: mixColor("#e8e3d9", "#070605", amount),
+    bull: mixColor("#fffdf7", "#ddd2c2", amount),
+    bear: mixColor("#494640", "#15120f", amount),
+    bearStroke: mixColor("#282622", "#8c8175", amount),
+    grid: mixColor("#8e877c", "#4a4037", amount),
+    crosshair: mixColor("#665e54", "#a99a8c", amount),
+    crosshairFill: mixColor("#6d5b83", "#5e4968", amount),
+    crosshairText: mixColor("#fffdf8", "#eee5d9", amount),
+    violet: mixColor("#7657bc", "#8b5f9f", amount),
+    blue: mixColor("#4d78a0", "#7a6252", amount),
+  };
+  const root = document.documentElement;
+  root.style.setProperty("--bg", palette.bg);
+  root.style.setProperty("--panel", palette.panel);
+  root.style.setProperty("--panel-2", palette.panel2);
+  root.style.setProperty("--line", palette.line);
+  root.style.setProperty("--line-soft", `${palette.line}55`);
+  root.style.setProperty("--text", palette.text);
+  root.style.setProperty("--muted", palette.muted);
+  root.style.setProperty("--chart-bg", palette.chart);
+  root.style.setProperty("--violet", palette.violet);
+  root.style.setProperty("--blue", palette.blue);
+  root.style.setProperty("--theme-level", String(amount));
+  root.style.colorScheme = amount > 0.52 ? "dark" : "light";
+  root.dataset.comfort = String(Math.round(value));
+  const themeMeta = document.querySelector('meta[name="theme-color"]');
+  if (themeMeta) themeMeta.content = palette.bg;
+  priceChart.setTheme({
+    background: palette.chart,
+    bullFill: palette.bull,
+    bullStroke: palette.bull,
+    bearFill: palette.bear,
+    bearStroke: palette.bearStroke,
+    grid: palette.grid,
+    text: palette.muted,
+    crosshair: palette.crosshair,
+    crosshairFill: palette.crosshairFill,
+    crosshairText: palette.crosshairText,
+    session: palette.violet,
+  });
 }
 
 function selectInterval(interval) {
@@ -226,13 +305,42 @@ function getSymbol(symbol, now) {
 }
 
 function getMetrics(now = Date.now()) {
-  return [...state.symbols.values()]
+  const metrics = [...state.symbols.values()]
     .filter((item) => item.quoteVolume24h >= state.settings.minTurnover24h)
-    .map((item) => item.metrics(state.settings, now))
+    .map((item) => item.metrics(state.settings, now));
+  const bitcoinReturns = metrics.find((item) => item.symbol === "BTCUSDT")?.minuteReturns ?? [];
+  return metrics
+    .map((item) => ({
+      ...item,
+      correlation: item.symbol === "BTCUSDT" ? 1 : pearsonCorrelation(item.minuteReturns, bitcoinReturns),
+    }))
     .sort((a, b) => {
       const favoriteDiff = Number(state.favorites.has(b.symbol)) - Number(state.favorites.has(a.symbol));
       return favoriteDiff || b.score - a.score || (b.turnoverPerMinute || 0) - (a.turnoverPerMinute || 0);
     });
+}
+
+async function warmupRadarHistory() {
+  const ranked = state.lastMetrics.slice().sort((left, right) => right.quoteVolume24h - left.quoteVolume24h);
+  const symbols = [...new Set(["BTCUSDT", ...ranked.map((item) => item.symbol)])]
+    .filter((symbol) => state.symbols.has(symbol) && !radarHistoryLoaded.has(symbol) && !radarHistoryLoading.has(symbol))
+    .slice(0, 6);
+  if (!symbols.length) return;
+  await Promise.all(symbols.map(async (symbol) => {
+    radarHistoryLoading.add(symbol);
+    try {
+      const query = new URLSearchParams({ symbol, interval: "1m", limit: "90" });
+      const response = await fetch(`https://fapi.binance.com/fapi/v1/klines?${query}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const rows = await response.json();
+      getSymbol(symbol).hydrateMinuteCandles(rows.map(parseRestKline));
+      radarHistoryLoaded.add(symbol);
+    } catch {
+      // Retry later without blocking the live market feed.
+    } finally {
+      radarHistoryLoading.delete(symbol);
+    }
+  }));
 }
 
 function render() {
@@ -340,7 +448,7 @@ function renderSummary(metrics, now) {
 }
 
 function renderTopList(metrics) {
-  let candidates = [...metrics];
+  let candidates = metrics.filter((item) => !state.radarSearch || item.symbol.toLowerCase().includes(state.radarSearch));
   const { key, direction } = state.topSort;
   const multiplier = direction === "asc" ? 1 : -1;
   candidates.sort((left, right) => {
@@ -359,6 +467,7 @@ function renderTopList(metrics) {
     button.querySelector("i").textContent = active ? (direction === "asc" ? "↑" : "↓") : "↕";
     button.setAttribute("aria-sort", active ? (direction === "asc" ? "ascending" : "descending") : "none");
   }
+  els.radarDirection.textContent = direction === "asc" ? "↑" : "↓";
   candidates = candidates.slice(0, 100);
 
   if (!candidates.length) {
@@ -389,13 +498,21 @@ function renderTopList(metrics) {
     minute.textContent = formatChange(item.change1m);
     minute.className = toneClass(item.change1m);
     const turnover = document.createElement("strong");
-    turnover.textContent = formatCompactUsd(item.turnoverPerMinute);
-    turnover.className = "top-turnover";
+    turnover.textContent = formatRadarMetric(item, state.radarMetric);
+    turnover.className = ["fundingRate", "correlation"].includes(state.radarMetric) ? toneClass(item[state.radarMetric]) : "top-turnover";
     button.append(identity, impulse, minute, turnover);
     button.addEventListener("click", () => selectChartSymbol(item.symbol));
     fragment.append(button);
   });
   els.topList.replaceChildren(fragment);
+}
+
+function formatRadarMetric(item, metric) {
+  const value = item[metric];
+  if (metric === "quoteVolume24h") return formatCompactUsd(value);
+  if (metric === "fundingRate") return Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${(value * 100).toFixed(3)}%` : "—";
+  if (metric === "correlation") return Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${value.toFixed(2)}` : "—";
+  return Number.isFinite(value) ? `${value.toFixed(2)}%` : "—";
 }
 
 function updateChartHeader(metrics = state.lastMetrics) {
@@ -442,9 +559,15 @@ async function loadChartStats(symbol) {
     const [premium, minuteRows, fiveMinuteRows, bitcoinRows] = await Promise.all([
       premiumResponse.json(), minuteResponse.json(), fiveMinuteResponse.json(), bitcoinResponse ? bitcoinResponse.json() : Promise.resolve(null),
     ]);
-    if (state.selectedChartSymbol !== requestedSymbol) return;
     const minuteCandles = minuteRows.map(parseRestKline);
     const fiveMinuteCandles = fiveMinuteRows.map(parseRestKline);
+    getSymbol(symbol).hydrateMinuteCandles(minuteCandles);
+    radarHistoryLoaded.add(symbol);
+    if (bitcoinRows) {
+      getSymbol("BTCUSDT").hydrateMinuteCandles(bitcoinRows.map(parseRestKline));
+      radarHistoryLoaded.add("BTCUSDT");
+    }
+    if (state.selectedChartSymbol !== requestedSymbol) return;
     const returns = (candles) => candles.slice(1).map((candle, index) => (candle.close - candles[index].close) / candles[index].close);
     state.chartStats = {
       fundingRate: Number(premium.lastFundingRate),
@@ -630,6 +753,56 @@ function escapeHtml(value) {
 }
 
 function bindEvents() {
+  if (Number.isFinite(state.workspaceSize.height)) {
+    document.documentElement.style.setProperty("--focus-height", `${state.workspaceSize.height}px`);
+  }
+  if (Number.isFinite(state.workspaceSize.radarWidth)) {
+    document.documentElement.style.setProperty("--radar-width", `${state.workspaceSize.radarWidth}px`);
+  }
+  els.comfortSlider.value = String(state.comfort);
+  els.comfortSlider.addEventListener("input", () => {
+    state.comfort = Number(els.comfortSlider.value);
+    localStorage.setItem(STORAGE_KEYS.comfort, String(state.comfort));
+    applyComfort(state.comfort);
+  });
+
+  els.marketFocus.classList.toggle("is-reversed", state.panelOrder === "radar-first");
+  for (const grip of els.panelGrips) {
+    grip.addEventListener("dragstart", (event) => {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", grip.dataset.panelGrip);
+      els.marketFocus.classList.add("is-dragging-panel");
+    });
+    grip.addEventListener("dragend", () => els.marketFocus.classList.remove("is-dragging-panel"));
+  }
+  els.marketFocus.addEventListener("dragover", (event) => event.preventDefault());
+  els.marketFocus.addEventListener("drop", (event) => {
+    event.preventDefault();
+    const source = event.dataTransfer.getData("text/plain");
+    const target = event.target.closest("[data-panel]")?.dataset.panel;
+    if (source && target && source !== target) {
+      state.panelOrder = state.panelOrder === "chart-first" ? "radar-first" : "chart-first";
+      localStorage.setItem(STORAGE_KEYS.layout, state.panelOrder);
+      els.marketFocus.classList.toggle("is-reversed", state.panelOrder === "radar-first");
+      priceChart.render();
+    }
+    els.marketFocus.classList.remove("is-dragging-panel");
+  });
+
+  els.radarSearch.addEventListener("input", () => {
+    state.radarSearch = els.radarSearch.value.trim().toLowerCase();
+    renderTopList(state.lastMetrics);
+  });
+  els.radarMetric.value = state.radarMetric;
+  els.radarMetric.addEventListener("change", () => {
+    state.radarMetric = els.radarMetric.value;
+    state.topSort = { key: state.radarMetric, direction: "desc" };
+    renderTopList(state.lastMetrics);
+  });
+  els.radarDirection.addEventListener("click", () => {
+    state.topSort.direction = state.topSort.direction === "desc" ? "asc" : "desc";
+    renderTopList(state.lastMetrics);
+  });
   els.timeZoneSelect.value = state.timeZone;
   els.timeZoneSelect.addEventListener("change", () => {
     state.timeZone = els.timeZoneSelect.value;
@@ -650,14 +823,20 @@ function bindEvents() {
     event.preventDefault();
     els.chartResizer.setPointerCapture(event.pointerId);
     const startY = event.clientY;
+    const startX = event.clientX;
     const startHeight = els.marketFocus.getBoundingClientRect().height;
+    const startRadarWidth = document.querySelector(".top-card").getBoundingClientRect().width;
     const move = (moveEvent) => {
       const maxHeight = Math.max(300, window.innerHeight - 190);
       const height = Math.max(260, Math.min(maxHeight, startHeight + moveEvent.clientY - startY));
       document.documentElement.style.setProperty("--focus-height", `${height}px`);
+      const radarWidth = Math.max(210, Math.min(520, startRadarWidth - (moveEvent.clientX - startX)));
+      document.documentElement.style.setProperty("--radar-width", `${radarWidth}px`);
+      state.workspaceSize = { height, radarWidth };
       priceChart.render();
     };
     const stop = () => {
+      localStorage.setItem(STORAGE_KEYS.workspaceSize, JSON.stringify(state.workspaceSize));
       els.chartResizer.removeEventListener("pointermove", move);
       els.chartResizer.removeEventListener("pointerup", stop);
       els.chartResizer.removeEventListener("pointercancel", stop);
@@ -700,7 +879,6 @@ function bindEvents() {
       renderTopList(state.lastMetrics);
     });
   }
-
   for (const button of els.timeframeButtons) {
     button.addEventListener("click", () => {
       selectInterval(button.dataset.interval);
@@ -766,6 +944,8 @@ klineFeed.select(state.selectedChartSymbol, state.chartInterval, state.chartRang
 loadChartStats(state.selectedChartSymbol);
 setInterval(render, 1000);
 setInterval(updateTrackedSymbols, 15_000);
+setTimeout(warmupRadarHistory, 1500);
+setInterval(warmupRadarHistory, 5000);
 function updateClock() {
   els.clock.textContent = new Intl.DateTimeFormat("ru-RU", {
     ...(state.timeZone === "local" ? {} : { timeZone: state.timeZone }),

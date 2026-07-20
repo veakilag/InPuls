@@ -1,3 +1,3 @@
-InPuls v11
-Build: full-latest
-Features: free-xy-pan, locked-live-price, persistent-scale, axis-crosshair, D-AS-US-markers, sortable-radar, funding, NATR, BTC-correlation
+InPuls v12
+Build: eye-comfort-workspace
+Features: global-comfort-theme, monochrome-candles, metric-radar, draggable-panels, diagonal-resize, stable-tf-viewport, cached-second-history
