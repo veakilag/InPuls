@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-store" />
+    <title>Обновление InPuls</title>
+    <style>
+      html,body{height:100%;margin:0;background:#080711;color:#eee8f6;font:14px Inter,system-ui,sans-serif}body{display:grid;place-items:center}.box{text-align:center}.pulse{width:12px;height:12px;margin:0 auto 14px;border-radius:50%;background:#37e6a1;box-shadow:0 0 24px #37e6a1;animation:p 1s infinite alternate}@keyframes p{to{opacity:.35}}small{display:block;margin-top:7px;color:#9d8bad}
+    </style>
+  </head>
+  <body>
+    <div class="box"><div class="pulse"></div><strong>Обновляю InPuls до v10…</strong><small>Удаляю старый кеш</small></div>
+    <script>
+      (async () => {
+        if ("serviceWorker" in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map((registration) => registration.unregister()));
+        }
+        if ("caches" in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((key) => caches.delete(key)));
+        }
+        localStorage.setItem("inpuls-last-refresh", String(Date.now()));
+        location.replace(`./?build=10&fresh=${Date.now()}`);
+      })();
+    </script>
+  </body>
+</html>
