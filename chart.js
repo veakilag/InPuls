@@ -1,5 +1,8 @@
 const MARKET_WS = "wss://fstream.binance.com/market/ws";
 const KLINES_REST = "https://fapi.binance.com/fapi/v1/klines";
+const AGG_TRADES_REST = "https://fapi.binance.com/fapi/v1/aggTrades";
+const RANGE_MS = { "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000, "7d": 604_800_000, "30d": 2_592_000_000, "90d": 7_776_000_000, "365d": 31_536_000_000 };
+const INTERVAL_MS = { "1s": 1_000, "5s": 5_000, "15s": 15_000, "1m": 60_000, "3m": 180_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000, "1h": 3_600_000, "2h": 7_200_000, "4h": 14_400_000, "12h": 43_200_000, "1d": 86_400_000, "3d": 259_200_000, "1w": 604_800_000, "1M": 2_592_000_000 };
 
 export function parseRestKline(row) {
   return {
@@ -55,29 +58,35 @@ export class KlineFeed {
     this.generation = 0;
   }
 
-  async select(symbol, interval = "1m") {
-    if (symbol === this.symbol && interval === this.interval && this.socket) return;
+  async select(symbol, interval = "1m", range = "1h") {
+    if (symbol === this.symbol && interval === this.interval && range === this.range && this.socket) return;
     this.symbol = symbol;
     this.interval = interval;
+    this.range = range;
     this.candles = [];
     this.generation += 1;
     const generation = this.generation;
     this.#cleanup();
     this.onStatus({ state: "loading", text: `Загружаю ${symbol} · ${interval}` });
-    this.onData([], { symbol, interval });
+    this.onData([], { symbol, interval, range });
 
     this.abortController = new AbortController();
     try {
-      const query = new URLSearchParams({ symbol, interval, limit: "180" });
-      const response = await fetch(`${KLINES_REST}?${query}`, {
+      const secondsMode = interval.endsWith("s");
+      const targetCandles = Math.max(30, Math.ceil((RANGE_MS[range] ?? RANGE_MS["1h"]) / (INTERVAL_MS[interval] ?? 60_000)));
+      const query = secondsMode
+        ? new URLSearchParams({ symbol, limit: "1000" })
+        : new URLSearchParams({ symbol, interval, limit: String(Math.min(1500, targetCandles + 2)) });
+      const response = await fetch(`${secondsMode ? AGG_TRADES_REST : KLINES_REST}?${query}`, {
         signal: this.abortController.signal,
         cache: "no-store",
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const rows = await response.json();
       if (generation !== this.generation) return;
-      this.candles = rows.map(parseRestKline).filter(isValidCandle);
-      this.onData(this.candles, { symbol, interval });
+      this.candles = secondsMode ? aggregateTrades(rows, INTERVAL_MS[interval]) : rows.map(parseRestKline).filter(isValidCandle);
+      this.candles = this.candles.slice(-Math.min(1500, targetCandles));
+      this.onData(this.candles, { symbol, interval, range, targetCandles });
     } catch (error) {
       if (error.name !== "AbortError" && generation === this.generation) {
         this.onStatus({ state: "warning", text: "История недоступна — собираю новые свечи" });
@@ -88,7 +97,8 @@ export class KlineFeed {
   }
 
   #connect(generation) {
-    const stream = `${this.symbol.toLowerCase()}@kline_${this.interval}`;
+    const secondsMode = this.interval.endsWith("s");
+    const stream = secondsMode ? `${this.symbol.toLowerCase()}@aggTrade` : `${this.symbol.toLowerCase()}@kline_${this.interval}`;
     this.socket = new WebSocket(`${MARKET_WS}/${stream}`);
     this.socket.addEventListener("open", () => {
       if (generation === this.generation) this.onStatus({ state: "online", text: "Свечи онлайн" });
@@ -97,10 +107,18 @@ export class KlineFeed {
       if (generation !== this.generation) return;
       try {
         const payload = JSON.parse(message.data);
-        const candle = parseStreamKline(payload.data ?? payload);
+        const data = payload.data ?? payload;
+        const candle = secondsMode ? tradeToCandle(data, INTERVAL_MS[this.interval]) : parseStreamKline(data);
         if (!isValidCandle(candle)) return;
-        this.candles = upsertCandle(this.candles, candle);
-        this.onData(this.candles, { symbol: this.symbol, interval: this.interval });
+        if (secondsMode && this.candles.at(-1)?.time === candle.time) {
+          const last = this.candles.at(-1);
+          candle.open = last.open;
+          candle.high = Math.max(last.high, candle.high);
+          candle.low = Math.min(last.low, candle.low);
+          candle.volume += last.volume;
+        }
+        this.candles = upsertCandle(this.candles, candle, 1500);
+        this.onData(this.candles, { symbol: this.symbol, interval: this.interval, range: this.range });
       } catch {
         // Ignore one malformed market message and keep the stream alive.
       }
@@ -170,7 +188,8 @@ export class CandlestickChart {
     const plotWidth = width - margins.left - margins.right;
     const priceBottom = height - margins.bottom - volumeHeight - 14;
     const plotHeight = priceBottom - margins.top;
-    const maxVisible = Math.max(32, Math.floor(plotWidth / 7));
+    const requested = this.meta?.targetCandles ?? this.candles.length;
+    const maxVisible = Math.max(32, Math.min(Math.floor(plotWidth / 2), requested));
     const visible = this.candles.slice(-maxVisible);
 
     this.#drawBackground(ctx, width, height, margins, priceBottom, volumeHeight);
@@ -320,6 +339,31 @@ export class CandlestickChart {
 
 function isValidCandle(candle) {
   return candle && [candle.time, candle.open, candle.high, candle.low, candle.close, candle.volume].every(Number.isFinite);
+}
+
+function tradeToCandle(trade, bucketMs) {
+  const price = Number(trade?.p);
+  const volume = Number(trade?.q);
+  const timestamp = Number(trade?.T ?? trade?.E);
+  if (![price, volume, timestamp].every(Number.isFinite)) return null;
+  const time = Math.floor(timestamp / bucketMs) * bucketMs;
+  return { time, open: price, high: price, low: price, close: price, volume, closeTime: time + bucketMs - 1, closed: false };
+}
+
+function aggregateTrades(rows, bucketMs) {
+  const candles = [];
+  for (const trade of rows) {
+    const next = tradeToCandle(trade, bucketMs);
+    if (!next) continue;
+    const last = candles.at(-1);
+    if (last?.time === next.time) {
+      last.high = Math.max(last.high, next.high);
+      last.low = Math.min(last.low, next.low);
+      last.close = next.close;
+      last.volume += next.volume;
+    } else candles.push(next);
+  }
+  return candles;
 }
 
 function formatTime(timestamp, withDate = false) {

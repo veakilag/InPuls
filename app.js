@@ -10,7 +10,10 @@ const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
   favorites: "inpuls-favorites-v1",
   sound: "inpuls-sound-v1",
+  chart: "inpuls-chart-v2",
 };
+
+const savedChart = loadJson(STORAGE_KEYS.chart, { interval: "1m", range: "1h" });
 
 const state = {
   symbols: new Map(),
@@ -21,7 +24,8 @@ const state = {
   search: "",
   selectedSymbol: null,
   selectedChartSymbol: "BTCUSDT",
-  chartInterval: "1m",
+  chartInterval: savedChart.interval ?? "1m",
+  chartRange: savedChart.range ?? "1h",
   chartCandles: [],
   topFilter: "score",
   lastMetrics: [],
@@ -61,6 +65,8 @@ const els = {
   chartChange: document.querySelector("#chart-change"),
   chartStatus: document.querySelector("#chart-status"),
   timeframeButtons: [...document.querySelectorAll("[data-interval]")],
+  rangeButtons: [...document.querySelectorAll("[data-range]")],
+  moreTimeframe: document.querySelector("#more-timeframe"),
   topFilter: document.querySelector("#top-filter"),
   topList: document.querySelector("#top-list"),
 };
@@ -169,6 +175,33 @@ const klineFeed = new KlineFeed({
     els.chartStatus.replaceChildren(document.createElement("i"), document.createTextNode(text));
   },
 });
+
+function persistChartSettings() {
+  localStorage.setItem(STORAGE_KEYS.chart, JSON.stringify({ interval: state.chartInterval, range: state.chartRange }));
+}
+
+function selectInterval(interval) {
+  state.chartInterval = interval;
+  const secondRangeCaps = { "1s": "15m", "5s": "1h", "15s": "4h" };
+  if (secondRangeCaps[interval]) state.chartRange = secondRangeCaps[interval];
+  persistChartSettings();
+  els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === interval));
+  els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === state.chartRange));
+  els.moreTimeframe.value = els.timeframeButtons.some((item) => item.dataset.interval === interval) ? "" : interval;
+  klineFeed.select(state.selectedChartSymbol, interval, state.chartRange);
+}
+
+function selectRange(range) {
+  state.chartRange = range;
+  const sensibleInterval = { "15m": "1s", "1h": "5s", "4h": "15s", "1d": "1m", "7d": "15m", "30d": "1h", "90d": "4h", "365d": "1d" };
+  const allowedSecondRanges = { "1s": ["15m"], "5s": ["15m", "1h"], "15s": ["15m", "1h", "4h"] };
+  if (allowedSecondRanges[state.chartInterval] && !allowedSecondRanges[state.chartInterval].includes(range)) state.chartInterval = sensibleInterval[range];
+  persistChartSettings();
+  els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === range));
+  els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === state.chartInterval));
+  els.moreTimeframe.value = els.timeframeButtons.some((item) => item.dataset.interval === state.chartInterval) ? "" : state.chartInterval;
+  klineFeed.select(state.selectedChartSymbol, state.chartInterval, range);
+}
 
 function getSymbol(symbol, now) {
   if (!state.symbols.has(symbol)) state.symbols.set(symbol, new SymbolState(symbol, now));
@@ -379,7 +412,7 @@ function selectChartSymbol(symbol, scrollToChart = false) {
   updateChartHeader();
   renderTopList(state.lastMetrics);
   els.tableBody.querySelectorAll("tr").forEach((row) => row.classList.toggle("is-selected", row.dataset.symbol === symbol));
-  if (changed || !state.chartCandles.length) klineFeed.select(symbol, state.chartInterval);
+  if (changed || !state.chartCandles.length) klineFeed.select(symbol, state.chartInterval, state.chartRange);
   if (scrollToChart) els.marketFocus.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -571,11 +604,13 @@ function bindEvents() {
 
   for (const button of els.timeframeButtons) {
     button.addEventListener("click", () => {
-      state.chartInterval = button.dataset.interval;
-      els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item === button));
-      klineFeed.select(state.selectedChartSymbol, state.chartInterval);
+      selectInterval(button.dataset.interval);
     });
   }
+  els.moreTimeframe.addEventListener("change", () => {
+    if (els.moreTimeframe.value) selectInterval(els.moreTimeframe.value);
+  });
+  for (const button of els.rangeButtons) button.addEventListener("click", () => selectRange(button.dataset.range));
 
   els.settingsButton.addEventListener("click", () => {
     for (const [key, value] of Object.entries(state.settings)) {
@@ -625,7 +660,10 @@ els.installButton.addEventListener("click", async () => {
 
 bindEvents();
 feed.connect();
-klineFeed.select(state.selectedChartSymbol, state.chartInterval);
+els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === state.chartInterval));
+els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === state.chartRange));
+els.moreTimeframe.value = els.timeframeButtons.some((item) => item.dataset.interval === state.chartInterval) ? "" : state.chartInterval;
+klineFeed.select(state.selectedChartSymbol, state.chartInterval, state.chartRange);
 setInterval(render, 1000);
 setInterval(updateTrackedSymbols, 15_000);
 setInterval(() => {

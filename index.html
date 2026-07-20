@@ -38,10 +38,10 @@
 
     <main>
       <section class="hero">
-        <div>
-          <span class="eyebrow">Binance USDⓈ-M · real-time</span>
-          <h1>Рынок без шума.</h1>
-          <p>Монеты ранжируются по движению, ускорению оборота, потоку сделок и ликвидациям. Сигнал всегда объясняет, почему сработал.</p>
+        <div class="workspace-title">
+          <span class="eyebrow">Live workspace · Binance USDⓈ-M</span>
+          <h1>Market radar</h1>
+          <p>Импульс, поток и ликвидации в одном экране.</p>
         </div>
         <div class="hero-stats">
           <article><span>Рынок растёт</span><strong id="market-pulse">—</strong><small>доля монет в плюсе за 1м</small></article>
@@ -63,12 +63,37 @@
               </div>
             </div>
             <div class="chart-controls">
-              <div class="timeframes" role="group" aria-label="Таймфрейм графика">
-                <button class="timeframe-button is-active" data-interval="1m" type="button">1м</button>
-                <button class="timeframe-button" data-interval="5m" type="button">5м</button>
-                <button class="timeframe-button" data-interval="15m" type="button">15м</button>
+              <div class="control-line">
+                <span class="control-caption">Свеча</span>
+                <div class="timeframes" role="group" aria-label="Таймфрейм графика">
+                  <button class="timeframe-button" data-interval="1s" type="button">1с</button>
+                  <button class="timeframe-button" data-interval="5s" type="button">5с</button>
+                  <button class="timeframe-button" data-interval="15s" type="button">15с</button>
+                  <button class="timeframe-button is-active" data-interval="1m" type="button">1м</button>
+                  <button class="timeframe-button" data-interval="5m" type="button">5м</button>
+                  <button class="timeframe-button" data-interval="15m" type="button">15м</button>
+                  <button class="timeframe-button" data-interval="1h" type="button">1ч</button>
+                  <select id="more-timeframe" class="timeframe-more" aria-label="Другие таймфреймы">
+                    <option value="">Ещё</option><option value="3m">3м</option><option value="30m">30м</option>
+                    <option value="2h">2ч</option><option value="4h">4ч</option><option value="12h">12ч</option>
+                    <option value="1d">1д</option><option value="3d">3д</option><option value="1w">1н</option><option value="1M">1мес</option>
+                  </select>
+                </div>
               </div>
-              <span id="chart-status" class="chart-status" data-status="loading"><i></i>Загрузка истории</span>
+              <div class="control-line range-line">
+                <span class="control-caption">Период</span>
+                <div class="ranges" role="group" aria-label="Период истории">
+                  <button class="range-button" data-range="15m" type="button">15м</button>
+                  <button class="range-button is-active" data-range="1h" type="button">1ч</button>
+                  <button class="range-button" data-range="4h" type="button">4ч</button>
+                  <button class="range-button" data-range="1d" type="button">1д</button>
+                  <button class="range-button" data-range="7d" type="button">7д</button>
+                  <button class="range-button" data-range="30d" type="button">1мес</button>
+                  <button class="range-button" data-range="90d" type="button">3мес</button>
+                  <button class="range-button" data-range="365d" type="button">1г</button>
+                </div>
+                <span id="chart-status" class="chart-status" data-status="loading"><i></i>Загрузка истории</span>
+              </div>
             </div>
           </header>
           <div class="chart-stage">
