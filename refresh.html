@@ -10,7 +10,7 @@
     </style>
   </head>
   <body>
-    <div class="box"><div class="pulse"></div><strong>Обновляю InPuls до v10…</strong><small>Удаляю старый кеш</small></div>
+    <div class="box"><div class="pulse"></div><strong>Обновляю InPuls до v11…</strong><small>Удаляю старый кеш</small></div>
     <script>
       (async () => {
         if ("serviceWorker" in navigator) {
@@ -22,7 +22,7 @@
           await Promise.all(keys.map((key) => caches.delete(key)));
         }
         localStorage.setItem("inpuls-last-refresh", String(Date.now()));
-        location.replace(`./?build=10&fresh=${Date.now()}`);
+        location.replace(`./?build=11&fresh=${Date.now()}`);
       })();
     </script>
   </body>

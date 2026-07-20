@@ -3,14 +3,16 @@ import {
   SymbolState,
   filterUsdtPerpetualTicker,
   formatCompactUsd,
-} from "./engine.js?v=10";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=10";
+} from "./engine.js?v=11";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=11";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
   favorites: "inpuls-favorites-v1",
   sound: "inpuls-sound-v1",
   chart: "inpuls-chart-v2",
+  timeZone: "inpuls-timezone-v1",
+  volume: "inpuls-volume-v1",
 };
 
 const savedChart = loadJson(STORAGE_KEYS.chart, { interval: "1m", range: "1h" });
@@ -32,12 +34,15 @@ const state = {
   alerts: [],
   connectedAt: null,
   chartStats: { fundingRate: null, nextFundingTime: null, natr1m: null, natr5m: null, correlation: null },
+  timeZone: localStorage.getItem(STORAGE_KEYS.timeZone) || "Europe/Moscow",
+  volumeVisible: loadJson(STORAGE_KEYS.volume, true),
 };
 
 const els = {
   status: document.querySelector("#connection-status"),
   statusText: document.querySelector("#connection-text"),
   clock: document.querySelector("#clock"),
+  timeZoneSelect: document.querySelector("#timezone-select"),
   soundButton: document.querySelector("#sound-toggle"),
   settingsButton: document.querySelector("#settings-open"),
   settingsDialog: document.querySelector("#settings-dialog"),
@@ -76,6 +81,8 @@ const els = {
   metricNatr1m: document.querySelector("#metric-natr-1m"),
   metricNatr5m: document.querySelector("#metric-natr-5m"),
   metricCorrelation: document.querySelector("#metric-correlation"),
+  volumeToggle: document.querySelector("#volume-toggle"),
+  chartResizer: document.querySelector("#chart-resizer"),
 };
 
 class BinanceFeed {
@@ -171,6 +178,8 @@ class BinanceFeed {
 
 const feed = new BinanceFeed();
 const priceChart = new CandlestickChart(els.priceChart, els.chartTooltip);
+priceChart.setTimeZone(state.timeZone === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : state.timeZone);
+priceChart.setVolumeVisible(state.volumeVisible);
 const klineFeed = new KlineFeed({
   onData(candles, meta) {
     state.chartCandles = candles;
@@ -331,7 +340,7 @@ function renderSummary(metrics, now) {
 }
 
 function renderTopList(metrics) {
-  const candidates = [...metrics];
+  let candidates = [...metrics];
   const { key, direction } = state.topSort;
   const multiplier = direction === "asc" ? 1 : -1;
   candidates.sort((left, right) => {
@@ -621,6 +630,43 @@ function escapeHtml(value) {
 }
 
 function bindEvents() {
+  els.timeZoneSelect.value = state.timeZone;
+  els.timeZoneSelect.addEventListener("change", () => {
+    state.timeZone = els.timeZoneSelect.value;
+    localStorage.setItem(STORAGE_KEYS.timeZone, state.timeZone);
+    priceChart.setTimeZone(state.timeZone === "local" ? Intl.DateTimeFormat().resolvedOptions().timeZone : state.timeZone);
+    updateClock();
+  });
+
+  els.volumeToggle.classList.toggle("is-collapsed", !state.volumeVisible);
+  els.volumeToggle.addEventListener("click", () => {
+    state.volumeVisible = !state.volumeVisible;
+    localStorage.setItem(STORAGE_KEYS.volume, JSON.stringify(state.volumeVisible));
+    els.volumeToggle.classList.toggle("is-collapsed", !state.volumeVisible);
+    priceChart.setVolumeVisible(state.volumeVisible);
+  });
+
+  els.chartResizer.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    els.chartResizer.setPointerCapture(event.pointerId);
+    const startY = event.clientY;
+    const startHeight = els.marketFocus.getBoundingClientRect().height;
+    const move = (moveEvent) => {
+      const maxHeight = Math.max(300, window.innerHeight - 190);
+      const height = Math.max(260, Math.min(maxHeight, startHeight + moveEvent.clientY - startY));
+      document.documentElement.style.setProperty("--focus-height", `${height}px`);
+      priceChart.render();
+    };
+    const stop = () => {
+      els.chartResizer.removeEventListener("pointermove", move);
+      els.chartResizer.removeEventListener("pointerup", stop);
+      els.chartResizer.removeEventListener("pointercancel", stop);
+    };
+    els.chartResizer.addEventListener("pointermove", move);
+    els.chartResizer.addEventListener("pointerup", stop);
+    els.chartResizer.addEventListener("pointercancel", stop);
+  });
+
   els.soundButton.classList.toggle("is-active", state.soundEnabled);
   els.soundButton.querySelector("span").textContent = state.soundEnabled ? "Звук включён" : "Звук выключен";
   els.soundButton.addEventListener("click", async () => {
@@ -720,13 +766,16 @@ klineFeed.select(state.selectedChartSymbol, state.chartInterval, state.chartRang
 loadChartStats(state.selectedChartSymbol);
 setInterval(render, 1000);
 setInterval(updateTrackedSymbols, 15_000);
-setInterval(() => {
+function updateClock() {
   els.clock.textContent = new Intl.DateTimeFormat("ru-RU", {
+    ...(state.timeZone === "local" ? {} : { timeZone: state.timeZone }),
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
   }).format(new Date());
-}, 1000);
+}
+setInterval(updateClock, 1000);
+updateClock();
 render();
 
 // During active development always prefer the current GitHub Pages build.

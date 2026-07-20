@@ -7,8 +7,8 @@
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="10" />
-    <link rel="stylesheet" href="./styles.css?v=10" />
+    <meta name="inpuls-build" content="11" />
+    <link rel="stylesheet" href="./styles.css?v=11" />
     <title>InPuls — в ритме рынка</title>
   </head>
   <body>
@@ -16,9 +16,18 @@
     <header class="topbar">
       <a class="brand" href="./" aria-label="InPuls — главная">
         <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span><strong>INPULS</strong><em>SCREENER <small>v10</small></em></span>
+        <span><strong>INPULS</strong><em>SCREENER <small>v11</small></em></span>
       </a>
       <div class="topbar-actions">
+        <label class="timezone-control" title="Часовой пояс интерфейса">
+          <span>TIME</span>
+          <select id="timezone-select" aria-label="Часовой пояс">
+            <option value="Europe/Moscow">Москва</option>
+            <option value="Asia/Seoul">Сеул</option>
+            <option value="UTC">UTC</option>
+            <option value="local">Местное</option>
+          </select>
+        </label>
         <div id="connection-status" class="connection" data-status="connecting">
           <span class="connection-dot"></span>
           <span id="connection-text">Подключение…</span>
@@ -69,16 +78,17 @@
           </header>
           <div class="chart-stage">
             <div class="chart-metrics" aria-label="Метрики выбранной монеты">
-              <span>24ч <strong id="metric-turnover">—</strong></span>
-              <span>Funding <strong id="metric-funding">—</strong></span>
-              <span>До funding <strong id="metric-funding-time">—</strong></span>
-              <span>NATR 1м <strong id="metric-natr-1m">—</strong></span>
-              <span>NATR 5м <strong id="metric-natr-5m">—</strong></span>
-              <span title="Корреляция минутных доходностей с BTC">C:BTC <strong id="metric-correlation">—</strong></span>
+              <span><b>V24</b><strong id="metric-turnover">—</strong></span>
+              <span><b>NATR 1</b><strong id="metric-natr-1m">—</strong></span>
+              <span><b>NATR 5</b><strong id="metric-natr-5m">—</strong></span>
+              <span><b>F</b><strong id="metric-funding">—</strong><em id="metric-funding-time">—</em></span>
+              <span title="Корреляция минутных доходностей с BTC"><b>C</b><strong id="metric-correlation">—</strong></span>
             </div>
             <canvas id="price-chart" aria-label="Свечной график выбранной монеты"></canvas>
             <div id="chart-tooltip" class="chart-tooltip" hidden></div>
-            <span class="zoom-hint">Ctrl+колесо · масштаб</span>
+            <button id="volume-toggle" class="volume-toggle" type="button" title="Скрыть или показать объём">VOL</button>
+            <span class="zoom-hint">Колесо · масштаб</span>
+            <button id="chart-resizer" class="chart-resizer" type="button" aria-label="Изменить высоту графика" title="Потяни, чтобы изменить высоту"></button>
           </div>
         </article>
 
@@ -190,6 +200,6 @@
       </form>
     </dialog>
 
-    <script type="module" src="./app.js?v=10"></script>
+    <script type="module" src="./app.js?v=11"></script>
   </body>
 </html>

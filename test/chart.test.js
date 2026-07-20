@@ -54,10 +54,10 @@ test("Pearson correlation detects aligned and inverse returns", () => {
   assert.equal(pearsonCorrelation([1, 2, 3, 4], [8, 6, 4, 2]), -1);
 });
 
-test("time scale marks UTC day and abbreviated sessions", () => {
+test("time scale marks day and Moscow session times", () => {
   const dayBoundary = sessionLabels(Date.UTC(2026, 6, 19, 23, 59), Date.UTC(2026, 6, 20, 0, 0));
   assert.ok(dayBoundary.includes("D"));
-  assert.ok(dayBoundary.includes("AS"));
-  const newYorkOpen = sessionLabels(Date.UTC(2026, 6, 20, 13, 29), Date.UTC(2026, 6, 20, 13, 30));
-  assert.ok(newYorkOpen.includes("US"));
+  assert.ok(dayBoundary.includes("Asia"));
+  const usaOpen = sessionLabels(Date.UTC(2026, 6, 20, 13, 29), Date.UTC(2026, 6, 20, 13, 30));
+  assert.ok(usaOpen.includes("USA"));
 });

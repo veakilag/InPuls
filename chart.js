@@ -201,6 +201,8 @@ export class CandlestickChart {
     this.priceScale = 1;
     this.pricePan = 0;
     this.followLatest = true;
+    this.timeZone = "Europe/Moscow";
+    this.volumeVisible = true;
     this.drag = null;
     this.resizeObserver = new ResizeObserver(() => this.render());
     this.resizeObserver.observe(canvas.parentElement);
@@ -222,6 +224,16 @@ export class CandlestickChart {
       this.viewStart = Math.max(0, this.candles.length - (this.visibleCount ?? 80));
       this.render();
     });
+  }
+
+  setTimeZone(timeZone) {
+    this.timeZone = timeZone || "Europe/Moscow";
+    this.render();
+  }
+
+  setVolumeVisible(visible) {
+    this.volumeVisible = Boolean(visible);
+    this.render();
   }
 
   setData(candles, meta) {
@@ -263,9 +275,9 @@ export class CandlestickChart {
     ctx.clearRect(0, 0, width, height);
 
     const margins = { left: 12, right: 72, top: 18, bottom: 28 };
-    const volumeHeight = Math.max(48, Math.round(height * 0.18));
+    const volumeHeight = this.volumeVisible ? Math.max(48, Math.round(height * 0.18)) : 0;
     const plotWidth = width - margins.left - margins.right;
-    const priceBottom = height - margins.bottom - volumeHeight - 14;
+    const priceBottom = height - margins.bottom - volumeHeight - (this.volumeVisible ? 14 : 0);
     const plotHeight = priceBottom - margins.top;
     const requested = this.meta?.targetCandles ?? this.candles.length;
     const defaultVisible = Math.max(20, Math.min(Math.floor(plotWidth / 2), requested, this.candles.length));
@@ -306,9 +318,10 @@ export class CandlestickChart {
       const globalIndex = sliceStart + index;
       const x = margins.left + (globalIndex - this.viewStart + .5) * step;
       const up = candle.close >= candle.open;
-      const color = up ? "#50e3a4" : "#ff6b7a";
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color;
+      const fill = up ? "#f2f2ef" : "#050505";
+      const stroke = up ? "#ffffff" : "#9a9a9a";
+      ctx.strokeStyle = stroke;
+      ctx.fillStyle = fill;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(x, y(candle.high));
@@ -316,12 +329,17 @@ export class CandlestickChart {
       ctx.stroke();
       const bodyTop = y(Math.max(candle.open, candle.close));
       const bodyBottom = y(Math.min(candle.open, candle.close));
-      ctx.fillRect(x - bodyWidth / 2, bodyTop, bodyWidth, Math.max(1.5, bodyBottom - bodyTop));
+      const bodyHeight = Math.max(1.5, bodyBottom - bodyTop);
+      ctx.fillRect(x - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight);
+      ctx.strokeRect(x - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight);
 
-      const volumeTop = height - margins.bottom - (candle.volume / maxVolume) * volumeHeight;
-      ctx.globalAlpha = 0.28;
-      ctx.fillRect(x - bodyWidth / 2, volumeTop, bodyWidth, height - margins.bottom - volumeTop);
-      ctx.globalAlpha = 1;
+      if (this.volumeVisible) {
+        const volumeTop = height - margins.bottom - (candle.volume / maxVolume) * volumeHeight;
+        ctx.globalAlpha = up ? .3 : .2;
+        ctx.fillStyle = up ? "#ffffff" : "#777777";
+        ctx.fillRect(x - bodyWidth / 2, volumeTop, bodyWidth, height - margins.bottom - volumeTop);
+        ctx.globalAlpha = 1;
+      }
     });
 
     const current = this.candles.at(-1);
@@ -331,17 +349,15 @@ export class CandlestickChart {
   }
 
   #drawBackground(ctx, width, height, margins, priceBottom, volumeHeight) {
-    ctx.fillStyle = "#0a0f16";
+    ctx.fillStyle = "#090909";
     ctx.fillRect(0, 0, width, height);
-    ctx.strokeStyle = "rgba(113,139,171,.09)";
-    ctx.beginPath();
-    ctx.moveTo(margins.left, priceBottom + 14);
-    ctx.lineTo(width - margins.right, priceBottom + 14);
-    ctx.stroke();
-    ctx.fillStyle = "#536176";
-    ctx.font = "8px Inter, sans-serif";
-    ctx.textAlign = "left";
-    ctx.fillText("VOLUME", margins.left + 4, height - margins.bottom - volumeHeight + 11);
+    if (this.volumeVisible) {
+      ctx.strokeStyle = "rgba(180,180,180,.12)";
+      ctx.beginPath();
+      ctx.moveTo(margins.left, priceBottom + 14);
+      ctx.lineTo(width - margins.right, priceBottom + 14);
+      ctx.stroke();
+    }
   }
 
   #drawPriceGrid(ctx, width, margins, minPrice, maxPrice, y) {
@@ -373,7 +389,7 @@ export class CandlestickChart {
       ctx.lineTo(x, height - margins.bottom);
       ctx.stroke();
       ctx.fillStyle = "#64738a";
-      ctx.fillText(formatTime(this.#timeAtIndex(globalIndex)), x, height - 9);
+      ctx.fillText(formatTime(this.#timeAtIndex(globalIndex), false, this.timeZone), x, height - 9);
     }
   }
 
@@ -384,21 +400,24 @@ export class CandlestickChart {
     for (let index = start; index <= end; index += 1) {
       const previous = this.candles[index - 1].time;
       const current = this.candles[index].time;
-      const labels = sessionLabels(previous, current);
-      if (!labels.length) continue;
-      const x = margins.left + (index - this.viewStart + .5) * this.layoutStep(margins);
-      ctx.save();
-      ctx.setLineDash([2, 5]);
-      ctx.strokeStyle = "rgba(157,108,255,.24)";
-      ctx.beginPath();
-      ctx.moveTo(x, margins.top);
-      ctx.lineTo(x, height - margins.bottom);
-      ctx.stroke();
-      ctx.restore();
-      ctx.fillStyle = "#9b80ca";
-      ctx.font = "bold 7px Inter, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(labels.join("·"), x, height - margins.bottom + 9);
+      const events = sessionEvents(previous, current, this.timeZone);
+      for (const event of events) {
+        const fraction = Math.max(0, Math.min(1, (event.time - previous) / Math.max(1, current - previous)));
+        const x = margins.left + (index - 1 + fraction - this.viewStart + .5) * this.layoutStep(margins);
+        ctx.save();
+        ctx.setLineDash([2, 5]);
+        ctx.strokeStyle = "rgba(157,108,255,.24)";
+        ctx.beginPath();
+        ctx.moveTo(x, margins.top);
+        ctx.lineTo(x, height - margins.bottom);
+        ctx.stroke();
+        ctx.restore();
+        ctx.fillStyle = "#b99ce8";
+        ctx.font = "bold 7px Inter, sans-serif";
+        ctx.textAlign = "center";
+        const label = event.label === "D" ? "D" : `${event.label} ${formatTime(event.time, false, this.timeZone)}`;
+        ctx.fillText(label, x, height - margins.bottom + 9);
+      }
     }
   }
 
@@ -417,11 +436,11 @@ export class CandlestickChart {
   }
 
   #drawLastPrice(ctx, width, margins, lineY, price, up, top, bottom) {
-    const color = up ? "#50e3a4" : "#ff6b7a";
+    const color = up ? "#f2f2ef" : "#090909";
     const visibleY = Math.max(top + 9, Math.min(bottom - 9, lineY));
     ctx.save();
     ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = up ? "#f2f2ef" : "#a0a0a0";
     ctx.globalAlpha = 0.6;
     ctx.beginPath();
     if (lineY >= top && lineY <= bottom) {
@@ -432,7 +451,11 @@ export class CandlestickChart {
     ctx.restore();
     ctx.fillStyle = color;
     ctx.fillRect(width - margins.right, visibleY - 9, margins.right, 18);
-    ctx.fillStyle = "#07110d";
+    if (!up) {
+      ctx.strokeStyle = "#8b8b8b";
+      ctx.strokeRect(width - margins.right + .5, visibleY - 8.5, margins.right - 1, 17);
+    }
+    ctx.fillStyle = up ? "#080808" : "#f2f2ef";
     ctx.font = "bold 9px Inter, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(formatChartPrice(price), width - margins.right / 2, visibleY + 3);
@@ -510,7 +533,6 @@ export class CandlestickChart {
   }
 
   #handleWheel(event) {
-    if (!event.ctrlKey) return;
     event.preventDefault();
     if (!this.layout || this.candles.length < 2) return;
     const rect = this.canvas.getBoundingClientRect();
@@ -552,7 +574,7 @@ export class CandlestickChart {
     ctx.font = "bold 8px Inter, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(formatChartPrice(price), width - margins.right / 2, y + 3);
-    ctx.fillText(formatTime(this.#timeAtIndex(slot), true), x, height - 9);
+    ctx.fillText(formatTime(this.#timeAtIndex(slot), true, this.timeZone), x, height - 9);
   }
 }
 
@@ -609,25 +631,38 @@ function zonedClock(timestamp, timeZone) {
   };
 }
 
-function crossesSession(previous, current, timeZone, targetMinute) {
+export function sessionEvents(previous, current, timeZone = "UTC") {
+  const events = [];
   const before = zonedClock(previous, timeZone);
   const after = zonedClock(current, timeZone);
-  if (before.date === after.date) return before.minute < targetMinute && after.minute >= targetMinute;
-  return before.minute < targetMinute || after.minute >= targetMinute;
+  if (before.date !== after.date) {
+    let left = previous;
+    let right = current;
+    while (right - left > 60_000) {
+      const middle = Math.floor((left + right) / 2);
+      if (zonedClock(middle, timeZone).date === before.date) left = middle;
+      else right = middle;
+    }
+    events.push({ label: "D", time: right });
+  }
+  const dayMs = 86_400_000;
+  const firstDay = Math.floor(previous / dayMs) * dayMs;
+  for (let day = firstDay; day <= current; day += dayMs) {
+    const asia = day;
+    const usa = day + 13.5 * 3_600_000;
+    if (previous < asia && asia <= current) events.push({ label: "Asia", time: asia });
+    if (previous < usa && usa <= current) events.push({ label: "USA", time: usa });
+  }
+  return events.sort((a, b) => a.time - b.time);
 }
 
-export function sessionLabels(previous, current) {
-  const labels = [];
-  const before = new Date(previous);
-  const after = new Date(current);
-  if (before.getUTCFullYear() !== after.getUTCFullYear() || before.getUTCMonth() !== after.getUTCMonth() || before.getUTCDate() !== after.getUTCDate()) labels.push("D");
-  if (crossesSession(previous, current, "Asia/Tokyo", 9 * 60)) labels.push("AS");
-  if (crossesSession(previous, current, "America/New_York", 9 * 60 + 30)) labels.push("US");
-  return labels;
+export function sessionLabels(previous, current, timeZone = "UTC") {
+  return sessionEvents(previous, current, timeZone).map((event) => event.label);
 }
 
-function formatTime(timestamp, withDate = false) {
+function formatTime(timestamp, withDate = false, timeZone) {
   return new Intl.DateTimeFormat("ru-RU", {
+    ...(timeZone ? { timeZone } : {}),
     ...(withDate ? { day: "2-digit", month: "2-digit" } : {}),
     hour: "2-digit",
     minute: "2-digit",
