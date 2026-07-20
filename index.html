@@ -51,6 +51,57 @@
         </div>
       </section>
 
+      <section id="market-focus" class="market-focus" aria-label="График и лидеры рынка">
+        <article class="chart-card">
+          <header class="chart-heading">
+            <div class="chart-symbol-block">
+              <span class="eyebrow">Свечной график · Binance Futures</span>
+              <div class="chart-quote">
+                <h2 id="chart-symbol">BTC/USDT</h2>
+                <strong id="chart-price">—</strong>
+                <span id="chart-change" class="tone-neutral">—</span>
+              </div>
+            </div>
+            <div class="chart-controls">
+              <div class="timeframes" role="group" aria-label="Таймфрейм графика">
+                <button class="timeframe-button is-active" data-interval="1m" type="button">1м</button>
+                <button class="timeframe-button" data-interval="5m" type="button">5м</button>
+                <button class="timeframe-button" data-interval="15m" type="button">15м</button>
+              </div>
+              <span id="chart-status" class="chart-status" data-status="loading"><i></i>Загрузка истории</span>
+            </div>
+          </header>
+          <div class="chart-stage">
+            <canvas id="price-chart" aria-label="Свечной график выбранной монеты"></canvas>
+            <div id="chart-tooltip" class="chart-tooltip" hidden></div>
+          </div>
+        </article>
+
+        <aside class="top-card">
+          <header class="top-heading">
+            <div>
+              <span class="eyebrow">Radar top</span>
+              <h2>Монеты в фокусе</h2>
+            </div>
+            <label class="top-filter-label">
+              <span class="sr-only">Критерий сортировки</span>
+              <select id="top-filter">
+                <option value="score">По рейтингу</option>
+                <option value="impulse">По импульсу 15с</option>
+                <option value="turnover">По обороту/мин</option>
+                <option value="gainers">Рост за 1м</option>
+                <option value="losers">Падение за 1м</option>
+                <option value="liquidations">По ликвидациям</option>
+                <option value="signals">Только сигналы</option>
+              </select>
+            </label>
+          </header>
+          <div id="top-list" class="top-list" aria-live="polite">
+            <div class="top-placeholder">Собираю лидеров рынка…</div>
+          </div>
+        </aside>
+      </section>
+
       <section class="workspace-panel">
         <div class="toolbar">
           <div class="filters" role="group" aria-label="Фильтр сигналов">

@@ -4,6 +4,7 @@ import {
   filterUsdtPerpetualTicker,
   formatCompactUsd,
 } from "./engine.js";
+import { CandlestickChart, KlineFeed } from "./chart.js";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -19,6 +20,10 @@ const state = {
   filter: "all",
   search: "",
   selectedSymbol: null,
+  selectedChartSymbol: "BTCUSDT",
+  chartInterval: "1m",
+  chartCandles: [],
+  topFilter: "score",
   lastMetrics: [],
   alerts: [],
   connectedAt: null,
@@ -48,6 +53,16 @@ const els = {
   detailContent: document.querySelector("#detail-content"),
   tbodyTemplate: document.querySelector("#row-template"),
   installButton: document.querySelector("#install-app"),
+  marketFocus: document.querySelector("#market-focus"),
+  priceChart: document.querySelector("#price-chart"),
+  chartTooltip: document.querySelector("#chart-tooltip"),
+  chartSymbol: document.querySelector("#chart-symbol"),
+  chartPrice: document.querySelector("#chart-price"),
+  chartChange: document.querySelector("#chart-change"),
+  chartStatus: document.querySelector("#chart-status"),
+  timeframeButtons: [...document.querySelectorAll("[data-interval]")],
+  topFilter: document.querySelector("#top-filter"),
+  topList: document.querySelector("#top-list"),
 };
 
 class BinanceFeed {
@@ -142,6 +157,18 @@ class BinanceFeed {
 }
 
 const feed = new BinanceFeed();
+const priceChart = new CandlestickChart(els.priceChart, els.chartTooltip);
+const klineFeed = new KlineFeed({
+  onData(candles, meta) {
+    state.chartCandles = candles;
+    priceChart.setData(candles, meta);
+    updateChartHeader();
+  },
+  onStatus({ state: status, text }) {
+    els.chartStatus.dataset.status = status;
+    els.chartStatus.replaceChildren(document.createElement("i"), document.createTextNode(text));
+  },
+});
 
 function getSymbol(symbol, now) {
   if (!state.symbols.has(symbol)) state.symbols.set(symbol, new SymbolState(symbol, now));
@@ -180,6 +207,8 @@ function render() {
   els.tableWrap.classList.toggle("is-empty", filtered.length === 0);
 
   renderSummary(metrics, now);
+  renderTopList(metrics);
+  updateChartHeader(metrics);
   if (state.selectedSymbol) renderDetail(state.selectedSymbol);
 }
 
@@ -188,6 +217,7 @@ function createRow(item) {
   row.dataset.symbol = item.symbol;
   row.classList.toggle("has-signal", Boolean(item.primarySignal));
   row.classList.toggle("is-hot", item.score >= state.settings.alertScore);
+  row.classList.toggle("is-selected", item.symbol === state.selectedChartSymbol);
 
   const favorite = row.querySelector(".favorite-button");
   favorite.classList.toggle("is-active", state.favorites.has(item.symbol));
@@ -210,7 +240,7 @@ function createRow(item) {
   renderSignal(row.querySelector(".signal-cell"), item);
   row.querySelector(".score-value").textContent = item.score;
   row.querySelector(".score-ring").style.setProperty("--score", `${item.score * 3.6}deg`);
-  row.addEventListener("click", () => openDetail(item.symbol));
+  row.addEventListener("click", () => selectChartSymbol(item.symbol, true));
   return row;
 }
 
@@ -255,6 +285,102 @@ function renderSummary(metrics, now) {
   const oldest = metrics.reduce((min, item) => Math.max(min, item.warmupSeconds), 0);
   els.warmup.hidden = oldest >= 300;
   if (oldest < 300) els.warmup.querySelector("span").textContent = `История: ${Math.min(100, Math.round((oldest / 300) * 100))}%`;
+}
+
+function renderTopList(metrics) {
+  let candidates = [...metrics];
+  const finite = (value, fallback = -Infinity) => Number.isFinite(value) ? value : fallback;
+  const sorters = {
+    score: (a, b) => b.score - a.score || finite(b.turnoverPerMinute, 0) - finite(a.turnoverPerMinute, 0),
+    impulse: (a, b) => Math.abs(finite(b.change15s, 0)) - Math.abs(finite(a.change15s, 0)),
+    turnover: (a, b) => finite(b.turnoverPerMinute, 0) - finite(a.turnoverPerMinute, 0),
+    gainers: (a, b) => finite(b.change1m) - finite(a.change1m),
+    losers: (a, b) => finite(a.change1m, Infinity) - finite(b.change1m, Infinity),
+    liquidations: (a, b) => finite(b.liquidation.total, 0) - finite(a.liquidation.total, 0),
+    signals: (a, b) => b.score - a.score,
+  };
+  if (state.topFilter === "signals") candidates = candidates.filter((item) => item.primarySignal);
+  candidates.sort(sorters[state.topFilter] ?? sorters.score);
+  candidates = candidates.slice(0, 10);
+
+  if (!candidates.length) {
+    const placeholder = document.createElement("div");
+    placeholder.className = "top-placeholder";
+    placeholder.textContent = state.lastMetrics.length ? "По этому фильтру пока нет монет" : "Собираю лидеров рынка…";
+    els.topList.replaceChildren(placeholder);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  candidates.forEach((item, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "top-item";
+    button.classList.toggle("is-selected", item.symbol === state.selectedChartSymbol);
+    button.setAttribute("aria-label", `Открыть график ${item.symbol}`);
+
+    const rank = document.createElement("span");
+    rank.className = "top-rank";
+    rank.textContent = String(index + 1).padStart(2, "0");
+
+    const identity = document.createElement("span");
+    identity.className = "top-identity";
+    const pair = document.createElement("strong");
+    pair.textContent = item.symbol.replace("USDT", "");
+    const quote = document.createElement("small");
+    quote.textContent = `${formatPrice(item.price)} USDT`;
+    identity.append(pair, quote);
+
+    const value = document.createElement("span");
+    value.className = "top-value";
+    const primary = document.createElement("strong");
+    const secondary = document.createElement("small");
+    const display = topDisplay(item, state.topFilter);
+    primary.textContent = display.primary;
+    primary.className = display.tone;
+    secondary.textContent = display.secondary;
+    value.append(primary, secondary);
+
+    button.append(rank, identity, value);
+    button.addEventListener("click", () => selectChartSymbol(item.symbol));
+    fragment.append(button);
+  });
+  els.topList.replaceChildren(fragment);
+}
+
+function topDisplay(item, filter) {
+  if (filter === "impulse") return { primary: formatChange(item.change15s), secondary: "импульс 15с", tone: toneClass(item.change15s) };
+  if (filter === "turnover") return { primary: formatCompactUsd(item.turnoverPerMinute), secondary: "оборот / мин", tone: "" };
+  if (filter === "gainers" || filter === "losers") return { primary: formatChange(item.change1m), secondary: "движение 1м", tone: toneClass(item.change1m) };
+  if (filter === "liquidations") return { primary: formatCompactUsd(item.liquidation.total), secondary: "ликвидации 60с", tone: "" };
+  if (filter === "signals") return { primary: item.primarySignal?.label ?? "—", secondary: `рейтинг ${item.score}`, tone: "top-signal-value" };
+  return { primary: String(item.score), secondary: "рейтинг", tone: item.score >= state.settings.alertScore ? "tone-up" : "" };
+}
+
+function updateChartHeader(metrics = state.lastMetrics) {
+  const item = metrics.find((candidate) => candidate.symbol === state.selectedChartSymbol);
+  const lastCandle = state.chartCandles.at(-1);
+  const price = item?.price ?? lastCandle?.close;
+  const change = Number.isFinite(item?.change1m)
+    ? item.change1m
+    : lastCandle?.open
+      ? ((lastCandle.close - lastCandle.open) / lastCandle.open) * 100
+      : null;
+  els.chartSymbol.textContent = `${state.selectedChartSymbol.replace("USDT", "")}/USDT`;
+  els.chartPrice.textContent = formatPrice(price);
+  els.chartChange.textContent = formatChange(change);
+  els.chartChange.className = toneClass(change);
+}
+
+function selectChartSymbol(symbol, scrollToChart = false) {
+  if (!symbol?.endsWith("USDT")) return;
+  const changed = symbol !== state.selectedChartSymbol;
+  state.selectedChartSymbol = symbol;
+  updateChartHeader();
+  renderTopList(state.lastMetrics);
+  els.tableBody.querySelectorAll("tr").forEach((row) => row.classList.toggle("is-selected", row.dataset.symbol === symbol));
+  if (changed || !state.chartCandles.length) klineFeed.select(symbol, state.chartInterval);
+  if (scrollToChart) els.marketFocus.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function updateAlerts(metrics, now) {
@@ -437,6 +563,20 @@ function bindEvents() {
     });
   }
 
+  els.topFilter.value = state.topFilter;
+  els.topFilter.addEventListener("change", () => {
+    state.topFilter = els.topFilter.value;
+    renderTopList(state.lastMetrics);
+  });
+
+  for (const button of els.timeframeButtons) {
+    button.addEventListener("click", () => {
+      state.chartInterval = button.dataset.interval;
+      els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item === button));
+      klineFeed.select(state.selectedChartSymbol, state.chartInterval);
+    });
+  }
+
   els.settingsButton.addEventListener("click", () => {
     for (const [key, value] of Object.entries(state.settings)) {
       const input = els.settingsForm.elements.namedItem(key);
@@ -485,6 +625,7 @@ els.installButton.addEventListener("click", async () => {
 
 bindEvents();
 feed.connect();
+klineFeed.select(state.selectedChartSymbol, state.chartInterval);
 setInterval(render, 1000);
 setInterval(updateTrackedSymbols, 15_000);
 setInterval(() => {
