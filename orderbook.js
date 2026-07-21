@@ -65,18 +65,106 @@ export function aggregateDepthBands(levels, middlePrice, rangePercent, rowCount,
   return bands;
 }
 
+const BOOK_SCALE_MULTIPLIERS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000];
+
+export function inferPriceTick(bids, asks, middlePrice) {
+  const prices = [...(bids ?? []), ...(asks ?? [])]
+    .slice(0, 160)
+    .map((row) => Number(row?.[0]))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  let minimum = Infinity;
+  for (let index = 1; index < prices.length; index += 1) {
+    const difference = prices[index] - prices[index - 1];
+    if (difference > Number.EPSILON && difference < minimum) minimum = difference;
+  }
+  if (Number.isFinite(minimum)) return minimum;
+  const middle = Math.abs(Number(middlePrice));
+  if (!Number.isFinite(middle) || middle === 0) return .01;
+  return 10 ** Math.floor(Math.log10(middle) - 5);
+}
+
+export function priceStepForScale(baseTick, scaleIndex = 3) {
+  const tick = Math.max(Number.EPSILON, Number(baseTick) || .01);
+  const index = Math.max(0, Math.min(BOOK_SCALE_MULTIPLIERS.length - 1, Math.round(Number(scaleIndex) || 0)));
+  return tick * BOOK_SCALE_MULTIPLIERS[index];
+}
+
+export function bookScaleLabel(scaleIndex = 3) {
+  const index = Math.max(0, Math.min(BOOK_SCALE_MULTIPLIERS.length - 1, Math.round(Number(scaleIndex) || 0)));
+  return `×${BOOK_SCALE_MULTIPLIERS[index]}`;
+}
+
+export function buildDepthLadder(bids, asks, marketPrice, viewCenter, priceStep, rowCount) {
+  const count = Math.max(3, Math.floor(Number(rowCount) || 3));
+  const step = Math.max(Number.EPSILON, Number(priceStep) || .01);
+  const market = Number(marketPrice);
+  const center = Number.isFinite(Number(viewCenter)) ? Number(viewCenter) : market;
+  if (!Number.isFinite(market) || !Number.isFinite(center)) return [];
+  const middleIndex = Math.floor(count / 2);
+  const topPrice = Math.round((center + middleIndex * step) / step) * step;
+  const rows = Array.from({ length: count }, (_, index) => ({
+    price: topPrice - index * step,
+    bidQuote: 0,
+    askQuote: 0,
+    quantity: 0,
+    quote: 0,
+    isMarket: false,
+  }));
+  const add = (levels, side) => {
+    for (const row of levels ?? []) {
+      const price = Number(row?.[0]);
+      const quantity = Number(row?.[1]);
+      if (![price, quantity].every(Number.isFinite) || quantity <= 0) continue;
+      const index = Math.round((topPrice - price) / step);
+      if (index < 0 || index >= count) continue;
+      const quote = price * quantity;
+      rows[index].quantity += quantity;
+      rows[index].quote += quote;
+      rows[index][side === "bid" ? "bidQuote" : "askQuote"] += quote;
+    }
+  };
+  add(bids, "bid");
+  add(asks, "ask");
+  const marketIndex = Math.max(0, Math.min(count - 1, Math.round((topPrice - market) / step)));
+  rows[marketIndex].isMarket = true;
+  return rows;
+}
+
+export function aggregateTradeClusters(trades, minimumQuote = 0, priceStep = .01, limit = 40) {
+  const threshold = Math.max(0, Number(minimumQuote) || 0);
+  const step = Math.max(Number.EPSILON, Number(priceStep) || .01);
+  const clusters = new Map();
+  for (const trade of trades ?? []) {
+    if (!trade || !Number.isFinite(trade.quote) || trade.quote < threshold) continue;
+    const price = Math.round(trade.price / step) * step;
+    const key = String(price);
+    const cluster = clusters.get(key) ?? { price, buyQuote: 0, sellQuote: 0, quote: 0, count: 0, time: 0 };
+    cluster[trade.side === "sell" ? "sellQuote" : "buyQuote"] += trade.quote;
+    cluster.quote += trade.quote;
+    cluster.count += 1;
+    cluster.time = Math.max(cluster.time, trade.time);
+    clusters.set(key, cluster);
+  }
+  return [...clusters.values()].sort((left, right) => right.time - left.time).slice(0, Math.max(1, Math.floor(limit)));
+}
+
 export class OrderBookFeed {
   constructor({ onData, onStatus, WebSocketImpl = globalThis.WebSocket, fetchImpl = globalThis.fetch } = {}) {
     this.onData = onData ?? (() => {});
     this.onStatus = onStatus ?? (() => {});
     this.WebSocketImpl = WebSocketImpl;
     this.fetchImpl = fetchImpl;
-    this.socket = null;
+    this.depthSocket = null;
+    this.tradeSocket = null;
     this.symbol = null;
     this.generation = 0;
-    this.attemptIndex = 0;
-    this.reconnectTimer = null;
-    this.watchdogTimer = null;
+    this.depthAttemptIndex = 0;
+    this.tradeAttemptIndex = 0;
+    this.depthReconnectTimer = null;
+    this.tradeReconnectTimer = null;
+    this.depthWatchdogTimer = null;
+    this.tradeWatchdogTimer = null;
     this.snapshotTimer = null;
     this.bids = new Map();
     this.asks = new Map();
@@ -149,72 +237,111 @@ export class OrderBookFeed {
     if (generation === this.generation) this.snapshotTimer = setTimeout(() => this.#loadDeepSnapshot(generation), 15_000);
   }
 
-  async #start(generation) {
-    clearTimeout(this.reconnectTimer);
-    clearTimeout(this.watchdogTimer);
-    this.socket?.close();
+  #start(generation) {
     this.onStatus({ state: "loading", text: "Подключение" });
-    const rate = this.attemptIndex % 4 === 3 ? "500ms" : "100ms";
+    this.#startDepth(generation);
+    this.#startTrades(generation);
+  }
+
+  #startDepth(generation) {
+    clearTimeout(this.depthReconnectTimer);
+    clearTimeout(this.depthWatchdogTimer);
+    this.depthSocket?.close();
+    const rate = this.depthAttemptIndex % 4 === 3 ? "500ms" : "100ms";
     const depthStream = `${this.symbol.toLowerCase()}@depth20@${rate}`;
-    const tradeStream = `${this.symbol.toLowerCase()}@aggTrade`;
-    const streams = `${depthStream}/${tradeStream}`;
     const transports = [
-      { url: `wss://fstream.binance.com/public/stream?streams=${streams}`, subscribe: false },
-      { url: `wss://fstream.binance.com/stream?streams=${streams}`, subscribe: false },
+      { url: `wss://fstream.binance.com/public/stream?streams=${depthStream}`, subscribe: false },
+      { url: `wss://fstream.binance.com/public/ws/${depthStream}`, subscribe: false },
       { url: "wss://fstream.binance.com/public/stream", subscribe: true },
-      { url: `wss://stream.binancefuture.com/stream?streams=${streams}`, subscribe: false },
+      { url: `wss://fstream.binance.com/public/stream?streams=${depthStream}`, subscribe: false },
     ];
-    const transport = transports[this.attemptIndex % transports.length];
+    const transport = transports[this.depthAttemptIndex % transports.length];
     const socket = new this.WebSocketImpl(transport.url);
-    this.socket = socket;
+    this.depthSocket = socket;
     socket.addEventListener("open", () => {
       if (generation !== this.generation) return;
-      if (transport.subscribe) socket.send(JSON.stringify({ method: "SUBSCRIBE", params: [depthStream, tradeStream], id: Date.now() % 2_147_483_647 }));
+      if (transport.subscribe) socket.send(JSON.stringify({ method: "SUBSCRIBE", params: [depthStream], id: Date.now() % 2_147_483_647 }));
       this.onStatus({ state: "loading", text: "Синхронизация" });
-      this.watchdogTimer = setTimeout(() => socket.close(), 7000);
+      this.depthWatchdogTimer = setTimeout(() => socket.close(), 7000);
     });
     socket.addEventListener("message", (event) => {
       if (generation !== this.generation) return;
       let update;
       try { update = JSON.parse(event.data); } catch { return; }
       if (update.result === null || update.id) return;
-      const streamName = update.stream ?? "";
       update = update.data ?? update;
-      if (update.e === "aggTrade" || streamName.endsWith("@aggTrade")) {
-        const trade = normalizeMarketTrade(update);
-        if (!trade) return;
-        this.trades.unshift(trade);
-        if (this.trades.length > 160) this.trades.length = 160;
-        this.#emit(trade.time);
-        return;
-      }
       const bidRows = update?.b ?? update?.bids;
       const askRows = update?.a ?? update?.asks;
       if (!Array.isArray(bidRows) || !Array.isArray(askRows)) return;
       this.partialBidKeys = this.#replacePartialSide(this.bids, this.partialBidKeys, bidRows);
       this.partialAskKeys = this.#replacePartialSide(this.asks, this.partialAskKeys, askRows);
       this.lastUpdateId = Number(update.u) || this.lastUpdateId;
-      clearTimeout(this.watchdogTimer);
+      clearTimeout(this.depthWatchdogTimer);
       this.#emit(Number(update.E) || Date.now(), true);
-      this.attemptIndex = 0;
+      this.depthAttemptIndex = 0;
       this.onStatus({ state: "online", text: rate === "500ms" ? "LIVE 500ms" : "LIVE 100ms" });
     });
     socket.addEventListener("close", () => {
       if (generation !== this.generation) return;
-      clearTimeout(this.watchdogTimer);
-      this.attemptIndex += 1;
+      clearTimeout(this.depthWatchdogTimer);
+      this.depthAttemptIndex += 1;
       this.onStatus({ state: "offline", text: "Переподключение" });
-      this.reconnectTimer = setTimeout(() => this.#start(generation), 450);
+      this.depthReconnectTimer = setTimeout(() => this.#startDepth(generation), 450);
     });
-    socket.addEventListener("error", () => this.onStatus({ state: "offline", text: "Ошибка потока" }));
+    socket.addEventListener("error", () => this.onStatus({ state: "offline", text: "Ошибка стакана" }));
+  }
+
+  #startTrades(generation) {
+    clearTimeout(this.tradeReconnectTimer);
+    clearTimeout(this.tradeWatchdogTimer);
+    this.tradeSocket?.close();
+    const tradeStream = `${this.symbol.toLowerCase()}@aggTrade`;
+    const transports = [
+      { url: `wss://fstream.binance.com/market/stream?streams=${tradeStream}`, subscribe: false },
+      { url: `wss://fstream.binance.com/market/ws/${tradeStream}`, subscribe: false },
+      { url: "wss://fstream.binance.com/market/stream", subscribe: true },
+    ];
+    const transport = transports[this.tradeAttemptIndex % transports.length];
+    const socket = new this.WebSocketImpl(transport.url);
+    this.tradeSocket = socket;
+    socket.addEventListener("open", () => {
+      if (generation !== this.generation) return;
+      if (transport.subscribe) socket.send(JSON.stringify({ method: "SUBSCRIBE", params: [tradeStream], id: Date.now() % 2_147_483_647 }));
+      this.tradeWatchdogTimer = setTimeout(() => socket.close(), 7000);
+    });
+    socket.addEventListener("message", (event) => {
+      if (generation !== this.generation) return;
+      let update;
+      try { update = JSON.parse(event.data); } catch { return; }
+      if (update.result === null || update.id) return;
+      update = update.data ?? update;
+      const trade = normalizeMarketTrade(update);
+      if (!trade) return;
+      clearTimeout(this.tradeWatchdogTimer);
+      this.tradeAttemptIndex = 0;
+      this.trades.unshift(trade);
+      if (this.trades.length > 320) this.trades.length = 320;
+      this.#emit(trade.time);
+    });
+    socket.addEventListener("close", () => {
+      if (generation !== this.generation) return;
+      clearTimeout(this.tradeWatchdogTimer);
+      this.tradeAttemptIndex += 1;
+      this.tradeReconnectTimer = setTimeout(() => this.#startTrades(generation), 450);
+    });
+    socket.addEventListener("error", () => {});
   }
 
   destroy() {
     this.generation += 1;
-    clearTimeout(this.reconnectTimer);
-    clearTimeout(this.watchdogTimer);
+    clearTimeout(this.depthReconnectTimer);
+    clearTimeout(this.tradeReconnectTimer);
+    clearTimeout(this.depthWatchdogTimer);
+    clearTimeout(this.tradeWatchdogTimer);
     clearTimeout(this.snapshotTimer);
-    this.socket?.close();
-    this.socket = null;
+    this.depthSocket?.close();
+    this.tradeSocket?.close();
+    this.depthSocket = null;
+    this.tradeSocket = null;
   }
 }

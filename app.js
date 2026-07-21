@@ -3,9 +3,9 @@ import {
   SymbolState,
   filterUsdtPerpetualTicker,
   formatCompactUsd,
-} from "./engine.js?v=20";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=20";
-import { aggregateDepthBands, OrderBookFeed } from "./orderbook.js?v=20";
+} from "./engine.js?v=21";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=21";
+import { aggregateTradeClusters, bookScaleLabel, buildDepthLadder, inferPriceTick, OrderBookFeed, priceStepForScale } from "./orderbook.js?v=21";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -77,7 +77,7 @@ const state = {
   radarColumns: loadJson(STORAGE_KEYS.radarColumns, [1.35, 1, 1, 1, .85, .85, 1]),
   radarFilters: loadJson(STORAGE_KEYS.radarFilters, EMPTY_RADAR_FILTERS),
   inplay: normalizeInPlay(loadJson(STORAGE_KEYS.inplay, DEFAULT_INPLAY)),
-  favoriteTimeframes: [...new Set(loadJson(STORAGE_KEYS.favoriteTimeframes, DEFAULT_FAVORITE_TIMEFRAMES).filter((interval) => CHART_INTERVALS.includes(interval)))],
+  favoriteTimeframes: [...new Set(loadJson(STORAGE_KEYS.favoriteTimeframes, DEFAULT_FAVORITE_TIMEFRAMES).filter((interval) => CHART_INTERVALS.includes(interval)))].sort((left, right) => CHART_INTERVALS.indexOf(left) - CHART_INTERVALS.indexOf(right)),
 };
 
 const els = {
@@ -478,7 +478,7 @@ function toggleFavoriteTimeframe(interval) {
   if (!CHART_INTERVALS.includes(interval)) return;
   state.favoriteTimeframes = state.favoriteTimeframes.includes(interval)
     ? state.favoriteTimeframes.filter((item) => item !== interval)
-    : [...state.favoriteTimeframes, interval];
+    : [...state.favoriteTimeframes, interval].sort((left, right) => CHART_INTERVALS.indexOf(left) - CHART_INTERVALS.indexOf(right));
   localStorage.setItem(STORAGE_KEYS.favoriteTimeframes, JSON.stringify(state.favoriteTimeframes));
   renderTimeframePickers();
 }
@@ -891,13 +891,17 @@ function normalizeWorkspace() {
   for (const source of sourceExtras) {
     if (!source?.id || !source?.symbol?.endsWith("USDT")) continue;
     const type = source.type === "orderbook" ? "orderbook" : "chart";
-    const fallback = { id: String(source.id), type, symbol: source.symbol, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, depthPercent: source.depthPercent ?? .5, x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
+    const fallback = { id: String(source.id), type, symbol: source.symbol, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, bookScaleIndex: source.bookScaleIndex ?? 3, bookCentered: source.bookCentered !== false, tapePercent: source.tapePercent ?? 48, tradeMinQuote: source.tradeMinQuote ?? 0, clustersVisible: Boolean(source.clustersVisible), x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
     const item = clampPanel(source, fallback, { w: 3, h: 2 });
     item.symbol = source.symbol;
     item.interval = source.interval || state.chartInterval;
     item.volumeVisible = source.volumeVisible ?? state.volumeVisible;
     item.sessionsVisible = source.sessionsVisible ?? state.sessionsVisible;
-    item.depthPercent = Math.max(.5, Math.min(100, Number(source.depthPercent) || .5));
+    item.bookScaleIndex = Math.max(0, Math.min(11, Number.isFinite(Number(source.bookScaleIndex)) ? Math.round(Number(source.bookScaleIndex)) : 3));
+    item.bookCentered = source.bookCentered !== false;
+    item.tapePercent = Math.max(24, Math.min(72, Number(source.tapePercent) || 48));
+    item.tradeMinQuote = Math.max(0, Number(source.tradeMinQuote) || 0);
+    item.clustersVisible = Boolean(source.clustersVisible);
     if (canPlacePanel(item, workspace)) workspace.extras.push(item);
   }
   state.workspace = workspace;
@@ -1110,7 +1114,13 @@ function bindChartToolbox(root, chart, persistSessions = false) {
   const clearButton = root.querySelector(".drawing-clear-button");
   menu.hidden = false;
   const setOpen = (open) => {
-    root.querySelector(".chart-toolbox")?.classList.toggle("is-open", open);
+    const toolbox = root.querySelector(".chart-toolbox");
+    if (open && toolbox) {
+      const panelRect = root.getBoundingClientRect();
+      const toolboxRect = toolbox.getBoundingClientRect();
+      toolbox.classList.toggle("opens-sideways", panelRect.bottom - toolboxRect.top < 260);
+    }
+    toolbox?.classList.toggle("is-open", open);
     menu.classList.toggle("is-open", open);
     toggle.classList.toggle("is-menu-open", open);
     toggle.setAttribute("aria-expanded", String(open));
@@ -1244,7 +1254,11 @@ function createExtraPanel(symbol, type = "chart") {
     interval: state.chartInterval,
     volumeVisible: state.volumeVisible,
     sessionsVisible: state.sessionsVisible,
-    depthPercent: .5,
+    bookScaleIndex: 3,
+    bookCentered: true,
+    tapePercent: 48,
+    tradeMinQuote: 0,
+    clustersVisible: false,
     x: slot.x,
     y: slot.y,
     w: slot.w,
@@ -1307,27 +1321,30 @@ function mountOrderBook(model) {
       <span class="panel-grip" title="Переместить стакан">⠿</span>
       <h2>${escapeHtml(model.symbol.replace("USDT", ""))}/USDT · Стакан</h2>
       <span class="book-status">Синхронизация</span>
+      <button class="book-center-toggle${model.bookCentered !== false ? " is-active" : ""}" data-book-center type="button" aria-pressed="${model.bookCentered !== false}" title="Текущая цена зафиксирована по центру">◎</button>
       <button class="panel-close" type="button" title="Закрыть стакан">×</button>
     </header>
-    <div class="orderbook-stage">
+    <div class="orderbook-stage" style="--tape-percent:${Number(model.tapePercent) || 48}%">
       <section class="orderbook-tape" aria-label="Лента рыночных сделок">
-        <div class="book-pane-title"><span>ЛЕНТА</span><span>РЫНОЧНЫЙ САЙЗ</span></div>
-        <div class="trade-tape"><div class="orderbook-empty">Жду сделки…</div></div>
+        <div class="trade-tape-toolbar">
+          <button data-book-clusters class="book-cluster-toggle${model.clustersVisible ? " is-active" : ""}" type="button" aria-pressed="${Boolean(model.clustersVisible)}" title="Показать кластеры исполнений">КЛ</button>
+          <label title="Показывать агрегированные сделки не меньше указанной суммы"><span>≥ $</span><input data-trade-min type="number" min="0" step="1000" value="${Math.max(0, Number(model.tradeMinQuote) || 0)}" aria-label="Минимальный размер сделки в долларах" /></label>
+          <span>СДЕЛКИ</span>
+        </div>
+        <div class="trade-tape-body"><div class="trade-clusters" hidden></div><div class="trade-tape"><div class="orderbook-empty">Жду сделки…</div></div></div>
       </section>
+      <button class="book-splitter" type="button" aria-label="Изменить ширину ленты сделок" title="Потяни влево или вправо"></button>
       <section class="orderbook-ladder" aria-label="Стакан заявок">
-        <div class="book-pane-title"><span>САЙЗ</span><span>ЦЕНА</span></div>
+        <div class="book-pane-title"><span>САЙЗ</span><span data-book-scale>${bookScaleLabel(model.bookScaleIndex)}</span><span>ЦЕНА</span></div>
         <div class="orderbook-rows"><div class="orderbook-empty">Загружаю глубину Binance…</div></div>
       </section>
-      <label class="book-depth-control" title="Видимая глубина цены в каждую сторону">
-        <strong data-book-depth-label>${Number(model.depthPercent ?? .5).toLocaleString("ru-RU")}%</strong>
-        <input data-book-depth type="range" min="5" max="1000" step="5" value="${Math.round((model.depthPercent ?? .5) * 10)}" aria-label="Глубина стакана от 0,5 до 100 процентов" />
-      </label>
+      <span class="book-wheel-hint">Ctrl + колесо · масштаб цены</span>
       <button class="panel-resizer" type="button" aria-label="Изменить размер стакана"></button>
     </div>
     <div class="panel-drop-shield"><strong>СМЕНИТЬ НА ЭТУ МОНЕТУ</strong></div>
     <button class="panel-resizer panel-resizer-nw" type="button" aria-label="Изменить размер стакана из левого верхнего угла"></button>`;
   els.marketFocus.insertBefore(article, els.addChartTile);
-  const panel = { model, element: article, feed: null, latest: null, frame: null };
+  const panel = { model, element: article, feed: null, latest: null, frame: null, centerFrame: null, viewCenter: null, priceStep: null, baseTick: null, autoCentering: false };
   const draw = () => {
     panel.frame = null;
     if (panel.latest) renderOrderBook(panel, panel.latest);
@@ -1368,6 +1385,9 @@ function mountOrderBook(model) {
     clearDropState();
     model.symbol = symbol;
     panel.latest = null;
+    panel.viewCenter = null;
+    panel.baseTick = null;
+    panel.autoCentering = false;
     article.querySelector(".trade-tape").innerHTML = '<div class="orderbook-empty">Жду сделки…</div>';
     article.querySelector(".orderbook-rows").innerHTML = '<div class="orderbook-empty">Загружаю глубину Binance…</div>';
     article.querySelector("h2").textContent = `${symbol.replace("USDT", "")}/USDT · Стакан`;
@@ -1375,50 +1395,138 @@ function mountOrderBook(model) {
     panel.feed.select(symbol);
   }, true);
   document.addEventListener("dragend", clearDropState);
-  const depthInput = article.querySelector("[data-book-depth]");
-  const depthLabel = article.querySelector("[data-book-depth-label]");
-  depthInput.addEventListener("input", () => {
-    model.depthPercent = Math.max(.5, Math.min(100, Number(depthInput.value) / 10));
-    depthLabel.textContent = `${model.depthPercent.toLocaleString("ru-RU")}%`;
+  const stage = article.querySelector(".orderbook-stage");
+  const centerButton = article.querySelector("[data-book-center]");
+  const syncCenterButton = () => {
+    centerButton.classList.toggle("is-active", model.bookCentered !== false);
+    centerButton.setAttribute("aria-pressed", String(model.bookCentered !== false));
+    centerButton.title = model.bookCentered !== false ? "Текущая цена зафиксирована по центру" : "Свободный просмотр; у границы цена плавно вернётся в центр";
+  };
+  centerButton.addEventListener("click", () => {
+    model.bookCentered = model.bookCentered === false;
+    panel.autoCentering = false;
+    if (model.bookCentered) panel.viewCenter = null;
+    syncCenterButton();
+    persistWorkspace();
     if (panel.latest) renderOrderBook(panel, panel.latest);
   });
-  depthInput.addEventListener("change", persistWorkspace);
+  const tradeMinInput = article.querySelector("[data-trade-min]");
+  tradeMinInput.addEventListener("input", () => {
+    model.tradeMinQuote = Math.max(0, Number(tradeMinInput.value) || 0);
+    if (panel.latest) renderOrderBook(panel, panel.latest);
+  });
+  tradeMinInput.addEventListener("change", persistWorkspace);
+  const clusterButton = article.querySelector("[data-book-clusters]");
+  clusterButton.addEventListener("click", () => {
+    model.clustersVisible = !model.clustersVisible;
+    clusterButton.classList.toggle("is-active", model.clustersVisible);
+    clusterButton.setAttribute("aria-pressed", String(model.clustersVisible));
+    persistWorkspace();
+    if (panel.latest) renderOrderBook(panel, panel.latest);
+  });
+  const splitter = article.querySelector(".book-splitter");
+  splitter.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    splitter.setPointerCapture(event.pointerId);
+    const move = (moveEvent) => {
+      const rect = stage.getBoundingClientRect();
+      model.tapePercent = Math.max(24, Math.min(72, ((moveEvent.clientX - rect.left) / Math.max(1, rect.width)) * 100));
+      stage.style.setProperty("--tape-percent", `${model.tapePercent}%`);
+      if (panel.latest) renderOrderBook(panel, panel.latest);
+    };
+    const stop = () => {
+      persistWorkspace();
+      splitter.removeEventListener("pointermove", move);
+      splitter.removeEventListener("pointerup", stop);
+      splitter.removeEventListener("pointercancel", stop);
+    };
+    splitter.addEventListener("pointermove", move);
+    splitter.addEventListener("pointerup", stop);
+    splitter.addEventListener("pointercancel", stop);
+  });
+  stage.addEventListener("wheel", (event) => {
+    if (event.target.closest("input")) return;
+    event.preventDefault();
+    if (event.ctrlKey || event.metaKey) {
+      model.bookScaleIndex = Math.max(0, Math.min(11, (Number(model.bookScaleIndex) || 0) + (event.deltaY > 0 ? 1 : -1)));
+      panel.autoCentering = false;
+      if (model.bookCentered !== false) panel.viewCenter = null;
+      persistWorkspace();
+    } else if (model.bookCentered === false && Number.isFinite(panel.viewCenter) && Number.isFinite(panel.priceStep)) {
+      panel.autoCentering = false;
+      panel.viewCenter -= Math.sign(event.deltaY) * panel.priceStep * 3;
+    } else return;
+    if (panel.latest) renderOrderBook(panel, panel.latest);
+  }, { passive: false });
+  syncCenterButton();
   panel.feed.select(model.symbol);
 }
 
 function renderOrderBook(panel, data) {
   const body = panel.element.querySelector(".orderbook-rows");
   const tape = panel.element.querySelector(".trade-tape");
-  const sideRows = Math.max(2, Math.floor((body.getBoundingClientRect().height - 25) / 28));
+  const clusterPane = panel.element.querySelector(".trade-clusters");
+  const tapeBody = panel.element.querySelector(".trade-tape-body");
+  let rowCount = Math.max(5, Math.floor(body.getBoundingClientRect().height / 12));
+  if (rowCount % 2 === 0) rowCount -= 1;
   const bestBid = data.bids[0]?.[0];
   const bestAsk = data.asks[0]?.[0];
   const middle = Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? (bestBid + bestAsk) / 2 : null;
   if (!Number.isFinite(middle)) return;
-  const asks = aggregateDepthBands(data.asks, middle, panel.model.depthPercent, sideRows, "ask");
-  const bids = aggregateDepthBands(data.bids, middle, panel.model.depthPercent, sideRows, "bid");
-  const values = [...asks, ...bids].map((item) => item.quote).filter((value) => value > 0).sort((a, b) => a - b);
+  panel.baseTick = panel.baseTick ?? inferPriceTick(data.bids, data.asks, middle);
+  panel.priceStep = priceStepForScale(panel.baseTick, panel.model.bookScaleIndex);
+  if (panel.model.bookCentered !== false || !Number.isFinite(panel.viewCenter)) panel.viewCenter = middle;
+  const halfSpan = panel.priceStep * Math.max(2, Math.floor(rowCount / 2));
+  if (panel.model.bookCentered === false && Math.abs(middle - panel.viewCenter) >= halfSpan * .9) panel.autoCentering = true;
+  if (panel.autoCentering) {
+    const difference = middle - panel.viewCenter;
+    panel.viewCenter += difference * .18;
+    if (Math.abs(difference) <= panel.priceStep * .08) {
+      panel.viewCenter = middle;
+      panel.autoCentering = false;
+    } else if (!panel.centerFrame) {
+      panel.centerFrame = requestAnimationFrame(() => {
+        panel.centerFrame = null;
+        if (panel.latest) renderOrderBook(panel, panel.latest);
+      });
+    }
+  }
+  const rows = buildDepthLadder(data.bids, data.asks, middle, panel.viewCenter, panel.priceStep, rowCount);
+  const values = rows.map((item) => item.quote).filter((value) => value > 0).sort((a, b) => a - b);
   const median = values.length ? values[Math.floor(values.length / 2)] : 0;
   const upper = values.length ? values[Math.floor(values.length * .9)] : Infinity;
   const anomaly = Math.max(median * 4, upper, 1);
   const maxSize = Math.max(...values, 1);
-  const spread = Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? bestAsk - bestBid : null;
-  const spreadPercent = Number.isFinite(spread) && bestBid ? (spread / bestBid) * 100 : null;
-  body.innerHTML = `<div class="book-side book-asks">${asks.slice().reverse().map((item) => bookBandRow("ask", item, maxSize, anomaly)).join("")}</div><div class="book-mid"><strong>${formatPrice(middle)}</strong><small>${Number.isFinite(spreadPercent) ? `${spreadPercent.toFixed(3)}%` : "спред"}</small></div><div class="book-side book-bids">${bids.map((item) => bookBandRow("bid", item, maxSize, anomaly)).join("")}</div>`;
-  const tapeRows = Math.max(3, Math.floor((tape.getBoundingClientRect().height - 3) / 18));
-  const trades = (data.trades ?? []).slice(0, tapeRows);
+  body.innerHTML = rows.map((row) => bookLadderRow(row, middle, maxSize, anomaly)).join("");
+  panel.element.querySelector("[data-book-scale]").textContent = bookScaleLabel(panel.model.bookScaleIndex);
+  const tapeRows = Math.max(3, Math.floor(tape.getBoundingClientRect().height / 17));
+  const trades = (data.trades ?? []).filter((trade) => trade.quote >= panel.model.tradeMinQuote).slice(0, tapeRows);
   tape.innerHTML = trades.length ? trades.map(tradeTapeRow).join("") : '<div class="orderbook-empty">Жду сделки…</div>';
+  tapeBody.classList.toggle("has-clusters", panel.model.clustersVisible);
+  clusterPane.hidden = !panel.model.clustersVisible;
+  if (panel.model.clustersVisible) {
+    const clusters = aggregateTradeClusters(data.trades, panel.model.tradeMinQuote, panel.priceStep, tapeRows);
+    clusterPane.innerHTML = clusters.length ? clusters.map(tradeClusterRow).join("") : '<div class="orderbook-empty">Нет кластеров</div>';
+  }
 }
 
-function bookBandRow(side, band, maxSize, anomalyThreshold) {
-  const size = Math.min(100, (band.quote / maxSize) * 100).toFixed(1);
-  const anomalous = band.quote >= anomalyThreshold && band.quote > 0;
-  return `<div class="book-ladder-row is-${side}${anomalous ? " is-anomaly" : ""}" style="--size:${size}%"><span class="book-size">${band.quote > 0 ? formatCompactUsd(band.quote) : ""}</span><strong>${formatPrice(band.price)}</strong></div>`;
+function bookLadderRow(row, middle, maxSize, anomalyThreshold) {
+  const side = row.askQuote > row.bidQuote ? "ask" : row.bidQuote > row.askQuote ? "bid" : row.price >= middle ? "ask" : "bid";
+  const size = Math.min(100, (row.quote / maxSize) * 100).toFixed(1);
+  const anomalous = row.quote >= anomalyThreshold && row.quote > 0;
+  return `<div class="book-ladder-row is-${side}${anomalous ? " is-anomaly" : ""}${row.isMarket ? " is-market" : ""}" style="--size:${size}%"><span class="book-size">${row.quote > 0 ? formatCompactUsd(row.quote) : ""}</span><strong>${formatPrice(row.isMarket ? middle : row.price)}</strong></div>`;
 }
 
 function tradeTapeRow(trade) {
   const date = new Date(trade.time);
   const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}:${String(date.getSeconds()).padStart(2, "0")}`;
-  return `<div class="trade-tape-row is-${trade.side}" title="${formatBookQuantity(trade.quantity)} @ ${formatPrice(trade.price)}"><time>${time}</time><span>${trade.side === "buy" ? "BUY" : "SELL"}</span><strong>${formatCompactUsd(trade.quote)}</strong></div>`;
+  return `<div class="trade-tape-row is-${trade.side}" title="${trade.side === "buy" ? "Рыночная покупка" : "Рыночная продажа"}: ${formatBookQuantity(trade.quantity)} @ ${formatPrice(trade.price)}"><time>${time}</time><span>${formatPrice(trade.price)}</span><strong>${formatCompactUsd(trade.quote)}</strong></div>`;
+}
+
+function tradeClusterRow(cluster) {
+  const delta = cluster.buyQuote - cluster.sellQuote;
+  return `<div class="trade-cluster-row ${delta >= 0 ? "is-buy" : "is-sell"}" title="${cluster.count} исполнений · общий объём ${formatCompactUsd(cluster.quote)}"><span>${formatPrice(cluster.price)}</span><strong>${delta >= 0 ? "+" : "−"}${formatCompactUsd(Math.abs(delta))}</strong></div>`;
 }
 
 function formatBookQuantity(value) {
@@ -1433,6 +1541,7 @@ function removeOrderBook(id) {
   if (!panel) return;
   panel.feed.destroy();
   if (panel.frame) cancelAnimationFrame(panel.frame);
+  if (panel.centerFrame) cancelAnimationFrame(panel.centerFrame);
   panel.element.remove();
   orderBookPanels.delete(id);
   state.workspace.extras = state.workspace.extras.filter((item) => item.id !== id);

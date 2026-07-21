@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { aggregateDepthBands, applyDepthUpdates, depthView, normalizeMarketTrade, OrderBookFeed, partialDepthView } from "../orderbook.js";
+import { aggregateDepthBands, aggregateTradeClusters, applyDepthUpdates, bookScaleLabel, buildDepthLadder, depthView, inferPriceTick, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForScale } from "../orderbook.js";
 
 test("depth updates add, replace and remove price levels", () => {
   const levels = new Map([[100, 2], [99, 4]]);
@@ -35,7 +35,29 @@ test("aggregate trade identifies the aggressive market side", () => {
   assert.equal(normalizeMarketTrade({ a: 2, p: "100", q: "2", T: 6, m: true }).side, "sell");
 });
 
-test("order book uses combined public stream and unwraps its payload", () => {
+test("price ladder keeps the market row visible and fills both sides", () => {
+  const tick = inferPriceTick([[100, 2], [99.5, 3]], [[100.5, 4], [101, 5]], 100.25);
+  assert.equal(tick, .5);
+  assert.equal(priceStepForScale(tick, 3), 5);
+  assert.equal(bookScaleLabel(3), "×10");
+  const rows = buildDepthLadder([[100, 2]], [[101, 3]], 100.5, 100.5, .5, 7);
+  assert.equal(rows.length, 7);
+  assert.equal(rows.filter((row) => row.isMarket).length, 1);
+  assert.ok(rows.some((row) => row.bidQuote > 0));
+  assert.ok(rows.some((row) => row.askQuote > 0));
+});
+
+test("trade clusters respect the minimum quote filter", () => {
+  const clusters = aggregateTradeClusters([
+    { price: 100, quote: 500, side: "buy", time: 1 },
+    { price: 100.1, quote: 2_000, side: "sell", time: 2 },
+    { price: 100.1, quote: 3_000, side: "buy", time: 3 },
+  ], 1_000, .5);
+  assert.equal(clusters.length, 1);
+  assert.equal(clusters[0].quote, 5_000);
+});
+
+test("order book separates public depth and market trade streams", () => {
   class FakeSocket {
     static instances = [];
     constructor(url) { this.url = url; this.listeners = new Map(); this.sent = []; FakeSocket.instances.push(this); }
@@ -48,13 +70,17 @@ test("order book uses combined public stream and unwraps its payload", () => {
   const statuses = [];
   const feed = new OrderBookFeed({ WebSocketImpl: FakeSocket, fetchImpl: null, onData: (data) => { latest = data; }, onStatus: (status) => statuses.push(status) });
   feed.select("BTCUSDT");
-  const socket = FakeSocket.instances[0];
-  assert.equal(socket.url, "wss://fstream.binance.com/public/stream?streams=btcusdt@depth20@100ms/btcusdt@aggTrade");
-  socket.emit("open");
-  assert.equal(socket.sent.length, 0);
-  socket.emit("message", { stream: "btcusdt@depth20@100ms", data: { E: 123, u: 44, b: [["100", "2"]], a: [["101", "3"]] } });
+  const depthSocket = FakeSocket.instances[0];
+  const tradeSocket = FakeSocket.instances[1];
+  assert.equal(depthSocket.url, "wss://fstream.binance.com/public/stream?streams=btcusdt@depth20@100ms");
+  assert.equal(tradeSocket.url, "wss://fstream.binance.com/market/stream?streams=btcusdt@aggTrade");
+  depthSocket.emit("open");
+  tradeSocket.emit("open");
+  assert.equal(depthSocket.sent.length, 0);
+  assert.equal(tradeSocket.sent.length, 0);
+  depthSocket.emit("message", { stream: "btcusdt@depth20@100ms", data: { E: 123, u: 44, b: [["100", "2"]], a: [["101", "3"]] } });
   assert.deepEqual(latest.bids, [[100, 2]]);
-  socket.emit("message", { stream: "btcusdt@aggTrade", data: { e: "aggTrade", a: 7, p: "100.5", q: "4", T: 125, m: false } });
+  tradeSocket.emit("message", { stream: "btcusdt@aggTrade", data: { e: "aggTrade", a: 7, p: "100.5", q: "4", T: 125, m: false } });
   assert.equal(latest.trades[0].quote, 402);
   assert.equal(statuses.at(-1).text, "LIVE 100ms");
   feed.destroy();

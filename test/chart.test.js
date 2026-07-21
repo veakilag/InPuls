@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { aggregateCandles, calculateNatr, candleIndexAtSlot, drawingPercentChange, KlineFeed, maximumVisibleCandles, nicePriceStep, niceTimeTickStep, parseRestKline, parseStreamKline, pearsonCorrelation, preserveViewFraction, scaleFromDrag, sessionLabels, snapPriceToCandle, upsertCandle, visibleCountFromDrag } from "../chart.js";
+import { aggregateCandles, calculateNatr, candleCenterSlot, candleIndexAtSlot, drawingPercentChange, KlineFeed, maximumVisibleCandles, nicePriceStep, niceTimeTickStep, parseRestKline, parseStreamKline, pearsonCorrelation, preserveViewFraction, scaleFromDrag, sessionLabels, snapPriceToCandle, upsertCandle, visibleCountFromDrag } from "../chart.js";
 
 test("REST kline is normalized", () => {
   const candle = parseRestKline([1000, "10", "12", "9", "11", "25", 1999]);
@@ -141,6 +141,7 @@ test("Ctrl magnet snaps to nearest candle body or wick extreme", () => {
 });
 
 test("Ctrl magnet resolves the candle centered under the cursor", () => {
+  assert.equal(candleCenterSlot(12), 12.5);
   assert.equal(candleIndexAtSlot(12.5, 100), 12);
   assert.equal(candleIndexAtSlot(12.99, 100), 12);
 });

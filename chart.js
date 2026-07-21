@@ -107,6 +107,10 @@ export function candleIndexAtSlot(slot, length) {
   return Math.max(0, Math.min(Math.max(0, length - 1), Math.floor(slot)));
 }
 
+export function candleCenterSlot(index) {
+  return Number(index) + .5;
+}
+
 export function preserveViewFraction(nextAnchor, previousViewStart) {
   return nextAnchor + (previousViewStart - Math.floor(previousViewStart));
 }
@@ -358,6 +362,7 @@ export class CandlestickChart {
     this.undoStack = [];
     this.draftDrawing = null;
     this.drawingGesture = null;
+    this.magnetHeld = false;
     this.onAlert = onAlert;
     this.onToolChange = null;
     this.fontScale = 1;
@@ -401,12 +406,19 @@ export class CandlestickChart {
       this.render();
     });
     this.keyHandler = (event) => {
+      if (event.key === "Control" || event.key === "Meta") this.magnetHeld = true;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && CandlestickChart.activeChart === this) {
         event.preventDefault();
         this.undoDrawing();
       }
     };
+    this.keyUpHandler = (event) => {
+      if (event.key === "Control" || event.key === "Meta") this.magnetHeld = false;
+    };
+    this.blurHandler = () => { this.magnetHeld = false; };
     window.addEventListener("keydown", this.keyHandler);
+    window.addEventListener("keyup", this.keyUpHandler);
+    window.addEventListener("blur", this.blurHandler);
   }
 
   setTimeZone(timeZone) {
@@ -525,6 +537,8 @@ export class CandlestickChart {
     this.resizeObserver.disconnect();
     this.drag = null;
     window.removeEventListener("keydown", this.keyHandler);
+    window.removeEventListener("keyup", this.keyUpHandler);
+    window.removeEventListener("blur", this.blurHandler);
   }
 
   setData(candles, meta) {
@@ -655,7 +669,7 @@ export class CandlestickChart {
     ctx.clip();
     displayCandles.forEach((candle, sourceOffset) => {
       const globalIndex = sliceStart + sourceOffset;
-      const x = margins.left + (globalIndex - this.viewStart + .5) * step;
+      const x = margins.left + (candleCenterSlot(globalIndex) - this.viewStart) * step;
       const bodyWidth = Math.max(1, Math.min(8, step * 0.68));
       const up = candle.close >= candle.open;
       const fill = up ? this.theme.bullFill : this.theme.bearFill;
@@ -684,7 +698,7 @@ export class CandlestickChart {
       ctx.clip();
       displayCandles.forEach((candle, sourceOffset) => {
         const globalIndex = sliceStart + sourceOffset;
-        const x = margins.left + (globalIndex - this.viewStart + .5) * step;
+        const x = margins.left + (candleCenterSlot(globalIndex) - this.viewStart) * step;
         const bodyWidth = Math.max(1, Math.min(8, step * 0.68));
         const up = candle.close >= candle.open;
         const volumeTop = height - margins.bottom - (candle.volume / maxVolume) * volumeHeight;
@@ -858,7 +872,10 @@ export class CandlestickChart {
     const { margins, plotWidth, plotHeight, minPrice, maxPrice } = this.layout;
     const index = this.#indexAtTime(point.time);
     return {
-      x: margins.left + ((index - this.viewStart) / this.visibleCount) * plotWidth,
+      // Candle timestamps describe the start of a slot, while candles are drawn
+      // at its centre. Keeping the same half-slot offset makes Ctrl-snapped
+      // anchors sit exactly on the visible OHLC candle instead of between bars.
+      x: margins.left + ((candleCenterSlot(index) - this.viewStart) / this.visibleCount) * plotWidth,
       y: margins.top + ((maxPrice - point.price) / (maxPrice - minPrice)) * plotHeight,
     };
   }
@@ -1092,13 +1109,13 @@ export class CandlestickChart {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     if (this.drawingGesture?.type === "freehand") {
-      const point = this.#pointAt(x, y, event.ctrlKey || event.metaKey);
+      const point = this.#pointAt(x, y, event.ctrlKey || event.metaKey || this.magnetHeld);
       if (point) this.drawingGesture.drawing.points.push(point);
       this.render();
       return;
     }
     if (this.activeTool && this.draftDrawing) {
-      const point = this.#pointAt(x, y, event.ctrlKey || event.metaKey);
+      const point = this.#pointAt(x, y, event.ctrlKey || event.metaKey || this.magnetHeld);
       if (point) this.draftDrawing.b = point;
       this.hoverX = x;
       this.hoverY = y;
@@ -1116,7 +1133,7 @@ export class CandlestickChart {
       return;
     }
     if (this.drag?.type === "drawing" || this.drag?.type === "drawing-handle") {
-      const point = this.#pointAt(x, y, event.ctrlKey || event.metaKey);
+      const point = this.#pointAt(x, y, event.ctrlKey || event.metaKey || this.magnetHeld);
       if (point) {
         if (this.drag.type === "drawing-handle") {
           if ((this.drag.drawing.type === "horizontal" || this.drag.drawing.type === "alert") && this.drag.handle === "a") this.drag.drawing.a = { ...this.drag.drawing.a, price: point.price };
@@ -1179,7 +1196,7 @@ export class CandlestickChart {
     CandlestickChart.activeChart = this;
     if (this.activeTool && !axis) {
       event.preventDefault();
-      const point = this.#pointAt(x, y, event.ctrlKey || event.metaKey);
+      const point = this.#pointAt(x, y, event.ctrlKey || event.metaKey || this.magnetHeld);
       if (!point) return;
       if (this.activeTool === "horizontal" || this.activeTool === "ray" || this.activeTool === "alert") {
         this.#commitDrawing({ type: this.activeTool, a: point });
