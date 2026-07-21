@@ -7,8 +7,8 @@
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="21" />
-    <link rel="stylesheet" href="./styles.css?v=21" />
+    <meta name="inpuls-build" content="22" />
+    <link rel="stylesheet" href="./styles.css?v=22" />
     <title>InPuls — в ритме рынка</title>
   </head>
   <body>
@@ -16,7 +16,7 @@
     <header class="topbar">
       <a class="brand" href="./" aria-label="InPuls — главная">
         <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span><strong>INPULS</strong><em>SCREENER <small>v21</small></em></span>
+        <span><strong>INPULS</strong><em>SCREENER <small>v22</small></em></span>
       </a>
       <div class="inplay-strip" aria-label="Монеты в игре сейчас">
         <div class="inplay-title"><span class="inplay-label">INPLAY</span><button id="inplay-settings" type="button" title="Настроить единые правила INPLAY">⚙</button></div>
@@ -286,6 +286,7 @@
         <div class="inplay-global-rules">
           <label><span>V24 от, $M</span><input id="inplay-min-v24" type="number" min="0" step="1" /></label>
           <label><span>NATR 1 от, %</span><input id="inplay-min-natr1" type="number" min="0" step="0.01" /></label>
+          <label><span>NATR 5 от, %</span><input id="inplay-min-natr5" type="number" min="0" step="0.01" /></label>
           <label><span>Рост 24ч от, %</span><input id="inplay-min-growth24" type="number" step="0.1" /></label>
         </div>
         <div class="settings-actions"><button id="inplay-cancel" class="button" type="button">Отмена</button><button class="button button-primary" value="save">Сохранить</button></div>
@@ -293,6 +294,6 @@
     </dialog>
 
     <div id="alert-toast" class="alert-toast" role="status" aria-live="assertive" hidden></div>
-    <script type="module" src="./app.js?v=21"></script>
+    <script type="module" src="./app.js?v=22"></script>
   </body>
 </html>

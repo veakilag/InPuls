@@ -103,6 +103,14 @@ export function snapPriceToCandle(candle, price) {
   return levels.reduce((nearest, level) => Math.abs(level - price) < Math.abs(nearest - price) ? level : nearest, levels[0]);
 }
 
+export function snapPointToCandle(candles, slot, price) {
+  if (!Array.isArray(candles) || !candles.length || !Number.isFinite(slot)) return null;
+  const index = candleIndexAtSlot(slot, candles.length);
+  const candle = candles[index];
+  if (!candle || !Number.isFinite(candle.time)) return null;
+  return { time: candle.time, price: snapPriceToCandle(candle, price), snapped: true, candleIndex: index };
+}
+
 export function candleIndexAtSlot(slot, length) {
   return Math.max(0, Math.min(Math.max(0, length - 1), Math.floor(slot)));
 }
@@ -380,7 +388,8 @@ export class CandlestickChart {
       session: "#8b5f9f",
     };
     this.drag = null;
-    this.resizeObserver = new ResizeObserver(() => this.render());
+    this.renderFrame = null;
+    this.resizeObserver = new ResizeObserver(() => this.#requestRender());
     this.resizeObserver.observe(canvas.parentElement);
     canvas.addEventListener("pointermove", (event) => this.#handlePointer(event));
     canvas.addEventListener("pointerdown", (event) => this.#handlePointerDown(event));
@@ -393,7 +402,7 @@ export class CandlestickChart {
       this.hoverX = null;
       this.hoverY = null;
       this.tooltip.hidden = true;
-      this.render();
+      this.#requestRender();
     });
     canvas.addEventListener("wheel", (event) => this.#handleWheel(event), { passive: false });
     canvas.addEventListener("dblclick", () => {
@@ -416,29 +425,29 @@ export class CandlestickChart {
       if (event.key === "Control" || event.key === "Meta") this.magnetHeld = false;
     };
     this.blurHandler = () => { this.magnetHeld = false; };
-    window.addEventListener("keydown", this.keyHandler);
-    window.addEventListener("keyup", this.keyUpHandler);
+    window.addEventListener("keydown", this.keyHandler, true);
+    window.addEventListener("keyup", this.keyUpHandler, true);
     window.addEventListener("blur", this.blurHandler);
   }
 
   setTimeZone(timeZone) {
     this.timeZone = timeZone || "Europe/Moscow";
-    this.render();
+    this.#requestRender();
   }
 
   setVolumeVisible(visible) {
     this.volumeVisible = Boolean(visible);
-    this.render();
+    this.#requestRender();
   }
 
   setSessionsVisible(visible) {
     this.sessionsVisible = Boolean(visible);
-    this.render();
+    this.#requestRender();
   }
 
   setFontScale(scale) {
     this.fontScale = Math.max(.8, Math.min(1.3, Number(scale) || 1));
-    this.render();
+    this.#requestRender();
   }
 
   lockPriceDomain() {
@@ -449,6 +458,24 @@ export class CandlestickChart {
     return `${bold ? "bold " : ""}${Math.max(6, size * this.fontScale).toFixed(1)}px Arial, sans-serif`;
   }
 
+  #requestRender() {
+    if (this.renderFrame !== null) return;
+    this.renderFrame = requestAnimationFrame(() => {
+      this.renderFrame = null;
+      this.render();
+    });
+  }
+
+  #shouldSnap(event) {
+    return Boolean(
+      this.magnetHeld
+      || event?.ctrlKey
+      || event?.metaKey
+      || event?.getModifierState?.("Control")
+      || event?.getModifierState?.("Meta"),
+    );
+  }
+
   setTool(tool) {
     const allowed = new Set(["trend", "horizontal", "ruler", "rectangle", "ray", "freehand", "alert"]);
     this.activeTool = allowed.has(tool) ? tool : null;
@@ -456,7 +483,7 @@ export class CandlestickChart {
     this.drawingGesture = null;
     this.canvas.style.cursor = this.activeTool ? "crosshair" : "crosshair";
     this.onToolChange?.(this.activeTool);
-    this.render();
+    this.#requestRender();
   }
 
   clearDrawings() {
@@ -480,7 +507,7 @@ export class CandlestickChart {
       if (index >= 0) this.drawings[index] = structuredClone(action.before);
     }
     this.#persistDrawings();
-    this.render();
+    this.#requestRender();
   }
 
   #loadDrawingStore() {
@@ -528,16 +555,18 @@ export class CandlestickChart {
 
   setTheme(theme) {
     this.theme = { ...this.theme, ...theme };
-    this.render();
+    this.#requestRender();
   }
 
   destroy() {
     this.#persistDrawings();
     this.#persistViewport();
     this.resizeObserver.disconnect();
+    if (this.renderFrame !== null) cancelAnimationFrame(this.renderFrame);
+    this.renderFrame = null;
     this.drag = null;
-    window.removeEventListener("keydown", this.keyHandler);
-    window.removeEventListener("keyup", this.keyUpHandler);
+    window.removeEventListener("keydown", this.keyHandler, true);
+    window.removeEventListener("keyup", this.keyUpHandler, true);
     window.removeEventListener("blur", this.blurHandler);
   }
 
@@ -598,7 +627,7 @@ export class CandlestickChart {
       this.followLatest = this.pendingViewport.followLatest;
       this.pendingViewport = null;
     } else if (this.followLatest && this.visibleCount) this.viewStart = Math.max(0, candles.length - this.visibleCount);
-    this.render();
+    this.#requestRender();
   }
 
   render() {
@@ -862,8 +891,7 @@ export class CandlestickChart {
     const slot = this.viewStart + ((safeX - margins.left) / plotWidth) * this.visibleCount;
     const price = maxPrice - ((safeY - margins.top) / plotHeight) * (maxPrice - minPrice);
     if (snap && this.candles.length) {
-      const index = candleIndexAtSlot(slot, this.candles.length);
-      return { time: this.candles[index].time, price: snapPriceToCandle(this.candles[index], price), snapped: true };
+      return snapPointToCandle(this.candles, slot, price);
     }
     return { time: this.#timeAtIndex(slot), price };
   }
@@ -893,7 +921,7 @@ export class CandlestickChart {
     this.activeTool = null;
     this.onToolChange?.(null);
     this.#persistDrawings();
-    this.render();
+    this.#requestRender();
   }
 
   #checkAlerts() {
@@ -1109,17 +1137,17 @@ export class CandlestickChart {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     if (this.drawingGesture?.type === "freehand") {
-      const point = this.#pointAt(x, y, event.ctrlKey || event.metaKey || this.magnetHeld);
+      const point = this.#pointAt(x, y, this.#shouldSnap(event));
       if (point) this.drawingGesture.drawing.points.push(point);
-      this.render();
+      this.#requestRender();
       return;
     }
     if (this.activeTool && this.draftDrawing) {
-      const point = this.#pointAt(x, y, event.ctrlKey || event.metaKey || this.magnetHeld);
+      const point = this.#pointAt(x, y, this.#shouldSnap(event));
       if (point) this.draftDrawing.b = point;
       this.hoverX = x;
       this.hoverY = y;
-      this.render();
+      this.#requestRender();
       return;
     }
     if (this.drag?.type === "price") {
@@ -1129,11 +1157,11 @@ export class CandlestickChart {
       const span = (this.drag.startDomain.max - this.drag.startDomain.min) * factor;
       this.fixedPriceDomain = { min: center - span / 2, max: center + span / 2 };
       this.tooltip.hidden = true;
-      this.render();
+      this.#requestRender();
       return;
     }
     if (this.drag?.type === "drawing" || this.drag?.type === "drawing-handle") {
-      const point = this.#pointAt(x, y, event.ctrlKey || event.metaKey || this.magnetHeld);
+      const point = this.#pointAt(x, y, this.#shouldSnap(event));
       if (point) {
         if (this.drag.type === "drawing-handle") {
           if ((this.drag.drawing.type === "horizontal" || this.drag.drawing.type === "alert") && this.drag.handle === "a") this.drag.drawing.a = { ...this.drag.drawing.a, price: point.price };
@@ -1146,7 +1174,7 @@ export class CandlestickChart {
         this.drag.moved = true;
       }
       this.tooltip.hidden = true;
-      this.render();
+      this.#requestRender();
       return;
     }
     if (this.drag?.type === "time") {
@@ -1156,7 +1184,7 @@ export class CandlestickChart {
       this.viewStart = Math.max(0, Math.min(this.drag.endIndex - nextCount, Math.max(0, this.candles.length - 1)));
       this.followLatest = false;
       this.tooltip.hidden = true;
-      this.render();
+      this.#requestRender();
       return;
     }
     if (this.drag?.type === "pan") {
@@ -1168,7 +1196,7 @@ export class CandlestickChart {
       this.fixedPriceDomain = { min: this.drag.startDomain.min + shift, max: this.drag.startDomain.max + shift };
       this.followLatest = false;
       this.tooltip.hidden = true;
-      this.render();
+      this.#requestRender();
       return;
     }
     const axis = this.#axisAt(x, y);
@@ -1176,7 +1204,7 @@ export class CandlestickChart {
     this.canvas.style.cursor = axis === "price" ? "ns-resize" : axis === "time" ? "ew-resize" : nearDrawing ? "move" : "crosshair";
     this.hoverX = axis ? null : x;
     this.hoverY = axis ? null : y;
-    this.render();
+    this.#requestRender();
   }
 
   #axisAt(x, y) {
@@ -1196,7 +1224,7 @@ export class CandlestickChart {
     CandlestickChart.activeChart = this;
     if (this.activeTool && !axis) {
       event.preventDefault();
-      const point = this.#pointAt(x, y, event.ctrlKey || event.metaKey || this.magnetHeld);
+      const point = this.#pointAt(x, y, this.#shouldSnap(event));
       if (!point) return;
       if (this.activeTool === "horizontal" || this.activeTool === "ray" || this.activeTool === "alert") {
         this.#commitDrawing({ type: this.activeTool, a: point });
@@ -1212,7 +1240,7 @@ export class CandlestickChart {
         this.#commitDrawing(this.draftDrawing);
       }
       this.tooltip.hidden = true;
-      this.render();
+      this.#requestRender();
       return;
     }
     const drawing = !axis ? this.#drawingAt({ x, y }) : null;
@@ -1278,7 +1306,7 @@ export class CandlestickChart {
     this.followLatest = false;
     this.tooltip.hidden = true;
     this.#persistViewport();
-    this.render();
+    this.#requestRender();
   }
 
   #drawCrosshair(ctx) {

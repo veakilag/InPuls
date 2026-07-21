@@ -65,7 +65,7 @@ export function aggregateDepthBands(levels, middlePrice, rangePercent, rowCount,
   return bands;
 }
 
-const BOOK_SCALE_MULTIPLIERS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000];
+export const BOOK_SCALE_MULTIPLIERS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
 
 export function inferPriceTick(bids, asks, middlePrice) {
   const prices = [...(bids ?? []), ...(asks ?? [])]
@@ -93,6 +93,20 @@ export function priceStepForScale(baseTick, scaleIndex = 3) {
 export function bookScaleLabel(scaleIndex = 3) {
   const index = Math.max(0, Math.min(BOOK_SCALE_MULTIPLIERS.length - 1, Math.round(Number(scaleIndex) || 0)));
   return `×${BOOK_SCALE_MULTIPLIERS[index]}`;
+}
+
+export function maximumBookScaleIndex() {
+  return BOOK_SCALE_MULTIPLIERS.length - 1;
+}
+
+export function adaptiveBookScaleIndex(baseTick, currentIndex, movement, rowCount, coverage = .7) {
+  const tick = Math.max(Number.EPSILON, Number(baseTick) || .01);
+  const safeIndex = Math.max(0, Math.min(maximumBookScaleIndex(), Math.round(Number(currentIndex) || 0)));
+  const halfRows = Math.max(2, Math.floor((Number(rowCount) || 3) / 2));
+  const requiredStep = Math.max(0, Number(movement) || 0) / (halfRows * Math.max(.35, Math.min(.9, Number(coverage) || .7)));
+  const requiredMultiplier = requiredStep / tick;
+  const adaptiveIndex = BOOK_SCALE_MULTIPLIERS.findIndex((multiplier) => multiplier >= requiredMultiplier);
+  return Math.max(safeIndex, adaptiveIndex < 0 ? maximumBookScaleIndex() : adaptiveIndex);
 }
 
 export function buildDepthLadder(bids, asks, marketPrice, viewCenter, priceStep, rowCount) {
@@ -147,6 +161,43 @@ export function aggregateTradeClusters(trades, minimumQuote = 0, priceStep = .01
     clusters.set(key, cluster);
   }
   return [...clusters.values()].sort((left, right) => right.time - left.time).slice(0, Math.max(1, Math.floor(limit)));
+}
+
+export function aggregateTradePath(trades, minimumQuote = 0, priceStep = .01, limit = 36, bucketMs = 750) {
+  const threshold = Math.max(0, Number(minimumQuote) || 0);
+  const step = Math.max(Number.EPSILON, Number(priceStep) || .01);
+  const duration = Math.max(100, Math.floor(Number(bucketMs) || 750));
+  const clusters = new Map();
+  const ordered = [...(trades ?? [])].filter((trade) => trade && Number.isFinite(trade.time)).sort((left, right) => left.time - right.time);
+  for (const trade of ordered) {
+    if (![trade.price, trade.quote, trade.quantity].every(Number.isFinite) || trade.quote <= 0) continue;
+    const bucketTime = Math.floor(trade.time / duration) * duration;
+    const price = Math.round(trade.price / step) * step;
+    const key = `${bucketTime}:${price}`;
+    const cluster = clusters.get(key) ?? {
+      key,
+      time: bucketTime,
+      lastTime: trade.time,
+      price,
+      quote: 0,
+      quantity: 0,
+      buyQuote: 0,
+      sellQuote: 0,
+      count: 0,
+      executions: [],
+    };
+    cluster.quote += trade.quote;
+    cluster.quantity += trade.quantity;
+    cluster[trade.side === "sell" ? "sellQuote" : "buyQuote"] += trade.quote;
+    cluster.count += 1;
+    cluster.lastTime = Math.max(cluster.lastTime, trade.time);
+    cluster.executions.push(trade);
+    clusters.set(key, cluster);
+  }
+  return [...clusters.values()]
+    .filter((cluster) => cluster.quote >= threshold)
+    .sort((left, right) => left.time - right.time || left.price - right.price)
+    .slice(-Math.max(3, Math.floor(Number(limit) || 36)));
 }
 
 export class OrderBookFeed {

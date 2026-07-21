@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { aggregateDepthBands, aggregateTradeClusters, applyDepthUpdates, bookScaleLabel, buildDepthLadder, depthView, inferPriceTick, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForScale } from "../orderbook.js";
+import { adaptiveBookScaleIndex, aggregateDepthBands, aggregateTradeClusters, aggregateTradePath, applyDepthUpdates, bookScaleLabel, buildDepthLadder, depthView, inferPriceTick, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForScale } from "../orderbook.js";
 
 test("depth updates add, replace and remove price levels", () => {
   const levels = new Map([[100, 2], [99, 4]]);
@@ -55,6 +55,24 @@ test("trade clusters respect the minimum quote filter", () => {
   ], 1_000, .5);
   assert.equal(clusters.length, 1);
   assert.equal(clusters[0].quote, 5_000);
+});
+
+test("aggregated trade path groups executions by time and price before applying the filter", () => {
+  const path = aggregateTradePath([
+    { price: 100, quantity: 4, quote: 400, side: "buy", time: 1_010 },
+    { price: 100.02, quantity: 7, quote: 700, side: "sell", time: 1_090 },
+    { price: 101, quantity: 2, quote: 202, side: "buy", time: 2_000 },
+  ], 1_000, .1, 20, 500);
+  assert.equal(path.length, 1);
+  assert.equal(path[0].count, 2);
+  assert.equal(path[0].quote, 1_100);
+  assert.equal(path[0].executions.length, 2);
+});
+
+test("impulse adaptation enlarges the effective price step without changing the user minimum", () => {
+  const next = adaptiveBookScaleIndex(.01, 3, 20, 21);
+  assert.ok(next > 3);
+  assert.ok(priceStepForScale(.01, next) * 10 >= 20 / .7);
 });
 
 test("order book separates public depth and market trade streams", () => {

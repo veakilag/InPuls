@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { aggregateCandles, calculateNatr, candleCenterSlot, candleIndexAtSlot, drawingPercentChange, KlineFeed, maximumVisibleCandles, nicePriceStep, niceTimeTickStep, parseRestKline, parseStreamKline, pearsonCorrelation, preserveViewFraction, scaleFromDrag, sessionLabels, snapPriceToCandle, upsertCandle, visibleCountFromDrag } from "../chart.js";
+import { aggregateCandles, calculateNatr, candleCenterSlot, candleIndexAtSlot, drawingPercentChange, KlineFeed, maximumVisibleCandles, nicePriceStep, niceTimeTickStep, parseRestKline, parseStreamKline, pearsonCorrelation, preserveViewFraction, scaleFromDrag, sessionLabels, snapPointToCandle, snapPriceToCandle, upsertCandle, visibleCountFromDrag } from "../chart.js";
 
 test("REST kline is normalized", () => {
   const candle = parseRestKline([1000, "10", "12", "9", "11", "25", 1999]);
@@ -144,6 +144,19 @@ test("Ctrl magnet resolves the candle centered under the cursor", () => {
   assert.equal(candleCenterSlot(12), 12.5);
   assert.equal(candleIndexAtSlot(12.5, 100), 12);
   assert.equal(candleIndexAtSlot(12.99, 100), 12);
+});
+
+test("Ctrl magnet snaps the first drawing anchor before the drawing exists", () => {
+  const candles = [
+    { time: 1_000, open: 100, high: 105, low: 98, close: 102 },
+    { time: 2_000, open: 102, high: 109, low: 101, close: 108 },
+  ];
+  assert.deepEqual(snapPointToCandle(candles, 1.5, 107.6), {
+    time: 2_000,
+    price: 108,
+    snapped: true,
+    candleIndex: 1,
+  });
 });
 
 test("live data keeps the fractional manual viewport offset", () => {
