@@ -3,9 +3,9 @@ import {
   SymbolState,
   filterUsdtPerpetualTicker,
   formatCompactUsd,
-} from "./engine.js?v=22";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=22";
-import { adaptiveBookScaleIndex, aggregateTradeClusters, aggregateTradePath, bookScaleLabel, buildDepthLadder, inferPriceTick, maximumBookScaleIndex, OrderBookFeed, priceStepForScale } from "./orderbook.js?v=22";
+} from "./engine.js?v=23";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
+import { adaptiveBookScaleIndex, aggregateFootprintClusters, aggregateTradePath, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, inferPriceTick, maximumBookScaleIndex, OrderBookFeed, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "./orderbook.js?v=23";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -25,6 +25,7 @@ const STORAGE_KEYS = {
   selectedSymbol: "inpuls-selected-symbol-v1",
   topSort: "inpuls-radar-sort-v1",
   favoriteTimeframes: "inpuls-favorite-timeframes-v1",
+  inplayOrder: "inpuls-inplay-order-v1",
 };
 
 const DEFAULT_INPLAY = Object.freeze({ minV24: 100, minNatr1: null, minNatr5: null, minGrowth24: null });
@@ -78,6 +79,7 @@ const state = {
   radarFilters: loadJson(STORAGE_KEYS.radarFilters, EMPTY_RADAR_FILTERS),
   inplay: normalizeInPlay(loadJson(STORAGE_KEYS.inplay, DEFAULT_INPLAY)),
   favoriteTimeframes: [...new Set(loadJson(STORAGE_KEYS.favoriteTimeframes, DEFAULT_FAVORITE_TIMEFRAMES).filter((interval) => CHART_INTERVALS.includes(interval)))].sort((left, right) => CHART_INTERVALS.indexOf(left) - CHART_INTERVALS.indexOf(right)),
+  inplayOrder: loadJson(STORAGE_KEYS.inplayOrder, []).filter((symbol) => typeof symbol === "string" && symbol.endsWith("USDT")),
 };
 
 const els = {
@@ -492,11 +494,23 @@ function setupTimeframePicker(root, getCurrent, onSelect) {
   const toggle = root.querySelector(".timeframe-menu-toggle");
   const menu = root.querySelector(".timeframe-menu");
   menu.hidden = false;
+  const fitMenu = () => {
+    const panel = root.closest(".chart-card") ?? root.parentElement;
+    const panelRect = panel.getBoundingClientRect();
+    const toggleRect = toggle.getBoundingClientRect();
+    const availableRight = Math.max(56, panelRect.right - toggleRect.left - 4);
+    const availableLeft = Math.max(56, toggleRect.right - panelRect.left - 4);
+    const openLeft = availableRight < 78 && availableLeft > availableRight;
+    menu.classList.toggle("opens-left", openLeft);
+    menu.style.maxWidth = `${Math.min(94, openLeft ? availableLeft : availableRight)}px`;
+    menu.style.maxHeight = `${Math.max(70, panelRect.bottom - toggleRect.bottom - 5)}px`;
+  };
   toggle.addEventListener("click", (event) => {
     event.stopPropagation();
     const open = !menu.classList.contains("is-open");
     document.querySelectorAll(".timeframe-menu.is-open").forEach((item) => item.classList.remove("is-open"));
     document.querySelectorAll(".timeframe-menu-toggle.is-active").forEach((item) => { item.classList.remove("is-active"); item.setAttribute("aria-expanded", "false"); });
+    if (open) fitMenu();
     menu.classList.toggle("is-open", open);
     toggle.classList.toggle("is-active", open);
     toggle.setAttribute("aria-expanded", String(open));
@@ -617,12 +631,25 @@ function render() {
 function renderInPlay(metrics) {
   if (!els.inplayCoins) return;
   const hasValue = (value) => value !== null && value !== "" && Number.isFinite(Number(value));
-  const matches = metrics.filter((item) => [
+  const eligible = metrics.filter((item) => [
     hasValue(state.inplay.minV24) ? (item.quoteVolume24h ?? -Infinity) >= Number(state.inplay.minV24) * 1_000_000 : true,
     hasValue(state.inplay.minNatr1) ? (item.natr1m ?? -Infinity) >= Number(state.inplay.minNatr1) : true,
     hasValue(state.inplay.minNatr5) ? (item.natr5m ?? -Infinity) >= Number(state.inplay.minNatr5) : true,
     hasValue(state.inplay.minGrowth24) ? (item.change24h ?? -Infinity) >= Number(state.inplay.minGrowth24) : true,
-  ].every(Boolean)).sort((left, right) => (right.change24h ?? -Infinity) - (left.change24h ?? -Infinity) || (right.quoteVolume24h ?? 0) - (left.quoteVolume24h ?? 0)).slice(0, 18);
+  ].every(Boolean));
+  const eligibleBySymbol = new Map(eligible.map((item) => [item.symbol, item]));
+  const previous = state.inplayOrder.filter((symbol) => eligibleBySymbol.has(symbol));
+  const known = new Set(previous);
+  const newcomers = eligible
+    .filter((item) => !known.has(item.symbol))
+    .sort((left, right) => (right.change24h ?? -Infinity) - (left.change24h ?? -Infinity) || (right.quoteVolume24h ?? 0) - (left.quoteVolume24h ?? 0))
+    .map((item) => item.symbol);
+  const nextOrder = [...previous, ...newcomers];
+  if (nextOrder.join("|") !== state.inplayOrder.join("|")) {
+    state.inplayOrder = nextOrder;
+    localStorage.setItem(STORAGE_KEYS.inplayOrder, JSON.stringify(state.inplayOrder));
+  }
+  const matches = state.inplayOrder.slice(0, 18).map((symbol) => eligibleBySymbol.get(symbol)).filter(Boolean);
   const fragment = document.createDocumentFragment();
   for (const item of matches) {
     const symbol = item.symbol;
@@ -894,16 +921,18 @@ function normalizeWorkspace() {
   for (const source of sourceExtras) {
     if (!source?.id || !source?.symbol?.endsWith("USDT")) continue;
     const type = source.type === "orderbook" ? "orderbook" : "chart";
-    const fallback = { id: String(source.id), type, symbol: source.symbol, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, bookScaleIndex: source.bookScaleIndex ?? 3, bookCentered: source.bookCentered !== false, tapePercent: source.tapePercent ?? 48, tradeMinQuote: source.tradeMinQuote ?? 0, clustersVisible: Boolean(source.clustersVisible), highlightMode: source.highlightMode === "manual" ? "manual" : "auto", highlightMinQuote: source.highlightMinQuote ?? 100000, x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
+    const fallback = { id: String(source.id), type, symbol: source.symbol, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, bookScaleIndex: source.bookScaleIndex ?? 3, bookAutoFit: source.bookAutoFit !== false, bookCentered: source.bookCentered !== false, tapePercent: source.tapePercent ?? 48, tradeMinQuote: source.tradeMinQuote ?? 0, tradeWindowMs: source.tradeWindowMs ?? 60_000, clustersVisible: Boolean(source.clustersVisible), highlightMode: source.highlightMode === "manual" ? "manual" : "auto", highlightMinQuote: source.highlightMinQuote ?? 100000, x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
     const item = clampPanel(source, fallback, { w: 3, h: 2 });
     item.symbol = source.symbol;
     item.interval = source.interval || state.chartInterval;
     item.volumeVisible = source.volumeVisible ?? state.volumeVisible;
     item.sessionsVisible = source.sessionsVisible ?? state.sessionsVisible;
     item.bookScaleIndex = Math.max(0, Math.min(maximumBookScaleIndex(), Number.isFinite(Number(source.bookScaleIndex)) ? Math.round(Number(source.bookScaleIndex)) : 3));
+    item.bookAutoFit = source.bookAutoFit !== false;
     item.bookCentered = source.bookCentered !== false;
     item.tapePercent = Math.max(24, Math.min(72, Number(source.tapePercent) || 48));
     item.tradeMinQuote = Math.max(0, Number(source.tradeMinQuote) || 0);
+    item.tradeWindowMs = Math.max(15_000, Math.min(30 * 60_000, Number(source.tradeWindowMs) || 60_000));
     item.clustersVisible = Boolean(source.clustersVisible);
     item.highlightMode = source.highlightMode === "manual" ? "manual" : "auto";
     item.highlightMinQuote = Math.max(0, Number(source.highlightMinQuote) || 100000);
@@ -1181,7 +1210,7 @@ function mountExtraChart(model) {
       <button class="mini-chart-close panel-close" type="button" title="Закрыть график">×</button>
     </header>
     <div class="chart-stage">
-      <div class="chart-metrics"><span><b>V24</b><strong data-mini-metric="quoteVolume24h">—</strong></span><span><b>NATR 1</b><strong data-mini-metric="natr1m">—</strong></span><span><b>NATR 5</b><strong data-mini-metric="natr5m">—</strong></span><span><b>F</b><strong data-mini-metric="fundingRate">—</strong></span><span><b>C</b><strong data-mini-metric="correlation">—</strong></span>
+      <div class="chart-metrics"><span title="Оборот за 24 часа в USDT"><b>О24</b><strong data-mini-metric="quoteVolume24h">—</strong></span><span><b>NATR 1</b><strong data-mini-metric="natr1m">—</strong></span><span><b>NATR 5</b><strong data-mini-metric="natr5m">—</strong></span><span><b>F</b><strong data-mini-metric="fundingRate">—</strong></span><span><b>C</b><strong data-mini-metric="correlation">—</strong></span>
         <div class="chart-metric-controls">
           <div class="chart-toolbox"><button class="drawing-tools-toggle" type="button" title="Инструменты рисования" aria-expanded="false">✎</button><div class="drawing-tools-menu">
             <button data-drawing-tool="trend" type="button" title="Отрезок">╱</button><button data-drawing-tool="horizontal" type="button" title="Горизонталь">─</button><button data-drawing-tool="ruler" type="button" title="Линейка">↕</button><button data-drawing-tool="rectangle" type="button" title="Прямоугольник">▭</button><button data-drawing-tool="ray" type="button" title="Луч">→</button><button data-drawing-tool="freehand" type="button" title="Рисование">∿</button><button data-drawing-tool="alert" type="button" title="Alert">!</button>
@@ -1260,9 +1289,11 @@ function createExtraPanel(symbol, type = "chart") {
     volumeVisible: state.volumeVisible,
     sessionsVisible: state.sessionsVisible,
     bookScaleIndex: 3,
+    bookAutoFit: true,
     bookCentered: true,
     tapePercent: 48,
     tradeMinQuote: 0,
+    tradeWindowMs: 60_000,
     clustersVisible: false,
     highlightMode: "auto",
     highlightMinQuote: 100000,
@@ -1326,7 +1357,7 @@ function mountOrderBook(model) {
   article.innerHTML = `
     <header class="orderbook-heading">
       <span class="panel-grip" title="Переместить стакан">⠿</span>
-      <h2>${escapeHtml(model.symbol.replace("USDT", ""))}/USDT · Стакан</h2>
+      <h2 data-book-ticker title="Нажми, чтобы скопировать тикер">${escapeHtml(model.symbol.replace("USDT", ""))}/USDT · Стакан</h2>
       <span class="book-status">Синхронизация</span>
       <div class="book-highlight-controls" aria-label="Подсветка крупных сайзов">
         <button data-book-highlight-manual class="book-highlight-toggle${model.highlightMode === "manual" ? " is-active" : ""}" type="button" aria-pressed="${model.highlightMode === "manual"}" title="Подсвечивать сайзы больше заданной суммы">≥ $</button>
@@ -1339,11 +1370,12 @@ function mountOrderBook(model) {
     <div class="orderbook-stage" style="--tape-percent:${Number(model.tapePercent) || 48}%">
       <section class="orderbook-tape" aria-label="Лента рыночных сделок">
         <div class="trade-tape-toolbar">
-          <button data-book-clusters class="book-cluster-toggle${model.clustersVisible ? " is-active" : ""}" type="button" aria-pressed="${Boolean(model.clustersVisible)}" title="Показать кластеры исполнений">КЛ</button>
+          <button data-book-clusters class="book-cluster-toggle${model.clustersVisible ? " is-active" : ""}" type="button" aria-pressed="${Boolean(model.clustersVisible)}" title="Footprint-кластеры: SELL слева, BUY справа">КЛ</button>
           <label title="Показывать агрегированные сделки не меньше указанной суммы"><span>≥ $</span><input data-trade-min type="number" min="0" step="1000" value="${Math.max(0, Number(model.tradeMinQuote) || 0)}" aria-label="Минимальный размер сделки в долларах" /></label>
-          <span>СДЕЛКИ</span>
+          <button data-trade-window class="trade-window-button" type="button" title="Колесо над лентой также меняет масштаб времени">${formatTradeWindow(model.tradeWindowMs)}</button>
+          <button data-trade-live class="trade-live-button is-active" type="button" title="Вернуться к текущим сделкам">LIVE</button>
         </div>
-        <div class="trade-tape-body"><div class="trade-clusters" hidden></div><div class="trade-flow"><svg class="trade-flow-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg><div class="trade-flow-nodes"><div class="orderbook-empty">Жду сделки…</div></div><div class="trade-flow-detail" hidden></div></div></div>
+        <div class="trade-tape-body"><div class="trade-flow"><div class="trade-flow-grid" aria-hidden="true"></div><svg class="trade-flow-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg><div class="trade-flow-nodes"><div class="orderbook-empty">Жду сделки…</div></div><div class="trade-price-axis" aria-hidden="true"></div><div class="trade-time-axis" aria-hidden="true"></div><div class="trade-flow-detail" hidden></div><span class="trade-flow-hint">Колесо — время · тяни — история</span></div></div>
       </section>
       <button class="book-splitter" type="button" aria-label="Изменить ширину ленты сделок" title="Потяни влево или вправо"></button>
       <section class="orderbook-ladder" aria-label="Стакан заявок">
@@ -1356,7 +1388,7 @@ function mountOrderBook(model) {
     <div class="panel-drop-shield"><strong>СМЕНИТЬ НА ЭТУ МОНЕТУ</strong></div>
     <button class="panel-resizer panel-resizer-nw" type="button" aria-label="Изменить размер стакана из левого верхнего угла"></button>`;
   els.marketFocus.insertBefore(article, els.addChartTile);
-  const panel = { model, element: article, feed: null, latest: null, frame: null, centerFrame: null, viewCenter: null, priceStep: null, baseTick: null, autoCentering: false, autoScaleIndex: null, autoScaleUntil: 0, priceTrail: [], manualScrollAnchorPrice: null, manualScrollUntil: 0, selectedTradePathKey: null };
+  const panel = { model, element: article, feed: null, latest: null, frame: null, centerFrame: null, viewCenter: null, priceStep: null, baseTick: null, autoCentering: false, autoScaleIndex: null, autoScaleUntil: 0, calmSince: 0, priceTrail: [], manualScrollAnchorPrice: null, manualScrollUntil: 0, selectedTradePathKey: null, tradeOffsetMs: 0, tradePriceDomain: null, tradeDomainKey: null, depthFitted: false };
   const draw = () => {
     panel.frame = null;
     if (panel.latest) renderOrderBook(panel, panel.latest);
@@ -1373,6 +1405,10 @@ function mountOrderBook(model) {
     },
   });
   orderBookPanels.set(model.id, panel);
+  article.querySelector("[data-book-ticker]").addEventListener("click", (event) => {
+    event.stopPropagation();
+    copyTicker(model.symbol);
+  });
   article.querySelector(".panel-close").addEventListener("click", () => removeOrderBook(model.id));
   bindGridResizer(article.querySelector(".panel-resizer"), model);
   bindGridResizer(article.querySelector(".panel-resizer-nw"), model, null, "nw");
@@ -1401,9 +1437,14 @@ function mountOrderBook(model) {
     panel.baseTick = null;
     panel.autoCentering = false;
     panel.autoScaleIndex = null;
+    panel.calmSince = 0;
     panel.priceTrail = [];
     panel.manualScrollAnchorPrice = null;
     panel.selectedTradePathKey = null;
+    panel.tradeOffsetMs = 0;
+    panel.tradePriceDomain = null;
+    panel.tradeDomainKey = null;
+    panel.depthFitted = false;
     article.querySelector(".trade-flow-nodes").innerHTML = '<div class="orderbook-empty">Жду сделки…</div>';
     article.querySelector(".trade-flow-detail").hidden = true;
     article.querySelector(".orderbook-rows").innerHTML = '<div class="orderbook-empty">Загружаю глубину Binance…</div>';
@@ -1487,6 +1528,57 @@ function mountOrderBook(model) {
     panel.selectedTradePathKey = panel.selectedTradePathKey === node.dataset.tradePathKey ? null : node.dataset.tradePathKey;
     if (panel.latest) renderOrderBook(panel, panel.latest);
   });
+  const tradeWindowButton = article.querySelector("[data-trade-window]");
+  const tradeLiveButton = article.querySelector("[data-trade-live]");
+  const tradeWindows = [15_000, 30_000, 60_000, 2 * 60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
+  const setTradeWindow = (duration) => {
+    model.tradeWindowMs = tradeWindows.reduce((nearest, value) => Math.abs(value - duration) < Math.abs(nearest - duration) ? value : nearest, tradeWindows[0]);
+    tradeWindowButton.textContent = formatTradeWindow(model.tradeWindowMs);
+    panel.tradePriceDomain = null;
+    panel.tradeDomainKey = null;
+    persistWorkspace();
+    if (panel.latest) renderOrderBook(panel, panel.latest);
+  };
+  tradeWindowButton.addEventListener("click", () => {
+    const index = Math.max(0, tradeWindows.indexOf(Number(model.tradeWindowMs)));
+    setTradeWindow(tradeWindows[(index + 1) % tradeWindows.length]);
+  });
+  tradeLiveButton.addEventListener("click", () => {
+    panel.tradeOffsetMs = 0;
+    panel.tradePriceDomain = null;
+    tradeLiveButton.classList.add("is-active");
+    if (panel.latest) renderOrderBook(panel, panel.latest);
+  });
+  tradeFlow.addEventListener("wheel", (event) => {
+    if (event.target.closest(".trade-flow-detail")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const index = Math.max(0, tradeWindows.indexOf(Number(model.tradeWindowMs)));
+    const nextIndex = Math.max(0, Math.min(tradeWindows.length - 1, index + (event.deltaY > 0 ? 1 : -1)));
+    setTradeWindow(tradeWindows[nextIndex]);
+  }, { passive: false });
+  tradeFlow.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.target.closest("button,input,.trade-flow-detail")) return;
+    event.preventDefault();
+    tradeFlow.setPointerCapture(event.pointerId);
+    const startX = event.clientX;
+    const startOffset = panel.tradeOffsetMs;
+    const width = Math.max(1, tradeFlow.getBoundingClientRect().width);
+    const move = (moveEvent) => {
+      panel.tradeOffsetMs = Math.max(0, startOffset + ((moveEvent.clientX - startX) / width) * Number(model.tradeWindowMs));
+      tradeLiveButton.classList.toggle("is-active", panel.tradeOffsetMs < 100);
+      panel.tradePriceDomain = null;
+      if (panel.latest) renderOrderBook(panel, panel.latest);
+    };
+    const stop = () => {
+      tradeFlow.removeEventListener("pointermove", move);
+      tradeFlow.removeEventListener("pointerup", stop);
+      tradeFlow.removeEventListener("pointercancel", stop);
+    };
+    tradeFlow.addEventListener("pointermove", move);
+    tradeFlow.addEventListener("pointerup", stop);
+    tradeFlow.addEventListener("pointercancel", stop);
+  });
   const splitter = article.querySelector(".book-splitter");
   splitter.addEventListener("pointerdown", (event) => {
     event.preventDefault();
@@ -1513,6 +1605,7 @@ function mountOrderBook(model) {
     event.preventDefault();
     if (event.ctrlKey || event.metaKey) {
       model.bookScaleIndex = Math.max(0, Math.min(maximumBookScaleIndex(), (Number(model.bookScaleIndex) || 0) + (event.deltaY > 0 ? 1 : -1)));
+      model.bookAutoFit = false;
       panel.autoScaleIndex = model.bookScaleIndex;
       panel.autoScaleUntil = 0;
       panel.priceTrail = [];
@@ -1534,15 +1627,19 @@ function mountOrderBook(model) {
 function renderOrderBook(panel, data) {
   const body = panel.element.querySelector(".orderbook-rows");
   const flow = panel.element.querySelector(".trade-flow");
-  const clusterPane = panel.element.querySelector(".trade-clusters");
-  const tapeBody = panel.element.querySelector(".trade-tape-body");
-  let rowCount = Math.max(5, Math.floor(body.getBoundingClientRect().height / 12));
+  let rowCount = Math.max(5, Math.floor(body.getBoundingClientRect().height / (12 * state.fontScale / 100)));
   if (rowCount % 2 === 0) rowCount -= 1;
   const bestBid = data.bids[0]?.[0];
   const bestAsk = data.asks[0]?.[0];
   const middle = Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? (bestBid + bestAsk) / 2 : null;
   if (!Number.isFinite(middle)) return;
   panel.baseTick = panel.baseTick ?? inferPriceTick(data.bids, data.asks, middle);
+  if (panel.model.bookAutoFit !== false && !panel.depthFitted && data.bids.length + data.asks.length >= 100) {
+    panel.model.bookScaleIndex = depthCoverageScaleIndex(panel.baseTick, data.bids, data.asks, middle, rowCount);
+    panel.model.bookAutoFit = false;
+    panel.depthFitted = true;
+    persistWorkspace();
+  }
   panel.lastMiddle = middle;
   const now = Number(data.eventTime) || Date.now();
   const lastTrailPoint = panel.priceTrail.at(-1);
@@ -1555,10 +1652,12 @@ function renderOrderBook(panel, data) {
   const userHalfSpan = userStep * Math.max(2, Math.floor(rowCount / 2));
   if (recentMovement >= userHalfSpan * .68) {
     panel.autoScaleIndex = adaptiveBookScaleIndex(panel.baseTick, userScaleIndex, recentMovement * 1.22, rowCount);
-    panel.autoScaleUntil = now + 4_000;
+    panel.autoScaleUntil = now + 1_200;
+    panel.calmSince = 0;
   } else if (now > panel.autoScaleUntil && Number(panel.autoScaleIndex) > userScaleIndex) {
-    panel.autoScaleIndex = Math.max(userScaleIndex, Number(panel.autoScaleIndex) - 1);
-    panel.autoScaleUntil = now + 500;
+    panel.calmSince ||= now;
+    panel.autoScaleIndex = recoverBookScaleIndex(userScaleIndex, panel.autoScaleIndex);
+    panel.autoScaleUntil = now + 320;
   }
   const effectiveScaleIndex = Math.max(userScaleIndex, Number(panel.autoScaleIndex) || 0);
   panel.priceStep = priceStepForScale(panel.baseTick, effectiveScaleIndex);
@@ -1591,13 +1690,6 @@ function renderOrderBook(panel, data) {
   body.innerHTML = rows.map((row) => bookLadderRow(row, middle, maxSize, anomaly)).join("");
   panel.element.querySelector("[data-book-scale]").textContent = `${effectiveScaleIndex > userScaleIndex ? "AUTO " : ""}${bookScaleLabel(effectiveScaleIndex)}`;
   renderTradeFlow(panel, data.trades ?? [], flow);
-  tapeBody.classList.toggle("has-clusters", panel.model.clustersVisible);
-  clusterPane.hidden = !panel.model.clustersVisible;
-  if (panel.model.clustersVisible) {
-    const clusterRows = Math.max(3, Math.floor(clusterPane.getBoundingClientRect().height / 17));
-    const clusters = aggregateTradeClusters(data.trades, panel.model.tradeMinQuote, panel.priceStep, clusterRows);
-    clusterPane.innerHTML = clusters.length ? clusters.map(tradeClusterRow).join("") : '<div class="orderbook-empty">Нет кластеров</div>';
-  }
 }
 
 function bookLadderRow(row, middle, maxSize, anomalyThreshold) {
@@ -1610,37 +1702,75 @@ function bookLadderRow(row, middle, maxSize, anomalyThreshold) {
 function renderTradeFlow(panel, trades, flow) {
   const nodesRoot = flow.querySelector(".trade-flow-nodes");
   const line = flow.querySelector(".trade-flow-line");
+  const grid = flow.querySelector(".trade-flow-grid");
+  const priceAxis = flow.querySelector(".trade-price-axis");
+  const timeAxis = flow.querySelector(".trade-time-axis");
   const detail = flow.querySelector(".trade-flow-detail");
   const width = Math.max(80, flow.getBoundingClientRect().width);
-  const nodeLimit = Math.max(8, Math.min(42, Math.floor(width / 24)));
-  const clusterStep = Math.max(panel.baseTick || Number.EPSILON, panel.priceStep / 5);
-  const path = aggregateTradePath(trades, panel.model.tradeMinQuote, clusterStep, nodeLimit, 700);
-  if (!path.length) {
+  const height = Math.max(70, flow.getBoundingClientRect().height);
+  const window = tradeTimeWindow(Date.now(), panel.model.tradeWindowMs, panel.tradeOffsetMs);
+  const visibleTrades = [];
+  for (const trade of trades) {
+    if (trade.time > window.end) continue;
+    if (trade.time < window.start) break;
+    visibleTrades.push(trade);
+  }
+  const timeColumns = Math.max(4, Math.min(28, Math.floor(width / (panel.model.clustersVisible ? 48 : 25))));
+  const bucketMs = Math.max(250, Math.ceil(window.duration / timeColumns / 250) * 250);
+  const clusterStep = Math.max(panel.baseTick || Number.EPSILON, panel.priceStep / (panel.model.clustersVisible ? 2 : 5));
+  const items = panel.model.clustersVisible
+    ? aggregateFootprintClusters(visibleTrades, panel.model.tradeMinQuote, clusterStep, bucketMs)
+    : aggregateTradePath(visibleTrades, panel.model.tradeMinQuote, clusterStep, 260, bucketMs);
+  if (!items.length) {
     nodesRoot.innerHTML = '<div class="orderbook-empty">Жду сделки…</div>';
     line.replaceChildren();
+    grid.replaceChildren();
+    priceAxis.replaceChildren();
+    timeAxis.replaceChildren();
     detail.hidden = true;
     return;
   }
-  const minTime = path[0].time;
-  const maxTime = Math.max(minTime + 1, path.at(-1).time);
-  const minPrice = Math.min(...path.map((cluster) => cluster.price));
-  const maxPrice = Math.max(...path.map((cluster) => cluster.price));
-  const priceSpan = Math.max(panel.baseTick || Number.EPSILON, maxPrice - minPrice);
-  const maxQuote = Math.max(...path.map((cluster) => cluster.quote), 1);
-  const positioned = path.map((cluster, index) => ({
+  const rawMinPrice = Math.min(...items.map((cluster) => cluster.price));
+  const rawMaxPrice = Math.max(...items.map((cluster) => cluster.price));
+  const rawSpan = Math.max(clusterStep * 4, rawMaxPrice - rawMinPrice);
+  const domainKey = `${panel.model.tradeWindowMs}:${panel.model.clustersVisible}`;
+  if (!panel.tradePriceDomain || panel.tradeDomainKey !== domainKey) {
+    panel.tradePriceDomain = { min: rawMinPrice - rawSpan * .12, max: rawMaxPrice + rawSpan * .12 };
+    panel.tradeDomainKey = domainKey;
+  } else {
+    panel.tradePriceDomain.min = Math.min(panel.tradePriceDomain.min, rawMinPrice - rawSpan * .08);
+    panel.tradePriceDomain.max = Math.max(panel.tradePriceDomain.max, rawMaxPrice + rawSpan * .08);
+  }
+  const minPrice = panel.tradePriceDomain.min;
+  const maxPrice = panel.tradePriceDomain.max;
+  const priceSpan = Math.max(clusterStep, maxPrice - minPrice);
+  const maxQuote = Math.max(...items.map((cluster) => cluster.quote), 1);
+  const positioned = items.map((cluster, index) => ({
     ...cluster,
-    x: path.length === 1 ? 50 : 5 + ((cluster.time - minTime) / (maxTime - minTime)) * 90,
-    y: 8 + ((maxPrice - cluster.price) / priceSpan) * 84,
-    size: 17 + Math.sqrt(cluster.quote / maxQuote) * 17,
-    opacity: .42 + ((index + 1) / path.length) * .58,
+    x: 3 + ((cluster.time - window.start) / window.duration) * 82,
+    y: 4 + ((maxPrice - cluster.price) / priceSpan) * 84,
+    size: 10 + Math.sqrt(cluster.quote / maxQuote) * 16,
+    opacity: .38 + ((index + 1) / items.length) * .62,
   }));
-  line.innerHTML = `<polyline points="${positioned.map((cluster) => `${cluster.x.toFixed(2)},${cluster.y.toFixed(2)}`).join(" ")}" />`;
-  nodesRoot.innerHTML = positioned.map((cluster) => {
-    const side = cluster.buyQuote >= cluster.sellQuote ? "buy" : "sell";
-    const selected = panel.selectedTradePathKey === cluster.key;
-    return `<button class="trade-flow-node is-${side}${selected ? " is-selected" : ""}" data-trade-path-key="${cluster.key}" type="button" style="--x:${cluster.x.toFixed(2)}%;--y:${cluster.y.toFixed(2)}%;--node:${cluster.size.toFixed(1)}px;--node-opacity:${cluster.opacity.toFixed(2)}" title="${cluster.count} исполнений · ${formatCompactUsd(cluster.quote)} · ${formatPrice(cluster.price)}"><span>${formatCompactUsd(cluster.quote).replace("$", "")}</span></button>`;
-  }).join("");
-  const selected = path.find((cluster) => cluster.key === panel.selectedTradePathKey);
+  renderTradeAxes(grid, priceAxis, timeAxis, minPrice, maxPrice, window);
+  if (panel.model.clustersVisible) {
+    line.replaceChildren();
+    const quotes = positioned.map((item) => item.quote).sort((a, b) => a - b);
+    const anomaly = quotes[Math.max(0, Math.floor(quotes.length * .9))] ?? Infinity;
+    const cellWidth = Math.max(29, Math.min(72, (bucketMs / window.duration) * width * .88));
+    nodesRoot.innerHTML = positioned.map((cluster) => {
+      const selected = panel.selectedTradePathKey === cluster.key;
+      return `<button class="footprint-cell${cluster.quote >= anomaly ? " is-anomaly" : ""}${selected ? " is-selected" : ""}" data-trade-path-key="${cluster.key}" type="button" style="--x:${cluster.x.toFixed(2)}%;--y:${cluster.y.toFixed(2)}%;--cell-w:${cellWidth.toFixed(1)}px" title="${cluster.count} исполнений · ${formatPrice(cluster.price)}"><span>${formatCompactUsd(cluster.sellQuote).replace("$", "")}</span><strong>${formatCompactUsd(cluster.buyQuote).replace("$", "")}</strong></button>`;
+    }).join("");
+  } else {
+    line.innerHTML = `<path d="${smoothTradePath(positioned)}" />`;
+    nodesRoot.innerHTML = positioned.map((cluster) => {
+      const side = cluster.buyQuote >= cluster.sellQuote ? "buy" : "sell";
+      const selected = panel.selectedTradePathKey === cluster.key;
+      return `<button class="trade-flow-node is-${side}${selected ? " is-selected" : ""}" data-trade-path-key="${cluster.key}" type="button" style="--x:${cluster.x.toFixed(2)}%;--y:${cluster.y.toFixed(2)}%;--node:${cluster.size.toFixed(1)}px;--node-opacity:${cluster.opacity.toFixed(2)}" title="${cluster.count} исполнений · ${formatCompactUsd(cluster.quote)} · ${formatPrice(cluster.price)}"><span>${formatCompactUsd(cluster.quote).replace("$", "")}</span></button>`;
+    }).join("");
+  }
+  const selected = items.find((cluster) => cluster.key === panel.selectedTradePathKey);
   if (!selected) {
     detail.hidden = true;
     panel.selectedTradePathKey = null;
@@ -1656,16 +1786,51 @@ function renderTradeFlow(panel, trades, flow) {
   }, { once: true });
 }
 
+function smoothTradePath(points) {
+  if (!points.length) return "";
+  if (points.length === 1) return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+  if (points.length === 2) return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)} L ${points[1].x.toFixed(2)} ${points[1].y.toFixed(2)}`;
+  let path = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const current = points[index];
+    const next = points[index + 1];
+    const midX = (current.x + next.x) / 2;
+    const midY = (current.y + next.y) / 2;
+    path += ` Q ${current.x.toFixed(2)} ${current.y.toFixed(2)} ${midX.toFixed(2)} ${midY.toFixed(2)}`;
+  }
+  const last = points.at(-1);
+  path += ` T ${last.x.toFixed(2)} ${last.y.toFixed(2)}`;
+  return path;
+}
+
+function renderTradeAxes(grid, priceAxis, timeAxis, minPrice, maxPrice, window) {
+  const priceTicks = Array.from({ length: 5 }, (_, index) => {
+    const ratio = index / 4;
+    return { top: 4 + ratio * 84, price: maxPrice - ratio * (maxPrice - minPrice) };
+  });
+  const timeTicks = Array.from({ length: 5 }, (_, index) => {
+    const ratio = index / 4;
+    return { left: 3 + ratio * 82, time: window.start + ratio * window.duration };
+  });
+  grid.innerHTML = `${priceTicks.map((tick) => `<i class="is-horizontal" style="--grid-y:${tick.top}%"></i>`).join("")}${timeTicks.map((tick) => `<i class="is-vertical" style="--grid-x:${tick.left}%"></i>`).join("")}`;
+  priceAxis.innerHTML = priceTicks.map((tick) => `<span style="--axis-y:${tick.top}%">${formatPrice(tick.price)}</span>`).join("");
+  timeAxis.innerHTML = timeTicks.map((tick) => `<time style="--axis-x:${tick.left}%">${formatTradeClock(tick.time, window.duration)}</time>`).join("");
+}
+
+function formatTradeWindow(duration) {
+  const value = Number(duration) || 60_000;
+  return value < 60_000 ? `${value / 1000}с` : `${value / 60_000}м`;
+}
+
+function formatTradeClock(time, duration) {
+  return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", second: duration <= 2 * 60_000 ? "2-digit" : undefined }).format(new Date(time));
+}
+
 function formatTradeAge(time) {
   const age = Math.max(0, Date.now() - Number(time));
   if (age < 1_000) return "сейчас";
   if (age < 60_000) return `${Math.floor(age / 1_000)}с назад`;
   return `${Math.floor(age / 60_000)}м назад`;
-}
-
-function tradeClusterRow(cluster) {
-  const delta = cluster.buyQuote - cluster.sellQuote;
-  return `<div class="trade-cluster-row ${delta >= 0 ? "is-buy" : "is-sell"}" title="${cluster.count} исполнений · общий объём ${formatCompactUsd(cluster.quote)}"><span>${formatPrice(cluster.price)}</span><strong>${delta >= 0 ? "+" : "−"}${formatCompactUsd(Math.abs(delta))}</strong></div>`;
 }
 
 function formatBookQuantity(value) {

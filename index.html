@@ -7,8 +7,8 @@
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="22" />
-    <link rel="stylesheet" href="./styles.css?v=22" />
+    <meta name="inpuls-build" content="23" />
+    <link rel="stylesheet" href="./styles.css?v=23" />
     <title>InPuls — в ритме рынка</title>
   </head>
   <body>
@@ -16,7 +16,7 @@
     <header class="topbar">
       <a class="brand" href="./" aria-label="InPuls — главная">
         <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span><strong>INPULS</strong><em>SCREENER <small>v22</small></em></span>
+        <span><strong>INPULS</strong><em>SCREENER <small>v23</small></em></span>
       </a>
       <div class="inplay-strip" aria-label="Монеты в игре сейчас">
         <div class="inplay-title"><span class="inplay-label">INPLAY</span><button id="inplay-settings" type="button" title="Настроить единые правила INPLAY">⚙</button></div>
@@ -77,7 +77,7 @@
           </header>
           <div class="chart-stage">
             <div class="chart-metrics" aria-label="Метрики выбранной монеты">
-              <span><b>V24</b><strong id="metric-turnover">—</strong></span>
+              <span title="Оборот за 24 часа в валюте котировки USDT"><b>О24</b><strong id="metric-turnover">—</strong></span>
               <span><b>NATR 1</b><strong id="metric-natr-1m">—</strong></span>
               <span><b>NATR 5</b><strong id="metric-natr-5m">—</strong></span>
               <span><b>F</b><strong id="metric-funding">—</strong><em id="metric-funding-time">—</em></span>
@@ -111,7 +111,7 @@
         <aside class="top-card" data-panel="radar" data-panel-id="radar">
           <div class="column-filters" aria-label="Фильтры показателей">
             <button id="radar-filter-reset" class="column-filter-reset" type="button" title="Сбросить все фильтры">×</button>
-            <label><select data-column-filter-operator="quoteVolume24h" aria-label="Условие V24"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="quoteVolume24h" type="number" step="any" placeholder="V24 $M" /></label>
+            <label><select data-column-filter-operator="quoteVolume24h" aria-label="Условие оборота 24ч"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="quoteVolume24h" type="number" step="any" placeholder="О24 $M" /></label>
             <label><select data-column-filter-operator="natr1m" aria-label="Условие NATR 1"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="natr1m" type="number" step="any" placeholder="NATR 1" /></label>
             <label><select data-column-filter-operator="natr5m" aria-label="Условие NATR 5"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="natr5m" type="number" step="any" placeholder="NATR 5" /></label>
             <label><select data-column-filter-operator="fundingRate" aria-label="Условие Funding"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="fundingRate" type="number" step="any" placeholder="F %" /></label>
@@ -121,7 +121,7 @@
           <div class="top-columns" aria-label="Сортировка монет">
             <span class="panel-grip radar-grip" title="Радар монет">⠿</span>
             <label class="radar-search"><input id="radar-search" type="search" autocomplete="off" placeholder="Поиск" aria-label="Поиск монеты" /><span class="column-resizer" data-column-index="0"></span></label>
-            <button data-top-sort="quoteVolume24h" type="button">V24 <i>↓</i><span class="column-resizer" data-column-index="1"></span></button>
+            <button data-top-sort="quoteVolume24h" type="button" title="Оборот за 24 часа в USDT">О24 <i>↓</i><span class="column-resizer" data-column-index="1"></span></button>
             <button data-top-sort="natr1m" type="button">NATR 1 <i>↕</i><span class="column-resizer" data-column-index="2"></span></button>
             <button data-top-sort="natr5m" type="button">NATR 5 <i>↕</i><span class="column-resizer" data-column-index="3"></span></button>
             <button data-top-sort="fundingRate" type="button">F <i>↕</i><span class="column-resizer" data-column-index="4"></span></button>
@@ -294,6 +294,6 @@
     </dialog>
 
     <div id="alert-toast" class="alert-toast" role="status" aria-live="assertive" hidden></div>
-    <script type="module" src="./app.js?v=22"></script>
+    <script type="module" src="./app.js?v=23"></script>
   </body>
 </html>

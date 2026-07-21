@@ -109,6 +109,28 @@ export function adaptiveBookScaleIndex(baseTick, currentIndex, movement, rowCoun
   return Math.max(safeIndex, adaptiveIndex < 0 ? maximumBookScaleIndex() : adaptiveIndex);
 }
 
+export function depthCoverageScaleIndex(baseTick, bids, asks, middlePrice, rowCount, coverage = .92) {
+  const middle = Number(middlePrice);
+  const tick = Math.max(Number.EPSILON, Number(baseTick) || .01);
+  if (!Number.isFinite(middle)) return 0;
+  const distances = [...(bids ?? []), ...(asks ?? [])]
+    .map((row) => Math.abs(Number(row?.[0]) - middle))
+    .filter((distance) => Number.isFinite(distance) && distance > 0)
+    .sort((left, right) => left - right);
+  if (!distances.length) return 0;
+  const percentile = Math.max(0, Math.min(distances.length - 1, Math.floor((distances.length - 1) * Math.max(.5, Math.min(1, Number(coverage) || .92)))));
+  const halfRows = Math.max(2, Math.floor((Number(rowCount) || 3) / 2));
+  const requiredMultiplier = (distances[percentile] / halfRows) / tick;
+  const index = BOOK_SCALE_MULTIPLIERS.findIndex((multiplier) => multiplier >= requiredMultiplier);
+  return index < 0 ? maximumBookScaleIndex() : index;
+}
+
+export function recoverBookScaleIndex(userIndex, adaptiveIndex, calmTicks = 1) {
+  const user = Math.max(0, Math.min(maximumBookScaleIndex(), Math.round(Number(userIndex) || 0)));
+  const adaptive = Math.max(user, Math.min(maximumBookScaleIndex(), Math.round(Number(adaptiveIndex) || user)));
+  return Math.max(user, adaptive - Math.max(1, Math.round(Number(calmTicks) || 1)));
+}
+
 export function buildDepthLadder(bids, asks, marketPrice, viewCenter, priceStep, rowCount) {
   const count = Math.max(3, Math.floor(Number(rowCount) || 3));
   const step = Math.max(Number.EPSILON, Number(priceStep) || .01);
@@ -200,6 +222,75 @@ export function aggregateTradePath(trades, minimumQuote = 0, priceStep = .01, li
     .slice(-Math.max(3, Math.floor(Number(limit) || 36)));
 }
 
+export function tradeTimeWindow(now, durationMs, offsetMs = 0) {
+  const end = Number(now) - Math.max(0, Number(offsetMs) || 0);
+  const duration = Math.max(5_000, Number(durationMs) || 60_000);
+  return { start: end - duration, end, duration };
+}
+
+export function aggregateFootprintClusters(trades, minimumQuote = 0, priceStep = .01, bucketMs = 5_000) {
+  const threshold = Math.max(0, Number(minimumQuote) || 0);
+  const step = Math.max(Number.EPSILON, Number(priceStep) || .01);
+  const duration = Math.max(250, Math.floor(Number(bucketMs) || 5_000));
+  const cells = new Map();
+  for (const trade of trades ?? []) {
+    if (![trade?.price, trade?.quote, trade?.time].every(Number.isFinite) || trade.quote <= 0) continue;
+    const time = Math.floor(trade.time / duration) * duration;
+    const price = Math.round(trade.price / step) * step;
+    const key = `${time}:${price}`;
+    const cell = cells.get(key) ?? { key, time, lastTime: trade.time, price, buyQuote: 0, sellQuote: 0, quote: 0, count: 0, executions: [] };
+    cell[trade.side === "sell" ? "sellQuote" : "buyQuote"] += trade.quote;
+    cell.quote += trade.quote;
+    cell.count += 1;
+    cell.lastTime = Math.max(cell.lastTime, trade.time);
+    cell.executions.push(trade);
+    cells.set(key, cell);
+  }
+  return [...cells.values()]
+    .filter((cell) => cell.quote >= threshold)
+    .sort((left, right) => left.time - right.time || right.price - left.price);
+}
+
+const MAX_TRADE_HISTORY = 20_000;
+
+class TradeHistoryStore {
+  constructor() { this.dbPromise = null; }
+
+  #open() {
+    if (!globalThis.indexedDB) return Promise.resolve(null);
+    if (this.dbPromise) return this.dbPromise;
+    this.dbPromise = new Promise((resolve) => {
+      const request = indexedDB.open("inpuls-market-trades-v1", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("symbols", { keyPath: "symbol" });
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(null);
+    });
+    return this.dbPromise;
+  }
+
+  async get(symbol) {
+    const db = await this.#open();
+    if (!db) return [];
+    return new Promise((resolve) => {
+      const request = db.transaction("symbols", "readonly").objectStore("symbols").get(symbol);
+      request.onsuccess = () => resolve(Array.isArray(request.result?.trades) ? request.result.trades : []);
+      request.onerror = () => resolve([]);
+    });
+  }
+
+  async set(symbol, trades) {
+    const db = await this.#open();
+    if (!db) return;
+    await new Promise((resolve) => {
+      const transaction = db.transaction("symbols", "readwrite");
+      transaction.objectStore("symbols").put({ symbol, trades: trades.slice(0, MAX_TRADE_HISTORY), updatedAt: Date.now() });
+      transaction.oncomplete = transaction.onerror = transaction.onabort = () => resolve();
+    });
+  }
+}
+
+const tradeHistoryStore = new TradeHistoryStore();
+
 export class OrderBookFeed {
   constructor({ onData, onStatus, WebSocketImpl = globalThis.WebSocket, fetchImpl = globalThis.fetch } = {}) {
     this.onData = onData ?? (() => {});
@@ -217,6 +308,7 @@ export class OrderBookFeed {
     this.depthWatchdogTimer = null;
     this.tradeWatchdogTimer = null;
     this.snapshotTimer = null;
+    this.tradeHistoryTimer = null;
     this.bids = new Map();
     this.asks = new Map();
     this.partialBidKeys = new Set();
@@ -228,6 +320,7 @@ export class OrderBookFeed {
 
   select(symbol) {
     if (!symbol?.endsWith("USDT")) return;
+    if (this.symbol && this.trades.length) tradeHistoryStore.set(this.symbol, this.trades).catch(() => {});
     this.symbol = symbol;
     this.bids.clear();
     this.asks.clear();
@@ -237,9 +330,31 @@ export class OrderBookFeed {
     this.lastUpdateId = null;
     this.cachedDepth = null;
     clearTimeout(this.snapshotTimer);
+    clearTimeout(this.tradeHistoryTimer);
     const generation = ++this.generation;
     this.#start(generation);
     this.#loadDeepSnapshot(generation);
+    this.#loadTradeHistory(symbol, generation);
+  }
+
+  async #loadTradeHistory(symbol, generation) {
+    const saved = await tradeHistoryStore.get(symbol);
+    if (generation !== this.generation || symbol !== this.symbol || !saved.length) return;
+    const merged = new Map();
+    for (const trade of [...this.trades, ...saved]) {
+      if (!trade || !Number.isFinite(Number(trade.time))) continue;
+      merged.set(String(trade.id), trade);
+    }
+    this.trades = [...merged.values()].sort((left, right) => right.time - left.time).slice(0, MAX_TRADE_HISTORY);
+    this.#emit(Date.now());
+  }
+
+  #scheduleTradeHistorySave() {
+    clearTimeout(this.tradeHistoryTimer);
+    const symbol = this.symbol;
+    this.tradeHistoryTimer = setTimeout(() => {
+      if (symbol === this.symbol) tradeHistoryStore.set(symbol, this.trades).catch(() => {});
+    }, 4_000);
   }
 
   #replacePartialSide(target, previousKeys, rows) {
@@ -263,7 +378,7 @@ export class OrderBookFeed {
     this.onData({
       symbol: this.symbol,
       ...view,
-      trades: this.trades.slice(),
+      trades: this.trades,
       lastUpdateId: this.lastUpdateId,
       eventTime,
     });
@@ -371,7 +486,8 @@ export class OrderBookFeed {
       clearTimeout(this.tradeWatchdogTimer);
       this.tradeAttemptIndex = 0;
       this.trades.unshift(trade);
-      if (this.trades.length > 320) this.trades.length = 320;
+      if (this.trades.length > MAX_TRADE_HISTORY) this.trades.length = MAX_TRADE_HISTORY;
+      this.#scheduleTradeHistorySave();
       this.#emit(trade.time);
     });
     socket.addEventListener("close", () => {
@@ -384,12 +500,14 @@ export class OrderBookFeed {
   }
 
   destroy() {
+    if (this.symbol && this.trades.length) tradeHistoryStore.set(this.symbol, this.trades).catch(() => {});
     this.generation += 1;
     clearTimeout(this.depthReconnectTimer);
     clearTimeout(this.tradeReconnectTimer);
     clearTimeout(this.depthWatchdogTimer);
     clearTimeout(this.tradeWatchdogTimer);
     clearTimeout(this.snapshotTimer);
+    clearTimeout(this.tradeHistoryTimer);
     this.depthSocket?.close();
     this.tradeSocket?.close();
     this.depthSocket = null;

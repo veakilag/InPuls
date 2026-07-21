@@ -112,7 +112,7 @@ export function snapPointToCandle(candles, slot, price) {
 }
 
 export function candleIndexAtSlot(slot, length) {
-  return Math.max(0, Math.min(Math.max(0, length - 1), Math.floor(slot)));
+  return Math.max(0, Math.min(Math.max(0, length - 1), Math.round(Number(slot) - .5)));
 }
 
 export function candleCenterSlot(index) {
@@ -371,6 +371,8 @@ export class CandlestickChart {
     this.draftDrawing = null;
     this.drawingGesture = null;
     this.magnetHeld = false;
+    this.drawingSnap = false;
+    this.centerLatest = true;
     this.onAlert = onAlert;
     this.onToolChange = null;
     this.fontScale = 1;
@@ -405,15 +407,7 @@ export class CandlestickChart {
       this.#requestRender();
     });
     canvas.addEventListener("wheel", (event) => this.#handleWheel(event), { passive: false });
-    canvas.addEventListener("dblclick", () => {
-      this.followLatest = true;
-      this.pricePan = 0;
-      this.priceScale = 1;
-      this.fixedPriceDomain = null;
-      this.viewStart = Math.max(0, this.candles.length - (this.visibleCount ?? 80));
-      this.#persistViewport();
-      this.render();
-    });
+    canvas.addEventListener("dblclick", () => this.resetView());
     this.keyHandler = (event) => {
       if (event.key === "Control" || event.key === "Meta") this.magnetHeld = true;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && CandlestickChart.activeChart === this) {
@@ -450,6 +444,17 @@ export class CandlestickChart {
     this.#requestRender();
   }
 
+  resetView() {
+    this.followLatest = true;
+    this.centerLatest = true;
+    this.pricePan = 0;
+    this.priceScale = 1;
+    this.fixedPriceDomain = null;
+    this.viewStart = Math.max(0, this.candles.length - (this.visibleCount ?? 80) / 2);
+    this.#persistViewport();
+    this.#requestRender();
+  }
+
   lockPriceDomain() {
     this.#lockPriceDomain();
   }
@@ -481,6 +486,7 @@ export class CandlestickChart {
     this.activeTool = allowed.has(tool) ? tool : null;
     this.draftDrawing = null;
     this.drawingGesture = null;
+    this.drawingSnap = false;
     this.canvas.style.cursor = this.activeTool ? "crosshair" : "crosshair";
     this.onToolChange?.(this.activeTool);
     this.#requestRender();
@@ -541,6 +547,7 @@ export class CandlestickChart {
       pricePan: this.pricePan,
       followLatest: this.followLatest,
       fixedPriceDomain: this.fixedPriceDomain,
+      centerLatest: this.centerLatest,
     });
     try { localStorage.setItem(`${this.storageKey}-viewport`, JSON.stringify(Object.fromEntries(this.viewportStore))); } catch {}
   }
@@ -598,23 +605,20 @@ export class CandlestickChart {
       this.seriesKey = nextKey;
       this.viewStart = null;
       this.followLatest = !this.pendingViewport;
+      this.centerLatest = true;
       if (symbolChanged) this.pricePan = 0;
     }
     this.candles = candles;
     this.meta = meta;
     if (symbolChanged) {
-      const savedViewport = this.viewportStore.get(meta.symbol);
-      if (savedViewport) {
-        this.visibleCount = Number(savedViewport.visibleCount) || this.visibleCount;
-        this.priceScale = Number(savedViewport.priceScale) || 1;
-        this.pricePan = Number(savedViewport.pricePan) || 0;
-        this.followLatest = savedViewport.followLatest !== false;
-        this.fixedPriceDomain = savedViewport.fixedPriceDomain && Number.isFinite(savedViewport.fixedPriceDomain.min) && Number.isFinite(savedViewport.fixedPriceDomain.max)
-          ? { min: savedViewport.fixedPriceDomain.min, max: savedViewport.fixedPriceDomain.max }
-          : null;
-        const anchor = candles.findIndex((candle) => candle.time === savedViewport.anchorTime);
-        if (anchor >= 0) this.viewStart = anchor;
-      } else this.fixedPriceDomain = null;
+      // A newly selected instrument always starts from the neutral centered view.
+      // Manual navigation remains intact while the same series receives live ticks.
+      this.priceScale = 1;
+      this.pricePan = 0;
+      this.fixedPriceDomain = null;
+      this.followLatest = true;
+      this.centerLatest = true;
+      this.viewStart = candles.length ? Math.max(0, candles.length - (this.visibleCount ?? 80) / 2) : null;
     }
     this.#checkAlerts();
     if (oldAnchorTime !== null) {
@@ -626,7 +630,7 @@ export class CandlestickChart {
       this.viewStart = Math.max(0, Math.min(this.viewStart, Math.max(0, candles.length - 1)));
       this.followLatest = this.pendingViewport.followLatest;
       this.pendingViewport = null;
-    } else if (this.followLatest && this.visibleCount) this.viewStart = Math.max(0, candles.length - this.visibleCount);
+    } else if (this.followLatest && this.visibleCount) this.viewStart = Math.max(0, candles.length - this.visibleCount * (this.centerLatest ? .5 : 1));
     this.#requestRender();
   }
 
@@ -656,7 +660,7 @@ export class CandlestickChart {
     if (!this.visibleCount && this.candles.length) this.visibleCount = defaultVisible;
     const pixelVisibleLimit = maximumVisibleCandles(plotWidth);
     this.visibleCount = Math.max(20, Math.min(1500, pixelVisibleLimit, this.visibleCount ?? 80));
-    if (this.viewStart === null) this.viewStart = Math.max(0, this.candles.length - this.visibleCount);
+    if (this.viewStart === null) this.viewStart = Math.max(0, this.candles.length - this.visibleCount * (this.centerLatest ? .5 : 1));
     this.viewStart = Math.max(0, Math.min(this.viewStart, Math.max(0, this.candles.length - 1)));
     const sliceStart = Math.max(0, Math.floor(this.viewStart));
     const sliceEnd = Math.min(this.candles.length, Math.ceil(this.viewStart + this.visibleCount));
@@ -674,7 +678,10 @@ export class CandlestickChart {
     const rawMin = Math.min(...visible.map((item) => item.low));
     const rawMax = Math.max(...visible.map((item) => item.high));
     const priceSpan = rawMax - rawMin || rawMax * 0.001 || 1;
-    const priceCenter = (rawMax + rawMin) / 2 + priceSpan * this.pricePan;
+    const centeredMarketPrice = this.followLatest && this.centerLatest && Number.isFinite(this.candles.at(-1)?.close)
+      ? this.candles.at(-1).close
+      : (rawMax + rawMin) / 2;
+    const priceCenter = centeredMarketPrice + priceSpan * this.pricePan;
     const scaledSpan = priceSpan * 1.16 * this.priceScale;
     const autoMinPrice = priceCenter - scaledSpan / 2;
     const autoMaxPrice = priceCenter + scaledSpan / 2;
@@ -918,6 +925,7 @@ export class CandlestickChart {
     this.undoStack.push({ type: "add", drawing: committed });
     this.draftDrawing = null;
     this.drawingGesture = null;
+    this.drawingSnap = false;
     this.activeTool = null;
     this.onToolChange?.(null);
     this.#persistDrawings();
@@ -1137,13 +1145,13 @@ export class CandlestickChart {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     if (this.drawingGesture?.type === "freehand") {
-      const point = this.#pointAt(x, y, this.#shouldSnap(event));
+      const point = this.#pointAt(x, y, this.#shouldSnap(event) || this.drawingSnap);
       if (point) this.drawingGesture.drawing.points.push(point);
       this.#requestRender();
       return;
     }
     if (this.activeTool && this.draftDrawing) {
-      const point = this.#pointAt(x, y, this.#shouldSnap(event));
+      const point = this.#pointAt(x, y, this.#shouldSnap(event) || this.drawingSnap);
       if (point) this.draftDrawing.b = point;
       this.hoverX = x;
       this.hoverY = y;
@@ -1224,16 +1232,19 @@ export class CandlestickChart {
     CandlestickChart.activeChart = this;
     if (this.activeTool && !axis) {
       event.preventDefault();
-      const point = this.#pointAt(x, y, this.#shouldSnap(event));
+      const snap = this.#shouldSnap(event) || this.drawingSnap;
+      const point = this.#pointAt(x, y, snap);
       if (!point) return;
       if (this.activeTool === "horizontal" || this.activeTool === "ray" || this.activeTool === "alert") {
         this.#commitDrawing({ type: this.activeTool, a: point });
       } else if (this.activeTool === "freehand") {
+        this.drawingSnap = snap;
         this.canvas.setPointerCapture(event.pointerId);
         const drawing = { type: "freehand", a: point, points: [point] };
         this.drawingGesture = { type: "freehand", drawing };
         this.draftDrawing = drawing;
       } else if (!this.draftDrawing) {
+        this.drawingSnap = snap;
         this.draftDrawing = { type: this.activeTool, a: point, b: point };
       } else {
         this.draftDrawing.b = point;

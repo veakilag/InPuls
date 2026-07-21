@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adaptiveBookScaleIndex, aggregateDepthBands, aggregateTradeClusters, aggregateTradePath, applyDepthUpdates, bookScaleLabel, buildDepthLadder, depthView, inferPriceTick, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForScale } from "../orderbook.js";
+import { adaptiveBookScaleIndex, aggregateDepthBands, aggregateFootprintClusters, aggregateTradeClusters, aggregateTradePath, applyDepthUpdates, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, depthView, inferPriceTick, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "../orderbook.js";
 
 test("depth updates add, replace and remove price levels", () => {
   const levels = new Map([[100, 2], [99, 4]]);
@@ -73,6 +73,27 @@ test("impulse adaptation enlarges the effective price step without changing the 
   const next = adaptiveBookScaleIndex(.01, 3, 20, 21);
   assert.ok(next > 3);
   assert.ok(priceStepForScale(.01, next) * 10 >= 20 / .7);
+});
+
+test("maximum-depth fit covers distant received levels and scale recovery returns to the user value", () => {
+  const bids = Array.from({ length: 100 }, (_, index) => [100 - (index + 1) * .1, 1]);
+  const asks = Array.from({ length: 100 }, (_, index) => [100 + (index + 1) * .1, 1]);
+  const index = depthCoverageScaleIndex(.1, bids, asks, 100, 21);
+  assert.ok(priceStepForScale(.1, index) * 10 >= 9);
+  assert.equal(recoverBookScaleIndex(3, 8), 7);
+  assert.equal(recoverBookScaleIndex(3, 3), 3);
+});
+
+test("time window and footprint preserve exact time-price cells", () => {
+  assert.deepEqual(tradeTimeWindow(120_000, 60_000, 10_000), { start: 50_000, end: 110_000, duration: 60_000 });
+  const cells = aggregateFootprintClusters([
+    { id: 1, price: 100, quote: 500, side: "sell", time: 10_100 },
+    { id: 2, price: 100, quote: 700, side: "buy", time: 10_200 },
+    { id: 3, price: 101, quote: 800, side: "buy", time: 10_300 },
+  ], 0, 1, 1_000);
+  assert.equal(cells.length, 2);
+  assert.equal(cells.find((cell) => cell.price === 100).sellQuote, 500);
+  assert.equal(cells.find((cell) => cell.price === 100).buyQuote, 700);
 });
 
 test("order book separates public depth and market trade streams", () => {
