@@ -339,10 +339,12 @@ export function canApplyDepthEvent(lastUpdateId, event, firstEvent = false) {
   return { action: "apply", reason: "continuous" };
 }
 
-const MAX_TRADE_HISTORY = 20_000;
-const MAX_BOOK_LEVELS_PER_SIDE = 20_000;
-const MAX_EMITTED_LEVELS_PER_SIDE = 10_000;
-const MAX_BUFFERED_DEPTH_EVENTS = 4_000;
+const MAX_TRADE_HISTORY = 8_000;
+const MAX_BOOK_LEVELS_PER_SIDE = 3_000;
+const MAX_EMITTED_LEVELS_PER_SIDE = 1_500;
+const MAX_BUFFERED_DEPTH_EVENTS = 1_500;
+const BOOK_TRIM_BUFFER = 400;
+const BOOK_TRIM_INTERVAL_MS = 1_000;
 const SNAPSHOT_TIMEOUT_MS = 2_800;
 
 function parseWebSocketPayload(raw) {
@@ -462,7 +464,7 @@ class TradeHistoryStore {
 
 const tradeHistoryStore = new TradeHistoryStore();
 
-export class OrderBookFeed {
+class RawOrderBookFeed {
   constructor({ onData, onStatus, WebSocketImpl = globalThis.WebSocket, fetchImpl = globalThis.fetch } = {}) {
     this.onData = onData ?? (() => {});
     this.onStatus = onStatus ?? (() => {});
@@ -484,6 +486,20 @@ export class OrderBookFeed {
     this.tradeHistoryTimer = null;
     this.tradeDispatchTimer = null;
     this.tradeDispatchBatch = [];
+    this.depthEmitTimer = null;
+    this.pendingEmitTime = 0;
+    this.pendingRefreshDepth = false;
+    this.lastDepthEmitAt = 0;
+    this.lastTrimAt = 0;
+    this.lastStatusKey = "";
+    this.visibilityHandler = () => {
+      if (typeof document !== "undefined" && !document.hidden && this.pendingEmitTime) {
+        this.#emit(this.pendingEmitTime, this.pendingRefreshDepth, true);
+      }
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", this.visibilityHandler);
+    }
 
     this.bids = new Map();
     this.asks = new Map();
@@ -530,7 +546,7 @@ export class OrderBookFeed {
     this.tradeSocket = null;
 
     const generation = ++this.generation;
-    this.onStatus({ state: "loading", text: "Подключение" });
+    this.#setStatus({ state: "loading", text: "Подключение" });
     this.#connect(generation);
     this.#connectTrades(generation);
     this.#loadTradeHistory(symbol, generation);
@@ -622,18 +638,59 @@ export class OrderBookFeed {
     return nextKeys;
   }
 
-  #emit(eventTime = Date.now(), refreshDepth = false) {
-    if (refreshDepth || !this.cachedDepth) {
+  #setStatus(payload) {
+    const key = `${payload?.state ?? ""}:${payload?.text ?? ""}`;
+    if (key === this.lastStatusKey) return;
+    this.lastStatusKey = key;
+    this.onStatus(payload);
+  }
+
+  #targetDepthRenderMs() {
+    const active = Math.max(1, sharedRawFeedRegistry.size || 1);
+    if (typeof document !== "undefined" && document.hidden) return 1_000;
+    if (active >= 4) return 260;
+    if (active >= 3) return 220;
+    if (active >= 2) return 160;
+    return 100;
+  }
+
+  #emit(eventTime = Date.now(), refreshDepth = false, force = false) {
+    this.pendingEmitTime = Math.max(this.pendingEmitTime, Number(eventTime) || Date.now());
+    this.pendingRefreshDepth ||= Boolean(refreshDepth);
+
+    if (!force && typeof document !== "undefined" && document.hidden) return;
+
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const wait = this.#targetDepthRenderMs() - (now - this.lastDepthEmitAt);
+    if (!force && wait > 0) {
+      if (!this.depthEmitTimer) {
+        this.depthEmitTimer = setTimeout(() => {
+          this.depthEmitTimer = null;
+          this.#emit(this.pendingEmitTime, this.pendingRefreshDepth, true);
+        }, Math.max(1, wait));
+      }
+      return;
+    }
+
+    clearTimeout(this.depthEmitTimer);
+    this.depthEmitTimer = null;
+    const emitTime = this.pendingEmitTime || Number(eventTime) || Date.now();
+    const shouldRefresh = this.pendingRefreshDepth || refreshDepth || !this.cachedDepth;
+    this.pendingEmitTime = 0;
+    this.pendingRefreshDepth = false;
+
+    if (shouldRefresh || !this.cachedDepth) {
       this.cachedDepth = depthView(this.bids, this.asks, MAX_EMITTED_LEVELS_PER_SIDE);
     }
     const view = this.cachedDepth;
     if (!view.bids.length || !view.asks.length) return;
+    this.lastDepthEmitAt = typeof performance !== "undefined" ? performance.now() : Date.now();
     this.onData({
       symbol: this.symbol,
       ...view,
       trades: [],
       lastUpdateId: this.lastUpdateId,
-      eventTime,
+      eventTime: emitTime,
       depthReady: this.depthReady,
       coverage: depthCoverage(view.bids, view.asks),
       bookLevels: { bids: this.bids.size, asks: this.asks.size },
@@ -641,7 +698,14 @@ export class OrderBookFeed {
     });
   }
 
-  #trimBook() {
+  #trimBook(force = false) {
+    const now = Date.now();
+    if (!force && now - this.lastTrimAt < BOOK_TRIM_INTERVAL_MS) return;
+    const bidOverflow = this.bids.size > MAX_BOOK_LEVELS_PER_SIDE + BOOK_TRIM_BUFFER;
+    const askOverflow = this.asks.size > MAX_BOOK_LEVELS_PER_SIDE + BOOK_TRIM_BUFFER;
+    if (!force && !bidOverflow && !askOverflow) return;
+    this.lastTrimAt = now;
+
     if (this.bids.size > MAX_BOOK_LEVELS_PER_SIDE) {
       const prices = [...this.bids.keys()].sort((a, b) => b - a);
       for (const price of prices.slice(MAX_BOOK_LEVELS_PER_SIDE)) this.bids.delete(price);
@@ -705,8 +769,9 @@ export class OrderBookFeed {
     this.pendingSnapshot = null;
     this.depthReady = true;
     this.cachedDepth = null;
-    this.#emit(Date.now(), true);
-    this.onStatus({ state: "online", text: "LIVE 100ms · FULL" });
+    this.#trimBook(true);
+    this.#emit(Date.now(), true, true);
+    this.#setStatus({ state: "online", text: "LIVE 100ms · FULL" });
     return true;
   }
 
@@ -756,7 +821,7 @@ export class OrderBookFeed {
     this.#resetBook();
     clearTimeout(this.firstDepthTimer);
     clearTimeout(this.snapshotTimer);
-    this.onStatus({ state: "loading", text: "Резервный live-стакан" });
+    this.#setStatus({ state: "loading", text: "Резервный live-стакан" });
     try { this.socket?.close(); } catch {}
     this.socket = null;
     this.reconnectTimer = setTimeout(() => this.#connect(generation), 0);
@@ -766,7 +831,7 @@ export class OrderBookFeed {
     if (this.mode !== "deep") return;
     this.resyncCount += 1;
     this.#resetBook();
-    this.onStatus({ state: "loading", text });
+    this.#setStatus({ state: "loading", text });
     clearTimeout(this.snapshotTimer);
     this.snapshotTimer = setTimeout(() => this.#loadSnapshot(this.generation), 250);
   }
@@ -805,7 +870,7 @@ export class OrderBookFeed {
           id: Date.now() % 2_147_483_647,
         }));
       }
-      this.onStatus({
+      this.#setStatus({
         state: "loading",
         text: this.mode === "deep" ? "Синхронизация книги" : "Подключаю резервный стакан",
       });
@@ -843,7 +908,7 @@ export class OrderBookFeed {
         this.depthReady = true;
         this.cachedDepth = null;
         this.#emit(Number(update.E) || Date.now(), true);
-        this.onStatus({ state: "online", text: "LIVE 100ms · FULL VIEW · 20" });
+        this.#setStatus({ state: "online", text: "LIVE 100ms · FULL VIEW · 20" });
         return;
       }
 
@@ -858,7 +923,7 @@ export class OrderBookFeed {
       if (!this.#applyDepthEvent(update)) return;
       this.cachedDepth = null;
       this.#emit(Number(update.E) || Date.now(), true);
-      this.onStatus({ state: "online", text: "LIVE 100ms · FULL" });
+      this.#setStatus({ state: "online", text: "LIVE 100ms · FULL" });
     });
 
     socket.addEventListener("close", () => {
@@ -867,7 +932,7 @@ export class OrderBookFeed {
       this.socket = null;
       this.transportIndex += 1;
       this.#resetBook();
-      this.onStatus({ state: "offline", text: "Переподключение стакана" });
+      this.#setStatus({ state: "offline", text: "Переподключение стакана" });
       this.reconnectTimer = setTimeout(() => this.#connect(generation), 500);
     });
 
@@ -947,8 +1012,13 @@ export class OrderBookFeed {
     clearTimeout(this.snapshotTimer);
     clearTimeout(this.tradeHistoryTimer);
     clearTimeout(this.tradeDispatchTimer);
+    clearTimeout(this.depthEmitTimer);
     this.tradeDispatchTimer = null;
+    this.depthEmitTimer = null;
     this.tradeDispatchBatch = [];
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.visibilityHandler);
+    }
     try { this.socket?.close(); } catch {}
     try { this.tradeSocket?.close(); } catch {}
     this.socket = null;
@@ -956,15 +1026,91 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-4";
+
+const sharedRawFeedRegistry = new Map();
+
+function createSharedRawFeed(symbol, WebSocketImpl, fetchImpl) {
+  const hub = {
+    symbol,
+    subscribers: new Set(),
+    latest: null,
+    status: null,
+    releaseTimer: null,
+    feed: null,
+  };
+  hub.feed = new RawOrderBookFeed({
+    WebSocketImpl,
+    fetchImpl,
+    onData(data) {
+      hub.latest = data;
+      for (const subscriber of hub.subscribers) subscriber.onData(data);
+    },
+    onStatus(status) {
+      hub.status = status;
+      for (const subscriber of hub.subscribers) subscriber.onStatus(status);
+    },
+  });
+  hub.feed.select(symbol);
+  sharedRawFeedRegistry.set(symbol, hub);
+  return hub;
+}
+
+export class OrderBookFeed {
+  constructor({ onData, onStatus, WebSocketImpl = globalThis.WebSocket, fetchImpl = globalThis.fetch } = {}) {
+    this.onData = onData ?? (() => {});
+    this.onStatus = onStatus ?? (() => {});
+    this.WebSocketImpl = WebSocketImpl;
+    this.fetchImpl = fetchImpl;
+    this.symbol = null;
+    this.hub = null;
+  }
+
+  select(symbol) {
+    if (!symbol?.endsWith("USDT")) return;
+    if (this.symbol === symbol && this.hub) return;
+    this.#release();
+
+    let hub = sharedRawFeedRegistry.get(symbol);
+    if (!hub) hub = createSharedRawFeed(symbol, this.WebSocketImpl, this.fetchImpl);
+    clearTimeout(hub.releaseTimer);
+    hub.releaseTimer = null;
+    hub.subscribers.add(this);
+    this.symbol = symbol;
+    this.hub = hub;
+
+    if (hub.status) this.onStatus(hub.status);
+    if (hub.latest) this.onData(hub.latest);
+  }
+
+  #release() {
+    const hub = this.hub;
+    if (!hub) return;
+    hub.subscribers.delete(this);
+    this.hub = null;
+    this.symbol = null;
+    if (hub.subscribers.size) return;
+    clearTimeout(hub.releaseTimer);
+    hub.releaseTimer = setTimeout(() => {
+      if (hub.subscribers.size) return;
+      hub.feed.destroy();
+      sharedRawFeedRegistry.delete(hub.symbol);
+    }, 5_000);
+  }
+
+  destroy() {
+    this.#release();
+  }
+}
+
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-5";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
-const TAPE_MAX_STORED = 4_000;
-const TAPE_MAX_RAW_VISIBLE = 2_000;
-const TAPE_MAX_AGG_VISIBLE = 1_200;
+const TAPE_MAX_STORED = 2_500;
+const TAPE_MAX_RAW_VISIBLE = 900;
+const TAPE_MAX_AGG_VISIBLE = 600;
 const TAPE_SECOND_MS = 1_000;
 const TAPE_MIN_SECOND_WIDTH = 22;
 const TAPE_MIN_SECONDS = 12;
-const TAPE_MAX_SECONDS = 45;
+const TAPE_MAX_SECONDS = 30;
 const TAPE_MODE_KEY = "inpuls-tape-mode-v1";
 const TAPE_MIN_FILTER_KEY = "inpuls-tape-min-filter-v2";
 const TAPE_MAX_FILTER_KEY = "inpuls-tape-max-filter-v1";
@@ -1117,6 +1263,10 @@ function ensureTapeUi(card) {
       controls: null,
       rowObserver: null,
       resizeObserver: null,
+      rowsDirty: true,
+      cachedRows: [],
+      cachedFlowWidth: 0,
+      cachedFlowHeight: 0,
     };
     tapeCardStates.set(card, state);
   }
@@ -1179,23 +1329,29 @@ function ensureTapeUi(card) {
   if (!state.rowObserver) {
     const rows = card.querySelector(".orderbook-rows");
     if (rows) {
-      state.rowObserver = new MutationObserver(() => scheduleTapeDraw());
+      state.rowObserver = new MutationObserver(() => { state.rowsDirty = true; scheduleTapeDraw(); });
       state.rowObserver.observe(rows, { childList: true, subtree: true, characterData: true });
     }
   }
 
   if (!state.resizeObserver && typeof ResizeObserver === "function") {
-    state.resizeObserver = new ResizeObserver(() => scheduleTapeDraw(true));
+    state.resizeObserver = new ResizeObserver(() => { state.rowsDirty = true; scheduleTapeDraw(true); });
     state.resizeObserver.observe(flow);
   }
 
   return state;
 }
 
-function visibleBookRows(card, flow) {
+function visibleBookRows(card, flow, state) {
   const flowRect = flow.getBoundingClientRect();
   if (flowRect.width <= 0 || flowRect.height <= 0) return [];
-  return [...card.querySelectorAll(".orderbook-rows .book-ladder-row")]
+  const sizeChanged = Math.abs(flowRect.width - state.cachedFlowWidth) > .5
+    || Math.abs(flowRect.height - state.cachedFlowHeight) > .5;
+  if (!state.rowsDirty && !sizeChanged && state.cachedRows.length) return state.cachedRows;
+
+  state.cachedFlowWidth = flowRect.width;
+  state.cachedFlowHeight = flowRect.height;
+  state.cachedRows = [...card.querySelectorAll(".orderbook-rows .book-ladder-row")]
     .map((row, index) => {
       const price = parseRuntimeNumber(row.querySelector("strong")?.textContent);
       const rect = row.getBoundingClientRect();
@@ -1207,6 +1363,8 @@ function visibleBookRows(card, flow) {
       };
     })
     .filter((row) => Number.isFinite(row.price) && Number.isFinite(row.y));
+  state.rowsDirty = false;
+  return state.cachedRows;
 }
 
 function nearestVisibleRow(rows, price) {
@@ -1365,7 +1523,7 @@ function drawTapeCard(card) {
   const stored = symbol ? tapeTradesBySymbol.get(symbol) : null;
   if (!stored?.length) return;
 
-  const rows = visibleBookRows(card, flow);
+  const rows = visibleBookRows(card, flow, state);
   if (!rows.length) return;
 
   const latestTime = Number(stored[0]?.time) || Date.now();
@@ -1443,7 +1601,15 @@ function drawTapeCard(card) {
 
 function drawAllTapes() {
   if (tapeDocumentHidden) return;
-  document.querySelectorAll(".orderbook-card").forEach(drawTapeCard);
+  const viewportWidth = globalThis.innerWidth || 0;
+  const viewportHeight = globalThis.innerHeight || 0;
+  document.querySelectorAll(".orderbook-card").forEach((card) => {
+    const rect = card.getBoundingClientRect();
+    const visible = rect.width > 2 && rect.height > 2
+      && rect.bottom > 0 && rect.right > 0
+      && rect.top < viewportHeight && rect.left < viewportWidth;
+    if (visible) drawTapeCard(card);
+  });
   tapeNeedsDraw = false;
 }
 
@@ -1455,9 +1621,11 @@ function cancelTapeDraw() {
 }
 
 function targetTapeFrameMs() {
-  if (tapeRecentRate > 500) return 120;
-  if (tapeRecentRate > 200) return 85;
-  return 50;
+  const cardCount = Math.max(1, document.querySelectorAll(".orderbook-card").length);
+  const multiBookPenalty = cardCount >= 4 ? 80 : cardCount >= 3 ? 55 : cardCount >= 2 ? 30 : 0;
+  if (tapeRecentRate > 500) return 140 + multiBookPenalty;
+  if (tapeRecentRate > 200) return 100 + multiBookPenalty;
+  return 60 + multiBookPenalty;
 }
 
 function scheduleTapeDraw(force = false) {
