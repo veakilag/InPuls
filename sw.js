@@ -1,4 +1,4 @@
-const CACHE = "inpuls-v31-start-spot";
+const CACHE = "inpuls-v31-1-sw-fix";
 
 const SHELL = [
   "./",
@@ -7,8 +7,8 @@ const SHELL = [
   "./app.js?v=23",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=31",
-  "./orderbook-worker.js?v=31-worker",
+  "./orderbook.js?v=31-1",
+  "./orderbook-worker.js?v=31-1-worker",
   "./boot-v31.html",
   "./manifest.webmanifest",
   "./icon.svg",
@@ -57,7 +57,7 @@ function replaceRequired(source, oldText, newText, label, misses) {
 }
 
 async function patchedApp() {
-  const sourceUrl = new URL("./app.js?v=23&source=v31", self.registration.scope);
+  const sourceUrl = new URL("./app.js?v=23&source=v31-1", self.registration.scope);
   const response = await fetchFresh(sourceUrl);
   if (!response.ok) return response;
   let source = await response.text();
@@ -67,7 +67,7 @@ async function patchedApp() {
   source = replaceRequired(
     source,
     'from "./orderbook.js?v=23";',
-    'from "./orderbook.js?v=31";',
+    'from "./orderbook.js?v=31-1";',
     "orderbook-import",
     misses,
   );
@@ -233,7 +233,7 @@ if ("serviceWorker" in navigator) {
     misses,
   );
 
-  source = `console.info("InPuls v31 runtime", { misses: ${JSON.stringify(misses)} });\n${source}`;
+  source = `console.info("InPuls v31.1 runtime", { misses: ${JSON.stringify(misses)} });\n${source}`;
   return textResponse(response, source);
 }
 
@@ -248,23 +248,22 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (url.pathname.endsWith("/orderbook.js")) {
-    const forcedUrl = new URL("./orderbook.js?v=31", self.registration.scope);
+    const forcedUrl = new URL("./orderbook.js?v=31-1", self.registration.scope);
     event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
     return;
   }
 
   if (url.pathname.endsWith("/orderbook-worker.js")) {
-    const forcedUrl = new URL("./orderbook-worker.js?v=31-worker", self.registration.scope);
+    const forcedUrl = new URL("./orderbook-worker.js?v=31-1-worker", self.registration.scope);
     event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
     return;
   }
 
+  // Во время активной разработки отдаём сетевой Response напрямую.
+  // Раньше response.clone() выполнялся в следующем Promise, когда тело
+  // ответа уже начинало читаться браузером, и ломал загрузку модулей.
   event.respondWith(
     fetchFresh(event.request)
-      .then((response) => {
-        if (response.ok) caches.open(CACHE).then((cache) => cache.put(event.request, response.clone()));
-        return response;
-      })
       .catch(() => caches.match(event.request)),
   );
 });
