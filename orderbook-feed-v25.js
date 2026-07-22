@@ -97,6 +97,10 @@ export class OrderBookFeed {
     this.depthBuffer = [];
     this.depthReady = false;
     this.snapshotLoading = false;
+    this.snapshotFailures = 0;
+    this.depthMode = "deep";
+    this.partialBidKeys = new Set();
+    this.partialAskKeys = new Set();
     this.resyncCount = 0;
   }
   select(symbol) {
@@ -111,6 +115,10 @@ export class OrderBookFeed {
     this.depthBuffer = [];
     this.depthReady = false;
     this.snapshotLoading = false;
+    this.snapshotFailures = 0;
+    this.depthMode = "deep";
+    this.partialBidKeys = new Set();
+    this.partialAskKeys = new Set();
     this.resyncCount = 0;
     clearTimeout(this.snapshotRetryTimer);
     clearTimeout(this.tradeHistoryTimer);
@@ -135,6 +143,43 @@ export class OrderBookFeed {
     this.tradeHistoryTimer = setTimeout(() => {
       if (symbol === this.symbol) tradeHistoryStore.set(symbol, this.trades).catch(() => {});
     }, 4_000);
+  }
+
+  #replacePartialSide(target, previousKeys, rows) {
+    const nextKeys = new Set();
+    for (const [priceValue, quantityValue] of rows ?? []) {
+      const price = Number(priceValue);
+      const quantity = Number(quantityValue);
+      if (!Number.isFinite(price) || !Number.isFinite(quantity)) continue;
+      nextKeys.add(price);
+      if (quantity > 0) target.set(price, quantity);
+      else target.delete(price);
+    }
+    for (const price of previousKeys) {
+      if (!nextKeys.has(price)) target.delete(price);
+    }
+    return nextKeys;
+  }
+  #activatePartialFallback(generation) {
+    if (generation !== this.generation || this.depthMode === "partial") return;
+    this.depthMode = "partial";
+    this.depthReady = false;
+    this.snapshotLoading = false;
+    this.depthBuffer = [];
+    this.bids.clear();
+    this.asks.clear();
+    this.partialBidKeys.clear();
+    this.partialAskKeys.clear();
+    this.lastUpdateId = null;
+    this.cachedDepth = null;
+    clearTimeout(this.snapshotRetryTimer);
+    clearTimeout(this.depthReconnectTimer);
+    clearTimeout(this.depthWatchdogTimer);
+    this.onStatus({ state: "loading", text: "Резервный live-стакан" });
+    const previousSocket = this.depthSocket;
+    this.depthSocket = null;
+    previousSocket?.close();
+    this.depthReconnectTimer = setTimeout(() => this.#startDepth(generation), 0);
   }
   #start(generation) {
     this.onStatus({ state: "loading", text: "Подключение" });
@@ -230,10 +275,12 @@ export class OrderBookFeed {
     this.snapshotLoading = false;
     if (generation !== this.generation) return;
     if (!snapshot) {
-      this.onStatus({ state: "offline", text: "Снимок недоступен" });
-      this.snapshotRetryTimer = setTimeout(() => this.#loadDepthSnapshot(generation), 1_200);
+      this.snapshotFailures += 1;
+      this.onStatus({ state: "loading", text: "Снимок недоступен · включаю резерв" });
+      this.#activatePartialFallback(generation);
       return;
     }
+    this.snapshotFailures = 0;
     const firstBufferedU = Number(this.depthBuffer[0]?.U);
     if (Number.isFinite(firstBufferedU) && Number(snapshot.lastUpdateId) < firstBufferedU - 1) {
       this.snapshotRetryTimer = setTimeout(() => this.#loadDepthSnapshot(generation), SNAPSHOT_RETRY_MS);
@@ -256,8 +303,11 @@ export class OrderBookFeed {
     clearTimeout(this.depthReconnectTimer);
     clearTimeout(this.depthWatchdogTimer);
     this.depthSocket?.close();
+
+    const mode = this.depthMode;
     const rate = this.depthAttemptIndex % 4 === 3 ? "500ms" : "100ms";
-    const depthStream = `${this.symbol.toLowerCase()}@depth@${rate}`;
+    const streamKind = mode === "partial" ? "depth20" : "depth";
+    const depthStream = `${this.symbol.toLowerCase()}@${streamKind}@${rate}`;
     const transports = [
       { url: `wss://fstream.binance.com/public/stream?streams=${depthStream}`, subscribe: false },
       { url: `wss://fstream.binance.com/public/ws/${depthStream}`, subscribe: false },
@@ -267,24 +317,52 @@ export class OrderBookFeed {
     const transport = transports[this.depthAttemptIndex % transports.length];
     const socket = new this.WebSocketImpl(transport.url);
     this.depthSocket = socket;
+
     socket.addEventListener("open", () => {
-      if (generation !== this.generation) return;
-      if (transport.subscribe) socket.send(JSON.stringify({ method: "SUBSCRIBE", params: [depthStream], id: Date.now() % 2_147_483_647 }));
-      this.onStatus({ state: "loading", text: "Синхронизация книги" });
+      if (generation !== this.generation || mode !== this.depthMode) return;
+      if (transport.subscribe) {
+        socket.send(JSON.stringify({
+          method: "SUBSCRIBE",
+          params: [depthStream],
+          id: Date.now() % 2_147_483_647,
+        }));
+      }
+      this.onStatus({
+        state: "loading",
+        text: mode === "partial" ? "Подключение резервного стакана" : "Синхронизация книги",
+      });
       this.depthWatchdogTimer = setTimeout(() => socket.close(), 7_000);
-      this.#loadDepthSnapshot(generation);
+      if (mode === "deep") this.#loadDepthSnapshot(generation);
     });
+
     socket.addEventListener("message", (event) => {
-      if (generation !== this.generation) return;
+      if (generation !== this.generation || mode !== this.depthMode) return;
       let update;
       try { update = JSON.parse(event.data); } catch { return; }
       if (update.result === null || update.id) return;
       update = update.data ?? update;
       const bidRows = update?.b ?? update?.bids;
       const askRows = update?.a ?? update?.asks;
-      if (!Array.isArray(bidRows) || !Array.isArray(askRows) || !Number.isFinite(Number(update?.U)) || !Number.isFinite(Number(update?.u))) return;
+      if (!Array.isArray(bidRows) || !Array.isArray(askRows)) return;
+
       clearTimeout(this.depthWatchdogTimer);
       this.depthWatchdogTimer = setTimeout(() => socket.close(), 7_000);
+
+      if (mode === "partial") {
+        this.partialBidKeys = this.#replacePartialSide(this.bids, this.partialBidKeys, bidRows);
+        this.partialAskKeys = this.#replacePartialSide(this.asks, this.partialAskKeys, askRows);
+        this.lastUpdateId = Number(update.u) || this.lastUpdateId;
+        this.depthReady = true;
+        this.depthAttemptIndex = 0;
+        this.#emit(Number(update.E) || Date.now(), true);
+        this.onStatus({
+          state: "online",
+          text: rate === "500ms" ? "LIVE 500ms · FULL VIEW · 20" : "LIVE 100ms · FULL VIEW · 20",
+        });
+        return;
+      }
+
+      if (!Number.isFinite(Number(update?.U)) || !Number.isFinite(Number(update?.u))) return;
       if (!this.depthReady) {
         this.#bufferDepthEvent(update);
         if (!this.snapshotLoading) this.#loadDepthSnapshot(generation);
@@ -293,23 +371,33 @@ export class OrderBookFeed {
       if (!this.#applyDepthEvent(update)) return;
       this.depthAttemptIndex = 0;
       this.#emit(Number(update.E) || Date.now(), true);
-      this.onStatus({ state: "online", text: rate === "500ms" ? "LIVE 500ms · FULL" : "LIVE 100ms · FULL" });
+      this.onStatus({
+        state: "online",
+        text: rate === "500ms" ? "LIVE 500ms · FULL" : "LIVE 100ms · FULL",
+      });
     });
+
     socket.addEventListener("close", () => {
-      if (generation !== this.generation) return;
+      if (generation !== this.generation || mode !== this.depthMode) return;
       clearTimeout(this.depthWatchdogTimer);
       this.depthReady = false;
       this.snapshotLoading = false;
       this.depthBuffer = [];
       this.bids.clear();
       this.asks.clear();
+      this.partialBidKeys.clear();
+      this.partialAskKeys.clear();
       this.lastUpdateId = null;
       this.cachedDepth = null;
       this.depthAttemptIndex += 1;
       this.onStatus({ state: "offline", text: "Переподключение стакана" });
       this.depthReconnectTimer = setTimeout(() => this.#startDepth(generation), 450);
     });
-    socket.addEventListener("error", () => this.onStatus({ state: "offline", text: "Ошибка стакана" }));
+
+    socket.addEventListener("error", () => {
+      if (generation !== this.generation || mode !== this.depthMode) return;
+      this.onStatus({ state: "offline", text: "Ошибка стакана" });
+    });
   }
   #startTrades(generation) {
     clearTimeout(this.tradeReconnectTimer);

@@ -1,4 +1,4 @@
-const CACHE = "inpuls-v25-full-book";
+const CACHE = "inpuls-v25-1-safe-fallback";
 const SHELL = [
   "./",
   "./index.html",
