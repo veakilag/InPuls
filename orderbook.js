@@ -167,8 +167,23 @@ function aggregatedDepthRow(levels, side, displayPrice) {
   };
 }
 
+const depthAggregationCache = new WeakMap();
+
+function cachedDepthAggregation(levels, side, priceStep) {
+  if (!Array.isArray(levels)) return null;
+  let entries = depthAggregationCache.get(levels);
+  if (!entries) {
+    entries = new Map();
+    depthAggregationCache.set(levels, entries);
+  }
+  const key = `${side}:${Number(priceStep).toPrecision(14)}`;
+  return { entries, key, value: entries.get(key) };
+}
+
 function aggregateDepthByStep(levels, side, priceStep) {
   const step = Math.max(Number.EPSILON, Number(priceStep) || .01);
+  const cached = cachedDepthAggregation(levels, side, step);
+  if (cached?.value) return cached.value;
   const normalized = normalizeDepthLevels(levels, side);
   const buckets = new Map();
 
@@ -184,9 +199,11 @@ function aggregateDepthByStep(levels, side, priceStep) {
     buckets.set(key, bucket);
   }
 
-  return [...buckets.values()]
+  const result = [...buckets.values()]
     .map((bucket) => aggregatedDepthRow(bucket.levels, side, bucket.price))
     .sort((left, right) => side === "ask" ? left.price - right.price : right.price - left.price);
+  cached?.entries.set(cached.key, result);
+  return result;
 }
 
 function closestRowIndex(rows, targetPrice) {
@@ -462,7 +479,7 @@ class TradeHistoryStore {
 
 const tradeHistoryStore = new TradeHistoryStore();
 
-export class OrderBookFeed {
+class LegacyOrderBookFeed {
   constructor({ onData, onStatus, WebSocketImpl = globalThis.WebSocket, fetchImpl = globalThis.fetch } = {}) {
     this.onData = onData ?? (() => {});
     this.onStatus = onStatus ?? (() => {});
@@ -956,7 +973,196 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-4";
+
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=27-worker-1", import.meta.url);
+const ORDERBOOK_TAPE_EVENT = "inpuls:tape-data";
+
+class OrderBookWorkerManager {
+  constructor() {
+    this.worker = null;
+    this.failed = false;
+    this.nextClientId = 1;
+    this.clients = new Map();
+    this.clientsBySymbol = new Map();
+    this.lastDataBySymbol = new Map();
+    this.lastStatusBySymbol = new Map();
+    this.#start();
+  }
+
+  #start() {
+    if (typeof Worker !== "function") {
+      this.failed = true;
+      return;
+    }
+    try {
+      this.worker = new Worker(ORDERBOOK_WORKER_URL, {
+        type: "module",
+        name: "inpuls-orderbook-worker",
+      });
+      this.worker.addEventListener("message", (event) => this.#onMessage(event.data));
+      this.worker.addEventListener("error", () => this.#fail());
+      this.worker.addEventListener("messageerror", () => this.#fail());
+      this.worker.postMessage({ type: "visibility", visible: typeof document === "undefined" || !document.hidden });
+      if (typeof document !== "undefined") {
+        document.addEventListener("visibilitychange", () => {
+          if (!this.worker || this.failed) return;
+          const visible = !document.hidden;
+          this.worker.postMessage({ type: "visibility", visible });
+          if (visible) this.worker.postMessage({ type: "refresh" });
+        });
+      }
+    } catch {
+      this.#fail();
+    }
+  }
+
+  available() {
+    return Boolean(this.worker) && !this.failed;
+  }
+
+  register(client) {
+    const id = this.nextClientId++;
+    this.clients.set(id, client);
+    return id;
+  }
+
+  unregister(id, symbol) {
+    this.clients.delete(id);
+    if (!symbol) return;
+    const group = this.clientsBySymbol.get(symbol);
+    group?.delete(id);
+    if (group?.size) return;
+    this.clientsBySymbol.delete(symbol);
+    this.lastDataBySymbol.delete(symbol);
+    this.lastStatusBySymbol.delete(symbol);
+    if (this.available()) this.worker.postMessage({ type: "unsubscribe", symbol });
+  }
+
+  select(id, previousSymbol, symbol) {
+    if (!this.available()) return false;
+    if (previousSymbol && previousSymbol !== symbol) {
+      const previous = this.clientsBySymbol.get(previousSymbol);
+      previous?.delete(id);
+      if (previous && previous.size === 0) {
+        this.clientsBySymbol.delete(previousSymbol);
+        this.lastDataBySymbol.delete(previousSymbol);
+        this.lastStatusBySymbol.delete(previousSymbol);
+        this.worker.postMessage({ type: "unsubscribe", symbol: previousSymbol });
+      }
+    }
+    let group = this.clientsBySymbol.get(symbol);
+    const first = !group;
+    if (!group) {
+      group = new Set();
+      this.clientsBySymbol.set(symbol, group);
+    }
+    group.add(id);
+    const client = this.clients.get(id);
+    const status = this.lastStatusBySymbol.get(symbol);
+    const data = this.lastDataBySymbol.get(symbol);
+    if (status) queueMicrotask(() => client?._receiveStatus(status));
+    if (data) queueMicrotask(() => client?._receiveData(data));
+    if (first) this.worker.postMessage({ type: "subscribe", symbol });
+    else this.worker.postMessage({ type: "refresh", symbol });
+    return true;
+  }
+
+  #onMessage(message) {
+    if (!message || typeof message !== "object") return;
+    const symbol = message.symbol;
+    if (message.type === "ready") return;
+    if (message.type === "fatal") {
+      this.#fail();
+      return;
+    }
+    if (!symbol) return;
+    if (message.type === "status") {
+      const status = { state: message.state, text: message.text };
+      this.lastStatusBySymbol.set(symbol, status);
+      for (const id of this.clientsBySymbol.get(symbol) ?? []) {
+        this.clients.get(id)?._receiveStatus(status);
+      }
+      return;
+    }
+    if (message.type === "data") {
+      const data = message.data;
+      if (!data) return;
+      this.lastDataBySymbol.set(symbol, data);
+      for (const id of this.clientsBySymbol.get(symbol) ?? []) {
+        this.clients.get(id)?._receiveData(data);
+      }
+      return;
+    }
+    if (message.type === "tape" && typeof globalThis.dispatchEvent === "function" && typeof globalThis.CustomEvent === "function") {
+      globalThis.dispatchEvent(new CustomEvent(ORDERBOOK_TAPE_EVENT, {
+        detail: { symbol, replace: Boolean(message.replace), trades: message.trades ?? [] },
+      }));
+    }
+  }
+
+  #fail() {
+    if (this.failed) return;
+    this.failed = true;
+    try { this.worker?.terminate(); } catch {}
+    this.worker = null;
+    const clients = [...this.clients.values()];
+    this.clientsBySymbol.clear();
+    this.lastDataBySymbol.clear();
+    this.lastStatusBySymbol.clear();
+    for (const client of clients) client._activateFallback();
+  }
+}
+
+const orderBookWorkerManager = new OrderBookWorkerManager();
+
+export class OrderBookFeed {
+  constructor(options = {}) {
+    this.options = options;
+    this.onData = options.onData ?? (() => {});
+    this.onStatus = options.onStatus ?? (() => {});
+    this.symbol = null;
+    this.destroyed = false;
+    this.fallback = null;
+    this.clientId = orderBookWorkerManager.register(this);
+    if (!orderBookWorkerManager.available()) this._activateFallback();
+  }
+
+  select(symbol) {
+    if (this.destroyed || !symbol?.endsWith("USDT")) return;
+    const previous = this.symbol;
+    this.symbol = symbol;
+    if (this.fallback) {
+      this.fallback.select(symbol);
+      return;
+    }
+    if (!orderBookWorkerManager.select(this.clientId, previous, symbol)) this._activateFallback();
+  }
+
+  _receiveData(data) {
+    if (!this.destroyed && data?.symbol === this.symbol) this.onData(data);
+  }
+
+  _receiveStatus(status) {
+    if (!this.destroyed) this.onStatus(status);
+  }
+
+  _activateFallback() {
+    if (this.destroyed || this.fallback) return;
+    this.fallback = new LegacyOrderBookFeed(this.options);
+    this.onStatus({ state: "loading", text: "Совместимый режим" });
+    if (this.symbol) this.fallback.select(this.symbol);
+  }
+
+  destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    orderBookWorkerManager.unregister(this.clientId, this.symbol);
+    this.fallback?.destroy();
+    this.fallback = null;
+  }
+}
+
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v27-worker";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const TAPE_MAX_STORED = 4_000;
 const TAPE_MAX_RAW_VISIBLE = 2_000;

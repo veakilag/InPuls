@@ -1,4 +1,4 @@
-const CACHE = "inpuls-v26-6-safe-rollback";
+const CACHE = "inpuls-v27-worker-1";
 
 const SHELL = [
   "./",
@@ -7,7 +7,8 @@ const SHELL = [
   "./app.js?v=23",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=26-6-safe",
+  "./orderbook.js?v=27-worker-1",
+  "./orderbook-worker.js?v=27-worker-1",
   "./assets/inpuls-world-map-v17.png",
   "./manifest.webmanifest",
   "./icon.svg",
@@ -39,10 +40,14 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   if (url.pathname.endsWith("/orderbook.js")) {
-    const forcedUrl = new URL("./orderbook.js?v=26-6-safe", self.registration.scope);
-    event.respondWith(
-      fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)),
-    );
+    const forcedUrl = new URL("./orderbook.js?v=27-worker-1", self.registration.scope);
+    event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
+    return;
+  }
+
+  if (url.pathname.endsWith("/orderbook-worker.js")) {
+    const forcedUrl = new URL("./orderbook-worker.js?v=27-worker-1", self.registration.scope);
+    event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
     return;
   }
 
