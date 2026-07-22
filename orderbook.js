@@ -1015,7 +1015,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=30-no-spot", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=31-worker", import.meta.url);
 const ORDERBOOK_TAPE_EVENT = "inpuls:tape-data";
 
 class OrderBookWorkerManager {
@@ -1062,8 +1062,10 @@ class OrderBookWorkerManager {
     return Boolean(this.worker) && !this.failed;
   }
 
-  setSpot() {
-    return false;
+  setSpot(symbol, enabled) {
+    if (!this.available() || !symbol) return false;
+    this.worker.postMessage({ type: "spot", symbol, enabled: Boolean(enabled) });
+    return true;
   }
 
   register(client) {
@@ -1224,7 +1226,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v30-no-spot";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v31";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const TAPE_MAX_STORED = 4_000;
 const TAPE_MAX_RAW_VISIBLE = 2_500;
@@ -1239,8 +1241,12 @@ const SPOT_ENABLED_KEY = "inpuls-spot-books-v1";
 
 const tapeTradesBySymbol = new Map();
 const tapeCardStates = new WeakMap();
-try { localStorage.removeItem(SPOT_ENABLED_KEY); } catch {}
-const spotEnabledSymbols = new Set();
+const spotEnabledSymbols = new Set((() => {
+  try {
+    const value = JSON.parse(localStorage.getItem(SPOT_ENABLED_KEY) || "[]");
+    return Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.endsWith("USDT")) : [];
+  } catch { return []; }
+})());
 let tapeDrawFrame = 0;
 let tapeDrawTimer = 0;
 let tapeLastDrawAt = 0;
@@ -1301,8 +1307,18 @@ function syncSpotButton(button, symbol) {
       : "Показать Binance Spot рядом с Futures";
 }
 
-function setSpotEnabled() {
-  // Spot полностью отключён в v30.
+function setSpotEnabled(symbol, enabled) {
+  if (!symbol) return;
+  if (enabled) spotEnabledSymbols.add(symbol);
+  else spotEnabledSymbols.delete(symbol);
+  saveSpotSymbols();
+  orderBookWorkerManager.setSpot(symbol, enabled);
+  document.querySelectorAll(".orderbook-card").forEach((card) => {
+    if (cardSymbol(card) !== symbol) return;
+    card.classList.toggle("is-spot-enabled", enabled);
+    syncSpotButton(card.querySelector("[data-inpuls-spot]"), symbol);
+  });
+  scheduleTapeDraw(true);
 }
 
 function installOrderBookStyles() {
@@ -1310,8 +1326,6 @@ function installOrderBookStyles() {
   const style = document.createElement("style");
   style.id = ORDERBOOK_RUNTIME_STYLE_ID;
   style.textContent = `
-    .orderbook-card .inpuls-spot-toggle,
-    .orderbook-card .book-spot-size,
     .orderbook-card .trade-price-axis,
     .orderbook-card .trade-time-axis,
     .orderbook-card .trade-flow-grid,
@@ -1480,13 +1494,27 @@ function decorateOrderBookCard(card) {
     }
   }
 
-  card.classList.remove("is-spot-enabled");
-  card.querySelector("[data-inpuls-spot]")?.remove();
+  if (paneTitle && !paneTitle.querySelector("[data-inpuls-spot]")) {
+    const oldPrice = paneTitle.querySelector("span:last-child");
+    const spot = document.createElement("button");
+    spot.type = "button";
+    spot.className = "inpuls-spot-toggle";
+    spot.dataset.inpulsSpot = "";
+    oldPrice?.replaceWith(spot);
+    spot.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const symbol = cardSymbol(card);
+      if (!symbol) return;
+      setSpotEnabled(symbol, !spotEnabledSymbols.has(symbol));
+    });
+  }
 
-  if (paneTitle) {
-    const spans = [...paneTitle.querySelectorAll(":scope > span")];
-    const last = spans.at(-1);
-    if (last && !last.contains(headingHighlight)) last.textContent = "";
+  const symbol = cardSymbol(card);
+  if (symbol) {
+    const enabled = spotEnabledSymbols.has(symbol);
+    card.classList.toggle("is-spot-enabled", enabled);
+    syncSpotButton(card.querySelector("[data-inpuls-spot]"), symbol);
+    if (enabled) orderBookWorkerManager.setSpot(symbol, true);
   }
 }
 

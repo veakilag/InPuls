@@ -243,6 +243,7 @@ class SymbolFeed {
     const generation = this.generation;
     this.connect(generation);
     this.loadTradeHistory(generation);
+    if (this.spotEnabled) this.startSpot(generation);
   }
 
   stopSockets() {
@@ -628,18 +629,26 @@ class SymbolFeed {
     post("tape", this.symbol, { replace: true, trades: this.trades.slice(0, MAX_TAPE_SNAPSHOT) });
   }
 
-  setSpotEnabled() {
-    this.spotEnabled = false;
-    this.spotAvailable = null;
-    clearTimeout(this.spotReconnectTimer);
-    clearTimeout(this.spotFirstDepthTimer);
-    clearTimeout(this.spotSnapshotTimer);
-    try { this.spotSocket?.close(); } catch {}
-    this.spotSocket = null;
-    this.resetSpotBook();
-    this.markDirty(true);
+  setSpotEnabled(enabled) {
+    const next = Boolean(enabled);
+    if (next === this.spotEnabled) {
+      this.markDirty(true);
+      return;
+    }
+    this.spotEnabled = next;
+    this.spotAvailable = next ? null : this.spotAvailable;
+    if (!next) {
+      clearTimeout(this.spotReconnectTimer);
+      clearTimeout(this.spotFirstDepthTimer);
+      clearTimeout(this.spotSnapshotTimer);
+      try { this.spotSocket?.close(); } catch {}
+      this.spotSocket = null;
+      this.resetSpotBook();
+      this.markDirty(true);
+      return;
+    }
+    this.startSpot(this.generation);
   }
-
 
   startSpot(generation) {
     if (!this.spotEnabled || generation !== this.generation || this.subscribers <= 0) return;
@@ -871,7 +880,7 @@ self.addEventListener("message", (event) => {
     return;
   }
   if (message.type === "spot") {
-    feeds.get(symbol)?.setSpotEnabled(false);
+    getFeed(symbol).setSpotEnabled(Boolean(message.enabled));
   }
 });
 

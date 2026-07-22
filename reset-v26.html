@@ -1,68 +1,9 @@
 <!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#090c11">
-  <title>InPuls — отключение Spot</title>
-  <style>
-    :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
-    body { margin:0; min-height:100vh; display:grid; place-items:center; background:#090c11; color:#dbe8ee; }
-    main { width:min(540px,calc(100% - 32px)); padding:28px; border:1px solid #24434f; border-radius:16px; background:#0d1218; }
-    h1 { margin:0 0 12px; font-size:22px; }
-    p { color:#8fa6b2; line-height:1.5; }
-    strong { color:#45e0ad; }
-    button { width:100%; padding:13px; border:0; border-radius:10px; background:#45d8ab; color:#04110d; font-weight:800; cursor:pointer; }
-    button:disabled { opacity:.55; cursor:wait; }
-    small { display:block; min-height:20px; margin-top:14px; color:#7f95a0; }
-  </style>
-</head>
-<body>
-  <main>
-    <h1>InPuls без Spot</h1>
-    <p>Удалю Spot-настройки, кеши v28/v29 и подключу чистую Futures-сборку <strong>v30</strong>.</p>
-    <button id="reset" type="button">Отключить Spot и открыть InPuls</button>
-    <small id="status"></small>
-  </main>
-  <script>
-    const button = document.getElementById("reset");
-    const status = document.getElementById("status");
-
-    button.addEventListener("click", async () => {
-      button.disabled = true;
-      try {
-        status.textContent = "Удаляю Spot-настройки…";
-        localStorage.removeItem("inpuls-spot-books-v1");
-
-        status.textContent = "Удаляю старый Service Worker…";
-        const registrations = "serviceWorker" in navigator
-          ? await navigator.serviceWorker.getRegistrations()
-          : [];
-        await Promise.all(registrations.map((registration) => registration.unregister()));
-
-        status.textContent = "Удаляю кеши v28/v29…";
-        if ("caches" in window) {
-          const keys = await caches.keys();
-          await Promise.all(keys.map((key) => caches.delete(key)));
-        }
-
-        status.textContent = "Подключаю Futures-сборку v30…";
-        if ("serviceWorker" in navigator) {
-          const registration = await navigator.serviceWorker.register(
-            "./sw.js?v=30-no-spot",
-            { scope: "./", updateViaCache: "none" },
-          );
-          await registration.update();
-          await new Promise((resolve) => setTimeout(resolve, 1200));
-        }
-
-        status.textContent = "Готово. Открываю InPuls…";
-        location.replace(`./?build=30-no-spot&t=${Date.now()}`);
-      } catch (error) {
-        status.textContent = `Ошибка: ${error?.message || error}`;
-        button.disabled = false;
-      }
-    });
-  </script>
-</body>
-</html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#090c11"><title>InPuls — запуск v31</title>
+<style>:root{color-scheme:dark;font-family:Inter,system-ui,sans-serif}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#090c11;color:#dbe8ee}main{width:min(560px,calc(100% - 32px));padding:28px;border:1px solid #24434f;border-radius:16px;background:#0d1218}h1{margin:0 0 12px;font-size:22px}p{color:#8fa6b2;line-height:1.5}strong{color:#45e0ad}button{width:100%;padding:13px;border:0;border-radius:10px;background:#45d8ab;color:#04110d;font-weight:800;cursor:pointer}button:disabled{opacity:.55;cursor:wait}small{display:block;min-height:20px;margin-top:14px;color:#7f95a0}</style></head>
+<body><main><h1>InPuls v31</h1><p>Исправлю базовое подключение Binance и верну <strong>Spot + Futures</strong>. Запуск пройдёт через отдельную контролируемую страницу.</p><button id="reset" type="button">Установить и открыть v31</button><small id="status"></small></main>
+<script>
+const button=document.getElementById('reset');const status=document.getElementById('status');
+function waitForActive(registration){if(registration.active)return Promise.resolve();const worker=registration.installing||registration.waiting;if(!worker)return Promise.resolve();return new Promise((resolve)=>{const done=()=>{if(worker.state==='activated'){worker.removeEventListener('statechange',done);resolve();}};worker.addEventListener('statechange',done);done();setTimeout(resolve,5000);});}
+button.addEventListener('click',async()=>{button.disabled=true;try{status.textContent='Удаляю старые Service Worker…';const regs='serviceWorker'in navigator?await navigator.serviceWorker.getRegistrations():[];await Promise.all(regs.map(r=>r.unregister()));if('caches'in window){status.textContent='Удаляю старые кеши…';const keys=await caches.keys();await Promise.all(keys.map(k=>caches.delete(k)));}status.textContent='Устанавливаю v31…';if('serviceWorker'in navigator){const reg=await navigator.serviceWorker.register('./sw.js?v=31',{scope:'./',updateViaCache:'none'});await reg.update();await waitForActive(reg);await navigator.serviceWorker.ready;}status.textContent='Передаю управление новой сборке…';location.replace(`./boot-v31.html?t=${Date.now()}`);}catch(error){status.textContent=`Ошибка: ${error?.message||error}`;button.disabled=false;}});
+</script></body></html>
