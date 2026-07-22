@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#090c11">
+  <title>InPuls — локальный запуск v35</title>
+  <style>
+    :root { color-scheme:dark; font-family:Inter,system-ui,sans-serif; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; background:#090c11; color:#dbe8ee; }
+    main { width:min(620px,calc(100% - 32px)); padding:28px; border:1px solid #24434f; border-radius:16px; background:#0d1218; }
+    h1 { margin:0 0 12px; font-size:22px; }
+    p { color:#8fa6b2; line-height:1.5; }
+    pre { max-height:45vh; overflow:auto; white-space:pre-wrap; color:#ffb8c0; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Запускаю InPuls v35</h1>
+    <p id="status">Получаю локальную HTML-оболочку…</p>
+    <pre id="error"></pre>
+  </main>
+
+  <script>
+    const status = document.querySelector("#status");
+    const errorBox = document.querySelector("#error");
+
+    (async () => {
+      try {
+        // В v35 приложение не использует Service Worker.
+        if ("serviceWorker" in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map((registration) => registration.unregister()));
+        }
+
+        if ("caches" in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((key) => caches.delete(key)));
+        }
+
+        status.textContent = "Загружаю интерфейс…";
+
+        const response = await fetch(`./index.html?shell=v35&t=${Date.now()}`, {
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          throw new Error(`index.html: HTTP ${response.status}`);
+        }
+
+        let html = await response.text();
+
+        const oldScript = '<script type="module" src="./app.js?v=23"></' + 'script>';
+        const importMap = [
+          '<script type="importmap">',
+          JSON.stringify({
+            imports: {
+              "./orderbook.js?v=23": "./orderbook-v35.js?v=35"
+            }
+          }),
+          '</' + 'script>',
+        ].join("");
+
+        const newScript = importMap
+          + '<script type="module" src="./app-v35.js?v=35"></'
+          + 'script>';
+
+        if (!html.includes(oldScript)) {
+          throw new Error("В index.html не найден app.js?v=23");
+        }
+
+        html = html.replace(oldScript, newScript);
+        html = html.replace(
+          '<meta name="inpuls-build" content="23" />',
+          '<meta name="inpuls-build" content="35" />',
+        );
+        html = html.replace(
+          'SCREENER <small>v23</small>',
+          'SCREENER <small>v35</small>',
+        );
+
+        document.open();
+        document.write(html);
+        document.close();
+      } catch (error) {
+        console.error("InPuls v35 shell failed:", error);
+        status.textContent = "Ошибка загрузки оболочки";
+        errorBox.textContent = error?.stack || error?.message || String(error);
+      }
+    })();
+  </script>
+</body>
+</html>
