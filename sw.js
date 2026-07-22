@@ -1,4 +1,4 @@
-const CACHE = "inpuls-v26-3-tape-performance";
+const CACHE = "inpuls-v26-4-second-tape";
 
 const SHELL = [
   "./",
@@ -7,7 +7,7 @@ const SHELL = [
   "./app.js?v=23",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=26-3",
+  "./orderbook.js?v=26-4",
   "./assets/inpuls-world-map-v17.png",
   "./manifest.webmanifest",
   "./icon.svg",
@@ -43,7 +43,7 @@ self.addEventListener("fetch", (event) => {
   // app.js всё ещё импортирует orderbook.js?v=23.
   // Независимо от старого query принудительно отдаём сборку v26.
   if (url.pathname.endsWith("/orderbook.js")) {
-    const forcedUrl = new URL("./orderbook.js?v=26-3", self.registration.scope);
+    const forcedUrl = new URL("./orderbook.js?v=26-4", self.registration.scope);
     event.respondWith(
       fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)),
     );
