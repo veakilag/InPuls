@@ -255,13 +255,11 @@ export function aggregateTradeClusters(trades, minimumQuote = 0, priceStep = .01
 }
 
 export function aggregateTradePath(trades, minimumQuote = 0, priceStep = .01, limit = 36, bucketMs = 750) {
-  const threshold = Math.max(0, Number(minimumQuote) || 0);
   const safeLimit = Math.max(3, Math.floor(Number(limit) || 36));
   const ordered = [...(trades ?? [])]
     .filter((trade) => trade
       && [trade.price, trade.quote, trade.quantity, trade.time].every(Number.isFinite)
-      && trade.quote > 0
-      && trade.quote >= threshold)
+      && trade.quote > 0)
     .sort((left, right) => left.time - right.time || Number(left.id) - Number(right.id))
     .slice(-safeLimit);
 
@@ -360,8 +358,20 @@ function parseWebSocketPayload(raw) {
 function marketStreams(symbol, mode) {
   const name = String(symbol).toLowerCase();
   const depth = `${name}@${mode === "partial" ? "depth20" : "depth"}@100ms`;
-  const trades = `${name}@aggTrade`;
-  return { depth, trades, all: [depth, trades] };
+  return { depth, all: [depth] };
+}
+
+function tradeStreamCandidates(symbol) {
+  const name = String(symbol).toLowerCase();
+  return [`${name}@aggTrade`];
+}
+
+function tradeTransports(stream) {
+  return [
+    { name: "raw-market", url: `wss://fstream.binance.com/market/ws/${stream}`, subscribe: false },
+    { name: "combined-market", url: `wss://fstream.binance.com/market/stream?streams=${stream}`, subscribe: false },
+    { name: "subscribe-market", url: "wss://fstream.binance.com/market/stream", subscribe: true },
+  ];
 }
 
 function marketTransports(streams) {
@@ -460,12 +470,15 @@ export class OrderBookFeed {
     this.fetchImpl = fetchImpl;
 
     this.socket = null;
+    this.tradeSocket = null;
     this.symbol = null;
     this.generation = 0;
     this.mode = "deep";
     this.transportIndex = 0;
+    this.tradeTransportIndex = 0;
 
     this.reconnectTimer = null;
+    this.tradeReconnectTimer = null;
     this.firstDepthTimer = null;
     this.snapshotTimer = null;
     this.tradeHistoryTimer = null;
@@ -495,20 +508,25 @@ export class OrderBookFeed {
     this.symbol = symbol;
     this.mode = "deep";
     this.transportIndex = 0;
+    this.tradeTransportIndex = 0;
     this.#resetBook();
     this.trades = [];
     this.tradeIds.clear();
 
     clearTimeout(this.reconnectTimer);
+    clearTimeout(this.tradeReconnectTimer);
     clearTimeout(this.firstDepthTimer);
     clearTimeout(this.snapshotTimer);
     clearTimeout(this.tradeHistoryTimer);
     try { this.socket?.close(); } catch {}
+    try { this.tradeSocket?.close(); } catch {}
     this.socket = null;
+    this.tradeSocket = null;
 
     const generation = ++this.generation;
     this.onStatus({ state: "loading", text: "Подключение" });
     this.#connect(generation);
+    this.#connectTrades(generation);
     this.#loadTradeHistory(symbol, generation);
   }
 
@@ -827,17 +845,79 @@ export class OrderBookFeed {
     });
   }
 
+  #connectTrades(generation) {
+    if (generation !== this.generation || !this.symbol) return;
+    clearTimeout(this.tradeReconnectTimer);
+
+    const candidates = tradeStreamCandidates(this.symbol);
+    const streamIndex = Math.floor(this.tradeTransportIndex / 3) % candidates.length;
+    const stream = candidates[streamIndex];
+    const transports = tradeTransports(stream);
+    const transport = transports[this.tradeTransportIndex % transports.length];
+
+    let socket;
+    try {
+      socket = new this.WebSocketImpl(transport.url);
+    } catch {
+      this.tradeTransportIndex += 1;
+      this.tradeReconnectTimer = setTimeout(() => this.#connectTrades(generation), 500);
+      return;
+    }
+    this.tradeSocket = socket;
+
+    socket.addEventListener("open", () => {
+      if (generation !== this.generation || socket !== this.tradeSocket) return;
+      if (transport.subscribe) {
+        socket.send(JSON.stringify({
+          method: "SUBSCRIBE",
+          params: [stream],
+          id: Date.now() % 2_147_483_647,
+        }));
+      }
+    });
+
+    socket.addEventListener("message", (event) => {
+      if (generation !== this.generation || socket !== this.tradeSocket) return;
+      const payload = parseWebSocketPayload(event.data);
+      if (!payload) return;
+      const update = payload.data;
+      const eventType = String(update?.e ?? "").toLowerCase();
+      if (eventType !== "aggtrade") return;
+
+      const trade = normalizeMarketTrade(update);
+      if (!this.#insertTrade(trade, true)) return;
+      this.tradeTransportIndex = 0;
+      this.#scheduleTradeHistorySave();
+      this.#emit(trade.time);
+    });
+
+    socket.addEventListener("close", () => {
+      if (generation !== this.generation || socket !== this.tradeSocket) return;
+      this.tradeSocket = null;
+      this.tradeTransportIndex += 1;
+      this.tradeReconnectTimer = setTimeout(() => this.#connectTrades(generation), 500);
+    });
+
+    socket.addEventListener("error", () => {
+      if (generation !== this.generation || socket !== this.tradeSocket) return;
+      try { socket.close(); } catch {}
+    });
+  }
+
   destroy() {
     if (this.symbol && this.trades.length) {
       tradeHistoryStore.set(this.symbol, this.trades).catch(() => {});
     }
     this.generation += 1;
     clearTimeout(this.reconnectTimer);
+    clearTimeout(this.tradeReconnectTimer);
     clearTimeout(this.firstDepthTimer);
     clearTimeout(this.snapshotTimer);
     clearTimeout(this.tradeHistoryTimer);
     try { this.socket?.close(); } catch {}
+    try { this.tradeSocket?.close(); } catch {}
     this.socket = null;
+    this.tradeSocket = null;
   }
 }
 
@@ -886,6 +966,13 @@ function installOrderBookStyles() {
 function forceIndividualTrades(card) {
   const clusterButton = card.querySelector("[data-book-clusters]");
   if (clusterButton?.getAttribute("aria-pressed") === "true") clusterButton.click();
+
+  const minimumInput = card.querySelector("[data-trade-min]");
+  if (minimumInput && Number(minimumInput.value) !== 0) {
+    minimumInput.value = "0";
+    minimumInput.dispatchEvent(new Event("input", { bubbles: true }));
+    minimumInput.dispatchEvent(new Event("change", { bubbles: true }));
+  }
 }
 
 function alignTradeNodesToBook(card) {
