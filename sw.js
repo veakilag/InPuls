@@ -1,4 +1,4 @@
-const CACHE = "inpuls-v26-5-second-tape";
+const CACHE = "inpuls-v26-6-safe-rollback";
 
 const SHELL = [
   "./",
@@ -7,16 +7,14 @@ const SHELL = [
   "./app.js?v=23",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=26-5",
+  "./orderbook.js?v=26-6-safe",
   "./assets/inpuls-world-map-v17.png",
   "./manifest.webmanifest",
   "./icon.svg",
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(SHELL)),
-  );
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
   self.skipWaiting();
 });
 
@@ -40,10 +38,8 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  // app.js всё ещё импортирует orderbook.js?v=23.
-  // Независимо от старого query принудительно отдаём сборку v26.
   if (url.pathname.endsWith("/orderbook.js")) {
-    const forcedUrl = new URL("./orderbook.js?v=26-5", self.registration.scope);
+    const forcedUrl = new URL("./orderbook.js?v=26-6-safe", self.registration.scope);
     event.respondWith(
       fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)),
     );
