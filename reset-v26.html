@@ -4,76 +4,61 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#090c11">
-  <title>InPuls — прямой запуск v32</title>
+  <title>InPuls — отключение Service Worker</title>
   <style>
     :root { color-scheme:dark; font-family:Inter,system-ui,sans-serif; }
     body { margin:0; min-height:100vh; display:grid; place-items:center; background:#090c11; color:#dbe8ee; }
-    main { width:min(560px,calc(100% - 32px)); padding:28px; border:1px solid #24434f; border-radius:16px; background:#0d1218; }
+    main { width:min(580px,calc(100% - 32px)); padding:28px; border:1px solid #24434f; border-radius:16px; background:#0d1218; }
     h1 { margin:0 0 12px; font-size:22px; }
     p { color:#8fa6b2; line-height:1.5; }
     strong { color:#45e0ad; }
-    button { width:100%; padding:13px; border:0; border-radius:10px; background:#45d8ab; color:#04110d; font-weight:800; cursor:pointer; }
+    button,a { box-sizing:border-box; display:block; width:100%; padding:13px; border:0; border-radius:10px; text-align:center; text-decoration:none; background:#45d8ab; color:#04110d; font-weight:800; cursor:pointer; }
+    a { margin-top:10px; background:#17232a; color:#b9d0da; }
     button:disabled { opacity:.55; cursor:wait; }
     small { display:block; min-height:20px; margin-top:14px; color:#7f95a0; white-space:pre-wrap; }
   </style>
 </head>
 <body>
   <main>
-    <h1>Прямой запуск InPuls v32</h1>
-    <p>Старый загрузчик будет удалён. Новый Service Worker только направит запрос на прозрачный bootstrap и не будет читать или кешировать тело <strong>app.js</strong>.</p>
-    <button id="start" type="button">Установить и открыть v32</button>
+    <h1>Полное отключение Service Worker</h1>
+    <p>Удалю все старые загрузчики и открою <strong>direct-v33.html</strong> в новой вкладке. Новый сайт запускается напрямую и не использует Service Worker.</p>
+    <button id="start" type="button">Отключить SW и открыть v33</button>
+    <a href="./direct-v33.html" target="_blank" rel="noopener">Открыть direct-v33 вручную</a>
     <small id="status"></small>
   </main>
   <script>
     const button = document.querySelector("#start");
     const status = document.querySelector("#status");
 
-    function waitForActivation(registration) {
-      const worker = registration.installing || registration.waiting || registration.active;
-      if (!worker || worker.state === "activated") return Promise.resolve();
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("Service Worker не активировался за 12 секунд")), 12000);
-        worker.addEventListener("statechange", () => {
-          if (worker.state === "activated") {
-            clearTimeout(timer);
-            resolve();
-          }
-        });
-      });
-    }
-
     button.addEventListener("click", async () => {
       button.disabled = true;
-      try {
-        status.textContent = "Удаляю старые Service Worker и кеши…";
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(registrations.map((registration) => registration.unregister()));
 
+      // Открываем вкладку сразу из пользовательского клика, чтобы браузер
+      // не заблокировал popup после асинхронной очистки.
+      const target = window.open("about:blank", "_blank");
+
+      try {
+        status.textContent = "Удаляю все Service Worker…";
+        if ("serviceWorker" in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map((registration) => registration.unregister()));
+        }
+
+        status.textContent = "Удаляю все кеши…";
         if ("caches" in window) {
           const keys = await caches.keys();
           await Promise.all(keys.map((key) => caches.delete(key)));
         }
 
-        status.textContent = "Устанавливаю прозрачный загрузчик v32…";
-        const registration = await navigator.serviceWorker.register(
-          "./sw.js?v=32",
-          { scope:"./", updateViaCache:"none" },
-        );
-        await registration.update();
-        await waitForActivation(registration);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const url = new URL(`./direct-v33.html?build=33&t=${Date.now()}`, location.href);
 
-        if (!navigator.serviceWorker.controller) {
-          status.textContent = "Переключаю управление на v32…";
-          await Promise.race([
-            new Promise((resolve) => navigator.serviceWorker.addEventListener("controllerchange", resolve, { once:true })),
-            new Promise((resolve) => setTimeout(resolve, 2500)),
-          ]);
-        }
-
-        status.textContent = "Открываю InPuls…";
-        location.replace(`./?build=32&t=${Date.now()}`);
+        status.textContent = "Открываю прямую версию v33…";
+        if (target) target.location.replace(url.href);
+        else location.replace(url.href);
       } catch (error) {
-        status.textContent = `Ошибка установки:\n${error?.stack || error}`;
+        if (target) target.close();
+        status.textContent = `Ошибка очистки:\n${error?.stack || error}`;
         button.disabled = false;
       }
     });
