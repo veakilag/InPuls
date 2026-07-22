@@ -1,4 +1,4 @@
-const CACHE = "inpuls-v26-orderbook-consolidated";
+const CACHE = "inpuls-v26-1-forced-orderbook";
 
 const SHELL = [
   "./",
@@ -7,7 +7,7 @@ const SHELL = [
   "./app.js?v=23",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=23",
+  "./orderbook.js?v=26",
   "./assets/inpuls-world-map-v17.png",
   "./manifest.webmanifest",
   "./icon.svg",
@@ -22,12 +22,17 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))),
-    ),
+    caches.keys()
+      .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+      .then(() => caches.open(CACHE))
+      .then((cache) => cache.addAll(SHELL)),
   );
   self.clients.claim();
 });
+
+async function fetchFresh(request) {
+  return fetch(request, { cache: "reload" });
+}
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
@@ -35,8 +40,18 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
+  // app.js всё ещё импортирует orderbook.js?v=23.
+  // Независимо от старого query принудительно отдаём сборку v26.
+  if (url.pathname.endsWith("/orderbook.js")) {
+    const forcedUrl = new URL("./orderbook.js?v=26", self.registration.scope);
+    event.respondWith(
+      fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)),
+    );
+    return;
+  }
+
   event.respondWith(
-    fetch(event.request, { cache: "no-store" })
+    fetchFresh(event.request)
       .then((response) => {
         if (response.ok) {
           const copy = response.clone();
