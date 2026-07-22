@@ -21,9 +21,9 @@
 <body>
   <main>
     <h1>Полное отключение Service Worker</h1>
-    <p>Удалю все старые загрузчики и открою <strong>direct-v33.html</strong> в новой вкладке. Новый сайт запускается напрямую и не использует Service Worker.</p>
-    <button id="start" type="button">Отключить SW и открыть v33</button>
-    <a href="./direct-v33.html" target="_blank" rel="noopener">Открыть direct-v33 вручную</a>
+    <p>Удалю все старые загрузчики и открою <strong>direct-v34.html</strong> в новой вкладке. Ядро загружается с GitHub CDN и не попадает под старый Service Worker.</p>
+    <button id="start" type="button">Отключить SW и открыть v34</button>
+    <a href="./direct-v34.html" target="_blank" rel="noopener">Открыть direct-v34 вручную</a>
     <small id="status"></small>
   </main>
   <script>
@@ -51,9 +51,9 @@
         }
 
         await new Promise((resolve) => setTimeout(resolve, 500));
-        const url = new URL(`./direct-v33.html?build=33&t=${Date.now()}`, location.href);
+        const url = new URL(`./direct-v34.html?build=33&t=${Date.now()}`, location.href);
 
-        status.textContent = "Открываю прямую версию v33…";
+        status.textContent = "Открываю прямую версию v34…";
         if (target) target.location.replace(url.href);
         else location.replace(url.href);
       } catch (error) {
