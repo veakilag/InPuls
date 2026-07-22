@@ -1,4 +1,4 @@
-const CACHE = "inpuls-v25-1-safe-fallback";
+const CACHE = "inpuls-v25-2-book-tape-sync";
 const SHELL = [
   "./",
   "./index.html",
@@ -9,6 +9,7 @@ const SHELL = [
   "./orderbook.js?v=23",
   "./orderbook-v24.js?v=24",
   "./orderbook-core-v25.js",
+  "./orderbook-ui-v25-2.js",
   "./orderbook-feed-v25.js",
   "./assets/inpuls-world-map-v17.png",
   "./manifest.webmanifest",

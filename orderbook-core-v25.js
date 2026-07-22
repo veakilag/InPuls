@@ -25,13 +25,16 @@ export function partialDepthView(event, limit = 20) {
   return depthView(bids, asks, limit);
 }
 
+let latestTradeEventTime = 0;
+
 export function normalizeMarketTrade(event) {
   const price = Number(event?.p);
   const quantity = Number(event?.q);
   const time = Number(event?.T ?? event?.E);
   if (![price, quantity, time].every(Number.isFinite)) return null;
+  latestTradeEventTime = Math.max(latestTradeEventTime, time);
   return {
-    id: Number(event?.a) || `${time}-${price}-${quantity}`,
+    id: Number(event?.a ?? event?.t) || `${time}-${price}-${quantity}`,
     price,
     quantity,
     quote: price * quantity,
@@ -248,8 +251,8 @@ export function buildDepthLadder(bids, asks, marketPrice, viewCenter, priceStep,
   const step = Math.max(Number.EPSILON, Number(priceStep) || .01);
   if (!Number.isFinite(market) || !Number.isFinite(center)) return [];
 
-  // Сохраняем старый равномерный режим, когда пользователь вручную ушёл от текущей цены.
-  if (Math.abs(center - market) > step * 2.5) return fixedPriceLadder(bids, asks, market, center, step, count);
+  // FULL BOOK всегда упаковывает все полученные уровни в доступную высоту.
+  // Ручной сдвиг ценового центра не должен превращать стакан в пустую сетку.
 
   const askCount = Math.floor(count / 2);
   const bidCount = count - askCount - 1;
@@ -289,43 +292,34 @@ export function aggregateTradeClusters(trades, minimumQuote = 0, priceStep = .01
 
 export function aggregateTradePath(trades, minimumQuote = 0, priceStep = .01, limit = 36, bucketMs = 750) {
   const threshold = Math.max(0, Number(minimumQuote) || 0);
-  const step = Math.max(Number.EPSILON, Number(priceStep) || .01);
-  const duration = Math.max(100, Math.floor(Number(bucketMs) || 750));
-  const clusters = new Map();
-  const ordered = [...(trades ?? [])].filter((trade) => trade && Number.isFinite(trade.time)).sort((left, right) => left.time - right.time);
-  for (const trade of ordered) {
-    if (![trade.price, trade.quote, trade.quantity].every(Number.isFinite) || trade.quote <= 0) continue;
-    const bucketTime = Math.floor(trade.time / duration) * duration;
-    const price = Math.round(trade.price / step) * step;
-    const key = `${bucketTime}:${price}`;
-    const cluster = clusters.get(key) ?? {
-      key,
-      time: bucketTime,
-      lastTime: trade.time,
-      price,
-      quote: 0,
-      quantity: 0,
-      buyQuote: 0,
-      sellQuote: 0,
-      count: 0,
-      executions: [],
-    };
-    cluster.quote += trade.quote;
-    cluster.quantity += trade.quantity;
-    cluster[trade.side === "sell" ? "sellQuote" : "buyQuote"] += trade.quote;
-    cluster.count += 1;
-    cluster.lastTime = Math.max(cluster.lastTime, trade.time);
-    cluster.executions.push(trade);
-    clusters.set(key, cluster);
-  }
-  return [...clusters.values()]
-    .filter((cluster) => cluster.quote >= threshold)
-    .sort((left, right) => left.time - right.time || left.price - right.price)
-    .slice(-Math.max(3, Math.floor(Number(limit) || 36)));
+  const safeLimit = Math.max(3, Math.floor(Number(limit) || 36));
+  const ordered = [...(trades ?? [])]
+    .filter((trade) => trade
+      && [trade.price, trade.quote, trade.quantity, trade.time].every(Number.isFinite)
+      && trade.quote > 0
+      && trade.quote >= threshold)
+    .sort((left, right) => left.time - right.time || Number(left.id) - Number(right.id))
+    .slice(-safeLimit);
+
+  // Каждое событие потока отображается отдельно без временной агрегации.
+  return ordered.map((trade) => ({
+    key: `raw:${String(trade.id)}:${trade.time}:${trade.price}`,
+    time: trade.time,
+    lastTime: trade.time,
+    price: trade.price,
+    quote: trade.quote,
+    quantity: trade.quantity,
+    buyQuote: trade.side === "buy" ? trade.quote : 0,
+    sellQuote: trade.side === "sell" ? trade.quote : 0,
+    count: 1,
+    executions: [trade],
+  }));
 }
 
 export function tradeTimeWindow(now, durationMs, offsetMs = 0) {
-  const end = Number(now) - Math.max(0, Number(offsetMs) || 0);
+  const requestedNow = Number(now);
+  const liveAnchor = latestTradeEventTime > 0 ? latestTradeEventTime : requestedNow;
+  const end = liveAnchor - Math.max(0, Number(offsetMs) || 0);
   const duration = Math.max(5_000, Number(durationMs) || 60_000);
   return { start: end - duration, end, duration };
 }
