@@ -1,2 +1,2 @@
-export * from "./orderbook.js?legacy=23";
-export { OrderBookFeed, canApplyDepthEvent, depthCoverage } from "./orderbook-feed-v24.js";
+export * from "./orderbook-core-v25.js";
+export { OrderBookFeed, canApplyDepthEvent, depthCoverage } from "./orderbook-feed-v25.js";
