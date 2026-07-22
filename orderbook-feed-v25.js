@@ -36,6 +36,27 @@ const MAX_EMITTED_LEVELS_PER_SIDE = 10_000;
 const MAX_BUFFERED_DEPTH_EVENTS = 4_000;
 const SNAPSHOT_RETRY_MS = 350;
 
+function streamTransports(streamName) {
+  return [
+    { url: `wss://fstream.binance.com/ws/${streamName}`, subscribe: false, name: "binance-raw" },
+    { url: `wss://fstream.binance.com/stream?streams=${streamName}`, subscribe: false, name: "binance-combined" },
+    { url: "wss://fstream.binance.com/ws", subscribe: true, name: "binance-subscribe" },
+    { url: `wss://stream.binancefuture.com/ws/${streamName}`, subscribe: false, name: "future-raw" },
+    { url: `wss://stream.binancefuture.com/stream?streams=${streamName}`, subscribe: false, name: "future-combined" },
+    { url: "wss://stream.binancefuture.com/ws", subscribe: true, name: "future-subscribe" },
+    // Последние варианты оставлены только для совместимости со старой сборкой.
+    { url: `wss://fstream.binance.com/public/stream?streams=${streamName}`, subscribe: false, name: "legacy-public" },
+    { url: `wss://fstream.binance.com/market/stream?streams=${streamName}`, subscribe: false, name: "legacy-market" },
+  ];
+}
+
+function websocketPayload(raw) {
+  let payload;
+  try { payload = JSON.parse(raw); } catch { return null; }
+  if (payload?.result === null || payload?.id) return null;
+  return payload?.data ?? payload;
+}
+
 class TradeHistoryStore {
   constructor() { this.dbPromise = null; }
   #open() {
@@ -305,18 +326,27 @@ export class OrderBookFeed {
     this.depthSocket?.close();
 
     const mode = this.depthMode;
-    const rate = this.depthAttemptIndex % 4 === 3 ? "500ms" : "100ms";
+    const rate = this.depthAttemptIndex % 5 === 4 ? "500ms" : "100ms";
     const streamKind = mode === "partial" ? "depth20" : "depth";
     const depthStream = `${this.symbol.toLowerCase()}@${streamKind}@${rate}`;
-    const transports = [
-      { url: `wss://fstream.binance.com/public/stream?streams=${depthStream}`, subscribe: false },
-      { url: `wss://fstream.binance.com/public/ws/${depthStream}`, subscribe: false },
-      { url: "wss://fstream.binance.com/public/stream", subscribe: true },
-      { url: `wss://fstream.binance.com/public/stream?streams=${depthStream}`, subscribe: false },
-    ];
+    const transports = streamTransports(depthStream);
     const transport = transports[this.depthAttemptIndex % transports.length];
-    const socket = new this.WebSocketImpl(transport.url);
+
+    let socket;
+    try {
+      socket = new this.WebSocketImpl(transport.url);
+    } catch {
+      this.depthAttemptIndex += 1;
+      this.onStatus({ state: "offline", text: "Повтор подключения стакана" });
+      this.depthReconnectTimer = setTimeout(() => this.#startDepth(generation), 500);
+      return;
+    }
     this.depthSocket = socket;
+
+    // Таймер до первого сообщения, а не бесконечное ожидание CONNECTING.
+    this.depthWatchdogTimer = setTimeout(() => {
+      if (generation === this.generation && mode === this.depthMode) socket.close();
+    }, 8_000);
 
     socket.addEventListener("open", () => {
       if (generation !== this.generation || mode !== this.depthMode) return;
@@ -329,31 +359,28 @@ export class OrderBookFeed {
       }
       this.onStatus({
         state: "loading",
-        text: mode === "partial" ? "Подключение резервного стакана" : "Синхронизация книги",
+        text: mode === "partial" ? "Подключаю резервный стакан" : "Синхронизация книги",
       });
-      this.depthWatchdogTimer = setTimeout(() => socket.close(), 7_000);
       if (mode === "deep") this.#loadDepthSnapshot(generation);
     });
 
     socket.addEventListener("message", (event) => {
       if (generation !== this.generation || mode !== this.depthMode) return;
-      let update;
-      try { update = JSON.parse(event.data); } catch { return; }
-      if (update.result === null || update.id) return;
-      update = update.data ?? update;
+      const update = websocketPayload(event.data);
+      if (!update) return;
       const bidRows = update?.b ?? update?.bids;
       const askRows = update?.a ?? update?.asks;
       if (!Array.isArray(bidRows) || !Array.isArray(askRows)) return;
 
       clearTimeout(this.depthWatchdogTimer);
-      this.depthWatchdogTimer = setTimeout(() => socket.close(), 7_000);
+      // После первого события контролируем тишину потока: depth должен обновляться постоянно.
+      this.depthWatchdogTimer = setTimeout(() => socket.close(), 8_000);
 
       if (mode === "partial") {
         this.partialBidKeys = this.#replacePartialSide(this.bids, this.partialBidKeys, bidRows);
         this.partialAskKeys = this.#replacePartialSide(this.asks, this.partialAskKeys, askRows);
-        this.lastUpdateId = Number(update.u) || this.lastUpdateId;
+        this.lastUpdateId = Number(update.u ?? update.lastUpdateId) || this.lastUpdateId;
         this.depthReady = true;
-        this.depthAttemptIndex = 0;
         this.#emit(Number(update.E) || Date.now(), true);
         this.onStatus({
           state: "online",
@@ -369,7 +396,6 @@ export class OrderBookFeed {
         return;
       }
       if (!this.#applyDepthEvent(update)) return;
-      this.depthAttemptIndex = 0;
       this.#emit(Number(update.E) || Date.now(), true);
       this.onStatus({
         state: "online",
@@ -391,55 +417,75 @@ export class OrderBookFeed {
       this.cachedDepth = null;
       this.depthAttemptIndex += 1;
       this.onStatus({ state: "offline", text: "Переподключение стакана" });
-      this.depthReconnectTimer = setTimeout(() => this.#startDepth(generation), 450);
+      this.depthReconnectTimer = setTimeout(() => this.#startDepth(generation), 500);
     });
 
     socket.addEventListener("error", () => {
       if (generation !== this.generation || mode !== this.depthMode) return;
-      this.onStatus({ state: "offline", text: "Ошибка стакана" });
+      this.onStatus({ state: "offline", text: "Ошибка потока стакана" });
+      try { socket.close(); } catch {}
     });
   }
+
   #startTrades(generation) {
     clearTimeout(this.tradeReconnectTimer);
     clearTimeout(this.tradeWatchdogTimer);
     this.tradeSocket?.close();
+
     const tradeStream = `${this.symbol.toLowerCase()}@aggTrade`;
-    const transports = [
-      { url: `wss://fstream.binance.com/market/stream?streams=${tradeStream}`, subscribe: false },
-      { url: `wss://fstream.binance.com/market/ws/${tradeStream}`, subscribe: false },
-      { url: "wss://fstream.binance.com/market/stream", subscribe: true },
-    ];
+    const transports = streamTransports(tradeStream);
     const transport = transports[this.tradeAttemptIndex % transports.length];
-    const socket = new this.WebSocketImpl(transport.url);
+
+    let socket;
+    try {
+      socket = new this.WebSocketImpl(transport.url);
+    } catch {
+      this.tradeAttemptIndex += 1;
+      this.tradeReconnectTimer = setTimeout(() => this.#startTrades(generation), 500);
+      return;
+    }
     this.tradeSocket = socket;
+
+    // Проверяем только установление соединения. Отсутствие сделок не означает разрыв.
+    this.tradeWatchdogTimer = setTimeout(() => {
+      if (generation === this.generation && socket.readyState !== 1) socket.close();
+    }, 8_000);
+
     socket.addEventListener("open", () => {
       if (generation !== this.generation) return;
-      if (transport.subscribe) socket.send(JSON.stringify({ method: "SUBSCRIBE", params: [tradeStream], id: Date.now() % 2_147_483_647 }));
-      this.tradeWatchdogTimer = setTimeout(() => socket.close(), 7_000);
+      clearTimeout(this.tradeWatchdogTimer);
+      if (transport.subscribe) {
+        socket.send(JSON.stringify({
+          method: "SUBSCRIBE",
+          params: [tradeStream],
+          id: Date.now() % 2_147_483_647,
+        }));
+      }
     });
+
     socket.addEventListener("message", (event) => {
       if (generation !== this.generation) return;
-      let update;
-      try { update = JSON.parse(event.data); } catch { return; }
-      if (update.result === null || update.id) return;
-      update = update.data ?? update;
+      const update = websocketPayload(event.data);
+      if (!update) return;
       const trade = normalizeMarketTrade(update);
       if (!trade) return;
-      clearTimeout(this.tradeWatchdogTimer);
-      this.tradeWatchdogTimer = setTimeout(() => socket.close(), 7_000);
-      this.tradeAttemptIndex = 0;
       this.trades.unshift(trade);
       if (this.trades.length > MAX_TRADE_HISTORY) this.trades.length = MAX_TRADE_HISTORY;
       this.#scheduleTradeHistorySave();
       this.#emit(trade.time);
     });
+
     socket.addEventListener("close", () => {
       if (generation !== this.generation) return;
       clearTimeout(this.tradeWatchdogTimer);
       this.tradeAttemptIndex += 1;
-      this.tradeReconnectTimer = setTimeout(() => this.#startTrades(generation), 450);
+      this.tradeReconnectTimer = setTimeout(() => this.#startTrades(generation), 500);
     });
-    socket.addEventListener("error", () => {});
+
+    socket.addEventListener("error", () => {
+      if (generation !== this.generation) return;
+      try { socket.close(); } catch {}
+    });
   }
   destroy() {
     if (this.symbol && this.trades.length) tradeHistoryStore.set(this.symbol, this.trades).catch(() => {});

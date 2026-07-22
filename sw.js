@@ -1,4 +1,4 @@
-const CACHE = "inpuls-v25-2-book-tape-sync";
+const CACHE = "inpuls-v25-3-stable-streams";
 const SHELL = [
   "./",
   "./index.html",
