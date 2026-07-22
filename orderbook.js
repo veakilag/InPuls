@@ -1015,7 +1015,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=28-worker-1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=29-worker-1", import.meta.url);
 const ORDERBOOK_TAPE_EVENT = "inpuls:tape-data";
 
 class OrderBookWorkerManager {
@@ -1048,8 +1048,9 @@ class OrderBookWorkerManager {
         document.addEventListener("visibilitychange", () => {
           if (!this.worker || this.failed) return;
           const visible = !document.hidden;
+          // Worker сам отправляет один облегчённый resume-снимок.
+          // Второй refresh раньше дублировал книгу и тысячи сделок.
           this.worker.postMessage({ type: "visibility", visible });
-          if (visible) this.worker.postMessage({ type: "refresh" });
         });
       }
     } catch {
@@ -1225,7 +1226,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v28";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v29";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const TAPE_MAX_STORED = 4_000;
 const TAPE_MAX_RAW_VISIBLE = 2_500;

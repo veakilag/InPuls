@@ -1,36 +1,38 @@
-const CACHE = "inpuls-v28-worker-tape-spot";
+const CACHE = "inpuls-v29-stable-background";
 
 const SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=23",
-  "./app.js?v=28",
+  "./app.js?v=23",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=28",
-  "./orderbook-worker.js?v=28",
+  "./orderbook.js?v=29",
+  "./orderbook-worker.js?v=29-worker-1",
   "./assets/inpuls-world-map-v17.png",
   "./manifest.webmanifest",
   "./icon.svg",
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
+  event.waitUntil(
+    caches.open(CACHE).then((cache) =>
+      Promise.allSettled(SHELL.map((url) => cache.add(url))),
+    ),
+  );
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
-      .then(() => caches.open(CACHE))
-      .then((cache) => cache.addAll(SHELL)),
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim()),
   );
-  self.clients.claim();
 });
 
 async function fetchFresh(request) {
-  return fetch(request, { cache: "reload" });
+  return fetch(request, { cache: "no-store" });
 }
 
 function textResponse(response, text, contentType = "text/javascript; charset=utf-8") {
@@ -61,6 +63,61 @@ async function patchedApp() {
   let source = await response.text();
   const misses = [];
 
+  // Основной поток скринера: стандартный Futures WebSocket с SUBSCRIBE.
+  source = replaceOnce(
+    source,
+    '      ? "wss://fstream.binance.com/market/stream"\n      : "wss://stream.binancefuture.com/market/stream";',
+    '      ? "wss://fstream.binance.com/ws"\n      : "wss://stream.binancefuture.com/ws";',
+    "main-binance-endpoint",
+    misses,
+  );
+
+  // Основной интерфейс не рендерится в фоне и не догоняет накопленные кадры.
+  source = replaceOnce(
+    source,
+    `let scheduledMarketRender = null;
+function scheduleRender() {
+  if (scheduledMarketRender !== null) return;
+  scheduledMarketRender = setTimeout(() => {
+    scheduledMarketRender = null;
+    render();
+  }, 180);
+}`,
+    `let scheduledMarketRender = null;
+let marketRenderPendingWhileHidden = false;
+function scheduleRender() {
+  if (document.hidden) {
+    marketRenderPendingWhileHidden = true;
+    return;
+  }
+  if (scheduledMarketRender !== null) return;
+  scheduledMarketRender = setTimeout(() => {
+    scheduledMarketRender = null;
+    if (document.hidden) {
+      marketRenderPendingWhileHidden = true;
+      return;
+    }
+    marketRenderPendingWhileHidden = false;
+    render();
+  }, 180);
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    if (scheduledMarketRender !== null) clearTimeout(scheduledMarketRender);
+    scheduledMarketRender = null;
+    marketRenderPendingWhileHidden = true;
+    return;
+  }
+  if (marketRenderPendingWhileHidden) {
+    marketRenderPendingWhileHidden = false;
+    scheduleRender();
+  }
+});`,
+    "background-market-render",
+    misses,
+  );
+
+  // Сохраняем исправления ручного скролла и Spot-строк из v28.
   source = replaceOnce(
     source,
     "panel.manualScrollUntil = Date.now() + 650;",
@@ -71,16 +128,39 @@ async function patchedApp() {
 
   source = replaceOnce(
     source,
-    `  const manualScrollFinished = now > panel.manualScrollUntil;\n  const marketMovedAfterScroll = !Number.isFinite(panel.manualScrollAnchorPrice) || Math.abs(middle - panel.manualScrollAnchorPrice) >= panel.priceStep * .5;\n  if (panel.model.bookCentered === false && manualScrollFinished && marketMovedAfterScroll && Math.abs(middle - panel.viewCenter) >= halfSpan * .9) panel.autoCentering = true;`,
-    `  const manualScrollFinished = now > panel.manualScrollUntil;\n  if (panel.model.bookCentered === false && manualScrollFinished && Math.abs(middle - panel.viewCenter) >= panel.priceStep * .25) panel.autoCentering = true;`,
+    `  const manualScrollFinished = now > panel.manualScrollUntil;
+  const marketMovedAfterScroll = !Number.isFinite(panel.manualScrollAnchorPrice) || Math.abs(middle - panel.manualScrollAnchorPrice) >= panel.priceStep * .5;
+  if (panel.model.bookCentered === false && manualScrollFinished && marketMovedAfterScroll && Math.abs(middle - panel.viewCenter) >= halfSpan * .9) panel.autoCentering = true;`,
+    `  const manualScrollFinished = now > panel.manualScrollUntil;
+  if (panel.model.bookCentered === false && manualScrollFinished && Math.abs(middle - panel.viewCenter) >= panel.priceStep * .25) panel.autoCentering = true;`,
     "delayed-auto-center",
     misses,
   );
 
   source = replaceOnce(
     source,
-    `    panel.viewCenter += difference * .18;\n    if (Math.abs(difference) <= panel.priceStep * .08) {\n      panel.viewCenter = middle;\n      panel.autoCentering = false;\n      panel.manualScrollAnchorPrice = null;\n    } else if (!panel.centerFrame) {\n      panel.centerFrame = requestAnimationFrame(() => {\n        panel.centerFrame = null;\n        if (panel.latest) renderOrderBook(panel, panel.latest);\n      });\n    }`,
-    `    panel.viewCenter += difference * .30;\n    if (Math.abs(difference) <= panel.priceStep * .08) {\n      panel.viewCenter = middle;\n      panel.autoCentering = false;\n      panel.manualScrollAnchorPrice = null;\n    } else if (!panel.centerFrame) {\n      panel.centerFrame = setTimeout(() => {\n        panel.centerFrame = null;\n        if (panel.latest) renderOrderBook(panel, panel.latest);\n      }, 80);\n    }`,
+    `    panel.viewCenter += difference * .18;
+    if (Math.abs(difference) <= panel.priceStep * .08) {
+      panel.viewCenter = middle;
+      panel.autoCentering = false;
+      panel.manualScrollAnchorPrice = null;
+    } else if (!panel.centerFrame) {
+      panel.centerFrame = requestAnimationFrame(() => {
+        panel.centerFrame = null;
+        if (panel.latest) renderOrderBook(panel, panel.latest);
+      });
+    }`,
+    `    panel.viewCenter += difference * .30;
+    if (Math.abs(difference) <= panel.priceStep * .08) {
+      panel.viewCenter = middle;
+      panel.autoCentering = false;
+      panel.manualScrollAnchorPrice = null;
+    } else if (!panel.centerFrame) {
+      panel.centerFrame = setTimeout(() => {
+        panel.centerFrame = null;
+        if (panel.latest && !document.hidden) renderOrderBook(panel, panel.latest);
+      }, 80);
+    }`,
     "throttled-auto-center",
     misses,
   );
@@ -95,14 +175,27 @@ async function patchedApp() {
 
   source = replaceOnce(
     source,
-    `function bookLadderRow(row, middle, maxSize, anomalyThreshold) {\n  const side = row.askQuote > row.bidQuote ? "ask" : row.bidQuote > row.askQuote ? "bid" : row.price >= middle ? "ask" : "bid";\n  const size = Math.min(100, (row.quote / maxSize) * 100).toFixed(1);\n  const anomalous = row.quote >= anomalyThreshold && row.quote > 0;\n  return \`<div class="book-ladder-row is-\${side}\${anomalous ? " is-anomaly" : ""}\${row.isMarket ? " is-market" : ""}" style="--size:\${size}%"><span class="book-size">\${row.quote > 0 ? formatCompactUsd(row.quote) : ""}</span><strong>\${formatPrice(row.isMarket ? middle : row.price)}</strong></div>\`;\n}`,
-    `function bookLadderRow(row, middle, maxSize, anomalyThreshold) {\n  const side = row.askQuote > row.bidQuote ? "ask" : row.bidQuote > row.askQuote ? "bid" : row.price >= middle ? "ask" : "bid";\n  const size = Math.min(100, (row.quote / maxSize) * 100).toFixed(1);\n  const anomalous = row.quote >= anomalyThreshold && row.quote > 0;\n  const spotQuote = side === "ask" ? Number(row.spotAskQuote) || 0 : Number(row.spotBidQuote) || 0;\n  const futuresText = row.quote > 0 ? formatCompactUsd(row.quote) : "";\n  const spotText = spotQuote > 0 ? formatCompactUsd(spotQuote) : "";\n  return \`<div class="book-ladder-row is-\${side}\${anomalous ? " is-anomaly" : ""}\${row.isMarket ? " is-market" : ""}" style="--size:\${size}%"><span class="book-size"><i class="book-futures-size" title="Futures">\${futuresText}</i><i class="book-spot-size" title="Spot">\${spotText}</i></span><strong>\${formatPrice(row.isMarket ? middle : row.price)}</strong></div>\`;\n}`,
+    `function bookLadderRow(row, middle, maxSize, anomalyThreshold) {
+  const side = row.askQuote > row.bidQuote ? "ask" : row.bidQuote > row.askQuote ? "bid" : row.price >= middle ? "ask" : "bid";
+  const size = Math.min(100, (row.quote / maxSize) * 100).toFixed(1);
+  const anomalous = row.quote >= anomalyThreshold && row.quote > 0;
+  return \`<div class="book-ladder-row is-\${side}\${anomalous ? " is-anomaly" : ""}\${row.isMarket ? " is-market" : ""}" style="--size:\${size}%"><span class="book-size">\${row.quote > 0 ? formatCompactUsd(row.quote) : ""}</span><strong>\${formatPrice(row.isMarket ? middle : row.price)}</strong></div>\`;
+}`,
+    `function bookLadderRow(row, middle, maxSize, anomalyThreshold) {
+  const side = row.askQuote > row.bidQuote ? "ask" : row.bidQuote > row.askQuote ? "bid" : row.price >= middle ? "ask" : "bid";
+  const size = Math.min(100, (row.quote / maxSize) * 100).toFixed(1);
+  const anomalous = row.quote >= anomalyThreshold && row.quote > 0;
+  const spotQuote = side === "ask" ? Number(row.spotAskQuote) || 0 : Number(row.spotBidQuote) || 0;
+  const futuresText = row.quote > 0 ? formatCompactUsd(row.quote) : "";
+  const spotText = spotQuote > 0 ? formatCompactUsd(spotQuote) : "";
+  return \`<div class="book-ladder-row is-\${side}\${anomalous ? " is-anomaly" : ""}\${row.isMarket ? " is-market" : ""}" style="--size:\${size}%"><span class="book-size"><i class="book-futures-size" title="Futures">\${futuresText}</i><i class="book-spot-size" title="Spot">\${spotText}</i></span><strong>\${formatPrice(row.isMarket ? middle : row.price)}</strong></div>\`;
+}`,
     "spot-row-render",
     misses,
   );
 
   if (misses.length) {
-    source = `console.warn("InPuls v28: app patch misses", ${JSON.stringify(misses)});\n${source}`;
+    source = `console.warn("InPuls v29 app patch misses", ${JSON.stringify(misses)});\n${source}`;
   }
   return textResponse(response, source);
 }
@@ -118,13 +211,13 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (url.pathname.endsWith("/orderbook.js")) {
-    const forcedUrl = new URL("./orderbook.js?v=28", self.registration.scope);
+    const forcedUrl = new URL("./orderbook.js?v=29", self.registration.scope);
     event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
     return;
   }
 
   if (url.pathname.endsWith("/orderbook-worker.js")) {
-    const forcedUrl = new URL("./orderbook-worker.js?v=28", self.registration.scope);
+    const forcedUrl = new URL("./orderbook-worker.js?v=29-worker-1", self.registration.scope);
     event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
     return;
   }

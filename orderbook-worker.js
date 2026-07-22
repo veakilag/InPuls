@@ -3,7 +3,8 @@ const MAX_EMITTED_LEVELS_PER_SIDE = 12_000;
 const MAX_SPOT_LEVELS_PER_SIDE = 5_000;
 const MAX_BUFFERED_DEPTH_EVENTS = 4_000;
 const MAX_TRADE_HISTORY = 12_000;
-const MAX_TAPE_SNAPSHOT = 4_000;
+const MAX_TAPE_SNAPSHOT = 2_000;
+const MAX_RESUME_TAPE_SNAPSHOT = 300;
 const SNAPSHOT_TIMEOUT_MS = 3_500;
 const IDLE_CLOSE_MS = 10_000;
 
@@ -303,7 +304,8 @@ class SymbolFeed {
   markDirty(force = false) {
     this.dirty = true;
     if (force) this.forceEmit = true;
-    scheduleEmit();
+    // В фоне книга продолжает обновляться, но цикл визуальных кадров не крутится.
+    if (tabVisible) scheduleEmit();
   }
 
   refresh() {
@@ -311,8 +313,21 @@ class SymbolFeed {
     this.tapeBatch = [];
     clearTimeout(this.tapeTimer);
     this.tapeTimer = 0;
-    scheduleEmit();
+    if (tabVisible) scheduleEmit();
     post("tape", this.symbol, { replace: true, trades: this.trades.slice(0, MAX_TAPE_SNAPSHOT) });
+  }
+
+  resume() {
+    this.forceEmit = true;
+    this.tapeBatch = [];
+    clearTimeout(this.tapeTimer);
+    this.tapeTimer = 0;
+    // После фоновой вкладки отдаём только актуальный короткий хвост,
+    // а не всю накопленную историю.
+    post("tape", this.symbol, {
+      replace: true,
+      trades: this.trades.slice(0, MAX_RESUME_TAPE_SNAPSHOT),
+    });
   }
 
   sortedDepth() {
@@ -808,12 +823,15 @@ class SymbolFeed {
 }
 
 function scheduleEmit() {
-  if (emitTimer) return;
+  if (!tabVisible || emitTimer) return;
   emitTimer = setTimeout(() => {
     emitTimer = 0;
+    if (!tabVisible) return;
     const now = Date.now();
     for (const feed of feeds.values()) feed.emit(now);
-    if ([...feeds.values()].some((feed) => feed.dirty || feed.forceEmit)) scheduleEmit();
+    if (tabVisible && [...feeds.values()].some((feed) => feed.dirty || feed.forceEmit)) {
+      scheduleEmit();
+    }
   }, 25);
 }
 
@@ -831,10 +849,18 @@ self.addEventListener("message", (event) => {
   if (!message || typeof message !== "object") return;
   if (message.type === "visibility") {
     tabVisible = Boolean(message.visible);
-    if (tabVisible) {
-      for (const feed of feeds.values()) feed.refresh();
-      scheduleEmit();
+    if (!tabVisible) {
+      clearTimeout(emitTimer);
+      emitTimer = 0;
+      for (const feed of feeds.values()) {
+        feed.tapeBatch = [];
+        clearTimeout(feed.tapeTimer);
+        feed.tapeTimer = 0;
+      }
+      return;
     }
+    for (const feed of feeds.values()) feed.resume();
+    scheduleEmit();
     return;
   }
   if (message.type === "refresh") {
