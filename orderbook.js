@@ -1282,7 +1282,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-13-clean-smooth";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-14-scroll-hotfix";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const TAPE_MAX_STORED = 4_000;
 const TAPE_MAX_RAW_VISIBLE = 2_000;
@@ -1306,8 +1306,6 @@ let tapeNeedsDraw = true;
 let tapeDocumentHidden = typeof document !== "undefined" ? document.hidden : false;
 let tapeRecentRate = 0;
 let tapeStateTimer = 0;
-const bookRowMotionStates = new WeakMap();
-const smoothBookWheelStates = new WeakMap();
 
 export function parseRuntimeNumber(text) {
   let normalized = String(text ?? "")
@@ -1535,19 +1533,17 @@ function installOrderBookStyles() {
     }
     .orderbook-card .orderbook-rows {
       contain: layout paint style;
-      transform: translateZ(0);
+      transform: none !important;
     }
     .orderbook-card .book-ladder-row {
-      backface-visibility: hidden;
-      transform: translate3d(0,0,0);
-      will-change: transform;
+      transform: none !important;
+      transition: none !important;
+      will-change: auto !important;
+      backface-visibility: visible;
     }
     .orderbook-card .book-ladder-row .book-size::before {
-      transition: width 90ms linear, opacity 90ms linear;
-      will-change: width;
-    }
-    .orderbook-card.is-book-scrolling .book-ladder-row {
-      transition: transform 88ms cubic-bezier(.2,.72,.2,1);
+      transition: none !important;
+      will-change: auto !important;
     }
     .orderbook-card .inpuls-tape-controls {
       justify-content: flex-start;
@@ -1593,81 +1589,6 @@ function arrangeOrderBookChrome(card) {
   for (const child of [...pane.children]) {
     if (child !== actions && child !== scale) child.remove();
   }
-}
-
-function bookRowKey(row) {
-  const price = String(row?.querySelector?.("strong")?.textContent ?? "").trim();
-  const side = row?.classList?.contains("is-bid") ? "bid" : row?.classList?.contains("is-ask") ? "ask" : "market";
-  return price ? `${side}:${price}` : "";
-}
-
-function stabilizeBookRows(card, reset = false) {
-  const root = card?.querySelector?.(".orderbook-rows");
-  if (!root) return;
-  const rows = [...root.querySelectorAll(".book-ladder-row")];
-  let state = bookRowMotionStates.get(card);
-  if (!state) {
-    state = { positions: new Map(), frame: 0, scrollingUntil: 0 };
-    bookRowMotionStates.set(card, state);
-  }
-  if (state.frame) cancelAnimationFrame(state.frame);
-
-  const nextPositions = new Map();
-  const animations = [];
-  for (const row of rows) {
-    const key = bookRowKey(row);
-    if (!key) continue;
-    const y = row.getBoundingClientRect().top;
-    nextPositions.set(key, y);
-    const previous = reset ? null : state.positions.get(key);
-    if (!Number.isFinite(previous)) continue;
-    const delta = previous - y;
-    if (Math.abs(delta) < .5 || Math.abs(delta) > 220) continue;
-    row.style.transition = "none";
-    row.style.transform = `translate3d(0,${delta}px,0)`;
-    animations.push(row);
-  }
-  state.positions = nextPositions;
-  if (!animations.length) return;
-
-  state.frame = requestAnimationFrame(() => {
-    state.frame = 0;
-    const duration = Date.now() < state.scrollingUntil ? 88 : 72;
-    for (const row of animations) {
-      row.style.transition = `transform ${duration}ms cubic-bezier(.2,.72,.2,1)`;
-      row.style.transform = "translate3d(0,0,0)";
-    }
-  });
-}
-
-function queueSmoothBookWheel(card, sourceEvent) {
-  const stage = card?.querySelector?.(".orderbook-stage");
-  if (!stage) return;
-  let state = smoothBookWheelStates.get(card);
-  if (!state) {
-    state = { delta: 0, timer: 0 };
-    smoothBookWheelStates.set(card, state);
-  }
-  state.delta += Number(sourceEvent.deltaY) || 0;
-  const motion = bookRowMotionStates.get(card);
-  if (motion) motion.scrollingUntil = Date.now() + 160;
-  card.classList.add("is-book-scrolling");
-  clearTimeout(state.stopTimer);
-  state.stopTimer = setTimeout(() => card.classList.remove("is-book-scrolling"), 170);
-  if (state.timer) return;
-  state.timer = setTimeout(() => {
-    state.timer = 0;
-    const delta = state.delta;
-    state.delta = 0;
-    if (!delta) return;
-    const synthetic = new WheelEvent("wheel", {
-      bubbles: true,
-      cancelable: true,
-      deltaY: Math.sign(delta) * Math.max(1, Math.min(120, Math.abs(delta))),
-    });
-    Object.defineProperty(synthetic, "__inpulsSmoothBook", { value: true });
-    stage.dispatchEvent(synthetic);
-  }, 30);
 }
 
 function relativeTapeStrength(values, value) {
@@ -1789,7 +1710,7 @@ function ensureTapeUi(card) {
     state.rowObserver = null;
     state.rowTarget = rows;
     if (rows) {
-      state.rowObserver = new MutationObserver(() => { stabilizeBookRows(card); scheduleTapeDraw(); });
+      state.rowObserver = new MutationObserver(() => scheduleTapeDraw());
       state.rowObserver.observe(rows, { childList: true, subtree: true, characterData: true });
     }
   }
@@ -1818,7 +1739,6 @@ function ensureTapeUi(card) {
     }
   }
   state.lastSymbol = cardSymbol(card);
-  stabilizeBookRows(card, !bookRowMotionStates.has(card));
 
   return state;
 }
@@ -2375,23 +2295,15 @@ function installOrderBookRuntime() {
   });
 
   document.addEventListener("wheel", (event) => {
-    if (event.__inpulsSmoothBook) {
-      setTimeout(() => scheduleTapeDraw(true), 0);
-      return;
-    }
     const card = event.target.closest?.(".orderbook-card");
     if (!card) return;
-    const ladder = event.target.closest?.(".orderbook-ladder");
-    if (ladder && !event.ctrlKey && !event.metaKey) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
+    if (!event.ctrlKey && !event.metaKey) {
+      const ladder = event.target.closest?.(".orderbook-ladder");
       const centerButton = card.querySelector("[data-book-center]");
-      if (centerButton?.classList.contains("is-active")) centerButton.click();
-      queueSmoothBookWheel(card, event);
-      return;
+      if (ladder && centerButton?.classList.contains("is-active")) centerButton.click();
     }
     setTimeout(() => scheduleTapeDraw(true), 0);
-  }, { capture: true, passive: false });
+  }, { capture: true, passive: true });
 
   clearInterval(tapeStateTimer);
   tapeStateTimer = setInterval(() => {
