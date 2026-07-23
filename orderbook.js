@@ -72,19 +72,35 @@ export const BOOK_SCALE_MULTIPLIERS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
 
 export function inferPriceTick(bids, asks, middlePrice) {
   const prices = [...(bids ?? []), ...(asks ?? [])]
-    .slice(0, 160)
+    .slice(0, 240)
     .map((row) => Number(row?.[0]))
     .filter(Number.isFinite)
     .sort((left, right) => left - right);
-  let minimum = Infinity;
+
+  const middle = Math.abs(Number(middlePrice));
+  const noiseFloor = Math.max(Number.EPSILON * Math.max(1, middle) * 16, 1e-15);
+  const differences = [];
   for (let index = 1; index < prices.length; index += 1) {
     const difference = prices[index] - prices[index - 1];
-    if (difference > Number.EPSILON && difference < minimum) minimum = difference;
+    if (difference > noiseFloor) differences.push(difference);
   }
-  if (Number.isFinite(minimum)) return minimum;
-  const middle = Math.abs(Number(middlePrice));
-  if (!Number.isFinite(middle) || middle === 0) return .01;
-  return 10 ** Math.floor(Math.log10(middle) - 5);
+
+  const raw = differences.length ? Math.min(...differences) : (
+    Number.isFinite(middle) && middle > 0
+      ? 10 ** Math.floor(Math.log10(middle) - 5)
+      : .01
+  );
+
+  // Убираем плавающий двоичный хвост и приводим тик к биржевой
+  // последовательности 1 / 2 / 5 × 10^n.
+  const exponent = Math.floor(Math.log10(Math.max(Number.EPSILON, raw)));
+  const power = 10 ** exponent;
+  const ratio = raw / power;
+  const normalizedRatio = [1, 2, 5, 10].reduce(
+    (best, candidate) => Math.abs(candidate - ratio) < Math.abs(best - ratio) ? candidate : best,
+    1,
+  );
+  return Number((normalizedRatio * power).toPrecision(15));
 }
 
 export function priceStepForScale(baseTick, scaleIndex = 3) {
@@ -269,65 +285,52 @@ export function buildDepthLadder(bids, asks, marketPrice, viewCenter, priceStep,
     ]),
   );
 
+  // Сетка всегда привязана к абсолютному нулю шага, а не к плавающему
+  // midPrice. Поэтому ×5 действительно даёт ...580, ...575, ...570...
   const anchorIndex = Math.round(center / step);
+  const marketIndex = Math.round(market / step);
   const half = Math.floor(count / 2);
   const topIndex = anchorIndex + half;
 
+  const majorUnit = 10 ** Math.ceil(Math.log10(step * 20));
+  const halfUnit = majorUnit / 2;
   const normalizeGridPrice = (index) => Number((index * step).toPrecision(15));
-  const rows = Array.from({ length: count }, (_, offset) => {
+  const isMultiple = (price, unit) => {
+    if (!Number.isFinite(unit) || unit <= 0) return false;
+    const ratio = price / unit;
+    return Math.abs(ratio - Math.round(ratio)) <= 1e-7;
+  };
+
+  return Array.from({ length: count }, (_, offset) => {
     const index = topIndex - offset;
     const price = normalizeGridPrice(index);
     const source = price > market
       ? askBuckets.get(index)
       : price < market
         ? bidBuckets.get(index)
-        : null;
+        : (bidBuckets.get(index) ?? askBuckets.get(index));
 
-    if (source) return { ...source, price, isMarket: false };
-
-    return {
+    const isRound = isMultiple(price, majorUnit);
+    const isHalfRound = !isRound && isMultiple(price, halfUnit);
+    const base = source ?? {
       price,
       bidQuote: 0,
       askQuote: 0,
       quantity: 0,
       quote: 0,
-      isMarket: false,
       aggregated: false,
       levelCount: 0,
+    };
+
+    return {
+      ...base,
+      price,
+      gridIndex: index,
+      isMarket: index === marketIndex,
+      isRound,
+      isHalfRound,
     };
   });
-
-  const topPrice = Number(rows[0]?.price);
-  const bottomPrice = Number(rows.at(-1)?.price);
-  const marketVisible = Number.isFinite(topPrice)
-    && Number.isFinite(bottomPrice)
-    && market <= topPrice + step * .5
-    && market >= bottomPrice - step * .5;
-
-  if (marketVisible) {
-    const marketRow = {
-      price: market,
-      bidQuote: 0,
-      askQuote: 0,
-      quantity: 0,
-      quote: 0,
-      isMarket: true,
-      aggregated: false,
-      levelCount: 0,
-    };
-    let insertionIndex = rows.findIndex((row) => Number(row.price) < market);
-    if (insertionIndex < 0) insertionIndex = rows.length;
-    rows.splice(insertionIndex, 0, marketRow);
-
-    if (rows.length > count) {
-      const topDistance = Math.abs(Number(rows[0]?.price) - center);
-      const bottomDistance = Math.abs(Number(rows.at(-1)?.price) - center);
-      if (topDistance > bottomDistance) rows.shift();
-      else rows.pop();
-    }
-  }
-
-  return rows;
 }
 
 export function aggregateTradeClusters(trades, minimumQuote = 0, priceStep = .01, limit = 40) {
@@ -1330,11 +1333,11 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-15-price-ladder";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-16-fast-grid";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const TAPE_MAX_STORED = 4_000;
-const TAPE_MAX_RAW_VISIBLE = 2_000;
-const TAPE_MAX_AGG_VISIBLE = 1_200;
+const TAPE_MAX_RAW_VISIBLE = 1_200;
+const TAPE_MAX_AGG_VISIBLE = 900;
 const TAPE_SECOND_MS = 1_000;
 const TAPE_MIN_SECOND_WIDTH = 22;
 const TAPE_MIN_SECONDS = 12;
@@ -1356,11 +1359,13 @@ let tapeRecentRate = 0;
 let tapeStateTimer = 0;
 
 const BOOK_RECENTER_DELAY_MS = 5_000;
-const BOOK_RECENTER_HOLD_MS = 240;
+const BOOK_RECENTER_HOLD_MS = 620;
 const BOOK_SPLIT_STORAGE_KEY = "inpuls-orderbook-split-v2";
 const BOOK_MIN_TAPE_PX = 58;
 const BOOK_MIN_LADDER_PX = 96;
 const bookInteractionStates = new WeakMap();
+const dirtyTapeCards = new Set();
+let tapeDrawAllRequested = true;
 
 export function parseRuntimeNumber(text) {
   let normalized = String(text ?? "")
@@ -1600,6 +1605,39 @@ function installOrderBookStyles() {
       transition: none !important;
       will-change: auto !important;
     }
+    .orderbook-card .book-ladder-row {
+      grid-template-columns: minmax(34px, 1fr) minmax(58px, auto) !important;
+    }
+    .orderbook-card .book-ladder-row .book-size {
+      min-width: 0;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .orderbook-card .book-ladder-row strong {
+      width: 100%;
+      min-width: 58px;
+      padding-left: 5px;
+      box-sizing: border-box;
+      justify-self: stretch !important;
+      text-align: left !important;
+      font-variant-numeric: tabular-nums;
+    }
+    .orderbook-card .book-ladder-row.is-price-half:not(.is-market) {
+      background: rgba(151, 166, 177, .035);
+    }
+    .orderbook-card .book-ladder-row.is-price-half:not(.is-market) strong {
+      color: color-mix(in srgb, currentColor 88%, #dce8ed);
+      font-weight: 760;
+    }
+    .orderbook-card .book-ladder-row.is-price-round:not(.is-market) {
+      background: rgba(166, 181, 192, .075);
+      box-shadow: inset 0 1px rgba(190, 204, 214, .09),
+                  inset 0 -1px rgba(190, 204, 214, .06);
+    }
+    .orderbook-card .book-ladder-row.is-price-round:not(.is-market) strong {
+      color: #e6eef2;
+      font-weight: 900;
+    }
     .orderbook-card .inpuls-tape-controls {
       justify-content: flex-start;
     }
@@ -1700,23 +1738,61 @@ function arrangeOrderBookChrome(card) {
   }
 }
 
-function relativeTapeStrength(values, value) {
+
+function runtimePriceStep(card) {
+  const rows = [...card.querySelectorAll(".orderbook-rows .book-ladder-row")];
+  const prices = rows
+    .map((row) => parseRuntimeNumber(row.querySelector("strong")?.textContent))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  let step = Infinity;
+  for (let index = 1; index < prices.length; index += 1) {
+    const gap = prices[index] - prices[index - 1];
+    if (gap > Number.EPSILON && gap < step) step = gap;
+  }
+  return Number.isFinite(step) ? step : null;
+}
+
+function decorateRuntimeBookRows(card) {
+  const step = runtimePriceStep(card);
+  if (!Number.isFinite(step) || step <= 0) return;
+
+  const majorUnit = 10 ** Math.ceil(Math.log10(step * 20));
+  const halfUnit = majorUnit / 2;
+  const nearMultiple = (price, unit) => {
+    const ratio = price / unit;
+    return Math.abs(ratio - Math.round(ratio)) <= 1e-6;
+  };
+
+  for (const row of card.querySelectorAll(".orderbook-rows .book-ladder-row")) {
+    const price = parseRuntimeNumber(row.querySelector("strong")?.textContent);
+    const round = Number.isFinite(price) && nearMultiple(price, majorUnit);
+    const half = !round && Number.isFinite(price) && nearMultiple(price, halfUnit);
+    row.classList.toggle("is-price-round", round);
+    row.classList.toggle("is-price-half", half);
+  }
+}
+
+function createTapeStrengthScale(values) {
   const sorted = [...values]
     .map(Number)
     .filter((item) => Number.isFinite(item) && item > 0)
     .sort((a, b) => a - b);
-  if (!sorted.length) return 0;
+  if (!sorted.length) return () => 0;
 
   const low = Math.max(1, sorted[Math.floor((sorted.length - 1) * .08)] || 1);
   const high = Math.max(low + 1, sorted[Math.floor((sorted.length - 1) * .88)] || low + 1);
-  const amount = Math.max(0, Number(value) || 0);
-  const base = Math.log1p(amount / low) / Math.max(.0001, Math.log1p(high / low));
-  const outlierBoost = amount > high
-    ? Math.log2(1 + amount / high) * .28
-    : 0;
-  return clampTape(base + outlierBoost, 0, 1.9);
-}
+  const denominator = Math.max(.0001, Math.log1p(high / low));
 
+  return (value) => {
+    const amount = Math.max(0, Number(value) || 0);
+    const base = Math.log1p(amount / low) / denominator;
+    const outlierBoost = amount > high
+      ? Math.log2(1 + amount / high) * .28
+      : 0;
+    return clampTape(base + outlierBoost, 0, 1.9);
+  };
+}
 
 function bookRuntimeState(card) {
   let state = bookInteractionStates.get(card);
@@ -1728,6 +1804,7 @@ function bookRuntimeState(card) {
       holdTimer: 0,
       recenterTimer: 0,
       recentering: false,
+      recenterSteps: 0,
       splitApplied: false,
     };
     bookInteractionStates.set(card, state);
@@ -1740,6 +1817,7 @@ function bookRuntimeState(card) {
     state.marketPrice = null;
     state.lastManualAt = 0;
     state.recentering = false;
+    state.recenterSteps = 0;
     state.splitApplied = false;
   }
   return state;
@@ -1794,6 +1872,7 @@ function stopRuntimeRecentering(state) {
   state.holdTimer = 0;
   state.recenterTimer = 0;
   state.recentering = false;
+  state.recenterSteps = 0;
 }
 
 function finishRuntimeRecentering(card, state) {
@@ -1804,7 +1883,7 @@ function finishRuntimeRecentering(card, state) {
 
 function runRuntimeRecentering(card, state) {
   if (!card.isConnected || document.hidden) {
-    state.recenterTimer = setTimeout(() => runRuntimeRecentering(card, state), 120);
+    state.recenterTimer = setTimeout(() => runRuntimeRecentering(card, state), 160);
     return;
   }
   const stage = card.querySelector(".orderbook-stage");
@@ -1820,21 +1899,19 @@ function runRuntimeRecentering(card, state) {
   }
 
   const distanceSteps = Math.abs(target - center) / step;
-  if (distanceSteps <= 1.35) return finishRuntimeRecentering(card, state);
+  if (distanceSteps <= 1.35 || state.recenterSteps >= 24) {
+    return finishRuntimeRecentering(card, state);
+  }
 
   state.recentering = true;
+  state.recenterSteps += 1;
   const direction = target > center ? -1 : 1;
   dispatchBookWheel(stage, direction, "__inpulsRuntimeRecenter");
 
-  const delay = distanceSteps > 45
-    ? 18
-    : distanceSteps > 24
-      ? 26
-      : distanceSteps > 12
-        ? 38
-        : distanceSteps > 6
-          ? 58
-          : 88;
+  // Не больше 24 кадров возврата: далеко движемся быстро, возле рынка
+  // постепенно замедляемся. После лимита включается точная фиксация.
+  const near = 1 - clampTape(distanceSteps / 36, 0, 1);
+  const delay = Math.round(32 + near * near * 104);
   state.recenterTimer = setTimeout(() => runRuntimeRecentering(card, state), delay);
 }
 
@@ -1918,7 +1995,7 @@ function handleRuntimeSplitter(event) {
     );
     const percent = tapePixels / width * 100;
     stage.style.setProperty("--tape-percent", `${percent}%`);
-    scheduleTapeDraw(true);
+    scheduleTapeDraw(true, card);
   };
 
   const stop = (stopEvent) => {
@@ -1950,6 +2027,7 @@ function ensureTapeUi(card) {
   arrangeOrderBookChrome(card);
   applyStoredBookSplit(card);
   rememberRuntimeMarket(card);
+  decorateRuntimeBookRows(card);
   const flow = card.querySelector(".trade-flow");
   const toolbar = card.querySelector(".trade-tape-toolbar");
   if (!flow || !toolbar) return null;
@@ -2046,14 +2124,18 @@ function ensureTapeUi(card) {
     state.rowObserver = null;
     state.rowTarget = rows;
     if (rows) {
-      state.rowObserver = new MutationObserver(() => { rememberRuntimeMarket(card); scheduleTapeDraw(); });
+      state.rowObserver = new MutationObserver(() => {
+        rememberRuntimeMarket(card);
+        decorateRuntimeBookRows(card);
+        scheduleTapeDraw(false, card);
+      });
       state.rowObserver.observe(rows, { childList: true, subtree: true, characterData: true });
     }
   }
 
   if (typeof ResizeObserver === "function" && state.resizeTarget !== flow) {
     state.resizeObserver?.disconnect();
-    state.resizeObserver = new ResizeObserver(() => scheduleTapeDraw(true));
+    state.resizeObserver = new ResizeObserver(() => scheduleTapeDraw(true, card));
     state.resizeObserver.observe(flow);
     state.resizeTarget = flow;
   }
@@ -2068,7 +2150,7 @@ function ensureTapeUi(card) {
         const nextSymbol = cardSymbol(card);
         if (nextSymbol !== state.lastSymbol) {
           state.lastSymbol = nextSymbol;
-          scheduleTapeDraw(true);
+          scheduleTapeDraw(true, card);
         }
       });
       state.titleObserver.observe(titleTarget, { childList: true, subtree: true, characterData: true });
@@ -2335,7 +2417,8 @@ function drawTapeCard(card) {
 
   const rect = flow.getBoundingClientRect();
   if (rect.width <= 2 || rect.height <= 2) return;
-  const dpr = Math.max(1, Math.min(2, globalThis.devicePixelRatio || 1));
+  const dprLimit = rect.width >= 900 ? 1.15 : 1.5;
+  const dpr = Math.max(1, Math.min(dprLimit, globalThis.devicePixelRatio || 1));
   const pixelWidth = Math.max(1, Math.round(rect.width * dpr));
   const pixelHeight = Math.max(1, Math.round(rect.height * dpr));
   if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
@@ -2424,6 +2507,7 @@ function drawTapeCard(card) {
 
   setTapeState(state, "");
   const quotes = items.map((item) => Number(item.quote) || 0).filter((value) => value > 0);
+  const strengthFor = createTapeStrengthScale(quotes);
   const labelThreshold = [...quotes].sort((a, b) => a - b)[Math.floor(Math.max(0, quotes.length - 1) * .82)] || Infinity;
   context.textAlign = "center";
   context.textBaseline = "middle";
@@ -2444,7 +2528,7 @@ function drawTapeCard(card) {
     const fill = buy ? "rgba(50, 205, 151, .52)" : "rgba(238, 91, 108, .52)";
     const stroke = buy ? "rgba(88, 239, 184, .84)" : "rgba(255, 121, 137, .84)";
 
-    const strength = relativeTapeStrength(quotes, item.quote);
+    const strength = strengthFor(item.quote);
     if (state.mode === "raw") {
       const slots = Math.max(1, item.slotCount || 1);
       const slot = Math.max(0, item.slotIndex || 0);
@@ -2510,7 +2594,15 @@ function drawTapeCard(card) {
 
 function drawAllTapes() {
   if (tapeDocumentHidden) return;
-  document.querySelectorAll(".orderbook-card").forEach(drawTapeCard);
+
+  const cards = tapeDrawAllRequested
+    ? [...document.querySelectorAll(".orderbook-card")]
+    : [...dirtyTapeCards].filter((card) => card?.isConnected);
+
+  for (const card of cards) drawTapeCard(card);
+
+  dirtyTapeCards.clear();
+  tapeDrawAllRequested = false;
   tapeNeedsDraw = false;
 }
 
@@ -2522,21 +2614,27 @@ function cancelTapeDraw() {
 }
 
 function targetTapeFrameMs() {
-  if (tapeRecentRate > 1_200) return 66;
-  if (tapeRecentRate > 600) return 50;
-  if (tapeRecentRate > 250) return 40;
-  return 28;
+  const count = Math.max(1, document.querySelectorAll(".orderbook-card").length);
+  const base = count >= 6 ? 84 : count >= 3 ? 66 : 50;
+  if (tapeRecentRate > 1_200) return Math.max(base, 90);
+  if (tapeRecentRate > 600) return Math.max(base, 72);
+  if (tapeRecentRate > 250) return Math.max(base, 58);
+  return base;
 }
 
-function scheduleTapeDraw(force = false) {
+function scheduleTapeDraw(force = false, card = null) {
   if (typeof document === "undefined") return;
   tapeNeedsDraw = true;
+  if (card?.isConnected) dirtyTapeCards.add(card);
+  else tapeDrawAllRequested = true;
   if (tapeDocumentHidden) return;
+
   if (force) {
     cancelTapeDraw();
     tapeLastDrawAt = 0;
   }
   if (tapeDrawFrame || tapeDrawTimer) return;
+
   const frameMs = targetTapeFrameMs();
   const elapsed = performance.now() - tapeLastDrawAt;
   if (elapsed < frameMs) {
@@ -2546,6 +2644,7 @@ function scheduleTapeDraw(force = false) {
     }, Math.max(1, frameMs - elapsed));
     return;
   }
+
   tapeDrawFrame = requestAnimationFrame(() => {
     tapeDrawFrame = 0;
     tapeLastDrawAt = performance.now();
@@ -2607,13 +2706,16 @@ function acceptTapeData(event) {
     packets: (Number(previousMeta.packets) || 0) + 1,
   });
   tapeRecentRate = stored.reduce((count, trade) => count + (trade.time >= now - 1_000 ? 1 : 0), 0);
-  scheduleTapeDraw();
+  const cards = [...document.querySelectorAll(".orderbook-card")]
+    .filter((card) => cardSymbol(card) === symbol);
+  if (cards.length) cards.forEach((card) => scheduleTapeDraw(false, card));
+  else scheduleTapeDraw();
 }
 
 function bindTapeCard(card) {
   arrangeOrderBookChrome(card);
   ensureTapeUi(card);
-  scheduleTapeDraw(true);
+  scheduleTapeDraw(true, card);
 }
 
 function scanTapeCards(root = document) {
@@ -2671,7 +2773,10 @@ function installOrderBookRuntime() {
         scheduleRuntimeRecentering(card);
       }
     }
-    setTimeout(() => scheduleTapeDraw(true), 0);
+    setTimeout(
+      () => scheduleTapeDraw(!runtimeEvent, card),
+      0,
+    );
   }, { capture: true, passive: true });
 
   clearInterval(tapeStateTimer);
