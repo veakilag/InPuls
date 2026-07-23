@@ -1282,7 +1282,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-12-stability";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-13-clean-smooth";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const TAPE_MAX_STORED = 4_000;
 const TAPE_MAX_RAW_VISIBLE = 2_000;
@@ -1295,7 +1295,6 @@ const TAPE_STALE_NOTICE_MS = 60_000;
 const TAPE_STATE_REFRESH_MS = 1_000;
 const TAPE_MODE_KEY = "inpuls-tape-mode-v1";
 const TAPE_MIN_FILTER_KEY = "inpuls-tape-min-filter-v3";
-const TAPE_MAX_FILTER_KEY = "inpuls-tape-max-filter-v2";
 
 const tapeTradesBySymbol = new Map();
 const tapeMetaBySymbol = new Map();
@@ -1307,6 +1306,8 @@ let tapeNeedsDraw = true;
 let tapeDocumentHidden = typeof document !== "undefined" ? document.hidden : false;
 let tapeRecentRate = 0;
 let tapeStateTimer = 0;
+const bookRowMotionStates = new WeakMap();
+const smoothBookWheelStates = new WeakMap();
 
 export function parseRuntimeNumber(text) {
   let normalized = String(text ?? "")
@@ -1494,8 +1495,190 @@ function installOrderBookStyles() {
       border-color: rgba(66, 225, 173, .48);
       background: rgba(66, 225, 173, .09);
     }
+    .orderbook-card .orderbook-heading [data-book-ticker] {
+      max-width: min(42%, 210px);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .orderbook-card .book-pane-title {
+      display: flex !important;
+      grid-template-columns: none !important;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
+      padding: 0 3px 0 2px !important;
+      text-align: left !important;
+    }
+    .orderbook-card .inpuls-book-pane-actions {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+    .orderbook-card .book-pane-title .book-highlight-controls {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      margin: 0;
+    }
+    .orderbook-card .book-pane-title [data-book-scale] {
+      flex: 0 0 auto;
+      margin-left: auto;
+      color: var(--accent, #9d6cff);
+      text-align: right;
+      font-weight: 800;
+    }
+    .orderbook-card .book-pane-title > span:not([data-book-scale]) {
+      display: none !important;
+    }
+    .orderbook-card .orderbook-rows {
+      contain: layout paint style;
+      transform: translateZ(0);
+    }
+    .orderbook-card .book-ladder-row {
+      backface-visibility: hidden;
+      transform: translate3d(0,0,0);
+      will-change: transform;
+    }
+    .orderbook-card .book-ladder-row .book-size::before {
+      transition: width 90ms linear, opacity 90ms linear;
+      will-change: width;
+    }
+    .orderbook-card.is-book-scrolling .book-ladder-row {
+      transition: transform 88ms cubic-bezier(.2,.72,.2,1);
+    }
+    .orderbook-card .inpuls-tape-controls {
+      justify-content: flex-start;
+    }
+    .orderbook-card .inpuls-tape-filter {
+      flex: 1 1 auto;
+      max-width: 104px;
+    }
+    .orderbook-card .inpuls-tape-mode {
+      margin-left: auto;
+    }
   `;
   document.head.append(style);
+}
+
+
+function normalizeOrderBookTitle(card) {
+  const title = card?.querySelector?.("[data-book-ticker]");
+  if (!title) return;
+  const clean = String(title.textContent ?? "")
+    .replace(/\s*[·•]\s*Стакан\s*$/i, "")
+    .trim();
+  if (clean && title.textContent !== clean) title.textContent = clean;
+}
+
+function arrangeOrderBookChrome(card) {
+  if (!card) return;
+  normalizeOrderBookTitle(card);
+  const pane = card.querySelector(".book-pane-title");
+  const scale = card.querySelector("[data-book-scale]");
+  const highlights = card.querySelector(".book-highlight-controls");
+  if (!pane || !scale || !highlights) return;
+
+  let actions = pane.querySelector(".inpuls-book-pane-actions");
+  if (!actions) {
+    actions = document.createElement("div");
+    actions.className = "inpuls-book-pane-actions";
+    pane.prepend(actions);
+  }
+  if (highlights.parentElement !== actions) actions.append(highlights);
+  if (scale.parentElement !== pane || pane.lastElementChild !== scale) pane.append(scale);
+
+  for (const child of [...pane.children]) {
+    if (child !== actions && child !== scale) child.remove();
+  }
+}
+
+function bookRowKey(row) {
+  const price = String(row?.querySelector?.("strong")?.textContent ?? "").trim();
+  const side = row?.classList?.contains("is-bid") ? "bid" : row?.classList?.contains("is-ask") ? "ask" : "market";
+  return price ? `${side}:${price}` : "";
+}
+
+function stabilizeBookRows(card, reset = false) {
+  const root = card?.querySelector?.(".orderbook-rows");
+  if (!root) return;
+  const rows = [...root.querySelectorAll(".book-ladder-row")];
+  let state = bookRowMotionStates.get(card);
+  if (!state) {
+    state = { positions: new Map(), frame: 0, scrollingUntil: 0 };
+    bookRowMotionStates.set(card, state);
+  }
+  if (state.frame) cancelAnimationFrame(state.frame);
+
+  const nextPositions = new Map();
+  const animations = [];
+  for (const row of rows) {
+    const key = bookRowKey(row);
+    if (!key) continue;
+    const y = row.getBoundingClientRect().top;
+    nextPositions.set(key, y);
+    const previous = reset ? null : state.positions.get(key);
+    if (!Number.isFinite(previous)) continue;
+    const delta = previous - y;
+    if (Math.abs(delta) < .5 || Math.abs(delta) > 220) continue;
+    row.style.transition = "none";
+    row.style.transform = `translate3d(0,${delta}px,0)`;
+    animations.push(row);
+  }
+  state.positions = nextPositions;
+  if (!animations.length) return;
+
+  state.frame = requestAnimationFrame(() => {
+    state.frame = 0;
+    const duration = Date.now() < state.scrollingUntil ? 88 : 72;
+    for (const row of animations) {
+      row.style.transition = `transform ${duration}ms cubic-bezier(.2,.72,.2,1)`;
+      row.style.transform = "translate3d(0,0,0)";
+    }
+  });
+}
+
+function queueSmoothBookWheel(card, sourceEvent) {
+  const stage = card?.querySelector?.(".orderbook-stage");
+  if (!stage) return;
+  let state = smoothBookWheelStates.get(card);
+  if (!state) {
+    state = { delta: 0, timer: 0 };
+    smoothBookWheelStates.set(card, state);
+  }
+  state.delta += Number(sourceEvent.deltaY) || 0;
+  const motion = bookRowMotionStates.get(card);
+  if (motion) motion.scrollingUntil = Date.now() + 160;
+  card.classList.add("is-book-scrolling");
+  clearTimeout(state.stopTimer);
+  state.stopTimer = setTimeout(() => card.classList.remove("is-book-scrolling"), 170);
+  if (state.timer) return;
+  state.timer = setTimeout(() => {
+    state.timer = 0;
+    const delta = state.delta;
+    state.delta = 0;
+    if (!delta) return;
+    const synthetic = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaY: Math.sign(delta) * Math.max(1, Math.min(120, Math.abs(delta))),
+    });
+    Object.defineProperty(synthetic, "__inpulsSmoothBook", { value: true });
+    stage.dispatchEvent(synthetic);
+  }, 30);
+}
+
+function relativeTapeStrength(values, value) {
+  if (!values.length) return 0;
+  const sorted = [...values].filter(Number.isFinite).sort((a, b) => a - b);
+  if (!sorted.length) return 0;
+  const low = Math.max(1, sorted[Math.floor((sorted.length - 1) * .1)] || 1);
+  const high = Math.max(low + 1, sorted[Math.floor((sorted.length - 1) * .95)] || low + 1);
+  const numerator = Math.log1p(Math.max(0, value) / low);
+  const denominator = Math.log1p(high / low);
+  return clampTape(denominator > 0 ? numerator / denominator : 0, 0, 1.35);
 }
 
 function syncTapeModeButton(button, state) {
@@ -1509,6 +1692,7 @@ function syncTapeModeButton(button, state) {
 }
 
 function ensureTapeUi(card) {
+  arrangeOrderBookChrome(card);
   const flow = card.querySelector(".trade-flow");
   const toolbar = card.querySelector(".trade-tape-toolbar");
   if (!flow || !toolbar) return null;
@@ -1521,7 +1705,6 @@ function ensureTapeUi(card) {
       context: null,
       mode: localStorage.getItem(TAPE_MODE_KEY) === "raw" ? "raw" : "agg",
       minQuote: savedMinimum === null ? 0 : Math.max(0, Number(savedMinimum) || 0),
-      maxQuote: Math.max(0, Number(localStorage.getItem(TAPE_MAX_FILTER_KEY)) || 0),
       controls: null,
       status: null,
       rangeSummary: null,
@@ -1575,15 +1758,11 @@ function ensureTapeUi(card) {
       <label class="inpuls-tape-filter" title="Показывать сделки или агрегаты не меньше суммы">
         <span>ОТ $</span><input data-inpuls-trade-min type="number" min="0" step="100" value="${state.minQuote}" aria-label="Минимальный размер сделки или агрегата" />
       </label>
-      <label class="inpuls-tape-filter" title="Скрывать сделки или агрегаты больше суммы; 0 — без ограничения">
-        <span>ДО $</span><input data-inpuls-trade-max type="number" min="0" step="1000" value="${state.maxQuote}" aria-label="Максимальный размер сделки или агрегата" />
-      </label>
       <button data-inpuls-tape-mode class="inpuls-tape-mode" type="button"></button>`;
     toolbar.append(controls);
     state.controls = controls;
 
     const minInput = controls.querySelector("[data-inpuls-trade-min]");
-    const maxInput = controls.querySelector("[data-inpuls-trade-max]");
     const modeButton = controls.querySelector("[data-inpuls-tape-mode]");
 
     const applyMinimum = () => {
@@ -1591,15 +1770,8 @@ function ensureTapeUi(card) {
       localStorage.setItem(TAPE_MIN_FILTER_KEY, String(state.minQuote));
       scheduleTapeDraw(true);
     };
-    const applyMaximum = () => {
-      state.maxQuote = Math.max(0, Number(maxInput.value) || 0);
-      localStorage.setItem(TAPE_MAX_FILTER_KEY, String(state.maxQuote));
-      scheduleTapeDraw(true);
-    };
     minInput.addEventListener("input", applyMinimum);
     minInput.addEventListener("change", applyMinimum);
-    maxInput.addEventListener("input", applyMaximum);
-    maxInput.addEventListener("change", applyMaximum);
     modeButton.addEventListener("click", () => {
       state.mode = state.mode === "agg" ? "raw" : "agg";
       localStorage.setItem(TAPE_MODE_KEY, state.mode);
@@ -1617,7 +1789,7 @@ function ensureTapeUi(card) {
     state.rowObserver = null;
     state.rowTarget = rows;
     if (rows) {
-      state.rowObserver = new MutationObserver(() => scheduleTapeDraw());
+      state.rowObserver = new MutationObserver(() => { stabilizeBookRows(card); scheduleTapeDraw(); });
       state.rowObserver.observe(rows, { childList: true, subtree: true, characterData: true });
     }
   }
@@ -1646,6 +1818,7 @@ function ensureTapeUi(card) {
     }
   }
   state.lastSymbol = cardSymbol(card);
+  stabilizeBookRows(card, !bookRowMotionStates.has(card));
 
   return state;
 }
@@ -1954,8 +2127,7 @@ function drawTapeCard(card) {
   }
 
   const minQuote = Math.max(0, Number(state.minQuote) || 0);
-  let maxQuote = Math.max(0, Number(state.maxQuote) || 0);
-  if (maxQuote > 0 && maxQuote < minQuote) maxQuote = 0;
+  const maxQuote = 0;
   const range = visiblePriceRange(rows);
 
   let candidates;
@@ -1995,9 +2167,8 @@ function drawTapeCard(card) {
   }
 
   setTapeState(state, "");
-  const quotes = items.map((item) => item.quote).sort((a, b) => a - b);
-  const p90 = Math.max(1, quotes[Math.floor((quotes.length - 1) * .9)] || 1);
-  const p75 = Math.max(1, quotes[Math.floor((quotes.length - 1) * .75)] || 1);
+  const quotes = items.map((item) => Number(item.quote) || 0).filter((value) => value > 0);
+  const labelThreshold = [...quotes].sort((a, b) => a - b)[Math.floor(Math.max(0, quotes.length - 1) * .82)] || Infinity;
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.font = "700 8px Inter, system-ui, sans-serif";
@@ -2013,34 +2184,44 @@ function drawTapeCard(card) {
     const fill = buy ? "rgba(50, 205, 151, .52)" : "rgba(238, 91, 108, .52)";
     const stroke = buy ? "rgba(88, 239, 184, .84)" : "rgba(255, 121, 137, .84)";
 
+    const strength = relativeTapeStrength(quotes, item.quote);
     if (state.mode === "raw") {
       const slots = Math.max(1, item.slotCount || 1);
       const slot = Math.max(0, item.slotIndex || 0);
       const x = columnLeft + ((slot + .5) / slots) * window.columnWidth;
-      const width = clampTape((window.columnWidth / slots) * .82, 1.1, 5.5);
-      const height = clampTape(Math.sqrt(item.quote / p90) * 5 + 1.5, 1.5, 7);
-      roundedRectPath(context, x - width / 2, y - height / 2, width, height, Math.min(2, width / 2));
+      const slotWidth = Math.max(1.5, (window.columnWidth / slots) * .84);
+      const diameter = clampTape(1.7 + strength * 7.4, 1.7, Math.min(10, slotWidth));
+      context.beginPath();
+      context.arc(x, y, diameter / 2, 0, Math.PI * 2);
       context.fillStyle = fill;
       context.fill();
+      if (diameter >= 5.5) {
+        context.lineWidth = .7;
+        context.strokeStyle = stroke;
+        context.stroke();
+      }
       continue;
     }
 
     const maxWidth = Math.max(2, window.columnWidth - 2);
-    const strength = Math.min(1.35, Math.sqrt(item.quote / p90));
-    const height = clampTape(7 + strength * 8 + (item.count > 1 ? 1 : 0), 8, 18);
+    const diameter = clampTape(2.4 + strength * 17.5 + (item.count > 1 ? 1 : 0), 2.4, Math.min(23, maxWidth));
     const label = formatTapeUsd(item.quote);
     const measured = context.measureText(label).width;
-    const width = clampTape(measured + 7, Math.min(height, maxWidth), maxWidth);
+    const showLabel = item.quote >= labelThreshold && diameter >= 9;
+    const width = showLabel ? clampTape(measured + 8, diameter, maxWidth) : diameter;
+    const height = diameter;
     const x = clampTape(columnCenter, columnLeft + width / 2 + .5, columnRight - width / 2 - .5);
 
-    roundedRectPath(context, x - width / 2, y - height / 2, width, height, Math.min(5, height / 2));
+    roundedRectPath(context, x - width / 2, y - height / 2, width, height, height / 2);
     context.fillStyle = fill;
     context.fill();
-    context.lineWidth = item.count > 1 ? 1.1 : .7;
-    context.strokeStyle = stroke;
-    context.stroke();
+    if (diameter >= 5) {
+      context.lineWidth = item.count > 1 ? 1 : .65;
+      context.strokeStyle = stroke;
+      context.stroke();
+    }
 
-    if (item.quote >= p75 && measured + 4 <= width) {
+    if (showLabel && measured + 4 <= width) {
       context.fillStyle = "rgba(235, 247, 244, .96)";
       context.fillText(label, x, y + .2);
     }
@@ -2149,6 +2330,7 @@ function acceptTapeData(event) {
 }
 
 function bindTapeCard(card) {
+  arrangeOrderBookChrome(card);
   ensureTapeUi(card);
   scheduleTapeDraw(true);
 }
@@ -2193,15 +2375,23 @@ function installOrderBookRuntime() {
   });
 
   document.addEventListener("wheel", (event) => {
+    if (event.__inpulsSmoothBook) {
+      setTimeout(() => scheduleTapeDraw(true), 0);
+      return;
+    }
     const card = event.target.closest?.(".orderbook-card");
     if (!card) return;
-    if (!event.ctrlKey && !event.metaKey) {
-      const ladder = event.target.closest?.(".orderbook-ladder");
+    const ladder = event.target.closest?.(".orderbook-ladder");
+    if (ladder && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
       const centerButton = card.querySelector("[data-book-center]");
-      if (ladder && centerButton?.classList.contains("is-active")) centerButton.click();
+      if (centerButton?.classList.contains("is-active")) centerButton.click();
+      queueSmoothBookWheel(card, event);
+      return;
     }
     setTimeout(() => scheduleTapeDraw(true), 0);
-  }, { capture: true, passive: true });
+  }, { capture: true, passive: false });
 
   clearInterval(tapeStateTimer);
   tapeStateTimer = setInterval(() => {
