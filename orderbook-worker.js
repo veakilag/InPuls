@@ -1,17 +1,24 @@
 const MAX_BOOK_LEVELS_PER_SIDE = 20_000;
 const MAX_EMITTED_LEVELS_PER_SIDE = 4_000;
 const MAX_BUFFERED_DEPTH_EVENTS = 4_000;
-const MAX_TRADE_HISTORY = 20_000;
+const MAX_TRADE_HISTORY = 12_000;
+const MAX_PERSISTED_TRADE_HISTORY = 5_000;
 const MAX_TAPE_SNAPSHOT = 1_200;
 const MAX_RESUME_TAPE_SNAPSHOT = 80;
 const MAX_RESUME_LEVELS_PER_SIDE = 700;
 const RESUME_STAGGER_MS = 140;
 const RESUME_STALE_MS = 3_500;
-const ACTIVE_STALE_MS = 12_000;
+const DEPTH_STALE_NOTICE_MS = 3_000;
+const ACTIVE_STALE_MS = 9_000;
 const SNAPSHOT_TIMEOUT_MS = 2_800;
 const IDLE_CLOSE_MS = 10_000;
 const TRADE_FIRST_MESSAGE_TIMEOUT_MS = 8_000;
 const TRADE_BOOTSTRAP_LIMIT = 120;
+const MAX_TAPE_BATCH_PER_POST = 500;
+const TAPE_FLUSH_MS = 25;
+const RECONNECT_BASE_MS = 400;
+const RECONNECT_MAX_MS = 8_000;
+const WORKER_HEARTBEAT_MS = 2_000;
 
 const feeds = new Map();
 let tabVisible = true;
@@ -22,6 +29,12 @@ let watchdogTimer = 0;
 
 function post(type, symbol, payload = {}) {
   self.postMessage({ type, symbol, ...payload });
+}
+
+function reconnectDelay(attempt = 0) {
+  const exponential = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * (2 ** Math.max(0, attempt)));
+  const jitter = Math.floor(Math.random() * Math.max(80, exponential * .25));
+  return exponential + jitter;
 }
 
 function parsePayload(raw) {
@@ -125,7 +138,7 @@ class TradeStore {
       const transaction = db.transaction("symbols", "readwrite");
       transaction.objectStore("symbols").put({
         symbol,
-        trades: trades.slice(0, MAX_TRADE_HISTORY),
+        trades: trades.slice(0, MAX_PERSISTED_TRADE_HISTORY),
         updatedAt: Date.now(),
       });
       transaction.oncomplete = transaction.onerror = transaction.onabort = () => resolve();
@@ -214,6 +227,10 @@ class SymbolFeed {
     this.lastRestartAt = 0;
     this.tradeBootstrapLoading = false;
     this.tradeLive = false;
+    this.tradeConnected = false;
+    this.depthReconnectAttempt = 0;
+    this.tradeReconnectAttempt = 0;
+    this.lastResyncAt = 0;
   }
 
   addSubscriber() {
@@ -244,6 +261,10 @@ class SymbolFeed {
     this.mode = "deep";
     this.transportIndex = 0;
     this.tradeTransportIndex = 0;
+    this.depthReconnectAttempt = 0;
+    this.tradeReconnectAttempt = 0;
+    this.tradeLive = false;
+    this.tradeConnected = false;
     this.resetBook();
     this.setStatus("loading", "Подключение Worker");
     const generation = this.generation;
@@ -295,6 +316,24 @@ class SymbolFeed {
     if (key === this.statusKey) return;
     this.statusKey = key;
     post("status", this.symbol, { state, text });
+  }
+
+  liveStatusText(tapeState = null) {
+    const partial = this.mode === "partial" ? " · 20" : "";
+    const reconnectingTape = tapeState === "reconnect" || (this.tradeLive && !this.tradeConnected);
+    const tape = reconnectingTape
+      ? " · TAPE RECONNECT"
+      : (this.tradeLive && this.tradeConnected ? " · TAPE" : "");
+    return `LIVE 100ms · WORKER${partial}${tape}`;
+  }
+
+  publishLiveStatus(tapeState = null) {
+    const depthAge = this.lastDepthAt ? Date.now() - this.lastDepthAt : Infinity;
+    if (this.depthReady && depthAge > DEPTH_STALE_NOTICE_MS) {
+      this.setStatus("stale", `STALE ${Math.max(1, Math.floor(depthAge / 1_000))}с · WORKER${this.tradeLive && this.tradeConnected ? " · TAPE" : ""}`);
+      return;
+    }
+    this.setStatus("online", this.liveStatusText(tapeState));
   }
 
   markDirty(force = false) {
@@ -355,6 +394,10 @@ class SymbolFeed {
     this.mode = "deep";
     this.transportIndex = 0;
     this.tradeTransportIndex = 0;
+    this.depthReconnectAttempt = 0;
+    this.tradeReconnectAttempt = 0;
+    this.tradeLive = false;
+    this.tradeConnected = false;
     this.resetBook();
     this.setStatus("loading", "Восстановление Worker");
     const generation = this.generation;
@@ -367,15 +410,25 @@ class SymbolFeed {
     const socketOpen = this.socket?.readyState === WebSocket.OPEN;
     const socketConnecting = this.socket?.readyState === WebSocket.CONNECTING;
     const reconnectPending = Boolean(this.reconnectTimer || this.firstDepthTimer || this.snapshotLoading);
-    const stale = this.depthReady && this.lastDepthAt > 0 && now - this.lastDepthAt > ACTIVE_STALE_MS;
+    const depthAge = this.lastDepthAt > 0 ? now - this.lastDepthAt : Infinity;
+    const stale = this.depthReady && depthAge > ACTIVE_STALE_MS;
+
     if ((!socketOpen && !socketConnecting && !reconnectPending) || stale) {
+      this.setStatus("offline", "RECONNECT · WORKER");
       this.restartAfterBackground();
       return;
+    }
+
+    if (this.depthReady && depthAge > DEPTH_STALE_NOTICE_MS) {
+      this.setStatus("stale", `STALE ${Math.max(1, Math.floor(depthAge / 1_000))}с · WORKER${this.tradeLive && this.tradeConnected ? " · TAPE" : ""}`);
+    } else if (this.depthReady && this.statusKey.startsWith("stale:")) {
+      this.publishLiveStatus();
     }
 
     const tradeOpen = this.tradeSocket?.readyState === WebSocket.OPEN;
     const tradeConnecting = this.tradeSocket?.readyState === WebSocket.CONNECTING;
     if (!tradeOpen && !tradeConnecting && !this.tradeReconnectTimer) {
+      if (this.tradeLive) this.publishLiveStatus("reconnect");
       this.connectTrades(this.generation);
     }
   }
@@ -427,6 +480,15 @@ class SymbolFeed {
         },
         bookLevels: { bids: this.bids.size, asks: this.asks.size },
         resyncCount: this.resyncCount,
+        health: {
+          mode: this.mode,
+          depthAgeMs: this.lastDepthAt ? Math.max(0, now - this.lastDepthAt) : null,
+          tradeAgeMs: this.lastTradeAt ? Math.max(0, now - this.lastTradeAt) : null,
+          depthBuffer: this.depthBuffer.length,
+          subscribers: this.subscribers,
+          depthTransport: this.transportIndex,
+          tradeTransport: this.tradeTransportIndex,
+        },
         worker: true,
       },
     });
@@ -493,7 +555,7 @@ class SymbolFeed {
     this.depthBuffer = [];
     this.pendingSnapshot = null;
     this.depthReady = true;
-    this.setStatus("online", "LIVE 100ms · WORKER");
+    this.publishLiveStatus();
     this.markDirty(true);
     return true;
   }
@@ -537,11 +599,15 @@ class SymbolFeed {
 
   resync(text) {
     if (this.mode !== "deep") return;
+    const now = Date.now();
+    if (now - this.lastResyncAt < 350) return;
+    this.lastResyncAt = now;
     this.resyncCount += 1;
     this.resetBook();
     this.setStatus("loading", text);
     clearTimeout(this.snapshotTimer);
-    this.snapshotTimer = setTimeout(() => this.loadSnapshot(this.generation), 250);
+    const delay = Math.min(2_000, 250 + this.resyncCount * 75);
+    this.snapshotTimer = setTimeout(() => this.loadSnapshot(this.generation), delay);
   }
 
   replacePartial(target, previousKeys, rows) {
@@ -568,7 +634,8 @@ class SymbolFeed {
     try { socket = new WebSocket(transport.url); }
     catch {
       this.transportIndex += 1;
-      this.reconnectTimer = setTimeout(() => this.connectDepth(generation), 500);
+      const delay = reconnectDelay(this.depthReconnectAttempt++);
+      this.reconnectTimer = setTimeout(() => this.connectDepth(generation), delay);
       return;
     }
     this.socket = socket;
@@ -606,6 +673,7 @@ class SymbolFeed {
       this.lastDepthAt = Date.now();
       clearTimeout(this.firstDepthTimer);
       this.transportIndex = 0;
+      this.depthReconnectAttempt = 0;
 
       if (this.mode === "partial") {
         this.partialBidKeys = this.replacePartial(this.bids, this.partialBidKeys, bids);
@@ -613,7 +681,7 @@ class SymbolFeed {
         this.lastUpdateId = Number(update.u ?? update.lastUpdateId) || this.lastUpdateId;
         this.depthReady = true;
         this.cachedSorted = null;
-        this.setStatus("online", "LIVE 100ms · WORKER · 20");
+        this.publishLiveStatus();
         this.markDirty(true);
         return;
       }
@@ -634,8 +702,9 @@ class SymbolFeed {
       this.socket = null;
       this.transportIndex += 1;
       this.resetBook();
-      this.setStatus("offline", "Переподключение Worker");
-      this.reconnectTimer = setTimeout(() => this.connectDepth(generation), 500);
+      this.setStatus("offline", "RECONNECT · WORKER");
+      const delay = reconnectDelay(this.depthReconnectAttempt++);
+      this.reconnectTimer = setTimeout(() => this.connectDepth(generation), delay);
     });
 
     socket.addEventListener("error", () => {
@@ -660,7 +729,8 @@ class SymbolFeed {
     try { socket = new WebSocket(transport.url); }
     catch {
       this.tradeTransportIndex += 1;
-      this.tradeReconnectTimer = setTimeout(() => this.connectTrades(generation), 500);
+      const delay = reconnectDelay(this.tradeReconnectAttempt++);
+      this.tradeReconnectTimer = setTimeout(() => this.connectTrades(generation), delay);
       return;
     }
     this.tradeSocket = socket;
@@ -703,15 +773,10 @@ class SymbolFeed {
       if (!this.insertTrade(trade, true)) return;
       this.lastTradeAt = Date.now();
       this.tradeTransportIndex = 0;
-      if (!this.tradeLive) {
-        this.tradeLive = true;
-        this.setStatus(
-          "online",
-          this.mode === "partial"
-            ? "LIVE 100ms · WORKER · 20 · TAPE"
-            : "LIVE 100ms · WORKER · TAPE",
-        );
-      }
+      this.tradeReconnectAttempt = 0;
+      this.tradeLive = true;
+      this.tradeConnected = true;
+      this.publishLiveStatus();
       this.queueTape(trade);
       this.scheduleTradeSave();
     });
@@ -721,8 +786,11 @@ class SymbolFeed {
       clearTimeout(this.tradeFirstMessageTimer);
       this.tradeFirstMessageTimer = 0;
       this.tradeSocket = null;
+      this.tradeConnected = false;
       this.tradeTransportIndex += 1;
-      this.tradeReconnectTimer = setTimeout(() => this.connectTrades(generation), 500);
+      if (this.tradeLive && this.depthReady) this.publishLiveStatus("reconnect");
+      const delay = reconnectDelay(this.tradeReconnectAttempt++);
+      this.tradeReconnectTimer = setTimeout(() => this.connectTrades(generation), delay);
     });
 
     socket.addEventListener("error", () => {
@@ -777,21 +845,30 @@ class SymbolFeed {
   queueTape(trade) {
     if (!trade || !tabVisible) return;
     this.tapeBatch.push(trade);
-    if (this.tapeTimer) return;
-    this.tapeTimer = setTimeout(() => {
-      this.tapeTimer = 0;
-      if (!tabVisible) {
-        this.tapeBatch = [];
-        return;
-      }
-      const trades = this.tapeBatch.splice(0);
-      if (trades.length) post("tape", this.symbol, { replace: false, trades });
-    }, 25);
+    if (!this.tapeTimer) {
+      this.tapeTimer = setTimeout(() => this.flushTapeBatch(), TAPE_FLUSH_MS);
+    }
+  }
+
+  flushTapeBatch() {
+    this.tapeTimer = 0;
+    if (!tabVisible) {
+      this.tapeBatch = [];
+      return;
+    }
+    const trades = this.tapeBatch.splice(0, MAX_TAPE_BATCH_PER_POST);
+    if (trades.length) post("tape", this.symbol, { replace: false, trades });
+    if (this.tapeBatch.length) {
+      this.tapeTimer = setTimeout(() => this.flushTapeBatch(), TAPE_FLUSH_MS);
+    }
   }
 
   scheduleTradeSave() {
     clearTimeout(this.tradeSaveTimer);
-    this.tradeSaveTimer = setTimeout(() => tradeStore.set(this.symbol, this.trades).catch(() => {}), 4_000);
+    this.tradeSaveTimer = setTimeout(
+      () => tradeStore.set(this.symbol, this.trades).catch(() => {}),
+      12_000,
+    );
   }
 
   async loadTradeHistory(generation) {
@@ -829,12 +906,19 @@ function scheduleWatchdog() {
   clearTimeout(watchdogTimer);
   watchdogTimer = setTimeout(() => {
     watchdogTimer = 0;
+    const now = Date.now();
     if (tabVisible) {
-      const now = Date.now();
       for (const feed of feeds.values()) feed.ensureHealthy(now);
     }
+    self.postMessage({
+      type: "heartbeat",
+      time: now,
+      visible: tabVisible,
+      activeFeeds: [...feeds.values()].filter((feed) => feed.subscribers > 0).length,
+      totalFeeds: feeds.size,
+    });
     scheduleWatchdog();
-  }, 2_000);
+  }, WORKER_HEARTBEAT_MS);
 }
 
 function getFeed(symbol) {

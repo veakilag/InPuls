@@ -1002,13 +1002,14 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-8-market-tape", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-12-stability", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 
 class OrderBookWorkerManager {
   constructor() {
     this.worker = null;
     this.failed = false;
+    this.restarting = false;
     this.nextClientId = 1;
     this.clients = new Map();
     this.clientsBySymbol = new Map();
@@ -1017,7 +1018,12 @@ class OrderBookWorkerManager {
     this.visibilityHandler = null;
     this.workerReady = false;
     this.startupTimer = 0;
+    this.healthTimer = 0;
+    this.lastHeartbeatAt = 0;
+    this.restartCount = 0;
+    this.needsResubscribe = false;
     this.#start();
+    this.#startHealthWatch();
   }
 
   #start() {
@@ -1029,29 +1035,68 @@ class OrderBookWorkerManager {
       // Worker не использует import/export, поэтому classic-режим надёжнее
       // module Worker в Chromium/Yandex при работе через Service Worker.
       this.worker = new Worker(ORDERBOOK_WORKER_URL, {
-        name: "inpuls-orderbook-worker-v26-8",
+        name: "inpuls-orderbook-worker-v26-12",
       });
       this.startupTimer = setTimeout(() => {
-        if (!this.workerReady) this.#fail();
+        if (this.workerReady) return;
+        if (this.restartCount < 2) this.#restart("Таймаут запуска Worker");
+        else this.#fail();
       }, 4_000);
       this.worker.addEventListener("message", (event) => this.#onMessage(event.data));
       this.worker.addEventListener("error", (event) => {
         console.error("InPuls orderbook Worker error", event?.message || event);
-        this.#fail();
+        this.#restart(event?.message || "Ошибка Worker");
       });
-      this.worker.addEventListener("messageerror", () => this.#fail());
+      this.worker.addEventListener("messageerror", () => this.#restart("Ошибка сообщения Worker"));
       const visible = typeof document === "undefined" || !document.hidden;
+      this.lastHeartbeatAt = Date.now();
       this.worker.postMessage({ type: "visibility", visible });
-      if (typeof document !== "undefined") {
+      if (typeof document !== "undefined" && !this.visibilityHandler) {
         this.visibilityHandler = () => {
           if (!this.worker || this.failed) return;
           this.worker.postMessage({ type: "visibility", visible: !document.hidden });
+          if (!document.hidden) this.lastHeartbeatAt = Date.now();
         };
         document.addEventListener("visibilitychange", this.visibilityHandler);
       }
     } catch {
       this.#fail();
     }
+  }
+
+  #startHealthWatch() {
+    if (this.healthTimer || typeof setInterval !== "function") return;
+    this.healthTimer = setInterval(() => {
+      if (this.failed || this.restarting || !this.worker || !this.workerReady) return;
+      if (typeof document !== "undefined" && document.hidden) return;
+      const age = Date.now() - this.lastHeartbeatAt;
+      if (age > 9_000) this.#restart(`Worker не отвечает ${Math.round(age / 1_000)}с`);
+    }, 2_500);
+  }
+
+  #notifyAll(status) {
+    for (const client of this.clients.values()) client?._receiveStatus(status);
+  }
+
+  #restart(reason = "Перезапуск Worker") {
+    if (this.failed || this.restarting) return;
+    this.restarting = true;
+    this.restartCount += 1;
+    this.needsResubscribe = true;
+    console.warn("InPuls orderbook Worker restart", reason);
+    clearTimeout(this.startupTimer);
+    this.startupTimer = 0;
+    this.workerReady = false;
+    try { this.worker?.terminate(); } catch {}
+    this.worker = null;
+    this.lastHeartbeatAt = Date.now();
+    this.#notifyAll({ state: "loading", text: "Восстановление Worker" });
+
+    setTimeout(() => {
+      if (this.failed) return;
+      this.restarting = false;
+      this.#start();
+    }, Math.min(2_000, 250 * Math.max(1, this.restartCount)));
   }
 
   available() {
@@ -1108,12 +1153,23 @@ class OrderBookWorkerManager {
 
   #onMessage(message) {
     if (!message || typeof message !== "object") return;
+    this.lastHeartbeatAt = Date.now();
     if (message.type === "ready") {
       this.workerReady = true;
+      this.restartCount = 0;
       clearTimeout(this.startupTimer);
       this.startupTimer = 0;
+      const visible = typeof document === "undefined" || !document.hidden;
+      this.worker?.postMessage({ type: "visibility", visible });
+      if (this.needsResubscribe) {
+        for (const symbol of this.clientsBySymbol.keys()) {
+          this.worker?.postMessage({ type: "subscribe", symbol });
+        }
+      }
+      this.needsResubscribe = false;
       return;
     }
+    if (message.type === "heartbeat") return;
     if (message.type === "fatal") {
       this.#fail();
       return;
@@ -1158,6 +1214,8 @@ class OrderBookWorkerManager {
     this.failed = true;
     clearTimeout(this.startupTimer);
     this.startupTimer = 0;
+    clearInterval(this.healthTimer);
+    this.healthTimer = 0;
     this.workerReady = false;
     if (typeof document !== "undefined" && this.visibilityHandler) {
       document.removeEventListener("visibilitychange", this.visibilityHandler);
@@ -1224,7 +1282,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-11-price-format";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-12-stability";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const TAPE_MAX_STORED = 4_000;
 const TAPE_MAX_RAW_VISIBLE = 2_000;
