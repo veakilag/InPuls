@@ -1224,7 +1224,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-9-tape-visibility";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-10-tape-range-status";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const TAPE_MAX_STORED = 4_000;
 const TAPE_MAX_RAW_VISIBLE = 2_000;
@@ -1659,14 +1659,21 @@ function visibleBookRows(card, flow) {
     .map((row, index) => {
       const price = parseRuntimeNumber(row.querySelector("strong")?.textContent);
       const rect = row.getBoundingClientRect();
+      const y = rect.top + rect.height / 2 - flowRect.top;
       return {
         index,
         price,
-        y: rect.top + rect.height / 2 - flowRect.top,
+        y,
         height: rect.height,
+        intersects: rect.bottom >= flowRect.top && rect.top <= flowRect.bottom,
       };
     })
-    .filter((row) => Number.isFinite(row.price) && Number.isFinite(row.y));
+    .filter((row) => row.intersects
+      && Number.isFinite(row.price)
+      && Number.isFinite(row.y)
+      && row.y >= -row.height
+      && row.y <= flowRect.height + row.height)
+    .map(({ intersects, ...row }) => row);
 }
 
 function nearestVisibleRow(rows, price) {
@@ -1884,14 +1891,17 @@ function drawTapeCard(card) {
   setTapeRangeSummary(state, visibility.above, visibility.below);
 
   if (!items.length) {
-    if (visibility.above > 0 && visibility.below > 0) {
-      setTapeState(state, "Сделки находятся вне видимого диапазона");
-    } else if (visibility.above > 0) {
-      setTapeState(state, "Сделки находятся выше видимого диапазона");
-    } else if (visibility.below > 0) {
-      setTapeState(state, "Сделки находятся ниже видимого диапазона");
+    // Выход свежих сделок за текущий участок книги показываем только
+    // компактными стрелками ↑/↓. Центральная плашка не должна создавать
+    // впечатление поломки, пока стакан и поток работают штатно.
+    if (visibility.above > 0 || visibility.below > 0) {
+      setTapeState(state, "");
     } else {
-      setTapeState(state, `Нет сделок на видимых ценах${staleTradeSuffix(symbol)}`);
+      const staleSuffix = staleTradeSuffix(symbol);
+      setTapeState(
+        state,
+        staleSuffix ? `Нет свежих сделок${staleSuffix}` : "Жду следующую сделку",
+      );
     }
     return;
   }
