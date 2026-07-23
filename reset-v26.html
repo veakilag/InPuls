@@ -20,7 +20,7 @@
 <body>
   <main>
     <h1>Очистка старого стакана</h1>
-    <p>Страница удалит старые кеши и Service Worker, подключит сборку <strong>orderbook v26.6 TAPE V2</strong>, затем откроет InPuls.</p>
+    <p>Страница удалит старые кеши и Service Worker, подключит сборку <strong>orderbook v26.7 TAPE V2</strong>, затем откроет InPuls.</p>
     <button id="reset" type="button">Очистить и открыть InPuls</button>
     <small id="status"></small>
   </main>
@@ -43,10 +43,10 @@
           await Promise.all(keys.map((key) => caches.delete(key)));
         }
 
-        status.textContent = "Подключаю v26.6: Worker + секундная лента…";
+        status.textContent = "Подключаю v26.7: Worker + секундная лента…";
         if ("serviceWorker" in navigator) {
           const registration = await navigator.serviceWorker.register(
-            "./sw.js?v=26-6-tape-v2",
+            "./sw.js?v=26-7-tape-stream",
             { scope: "./", updateViaCache: "none" },
           );
           await registration.update();
@@ -61,7 +61,7 @@
         }
 
         status.textContent = "Готово. Открываю InPuls…";
-        location.replace(`./?build=26-6-tape-v2&t=${Date.now()}`);
+        location.replace(`./?build=26-7-tape-stream&t=${Date.now()}`);
       } catch (error) {
         status.textContent = `Не удалось очистить автоматически: ${error?.message || error}`;
         button.disabled = false;

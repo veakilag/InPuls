@@ -133,16 +133,23 @@ class TradeStore {
 
 const tradeStore = new TradeStore();
 
-function futuresTransports(symbol, mode) {
-  const name = symbol.toLowerCase();
-  const depth = `${name}@${mode === "partial" ? "depth20" : "depth"}@100ms`;
-  const trade = `${name}@aggTrade`;
-  const streams = [depth, trade];
-  const joined = streams.join("/");
+function depthTransports(symbol, mode) {
+  const stream = `${symbol.toLowerCase()}@${mode === "partial" ? "depth20" : "depth"}@100ms`;
   return [
-    { url: `wss://fstream.binance.com/stream?streams=${joined}`, subscribe: false, streams },
-    { url: "wss://fstream.binance.com/ws", subscribe: true, streams },
-    { url: `wss://stream.binancefuture.com/stream?streams=${joined}`, subscribe: false, streams },
+    { url: `wss://fstream.binance.com/ws/${stream}`, subscribe: false, stream },
+    { url: `wss://fstream.binance.com/stream?streams=${stream}`, subscribe: false, stream },
+    { url: "wss://fstream.binance.com/ws", subscribe: true, stream },
+    { url: `wss://stream.binancefuture.com/ws/${stream}`, subscribe: false, stream },
+  ];
+}
+
+function tradeTransports(symbol) {
+  const stream = `${symbol.toLowerCase()}@aggTrade`;
+  return [
+    { url: `wss://fstream.binance.com/ws/${stream}`, subscribe: false, stream },
+    { url: `wss://fstream.binance.com/stream?streams=${stream}`, subscribe: false, stream },
+    { url: "wss://fstream.binance.com/ws", subscribe: true, stream },
+    { url: `wss://stream.binancefuture.com/ws/${stream}`, subscribe: false, stream },
   ];
 }
 
@@ -158,12 +165,15 @@ class SymbolFeed {
     this.subscribers = 0;
     this.closeTimer = 0;
     this.socket = null;
+    this.tradeSocket = null;
     this.reconnectTimer = 0;
+    this.tradeReconnectTimer = 0;
     this.firstDepthTimer = 0;
     this.snapshotTimer = 0;
     this.tradeSaveTimer = 0;
     this.mode = "deep";
     this.transportIndex = 0;
+    this.tradeTransportIndex = 0;
     this.generation = 0;
     this.bids = new Map();
     this.asks = new Map();
@@ -186,6 +196,7 @@ class SymbolFeed {
     this.tapeTimer = 0;
     this.resumeTimer = 0;
     this.lastDepthAt = 0;
+    this.lastTradeAt = 0;
     this.lastMessageAt = 0;
     this.lastRestartAt = 0;
   }
@@ -217,19 +228,24 @@ class SymbolFeed {
     this.generation += 1;
     this.mode = "deep";
     this.transportIndex = 0;
+    this.tradeTransportIndex = 0;
     this.resetBook();
     this.setStatus("loading", "Подключение Worker");
     const generation = this.generation;
-    this.connect(generation);
+    this.connectDepth(generation);
+    this.connectTrades(generation);
     this.loadTradeHistory(generation);
   }
 
   stopSockets() {
     clearTimeout(this.reconnectTimer);
+    clearTimeout(this.tradeReconnectTimer);
     clearTimeout(this.firstDepthTimer);
     clearTimeout(this.snapshotTimer);
     try { this.socket?.close(); } catch {}
+    try { this.tradeSocket?.close(); } catch {}
     this.socket = null;
+    this.tradeSocket = null;
   }
 
   stop() {
@@ -285,6 +301,7 @@ class SymbolFeed {
 
       const now = Date.now();
       const socketOpen = this.socket?.readyState === WebSocket.OPEN;
+      const tradeOpen = this.tradeSocket?.readyState === WebSocket.OPEN;
       const depthFresh = this.lastDepthAt > 0 && now - this.lastDepthAt <= RESUME_STALE_MS;
 
       // Браузер может заморозить Worker/WebSocket в фоновой вкладке без close-события.
@@ -292,6 +309,9 @@ class SymbolFeed {
       if (!socketOpen || !depthFresh) {
         this.restartAfterBackground();
         return;
+      }
+      if (!tradeOpen && !this.tradeReconnectTimer) {
+        this.connectTrades(this.generation);
       }
 
       this.tapeBatch = [];
@@ -316,10 +336,12 @@ class SymbolFeed {
     this.generation += 1;
     this.mode = "deep";
     this.transportIndex = 0;
+    this.tradeTransportIndex = 0;
     this.resetBook();
     this.setStatus("loading", "Восстановление Worker");
     const generation = this.generation;
-    this.connect(generation);
+    this.connectDepth(generation);
+    this.connectTrades(generation);
   }
 
   ensureHealthy(now = Date.now()) {
@@ -330,6 +352,13 @@ class SymbolFeed {
     const stale = this.depthReady && this.lastDepthAt > 0 && now - this.lastDepthAt > ACTIVE_STALE_MS;
     if ((!socketOpen && !socketConnecting && !reconnectPending) || stale) {
       this.restartAfterBackground();
+      return;
+    }
+
+    const tradeOpen = this.tradeSocket?.readyState === WebSocket.OPEN;
+    const tradeConnecting = this.tradeSocket?.readyState === WebSocket.CONNECTING;
+    if (!tradeOpen && !tradeConnecting && !this.tradeReconnectTimer) {
+      this.connectTrades(this.generation);
     }
   }
 
@@ -485,7 +514,7 @@ class SymbolFeed {
     this.setStatus("loading", "Резервный Worker-стакан");
     try { this.socket?.close(); } catch {}
     this.socket = null;
-    this.reconnectTimer = setTimeout(() => this.connect(generation), 0);
+    this.reconnectTimer = setTimeout(() => this.connectDepth(generation), 0);
   }
 
   resync(text) {
@@ -511,17 +540,17 @@ class SymbolFeed {
     return nextKeys;
   }
 
-  connect(generation) {
+  connectDepth(generation) {
     if (generation !== this.generation || this.subscribers <= 0) return;
     clearTimeout(this.reconnectTimer);
     clearTimeout(this.firstDepthTimer);
-    const transports = futuresTransports(this.symbol, this.mode);
+    const transports = depthTransports(this.symbol, this.mode);
     const transport = transports[this.transportIndex % transports.length];
     let socket;
     try { socket = new WebSocket(transport.url); }
     catch {
       this.transportIndex += 1;
-      this.reconnectTimer = setTimeout(() => this.connect(generation), 500);
+      this.reconnectTimer = setTimeout(() => this.connectDepth(generation), 500);
       return;
     }
     this.socket = socket;
@@ -536,7 +565,7 @@ class SymbolFeed {
       if (transport.subscribe) {
         socket.send(JSON.stringify({
           method: "SUBSCRIBE",
-          params: transport.streams,
+          params: [transport.stream],
           id: Date.now() % 2_147_483_647,
         }));
       }
@@ -552,14 +581,6 @@ class SymbolFeed {
       const eventType = String(update?.e ?? "").toLowerCase();
       const stream = payload.stream.toLowerCase();
       this.lastMessageAt = Date.now();
-
-      if (eventType === "aggtrade" || stream.endsWith("@aggtrade")) {
-        const trade = normalizeTrade(update);
-        if (!this.insertTrade(trade, true)) return;
-        this.queueTape(trade);
-        this.scheduleTradeSave();
-        return;
-      }
 
       const bids = update?.b ?? update?.bids;
       const asks = update?.a ?? update?.asks;
@@ -596,11 +617,68 @@ class SymbolFeed {
       this.transportIndex += 1;
       this.resetBook();
       this.setStatus("offline", "Переподключение Worker");
-      this.reconnectTimer = setTimeout(() => this.connect(generation), 500);
+      this.reconnectTimer = setTimeout(() => this.connectDepth(generation), 500);
     });
 
     socket.addEventListener("error", () => {
       if (generation === this.generation && socket === this.socket) {
+        try { socket.close(); } catch {}
+      }
+    });
+  }
+
+  connectTrades(generation) {
+    if (generation !== this.generation || this.subscribers <= 0) return;
+    clearTimeout(this.tradeReconnectTimer);
+
+    const transports = tradeTransports(this.symbol);
+    const transport = transports[this.tradeTransportIndex % transports.length];
+    let socket;
+    try { socket = new WebSocket(transport.url); }
+    catch {
+      this.tradeTransportIndex += 1;
+      this.tradeReconnectTimer = setTimeout(() => this.connectTrades(generation), 500);
+      return;
+    }
+    this.tradeSocket = socket;
+
+    socket.addEventListener("open", () => {
+      if (generation !== this.generation || socket !== this.tradeSocket) return;
+      if (transport.subscribe) {
+        socket.send(JSON.stringify({
+          method: "SUBSCRIBE",
+          params: [transport.stream],
+          id: Date.now() % 2_147_483_647,
+        }));
+      }
+    });
+
+    socket.addEventListener("message", (message) => {
+      if (generation !== this.generation || socket !== this.tradeSocket) return;
+      const payload = parsePayload(message.data);
+      if (!payload) return;
+      const update = payload.data;
+      const eventType = String(update?.e ?? "").toLowerCase();
+      const stream = payload.stream.toLowerCase();
+      if (eventType !== "aggtrade" && !stream.endsWith("@aggtrade")) return;
+
+      const trade = normalizeTrade(update);
+      if (!this.insertTrade(trade, true)) return;
+      this.lastTradeAt = Date.now();
+      this.tradeTransportIndex = 0;
+      this.queueTape(trade);
+      this.scheduleTradeSave();
+    });
+
+    socket.addEventListener("close", () => {
+      if (generation !== this.generation || socket !== this.tradeSocket) return;
+      this.tradeSocket = null;
+      this.tradeTransportIndex += 1;
+      this.tradeReconnectTimer = setTimeout(() => this.connectTrades(generation), 500);
+    });
+
+    socket.addEventListener("error", () => {
+      if (generation === this.generation && socket === this.tradeSocket) {
         try { socket.close(); } catch {}
       }
     });
