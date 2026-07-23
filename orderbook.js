@@ -508,7 +508,7 @@ class TradeHistoryStore {
 
 const tradeHistoryStore = new TradeHistoryStore();
 
-export class OrderBookFeed {
+class LegacyOrderBookFeed {
   constructor({ onData, onStatus, WebSocketImpl = globalThis.WebSocket, fetchImpl = globalThis.fetch } = {}) {
     this.onData = onData ?? (() => {});
     this.onStatus = onStatus ?? (() => {});
@@ -1001,7 +1001,209 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-3-book-1";
+
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-4-worker-1", import.meta.url);
+const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
+
+class OrderBookWorkerManager {
+  constructor() {
+    this.worker = null;
+    this.failed = false;
+    this.nextClientId = 1;
+    this.clients = new Map();
+    this.clientsBySymbol = new Map();
+    this.lastDataBySymbol = new Map();
+    this.lastStatusBySymbol = new Map();
+    this.visibilityHandler = null;
+    this.#start();
+  }
+
+  #start() {
+    if (typeof Worker !== "function") {
+      this.failed = true;
+      return;
+    }
+    try {
+      this.worker = new Worker(ORDERBOOK_WORKER_URL, {
+        type: "module",
+        name: "inpuls-orderbook-worker-v26-4",
+      });
+      this.worker.addEventListener("message", (event) => this.#onMessage(event.data));
+      this.worker.addEventListener("error", () => this.#fail());
+      this.worker.addEventListener("messageerror", () => this.#fail());
+      const visible = typeof document === "undefined" || !document.hidden;
+      this.worker.postMessage({ type: "visibility", visible });
+      if (typeof document !== "undefined") {
+        this.visibilityHandler = () => {
+          if (!this.worker || this.failed) return;
+          this.worker.postMessage({ type: "visibility", visible: !document.hidden });
+        };
+        document.addEventListener("visibilitychange", this.visibilityHandler);
+      }
+    } catch {
+      this.#fail();
+    }
+  }
+
+  available() {
+    return Boolean(this.worker) && !this.failed;
+  }
+
+  register(client) {
+    const id = this.nextClientId++;
+    this.clients.set(id, client);
+    return id;
+  }
+
+  unregister(id, symbol) {
+    this.clients.delete(id);
+    if (!symbol) return;
+    const group = this.clientsBySymbol.get(symbol);
+    group?.delete(id);
+    if (group?.size) return;
+    this.clientsBySymbol.delete(symbol);
+    this.lastDataBySymbol.delete(symbol);
+    this.lastStatusBySymbol.delete(symbol);
+    if (this.available()) this.worker.postMessage({ type: "unsubscribe", symbol });
+  }
+
+  select(id, previousSymbol, symbol) {
+    if (!this.available()) return false;
+    if (previousSymbol && previousSymbol !== symbol) {
+      const previous = this.clientsBySymbol.get(previousSymbol);
+      previous?.delete(id);
+      if (previous && previous.size === 0) {
+        this.clientsBySymbol.delete(previousSymbol);
+        this.lastDataBySymbol.delete(previousSymbol);
+        this.lastStatusBySymbol.delete(previousSymbol);
+        this.worker.postMessage({ type: "unsubscribe", symbol: previousSymbol });
+      }
+    }
+
+    let group = this.clientsBySymbol.get(symbol);
+    const first = !group;
+    if (!group) {
+      group = new Set();
+      this.clientsBySymbol.set(symbol, group);
+    }
+    group.add(id);
+
+    const client = this.clients.get(id);
+    const status = this.lastStatusBySymbol.get(symbol);
+    const data = this.lastDataBySymbol.get(symbol);
+    if (status) queueMicrotask(() => client?._receiveStatus(status));
+    if (data) queueMicrotask(() => client?._receiveData(data));
+    this.worker.postMessage({ type: first ? "subscribe" : "refresh", symbol });
+    return true;
+  }
+
+  #onMessage(message) {
+    if (!message || typeof message !== "object") return;
+    if (message.type === "ready") return;
+    if (message.type === "fatal") {
+      this.#fail();
+      return;
+    }
+    const symbol = String(message.symbol ?? "").toUpperCase();
+    if (!symbol.endsWith("USDT")) return;
+
+    if (message.type === "status") {
+      const status = { state: message.state, text: message.text };
+      this.lastStatusBySymbol.set(symbol, status);
+      for (const id of this.clientsBySymbol.get(symbol) ?? []) {
+        this.clients.get(id)?._receiveStatus(status);
+      }
+      return;
+    }
+
+    if (message.type === "data") {
+      const data = message.data;
+      if (!data) return;
+      this.lastDataBySymbol.set(symbol, data);
+      for (const id of this.clientsBySymbol.get(symbol) ?? []) {
+        this.clients.get(id)?._receiveData(data);
+      }
+      return;
+    }
+
+    if (message.type === "tape"
+      && typeof globalThis.dispatchEvent === "function"
+      && typeof globalThis.CustomEvent === "function") {
+      globalThis.dispatchEvent(new CustomEvent(ORDERBOOK_WORKER_TAPE_EVENT, {
+        detail: {
+          symbol,
+          replace: Boolean(message.replace),
+          trades: Array.isArray(message.trades) ? message.trades : [],
+        },
+      }));
+    }
+  }
+
+  #fail() {
+    if (this.failed) return;
+    this.failed = true;
+    try { this.worker?.terminate(); } catch {}
+    this.worker = null;
+    const clients = [...this.clients.values()];
+    this.clientsBySymbol.clear();
+    this.lastDataBySymbol.clear();
+    this.lastStatusBySymbol.clear();
+    for (const client of clients) client._activateFallback();
+  }
+}
+
+const orderBookWorkerManager = new OrderBookWorkerManager();
+
+export class OrderBookFeed {
+  constructor(options = {}) {
+    this.options = options;
+    this.onData = options.onData ?? (() => {});
+    this.onStatus = options.onStatus ?? (() => {});
+    this.symbol = null;
+    this.destroyed = false;
+    this.fallback = null;
+    this.clientId = orderBookWorkerManager.register(this);
+    if (!orderBookWorkerManager.available()) this._activateFallback();
+  }
+
+  select(symbol) {
+    if (this.destroyed || !symbol?.endsWith("USDT")) return;
+    const previous = this.symbol;
+    this.symbol = symbol;
+    if (this.fallback) {
+      this.fallback.select(symbol);
+      return;
+    }
+    if (!orderBookWorkerManager.select(this.clientId, previous, symbol)) {
+      this._activateFallback();
+    }
+  }
+
+  _receiveData(data) {
+    if (!this.destroyed && data?.symbol === this.symbol) this.onData(data);
+  }
+
+  _receiveStatus(status) {
+    if (!this.destroyed) this.onStatus(status);
+  }
+
+  _activateFallback() {
+    if (this.destroyed || this.fallback) return;
+    this.fallback = new LegacyOrderBookFeed(this.options);
+    this.onStatus({ state: "loading", text: "Совместимый режим" });
+    if (this.symbol) this.fallback.select(this.symbol);
+  }
+
+  destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    orderBookWorkerManager.unregister(this.clientId, this.symbol);
+    this.fallback?.destroy();
+    this.fallback = null;
+  }
+}
+
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-4-worker-1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const TAPE_HISTORY_MS = 5 * 60_000;
 const TAPE_MAX_STORED = 5_000;
@@ -1015,6 +1217,7 @@ const tapeCardStates = new WeakMap();
 let tapeDrawFrame = 0;
 let tapeDrawTimer = 0;
 let tapeLastDrawAt = 0;
+let tapeDocumentHidden = typeof document !== "undefined" ? document.hidden : false;
 
 function parseRuntimeNumber(text) {
   const normalized = String(text ?? "")
@@ -1360,7 +1563,7 @@ function drawAllTapes() {
 }
 
 function scheduleTapeDraw() {
-  if (typeof document === "undefined") return;
+  if (typeof document === "undefined" || tapeDocumentHidden) return;
   if (tapeDrawFrame || tapeDrawTimer) return;
   const elapsed = performance.now() - tapeLastDrawAt;
   if (elapsed < 33) {
@@ -1402,6 +1605,18 @@ function installOrderBookRuntime() {
   const observer = new MutationObserver(scheduleTapeDraw);
   observer.observe(document.documentElement, { childList: true, subtree: true });
   window.addEventListener("resize", scheduleTapeDraw, { passive: true });
+
+  document.addEventListener("visibilitychange", () => {
+    tapeDocumentHidden = document.hidden;
+    if (tapeDocumentHidden) {
+      if (tapeDrawFrame) cancelAnimationFrame(tapeDrawFrame);
+      if (tapeDrawTimer) clearTimeout(tapeDrawTimer);
+      tapeDrawFrame = 0;
+      tapeDrawTimer = 0;
+      return;
+    }
+    scheduleTapeDraw();
+  });
 
   document.addEventListener("wheel", (event) => {
     const card = event.target.closest?.(".orderbook-card");
