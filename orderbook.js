@@ -1002,7 +1002,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-6-tape-v2", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-7-tape-stream", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 
 class OrderBookWorkerManager {
@@ -1029,7 +1029,7 @@ class OrderBookWorkerManager {
       // Worker не использует import/export, поэтому classic-режим надёжнее
       // module Worker в Chromium/Yandex при работе через Service Worker.
       this.worker = new Worker(ORDERBOOK_WORKER_URL, {
-        name: "inpuls-orderbook-worker-v26-6",
+        name: "inpuls-orderbook-worker-v26-7",
       });
       this.startupTimer = setTimeout(() => {
         if (!this.workerReady) this.#fail();
@@ -1224,7 +1224,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-6-tape-v2";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-7-tape-stream";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const TAPE_MAX_STORED = 4_000;
 const TAPE_MAX_RAW_VISIBLE = 2_000;
@@ -1234,8 +1234,8 @@ const TAPE_MIN_SECOND_WIDTH = 22;
 const TAPE_MIN_SECONDS = 12;
 const TAPE_MAX_SECONDS = 45;
 const TAPE_MODE_KEY = "inpuls-tape-mode-v1";
-const TAPE_MIN_FILTER_KEY = "inpuls-tape-min-filter-v2";
-const TAPE_MAX_FILTER_KEY = "inpuls-tape-max-filter-v1";
+const TAPE_MIN_FILTER_KEY = "inpuls-tape-min-filter-v3";
+const TAPE_MAX_FILTER_KEY = "inpuls-tape-max-filter-v2";
 
 const tapeTradesBySymbol = new Map();
 const tapeCardStates = new WeakMap();
@@ -1374,13 +1374,12 @@ function ensureTapeUi(card) {
 
   let state = tapeCardStates.get(card);
   if (!state) {
-    const nativeMinimum = Math.max(0, Number(toolbar.querySelector("[data-trade-min]")?.value) || 0);
     const savedMinimum = localStorage.getItem(TAPE_MIN_FILTER_KEY);
     state = {
       canvas: null,
       context: null,
       mode: localStorage.getItem(TAPE_MODE_KEY) === "raw" ? "raw" : "agg",
-      minQuote: savedMinimum === null ? nativeMinimum : Math.max(0, Number(savedMinimum) || 0),
+      minQuote: savedMinimum === null ? 0 : Math.max(0, Number(savedMinimum) || 0),
       maxQuote: Math.max(0, Number(localStorage.getItem(TAPE_MAX_FILTER_KEY)) || 0),
       controls: null,
       rowObserver: null,
@@ -1636,7 +1635,10 @@ function drawTapeCard(card) {
   const rows = visibleBookRows(card, flow);
   if (!rows.length) return;
 
-  const latestTime = Number(stored[0]?.time) || Date.now();
+  const latestTime = stored.reduce(
+    (latest, trade) => Math.max(latest, Number(trade?.time) || 0),
+    0,
+  ) || Date.now();
   const window = buildSecondWindow(rect.width, latestTime);
   drawSecondColumns(context, rect, window);
 
@@ -1644,7 +1646,8 @@ function drawTapeCard(card) {
   if (!recent.length) return;
 
   const minQuote = Math.max(0, Number(state.minQuote) || 0);
-  const maxQuote = Math.max(0, Number(state.maxQuote) || 0);
+  let maxQuote = Math.max(0, Number(state.maxQuote) || 0);
+  if (maxQuote > 0 && maxQuote < minQuote) maxQuote = 0;
   let items;
   if (state.mode === "agg") {
     // В AGG фильтр применяется к итоговой сумме секундного агрегата.
@@ -1753,22 +1756,52 @@ function scheduleTapeDraw(force = false) {
   });
 }
 
+function normalizeTapeTrade(trade) {
+  const price = Number(trade?.price);
+  const quantity = Number(trade?.quantity);
+  const quote = Number(trade?.quote);
+  const time = Number(trade?.time);
+  if (![price, quantity, quote, time].every(Number.isFinite) || quote <= 0) return null;
+  return {
+    id: trade?.id ?? `${time}-${price}-${quantity}`,
+    price,
+    quantity,
+    quote,
+    time,
+    side: trade?.side === "sell" ? "sell" : "buy",
+  };
+}
+
+function mergeTapeHistory(current, incoming, replace = false) {
+  const source = replace ? incoming : [...incoming, ...(current ?? [])];
+  const seen = new Set();
+  return source
+    .map(normalizeTapeTrade)
+    .filter(Boolean)
+    .sort((left, right) => right.time - left.time)
+    .filter((trade) => {
+      const key = `${String(trade.id)}:${trade.time}:${trade.price}:${trade.quantity}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, TAPE_MAX_STORED);
+}
+
 function acceptTapeData(event) {
   const detail = event?.detail;
   const symbol = String(detail?.symbol ?? "").toUpperCase();
   if (!symbol.endsWith("USDT")) return;
-  const incoming = Array.isArray(detail?.trades)
-    ? detail.trades.filter((trade) => trade && Number.isFinite(Number(trade.time)))
-    : [];
-
-  if (detail.replace) {
-    tapeTradesBySymbol.set(symbol, incoming.slice(0, TAPE_MAX_STORED));
-  } else if (incoming.length) {
+  const incoming = Array.isArray(detail?.trades) ? detail.trades : [];
+  if (detail.replace || incoming.length) {
     const current = tapeTradesBySymbol.get(symbol) ?? [];
-    tapeTradesBySymbol.set(symbol, [...incoming].reverse().concat(current).slice(0, TAPE_MAX_STORED));
+    tapeTradesBySymbol.set(symbol, mergeTapeHistory(current, incoming, Boolean(detail.replace)));
   }
 
-  const now = incoming.length ? Math.max(...incoming.map((trade) => Number(trade.time) || 0)) : Date.now();
+  const normalizedIncoming = incoming.map(normalizeTapeTrade).filter(Boolean);
+  const now = normalizedIncoming.length
+    ? Math.max(...normalizedIncoming.map((trade) => trade.time))
+    : Date.now();
   const stored = tapeTradesBySymbol.get(symbol) ?? [];
   tapeRecentRate = stored.reduce((count, trade) => count + (trade.time >= now - 1_000 ? 1 : 0), 0);
   scheduleTapeDraw();
