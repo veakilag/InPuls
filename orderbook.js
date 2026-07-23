@@ -1224,7 +1224,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-10-tape-range-status";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-11-price-format";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const TAPE_MAX_STORED = 4_000;
 const TAPE_MAX_RAW_VISIBLE = 2_000;
@@ -1250,11 +1250,41 @@ let tapeDocumentHidden = typeof document !== "undefined" ? document.hidden : fal
 let tapeRecentRate = 0;
 let tapeStateTimer = 0;
 
-function parseRuntimeNumber(text) {
-  const normalized = String(text ?? "")
-    .replace(/\s/g, "")
-    .replace(",", ".")
-    .replace(/[^0-9.+-]/g, "");
+export function parseRuntimeNumber(text) {
+  let normalized = String(text ?? "")
+    .trim()
+    .replace(/[\s\u00A0\u202F']/g, "")
+    .replace(/[^0-9,\.\-+]/g, "");
+
+  if (!normalized) return null;
+
+  const commaCount = (normalized.match(/,/g) ?? []).length;
+  const dotCount = (normalized.match(/\./g) ?? []).length;
+
+  if (commaCount && dotCount) {
+    // Последний разделитель считаем десятичным:
+    // 1,888.34 → 1888.34; 1.888,34 → 1888.34.
+    const lastComma = normalized.lastIndexOf(",");
+    const lastDot = normalized.lastIndexOf(".");
+    const decimalSeparator = lastComma > lastDot ? "," : ".";
+    const thousandsSeparator = decimalSeparator === "," ? "." : ",";
+    normalized = normalized.split(thousandsSeparator).join("");
+    if (decimalSeparator === ",") normalized = normalized.replace(",", ".");
+  } else if (commaCount) {
+    // Одиночная/групповая запятая из интерфейса может быть разделителем тысяч.
+    // 64,750 → 64750, но 0,025123 → 0.025123.
+    const thousandsPattern = /^[+-]?\d{1,3}(,\d{3})+$/;
+    if (thousandsPattern.test(normalized)) {
+      normalized = normalized.replace(/,/g, "");
+    } else {
+      normalized = normalized.replace(",", ".");
+    }
+  } else if (dotCount > 1) {
+    // Поддержка формата 1.234.567 без повреждения обычных десятичных цен.
+    const thousandsPattern = /^[+-]?\d{1,3}(\.\d{3})+$/;
+    if (thousandsPattern.test(normalized)) normalized = normalized.replace(/\./g, "");
+  }
+
   const value = Number(normalized);
   return Number.isFinite(value) ? value : null;
 }
