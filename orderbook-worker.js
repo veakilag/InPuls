@@ -10,6 +10,8 @@ const RESUME_STALE_MS = 3_500;
 const ACTIVE_STALE_MS = 12_000;
 const SNAPSHOT_TIMEOUT_MS = 2_800;
 const IDLE_CLOSE_MS = 10_000;
+const TRADE_FIRST_MESSAGE_TIMEOUT_MS = 8_000;
+const TRADE_BOOTSTRAP_LIMIT = 120;
 
 const feeds = new Map();
 let tabVisible = true;
@@ -143,12 +145,22 @@ function depthTransports(symbol, mode) {
   ];
 }
 
-function tradeTransports(symbol) {
-  const stream = `${symbol.toLowerCase()}@aggTrade`;
+function tradeStreamCandidates(symbol) {
+  const name = symbol.toLowerCase();
+  return [`${name}@aggTrade`, `${name}@trade`];
+}
+
+function tradeTransports(stream) {
   return [
+    // В браузере пользователя сделки стабильно приходили через market-path.
+    { url: `wss://fstream.binance.com/market/ws/${stream}`, subscribe: false, stream },
+    { url: `wss://fstream.binance.com/market/stream?streams=${stream}`, subscribe: false, stream },
+    { url: "wss://fstream.binance.com/market/stream", subscribe: true, stream },
+    // Стандартные Futures endpoints оставляем как автоматический резерв.
     { url: `wss://fstream.binance.com/ws/${stream}`, subscribe: false, stream },
     { url: `wss://fstream.binance.com/stream?streams=${stream}`, subscribe: false, stream },
     { url: "wss://fstream.binance.com/ws", subscribe: true, stream },
+    { url: `wss://stream.binancefuture.com/market/ws/${stream}`, subscribe: false, stream },
     { url: `wss://stream.binancefuture.com/ws/${stream}`, subscribe: false, stream },
   ];
 }
@@ -168,6 +180,7 @@ class SymbolFeed {
     this.tradeSocket = null;
     this.reconnectTimer = 0;
     this.tradeReconnectTimer = 0;
+    this.tradeFirstMessageTimer = 0;
     this.firstDepthTimer = 0;
     this.snapshotTimer = 0;
     this.tradeSaveTimer = 0;
@@ -199,6 +212,8 @@ class SymbolFeed {
     this.lastTradeAt = 0;
     this.lastMessageAt = 0;
     this.lastRestartAt = 0;
+    this.tradeBootstrapLoading = false;
+    this.tradeLive = false;
   }
 
   addSubscriber() {
@@ -235,11 +250,14 @@ class SymbolFeed {
     this.connectDepth(generation);
     this.connectTrades(generation);
     this.loadTradeHistory(generation);
+    this.loadRecentTrades(generation);
   }
 
   stopSockets() {
     clearTimeout(this.reconnectTimer);
     clearTimeout(this.tradeReconnectTimer);
+    clearTimeout(this.tradeFirstMessageTimer);
+    this.tradeFirstMessageTimer = 0;
     clearTimeout(this.firstDepthTimer);
     clearTimeout(this.snapshotTimer);
     try { this.socket?.close(); } catch {}
@@ -630,8 +648,13 @@ class SymbolFeed {
   connectTrades(generation) {
     if (generation !== this.generation || this.subscribers <= 0) return;
     clearTimeout(this.tradeReconnectTimer);
+    clearTimeout(this.tradeFirstMessageTimer);
+    this.tradeFirstMessageTimer = 0;
 
-    const transports = tradeTransports(this.symbol);
+    const streams = tradeStreamCandidates(this.symbol);
+    const transportCount = tradeTransports(streams[0]).length;
+    const stream = streams[Math.floor(this.tradeTransportIndex / transportCount) % streams.length];
+    const transports = tradeTransports(stream);
     const transport = transports[this.tradeTransportIndex % transports.length];
     let socket;
     try { socket = new WebSocket(transport.url); }
@@ -641,6 +664,12 @@ class SymbolFeed {
       return;
     }
     this.tradeSocket = socket;
+    let receivedTrade = false;
+    this.tradeFirstMessageTimer = setTimeout(() => {
+      if (generation !== this.generation || socket !== this.tradeSocket || receivedTrade) return;
+      // Открытый, но молчащий endpoint раньше зависал навсегда.
+      try { socket.close(); } catch {}
+    }, TRADE_FIRST_MESSAGE_TIMEOUT_MS);
 
     socket.addEventListener("open", () => {
       if (generation !== this.generation || socket !== this.tradeSocket) return;
@@ -659,19 +688,38 @@ class SymbolFeed {
       if (!payload) return;
       const update = payload.data;
       const eventType = String(update?.e ?? "").toLowerCase();
-      const stream = payload.stream.toLowerCase();
-      if (eventType !== "aggtrade" && !stream.endsWith("@aggtrade")) return;
+      const payloadStream = payload.stream.toLowerCase();
+      const isTrade = eventType === "aggtrade"
+        || eventType === "trade"
+        || payloadStream.endsWith("@aggtrade")
+        || payloadStream.endsWith("@trade");
+      if (!isTrade) return;
 
       const trade = normalizeTrade(update);
+      if (!trade) return;
+      receivedTrade = true;
+      clearTimeout(this.tradeFirstMessageTimer);
+      this.tradeFirstMessageTimer = 0;
       if (!this.insertTrade(trade, true)) return;
       this.lastTradeAt = Date.now();
       this.tradeTransportIndex = 0;
+      if (!this.tradeLive) {
+        this.tradeLive = true;
+        this.setStatus(
+          "online",
+          this.mode === "partial"
+            ? "LIVE 100ms · WORKER · 20 · TAPE"
+            : "LIVE 100ms · WORKER · TAPE",
+        );
+      }
       this.queueTape(trade);
       this.scheduleTradeSave();
     });
 
     socket.addEventListener("close", () => {
       if (generation !== this.generation || socket !== this.tradeSocket) return;
+      clearTimeout(this.tradeFirstMessageTimer);
+      this.tradeFirstMessageTimer = 0;
       this.tradeSocket = null;
       this.tradeTransportIndex += 1;
       this.tradeReconnectTimer = setTimeout(() => this.connectTrades(generation), 500);
@@ -682,6 +730,34 @@ class SymbolFeed {
         try { socket.close(); } catch {}
       }
     });
+  }
+
+  async loadRecentTrades(generation) {
+    if (generation !== this.generation || this.tradeBootstrapLoading) return;
+    this.tradeBootstrapLoading = true;
+    const hosts = ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"];
+    let rows = null;
+    try {
+      rows = await Promise.any(hosts.map((host) => fetchJson(
+        `https://${host}/fapi/v1/aggTrades?symbol=${encodeURIComponent(this.symbol)}&limit=${TRADE_BOOTSTRAP_LIMIT}`,
+      )));
+    } catch {}
+    this.tradeBootstrapLoading = false;
+    if (generation !== this.generation || !Array.isArray(rows)) return;
+
+    let added = false;
+    for (const row of rows) {
+      const trade = normalizeTrade(row);
+      if (this.insertTrade(trade, true)) added = true;
+    }
+    if (!added) return;
+    this.trades.sort((left, right) => Number(right.time) - Number(left.time));
+    if (tabVisible) {
+      post("tape", this.symbol, {
+        replace: true,
+        trades: this.trades.slice(0, MAX_TAPE_SNAPSHOT),
+      });
+    }
   }
 
   insertTrade(trade, newestFirst = true) {
