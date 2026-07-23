@@ -4,7 +4,7 @@ const MAX_BUFFERED_DEPTH_EVENTS = 4_000;
 const MAX_TRADE_HISTORY = 12_000;
 const MAX_PERSISTED_TRADE_HISTORY = 5_000;
 const MAX_TAPE_SNAPSHOT = 1_200;
-const MAX_RESUME_TAPE_SNAPSHOT = 80;
+const MAX_RESUME_TAPE_SNAPSHOT = 3_000;
 const MAX_RESUME_LEVELS_PER_SIDE = 700;
 const RESUME_STAGGER_MS = 140;
 const RESUME_STALE_MS = 3_500;
@@ -357,6 +357,18 @@ class SymbolFeed {
       if (!tabVisible || epoch !== visibilityEpoch || this.subscribers <= 0) return;
 
       const now = Date.now();
+
+      // UI сохраняет старую историю, а Worker добавляет к ней сделки,
+      // накопленные во время скрытой вкладки. replace=false не стирает
+      // существующую временную картину коротким resume-хвостом.
+      this.tapeBatch = [];
+      clearTimeout(this.tapeTimer);
+      this.tapeTimer = 0;
+      post("tape", this.symbol, {
+        replace: false,
+        trades: this.trades.slice(0, MAX_RESUME_TAPE_SNAPSHOT),
+      });
+
       const socketOpen = this.socket?.readyState === WebSocket.OPEN;
       const tradeOpen = this.tradeSocket?.readyState === WebSocket.OPEN;
       const depthFresh = this.lastDepthAt > 0 && now - this.lastDepthAt <= RESUME_STALE_MS;
@@ -370,14 +382,6 @@ class SymbolFeed {
       if (!tradeOpen && !this.tradeReconnectTimer) {
         this.connectTrades(this.generation);
       }
-
-      this.tapeBatch = [];
-      clearTimeout(this.tapeTimer);
-      this.tapeTimer = 0;
-      post("tape", this.symbol, {
-        replace: true,
-        trades: this.trades.slice(0, MAX_RESUME_TAPE_SNAPSHOT),
-      });
 
       this.forceEmit = true;
       this.emit(now, MAX_RESUME_LEVELS_PER_SIDE, true);

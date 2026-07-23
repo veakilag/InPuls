@@ -68,7 +68,7 @@ export function aggregateDepthBands(levels, middlePrice, rangePercent, rowCount,
   return bands;
 }
 
-export const BOOK_SCALE_MULTIPLIERS = [1, 2, 5, 10, 20, 50, 100, 150, 200, 250, 300, 500];
+export const BOOK_SCALE_MULTIPLIERS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
 
 export function inferPriceTick(bids, asks, middlePrice) {
   const prices = [...(bids ?? []), ...(asks ?? [])]
@@ -130,7 +130,7 @@ export function depthCoverageScaleIndex(baseTick, bids, asks, middlePrice, rowCo
   // AUTO должен показывать рабочую область около рынка, а не пытаться
   // упаковать 92% всей глубокой книги в один экран. Берём только ближайшие
   // несколько экранов реальных уровней; дальняя книга остаётся доступна
-  // обычным скроллом и ручным масштабом до ×500.
+  // обычным скроллом и ручным шагом цены до ×1000.
   const localSampleSize = Math.min(
     distances.length,
     Math.max(24, halfRows * 3),
@@ -256,30 +256,78 @@ export function buildDepthLadder(bids, asks, marketPrice, viewCenter, priceStep,
   const step = Math.max(Number.EPSILON, Number(priceStep) || .01);
   if (!Number.isFinite(market) || !Number.isFinite(center)) return [];
 
-  const askRows = aggregateDepthByStep(asks, "ask", step).reverse();
-  const bidRows = aggregateDepthByStep(bids, "bid", step);
-  const marketRow = {
-    price: market,
-    bidQuote: 0,
-    askQuote: 0,
-    quantity: 0,
-    quote: 0,
-    isMarket: true,
-    aggregated: false,
-    levelCount: 0,
-  };
+  const askBuckets = new Map(
+    aggregateDepthByStep(asks, "ask", step).map((row) => [
+      Math.round(Number(row.price) / step),
+      row,
+    ]),
+  );
+  const bidBuckets = new Map(
+    aggregateDepthByStep(bids, "bid", step).map((row) => [
+      Math.round(Number(row.price) / step),
+      row,
+    ]),
+  );
 
-  // Полная книга представлена как непрерывный список реальных уровней:
-  // дальние asks → ближние asks → рынок → ближние bids → дальние bids.
-  const allRows = [...askRows, marketRow, ...bidRows];
-  if (allRows.length <= count) return allRows;
-
-  // Обычное колесо меняет viewCenter в app.js. Здесь оно листает
-  // реальные строки книги, а не пустую математическую ценовую сетку.
-  const anchorIndex = closestRowIndex(allRows, center);
+  const anchorIndex = Math.round(center / step);
   const half = Math.floor(count / 2);
-  const start = Math.max(0, Math.min(allRows.length - count, anchorIndex - half));
-  return allRows.slice(start, start + count);
+  const topIndex = anchorIndex + half;
+
+  const normalizeGridPrice = (index) => Number((index * step).toPrecision(15));
+  const rows = Array.from({ length: count }, (_, offset) => {
+    const index = topIndex - offset;
+    const price = normalizeGridPrice(index);
+    const source = price > market
+      ? askBuckets.get(index)
+      : price < market
+        ? bidBuckets.get(index)
+        : null;
+
+    if (source) return { ...source, price, isMarket: false };
+
+    return {
+      price,
+      bidQuote: 0,
+      askQuote: 0,
+      quantity: 0,
+      quote: 0,
+      isMarket: false,
+      aggregated: false,
+      levelCount: 0,
+    };
+  });
+
+  const topPrice = Number(rows[0]?.price);
+  const bottomPrice = Number(rows.at(-1)?.price);
+  const marketVisible = Number.isFinite(topPrice)
+    && Number.isFinite(bottomPrice)
+    && market <= topPrice + step * .5
+    && market >= bottomPrice - step * .5;
+
+  if (marketVisible) {
+    const marketRow = {
+      price: market,
+      bidQuote: 0,
+      askQuote: 0,
+      quantity: 0,
+      quote: 0,
+      isMarket: true,
+      aggregated: false,
+      levelCount: 0,
+    };
+    let insertionIndex = rows.findIndex((row) => Number(row.price) < market);
+    if (insertionIndex < 0) insertionIndex = rows.length;
+    rows.splice(insertionIndex, 0, marketRow);
+
+    if (rows.length > count) {
+      const topDistance = Math.abs(Number(rows[0]?.price) - center);
+      const bottomDistance = Math.abs(Number(rows.at(-1)?.price) - center);
+      if (topDistance > bottomDistance) rows.shift();
+      else rows.pop();
+    }
+  }
+
+  return rows;
 }
 
 export function aggregateTradeClusters(trades, minimumQuote = 0, priceStep = .01, limit = 40) {
@@ -1282,7 +1330,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-14-scroll-hotfix";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-15-price-ladder";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const TAPE_MAX_STORED = 4_000;
 const TAPE_MAX_RAW_VISIBLE = 2_000;
@@ -1306,6 +1354,13 @@ let tapeNeedsDraw = true;
 let tapeDocumentHidden = typeof document !== "undefined" ? document.hidden : false;
 let tapeRecentRate = 0;
 let tapeStateTimer = 0;
+
+const BOOK_RECENTER_DELAY_MS = 5_000;
+const BOOK_RECENTER_HOLD_MS = 240;
+const BOOK_SPLIT_STORAGE_KEY = "inpuls-orderbook-split-v2";
+const BOOK_MIN_TAPE_PX = 58;
+const BOOK_MIN_LADDER_PX = 96;
+const bookInteractionStates = new WeakMap();
 
 export function parseRuntimeNumber(text) {
   let normalized = String(text ?? "")
@@ -1552,8 +1607,62 @@ function installOrderBookStyles() {
       flex: 1 1 auto;
       max-width: 104px;
     }
-    .orderbook-card .inpuls-tape-mode {
-      margin-left: auto;
+    .orderbook-card .orderbook-stage {
+      overflow: hidden !important;
+    }
+    .orderbook-card .orderbook-tape {
+      min-width: 58px !important;
+    }
+    .orderbook-card .orderbook-ladder {
+      position: relative;
+      z-index: 5;
+      min-width: 96px !important;
+      overflow: visible !important;
+    }
+    .orderbook-card .orderbook-rows {
+      position: relative;
+      z-index: 1;
+      overflow: hidden !important;
+    }
+    .orderbook-card .book-pane-title {
+      position: relative;
+      z-index: 40;
+      overflow: visible !important;
+    }
+    .orderbook-card .inpuls-book-pane-actions,
+    .orderbook-card .book-highlight-controls {
+      position: relative;
+      z-index: 45;
+      overflow: visible !important;
+    }
+    .orderbook-card .book-highlight-popover {
+      position: absolute !important;
+      z-index: 1000 !important;
+      top: calc(100% + 3px) !important;
+      left: 0 !important;
+      min-width: 126px;
+      padding: 5px;
+      border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
+      border-radius: 5px;
+      background: color-mix(in srgb, var(--panel) 98%, #000);
+      box-shadow: 0 8px 24px rgba(0,0,0,.55);
+    }
+    .orderbook-card .book-splitter {
+      position: relative;
+      z-index: 60;
+      min-width: 7px !important;
+      width: 7px !important;
+      margin-inline: -3px;
+      cursor: ew-resize;
+      touch-action: none;
+    }
+    .orderbook-card .book-splitter::before {
+      content: "";
+      position: absolute;
+      inset: 0 -4px;
+    }
+    .orderbook-card .inpuls-tape-controls {
+      justify-content: flex-start;
     }
   `;
   document.head.append(style);
@@ -1592,14 +1701,239 @@ function arrangeOrderBookChrome(card) {
 }
 
 function relativeTapeStrength(values, value) {
-  if (!values.length) return 0;
-  const sorted = [...values].filter(Number.isFinite).sort((a, b) => a - b);
+  const sorted = [...values]
+    .map(Number)
+    .filter((item) => Number.isFinite(item) && item > 0)
+    .sort((a, b) => a - b);
   if (!sorted.length) return 0;
-  const low = Math.max(1, sorted[Math.floor((sorted.length - 1) * .1)] || 1);
-  const high = Math.max(low + 1, sorted[Math.floor((sorted.length - 1) * .95)] || low + 1);
-  const numerator = Math.log1p(Math.max(0, value) / low);
-  const denominator = Math.log1p(high / low);
-  return clampTape(denominator > 0 ? numerator / denominator : 0, 0, 1.35);
+
+  const low = Math.max(1, sorted[Math.floor((sorted.length - 1) * .08)] || 1);
+  const high = Math.max(low + 1, sorted[Math.floor((sorted.length - 1) * .88)] || low + 1);
+  const amount = Math.max(0, Number(value) || 0);
+  const base = Math.log1p(amount / low) / Math.max(.0001, Math.log1p(high / low));
+  const outlierBoost = amount > high
+    ? Math.log2(1 + amount / high) * .28
+    : 0;
+  return clampTape(base + outlierBoost, 0, 1.9);
+}
+
+
+function bookRuntimeState(card) {
+  let state = bookInteractionStates.get(card);
+  if (!state) {
+    state = {
+      symbol: "",
+      marketPrice: null,
+      lastManualAt: 0,
+      holdTimer: 0,
+      recenterTimer: 0,
+      recentering: false,
+      splitApplied: false,
+    };
+    bookInteractionStates.set(card, state);
+  }
+  const symbol = cardSymbol(card) || "";
+  if (state.symbol !== symbol) {
+    clearTimeout(state.holdTimer);
+    clearTimeout(state.recenterTimer);
+    state.symbol = symbol;
+    state.marketPrice = null;
+    state.lastManualAt = 0;
+    state.recentering = false;
+    state.splitApplied = false;
+  }
+  return state;
+}
+
+function visibleRuntimeBook(card) {
+  const rows = [...card.querySelectorAll(".orderbook-rows .book-ladder-row")];
+  const prices = [];
+  let marketPrice = null;
+  for (const row of rows) {
+    const price = parseRuntimeNumber(row.querySelector("strong")?.textContent);
+    if (!Number.isFinite(price)) continue;
+    if (row.classList.contains("is-market")) marketPrice = price;
+    else prices.push(price);
+  }
+  prices.sort((a, b) => b - a);
+  if (!prices.length) return { center: null, step: null, marketPrice };
+  const center = prices[Math.floor(prices.length / 2)];
+  const ascending = [...new Set(prices)].sort((a, b) => a - b);
+  let step = Infinity;
+  for (let index = 1; index < ascending.length; index += 1) {
+    const gap = ascending[index] - ascending[index - 1];
+    if (gap > Number.EPSILON && gap < step) step = gap;
+  }
+  return {
+    center,
+    step: Number.isFinite(step) ? step : null,
+    marketPrice,
+  };
+}
+
+function rememberRuntimeMarket(card) {
+  const state = bookRuntimeState(card);
+  const snapshot = visibleRuntimeBook(card);
+  if (Number.isFinite(snapshot.marketPrice)) state.marketPrice = snapshot.marketPrice;
+  return state;
+}
+
+function dispatchBookWheel(stage, deltaY, marker) {
+  const event = new WheelEvent("wheel", {
+    bubbles: true,
+    cancelable: true,
+    deltaY,
+  });
+  Object.defineProperty(event, marker, { value: true });
+  stage.dispatchEvent(event);
+}
+
+function stopRuntimeRecentering(state) {
+  clearTimeout(state.holdTimer);
+  clearTimeout(state.recenterTimer);
+  state.holdTimer = 0;
+  state.recenterTimer = 0;
+  state.recentering = false;
+}
+
+function finishRuntimeRecentering(card, state) {
+  stopRuntimeRecentering(state);
+  const centerButton = card.querySelector("[data-book-center]");
+  if (centerButton && !centerButton.classList.contains("is-active")) centerButton.click();
+}
+
+function runRuntimeRecentering(card, state) {
+  if (!card.isConnected || document.hidden) {
+    state.recenterTimer = setTimeout(() => runRuntimeRecentering(card, state), 120);
+    return;
+  }
+  const stage = card.querySelector(".orderbook-stage");
+  if (!stage) return finishRuntimeRecentering(card, state);
+
+  const snapshot = visibleRuntimeBook(card);
+  if (Number.isFinite(snapshot.marketPrice)) state.marketPrice = snapshot.marketPrice;
+  const target = Number(state.marketPrice);
+  const center = Number(snapshot.center);
+  const step = Number(snapshot.step);
+  if (![target, center, step].every(Number.isFinite) || step <= 0) {
+    return finishRuntimeRecentering(card, state);
+  }
+
+  const distanceSteps = Math.abs(target - center) / step;
+  if (distanceSteps <= 1.35) return finishRuntimeRecentering(card, state);
+
+  state.recentering = true;
+  const direction = target > center ? -1 : 1;
+  dispatchBookWheel(stage, direction, "__inpulsRuntimeRecenter");
+
+  const delay = distanceSteps > 45
+    ? 18
+    : distanceSteps > 24
+      ? 26
+      : distanceSteps > 12
+        ? 38
+        : distanceSteps > 6
+          ? 58
+          : 88;
+  state.recenterTimer = setTimeout(() => runRuntimeRecentering(card, state), delay);
+}
+
+function holdRuntimeBookPosition(card, state) {
+  const elapsed = Date.now() - state.lastManualAt;
+  if (elapsed >= BOOK_RECENTER_DELAY_MS) {
+    state.holdTimer = 0;
+    runRuntimeRecentering(card, state);
+    return;
+  }
+  const stage = card.querySelector(".orderbook-stage");
+  if (stage) dispatchBookWheel(stage, 0, "__inpulsRuntimeHold");
+  state.holdTimer = setTimeout(
+    () => holdRuntimeBookPosition(card, state),
+    Math.min(BOOK_RECENTER_HOLD_MS, Math.max(30, BOOK_RECENTER_DELAY_MS - elapsed)),
+  );
+}
+
+function scheduleRuntimeRecentering(card) {
+  const state = rememberRuntimeMarket(card);
+  stopRuntimeRecentering(state);
+  state.lastManualAt = Date.now();
+  state.holdTimer = setTimeout(
+    () => holdRuntimeBookPosition(card, state),
+    BOOK_RECENTER_HOLD_MS,
+  );
+}
+
+function splitStorage() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(BOOK_SPLIT_STORAGE_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function splitCardKey(card) {
+  return String(card?.dataset?.panelId || cardSymbol(card) || "orderbook");
+}
+
+function applyStoredBookSplit(card) {
+  const state = bookRuntimeState(card);
+  if (state.splitApplied) return;
+  const stage = card.querySelector(".orderbook-stage");
+  if (!stage) return;
+  const value = Number(splitStorage()[splitCardKey(card)]);
+  if (Number.isFinite(value)) stage.style.setProperty("--tape-percent", `${value}%`);
+  state.splitApplied = true;
+}
+
+function saveBookSplit(card, percent) {
+  const storage = splitStorage();
+  storage[splitCardKey(card)] = Number(percent.toFixed(3));
+  try { localStorage.setItem(BOOK_SPLIT_STORAGE_KEY, JSON.stringify(storage)); } catch {}
+}
+
+function handleRuntimeSplitter(event) {
+  const splitter = event.target.closest?.(".book-splitter");
+  if (!splitter) return;
+  const card = splitter.closest(".orderbook-card");
+  const stage = card?.querySelector(".orderbook-stage");
+  if (!card || !stage) return;
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  try { splitter.setPointerCapture(event.pointerId); } catch {}
+
+  const move = (moveEvent) => {
+    const rect = stage.getBoundingClientRect();
+    const width = Math.max(1, rect.width);
+    const minimumTape = Math.min(BOOK_MIN_TAPE_PX, width * .28);
+    const minimumBook = Math.min(
+      Math.max(BOOK_MIN_LADDER_PX, width * .075),
+      width * .52,
+    );
+    const tapePixels = clampTape(
+      moveEvent.clientX - rect.left,
+      minimumTape,
+      Math.max(minimumTape, width - minimumBook),
+    );
+    const percent = tapePixels / width * 100;
+    stage.style.setProperty("--tape-percent", `${percent}%`);
+    scheduleTapeDraw(true);
+  };
+
+  const stop = (stopEvent) => {
+    const rect = stage.getBoundingClientRect();
+    const raw = parseFloat(stage.style.getPropertyValue("--tape-percent"));
+    if (Number.isFinite(raw)) saveBookSplit(card, raw);
+    try { splitter.releasePointerCapture(stopEvent.pointerId); } catch {}
+    document.removeEventListener("pointermove", move, true);
+    document.removeEventListener("pointerup", stop, true);
+    document.removeEventListener("pointercancel", stop, true);
+  };
+
+  document.addEventListener("pointermove", move, true);
+  document.addEventListener("pointerup", stop, true);
+  document.addEventListener("pointercancel", stop, true);
 }
 
 function syncTapeModeButton(button, state) {
@@ -1614,6 +1948,8 @@ function syncTapeModeButton(button, state) {
 
 function ensureTapeUi(card) {
   arrangeOrderBookChrome(card);
+  applyStoredBookSplit(card);
+  rememberRuntimeMarket(card);
   const flow = card.querySelector(".trade-flow");
   const toolbar = card.querySelector(".trade-tape-toolbar");
   if (!flow || !toolbar) return null;
@@ -1710,7 +2046,7 @@ function ensureTapeUi(card) {
     state.rowObserver = null;
     state.rowTarget = rows;
     if (rows) {
-      state.rowObserver = new MutationObserver(() => scheduleTapeDraw());
+      state.rowObserver = new MutationObserver(() => { rememberRuntimeMarket(card); scheduleTapeDraw(); });
       state.rowObserver.observe(rows, { childList: true, subtree: true, characterData: true });
     }
   }
@@ -2093,7 +2429,11 @@ function drawTapeCard(card) {
   context.textBaseline = "middle";
   context.font = "700 8px Inter, system-ui, sans-serif";
 
-  for (const item of items) {
+  const drawItems = state.mode === "raw"
+    ? [...items].sort((left, right) => Number(left.quote) - Number(right.quote))
+    : items;
+
+  for (const item of drawItems) {
     const columnIndex = item.second - window.firstSecond;
     if (columnIndex < 0 || columnIndex >= window.secondCount) continue;
     const columnLeft = columnIndex * window.columnWidth;
@@ -2108,17 +2448,37 @@ function drawTapeCard(card) {
     if (state.mode === "raw") {
       const slots = Math.max(1, item.slotCount || 1);
       const slot = Math.max(0, item.slotIndex || 0);
-      const x = columnLeft + ((slot + .5) / slots) * window.columnWidth;
-      const slotWidth = Math.max(1.5, (window.columnWidth / slots) * .84);
-      const diameter = clampTape(1.7 + strength * 7.4, 1.7, Math.min(10, slotWidth));
+      const rawX = columnLeft + ((slot + .5) / slots) * window.columnWidth;
+      const maximumDiameter = Math.min(27, Math.max(5, window.columnWidth * .92));
+      const diameter = clampTape(
+        1.8 + Math.pow(strength, 1.12) * 12.5,
+        1.8,
+        maximumDiameter,
+      );
+      const x = clampTape(
+        rawX,
+        columnLeft + diameter / 2 + .4,
+        columnRight - diameter / 2 - .4,
+      );
       context.beginPath();
       context.arc(x, y, diameter / 2, 0, Math.PI * 2);
-      context.fillStyle = fill;
+      context.fillStyle = buy
+        ? `rgba(50, 205, 151, ${clampTape(.42 + strength * .22, .42, .88)})`
+        : `rgba(238, 91, 108, ${clampTape(.42 + strength * .22, .42, .88)})`;
       context.fill();
-      if (diameter >= 5.5) {
-        context.lineWidth = .7;
+      if (diameter >= 4.5) {
+        context.lineWidth = diameter >= 13 ? 1.2 : .7;
         context.strokeStyle = stroke;
         context.stroke();
+      }
+
+      if (item.quote >= labelThreshold && diameter >= 13) {
+        const label = formatTapeUsd(item.quote);
+        const measured = context.measureText(label).width;
+        if (measured + 2 <= diameter) {
+          context.fillStyle = "rgba(244, 250, 248, .98)";
+          context.fillText(label, x, y + .2);
+        }
       }
       continue;
     }
@@ -2162,9 +2522,10 @@ function cancelTapeDraw() {
 }
 
 function targetTapeFrameMs() {
-  if (tapeRecentRate > 500) return 120;
-  if (tapeRecentRate > 200) return 85;
-  return 50;
+  if (tapeRecentRate > 1_200) return 66;
+  if (tapeRecentRate > 600) return 50;
+  if (tapeRecentRate > 250) return 40;
+  return 28;
 }
 
 function scheduleTapeDraw(force = false) {
@@ -2294,13 +2655,21 @@ function installOrderBookRuntime() {
     scheduleTapeDraw(true);
   });
 
+  document.addEventListener("pointerdown", handleRuntimeSplitter, true);
+
   document.addEventListener("wheel", (event) => {
     const card = event.target.closest?.(".orderbook-card");
     if (!card) return;
-    if (!event.ctrlKey && !event.metaKey) {
+
+    const runtimeEvent = event.__inpulsRuntimeHold || event.__inpulsRuntimeRecenter;
+    if (!runtimeEvent && !event.ctrlKey && !event.metaKey) {
       const ladder = event.target.closest?.(".orderbook-ladder");
       const centerButton = card.querySelector("[data-book-center]");
-      if (ladder && centerButton?.classList.contains("is-active")) centerButton.click();
+      if (ladder) {
+        rememberRuntimeMarket(card);
+        if (centerButton?.classList.contains("is-active")) centerButton.click();
+        scheduleRuntimeRecentering(card);
+      }
     }
     setTimeout(() => scheduleTapeDraw(true), 0);
   }, { capture: true, passive: true });
