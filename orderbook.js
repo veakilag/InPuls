@@ -1224,7 +1224,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-8-market-tape";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-9-tape-visibility";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const TAPE_MAX_STORED = 4_000;
 const TAPE_MAX_RAW_VISIBLE = 2_000;
@@ -1233,11 +1233,14 @@ const TAPE_SECOND_MS = 1_000;
 const TAPE_MIN_SECOND_WIDTH = 22;
 const TAPE_MIN_SECONDS = 12;
 const TAPE_MAX_SECONDS = 45;
+const TAPE_STALE_NOTICE_MS = 60_000;
+const TAPE_STATE_REFRESH_MS = 1_000;
 const TAPE_MODE_KEY = "inpuls-tape-mode-v1";
 const TAPE_MIN_FILTER_KEY = "inpuls-tape-min-filter-v3";
 const TAPE_MAX_FILTER_KEY = "inpuls-tape-max-filter-v2";
 
 const tapeTradesBySymbol = new Map();
+const tapeMetaBySymbol = new Map();
 const tapeCardStates = new WeakMap();
 let tapeDrawFrame = 0;
 let tapeDrawTimer = 0;
@@ -1245,6 +1248,7 @@ let tapeLastDrawAt = 0;
 let tapeNeedsDraw = true;
 let tapeDocumentHidden = typeof document !== "undefined" ? document.hidden : false;
 let tapeRecentRate = 0;
+let tapeStateTimer = 0;
 
 function parseRuntimeNumber(text) {
   const normalized = String(text ?? "")
@@ -1302,6 +1306,55 @@ function installOrderBookStyles() {
       pointer-events: none;
       z-index: 2;
     }
+    .orderbook-card .inpuls-tape-state {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      z-index: 3;
+      transform: translate(-50%, -50%);
+      max-width: min(84%, 280px);
+      padding: 5px 8px;
+      border: 1px solid rgba(106, 132, 145, .22);
+      border-radius: 6px;
+      background: rgba(7, 11, 15, .78);
+      color: #7f95a0;
+      font: 600 10px/1.35 Inter, system-ui, sans-serif;
+      text-align: center;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .12s ease;
+    }
+    .orderbook-card .inpuls-tape-state.is-visible { opacity: 1; }
+    .orderbook-card .inpuls-tape-state[data-tone="attention"] {
+      color: #d4b35f;
+      border-color: rgba(212, 179, 95, .28);
+    }
+    .orderbook-card .inpuls-tape-state[data-tone="error"] {
+      color: #ef7d89;
+      border-color: rgba(239, 125, 137, .3);
+    }
+    .orderbook-card .inpuls-tape-range-summary {
+      position: absolute;
+      right: 6px;
+      top: 6px;
+      z-index: 4;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 3px;
+      pointer-events: none;
+    }
+    .orderbook-card .inpuls-tape-range-summary span {
+      display: none;
+      padding: 2px 5px;
+      border: 1px solid rgba(107, 132, 145, .22);
+      border-radius: 4px;
+      background: rgba(7, 11, 15, .78);
+      color: #8fa5af;
+      font: 700 9px/1.2 Inter, system-ui, sans-serif;
+      white-space: nowrap;
+    }
+    .orderbook-card .inpuls-tape-range-summary span.is-visible { display: block; }
     .orderbook-card .trade-tape-toolbar {
       display: flex;
       align-items: center;
@@ -1382,19 +1435,46 @@ function ensureTapeUi(card) {
       minQuote: savedMinimum === null ? 0 : Math.max(0, Number(savedMinimum) || 0),
       maxQuote: Math.max(0, Number(localStorage.getItem(TAPE_MAX_FILTER_KEY)) || 0),
       controls: null,
+      status: null,
+      rangeSummary: null,
       rowObserver: null,
+      rowTarget: null,
       resizeObserver: null,
+      resizeTarget: null,
+      titleObserver: null,
+      titleTarget: null,
+      lastSymbol: null,
     };
     tapeCardStates.set(card, state);
   }
 
-  if (!state.canvas?.isConnected) {
+  if (!state.canvas?.isConnected || state.canvas.parentElement !== flow) {
+    state.canvas?.remove();
     const canvas = document.createElement("canvas");
     canvas.className = "inpuls-tape-canvas";
     canvas.setAttribute("aria-label", "Лента рыночных сделок");
     flow.append(canvas);
     state.canvas = canvas;
     state.context = canvas.getContext("2d", { alpha: true, desynchronized: true });
+  }
+
+  if (!state.status?.isConnected || state.status.parentElement !== flow) {
+    state.status?.remove();
+    const status = document.createElement("div");
+    status.className = "inpuls-tape-state";
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+    flow.append(status);
+    state.status = status;
+  }
+
+  if (!state.rangeSummary?.isConnected || state.rangeSummary.parentElement !== flow) {
+    state.rangeSummary?.remove();
+    const summary = document.createElement("div");
+    summary.className = "inpuls-tape-range-summary";
+    summary.innerHTML = '<span data-inpuls-tape-above></span><span data-inpuls-tape-below></span>';
+    flow.append(summary);
+    state.rangeSummary = summary;
   }
 
   const nativeMinimum = toolbar.querySelector("[data-trade-min]");
@@ -1443,20 +1523,133 @@ function ensureTapeUi(card) {
     syncTapeModeButton(state.controls.querySelector("[data-inpuls-tape-mode]"), state);
   }
 
-  if (!state.rowObserver) {
-    const rows = card.querySelector(".orderbook-rows");
+  const rows = card.querySelector(".orderbook-rows");
+  if (state.rowTarget !== rows) {
+    state.rowObserver?.disconnect();
+    state.rowObserver = null;
+    state.rowTarget = rows;
     if (rows) {
       state.rowObserver = new MutationObserver(() => scheduleTapeDraw());
       state.rowObserver.observe(rows, { childList: true, subtree: true, characterData: true });
     }
   }
 
-  if (!state.resizeObserver && typeof ResizeObserver === "function") {
+  if (typeof ResizeObserver === "function" && state.resizeTarget !== flow) {
+    state.resizeObserver?.disconnect();
     state.resizeObserver = new ResizeObserver(() => scheduleTapeDraw(true));
     state.resizeObserver.observe(flow);
+    state.resizeTarget = flow;
   }
 
+  const titleTarget = card.querySelector("[data-book-ticker]") ?? card.querySelector("h2");
+  if (state.titleTarget !== titleTarget) {
+    state.titleObserver?.disconnect();
+    state.titleObserver = null;
+    state.titleTarget = titleTarget;
+    if (titleTarget) {
+      state.titleObserver = new MutationObserver(() => {
+        const nextSymbol = cardSymbol(card);
+        if (nextSymbol !== state.lastSymbol) {
+          state.lastSymbol = nextSymbol;
+          scheduleTapeDraw(true);
+        }
+      });
+      state.titleObserver.observe(titleTarget, { childList: true, subtree: true, characterData: true });
+    }
+  }
+  state.lastSymbol = cardSymbol(card);
+
   return state;
+}
+
+function setTapeState(state, text = "", tone = "neutral") {
+  const element = state?.status;
+  if (!element) return;
+  const value = String(text || "");
+  if (element.textContent !== value) element.textContent = value;
+  element.dataset.tone = tone;
+  element.classList.toggle("is-visible", Boolean(value));
+}
+
+function setTapeRangeSummary(state, above = 0, below = 0) {
+  const summary = state?.rangeSummary;
+  if (!summary) return;
+  const aboveElement = summary.querySelector("[data-inpuls-tape-above]");
+  const belowElement = summary.querySelector("[data-inpuls-tape-below]");
+  const safeAbove = Math.max(0, Math.floor(Number(above) || 0));
+  const safeBelow = Math.max(0, Math.floor(Number(below) || 0));
+  if (aboveElement) {
+    aboveElement.textContent = `↑ ${safeAbove} выше`;
+    aboveElement.classList.toggle("is-visible", safeAbove > 0);
+  }
+  if (belowElement) {
+    belowElement.textContent = `↓ ${safeBelow} ниже`;
+    belowElement.classList.toggle("is-visible", safeBelow > 0);
+  }
+}
+
+function visiblePriceRange(rows) {
+  const prices = rows.map((row) => Number(row.price)).filter(Number.isFinite);
+  if (!prices.length) return null;
+  const sorted = [...new Set(prices)].sort((left, right) => left - right);
+  let step = 0;
+  for (let index = 1; index < sorted.length; index += 1) {
+    const gap = sorted[index] - sorted[index - 1];
+    if (gap > 0 && (!step || gap < step)) step = gap;
+  }
+  const low = sorted[0];
+  const high = sorted.at(-1);
+  const tolerance = Math.max(Number.EPSILON, step || Math.abs(high - low) / Math.max(1, sorted.length - 1)) * .65;
+  return { low, high, step: Math.max(Number.EPSILON, step || tolerance), tolerance };
+}
+
+function aggregateDiagnosticItems(trades, window, step) {
+  const safeStep = Math.max(Number.EPSILON, Number(step) || .01);
+  const buckets = new Map();
+  for (const trade of trades) {
+    const second = Math.floor(Number(trade.time) / TAPE_SECOND_MS);
+    if (second < window.firstSecond || second > window.latestSecond) continue;
+    const priceBucket = Math.round(Number(trade.price) / safeStep);
+    const key = `${second}:${priceBucket}`;
+    const item = buckets.get(key) ?? {
+      second,
+      price: priceBucket * safeStep,
+      quote: 0,
+      count: 0,
+    };
+    item.quote += Number(trade.quote) || 0;
+    item.count += 1;
+    buckets.set(key, item);
+  }
+  return [...buckets.values()];
+}
+
+function classifyTapeCandidates(candidates, range) {
+  if (!range) return { above: 0, below: 0, visible: 0 };
+  let above = 0;
+  let below = 0;
+  let visible = 0;
+  for (const item of candidates) {
+    const price = Number(item?.price);
+    if (!Number.isFinite(price)) continue;
+    if (price > range.high + range.tolerance) above += 1;
+    else if (price < range.low - range.tolerance) below += 1;
+    else visible += 1;
+  }
+  return { above, below, visible };
+}
+
+function tapeStatusText(card) {
+  return String(card?.textContent ?? "").toUpperCase();
+}
+
+function staleTradeSuffix(symbol) {
+  const meta = symbol ? tapeMetaBySymbol.get(symbol) : null;
+  const lastAt = Number(meta?.lastPacketAt) || 0;
+  if (!lastAt) return "";
+  const age = Date.now() - lastAt;
+  if (age < TAPE_STALE_NOTICE_MS) return "";
+  return ` · данные ${Math.max(1, Math.floor(age / 1_000))}с назад`;
 }
 
 function visibleBookRows(card, flow) {
@@ -1627,13 +1820,30 @@ function drawTapeCard(card) {
   }
   context.setTransform(dpr, 0, 0, dpr, 0, 0);
   context.clearRect(0, 0, rect.width, rect.height);
+  setTapeRangeSummary(state, 0, 0);
 
   const symbol = cardSymbol(card);
-  const stored = symbol ? tapeTradesBySymbol.get(symbol) : null;
-  if (!stored?.length) return;
+  if (!symbol) {
+    setTapeState(state, "Выберите монету");
+    return;
+  }
+
+  const stored = tapeTradesBySymbol.get(symbol) ?? [];
+  if (!stored.length) {
+    const live = tapeStatusText(card).includes("TAPE");
+    setTapeState(
+      state,
+      live ? "Поток подключён · ждём сделку" : "Подключаю поток сделок…",
+      live ? "neutral" : "attention",
+    );
+    return;
+  }
 
   const rows = visibleBookRows(card, flow);
-  if (!rows.length) return;
+  if (!rows.length) {
+    setTapeState(state, "Жду ценовые строки стакана…", "attention");
+    return;
+  }
 
   const latestTime = stored.reduce(
     (latest, trade) => Math.max(latest, Number(trade?.time) || 0),
@@ -1643,23 +1853,50 @@ function drawTapeCard(card) {
   drawSecondColumns(context, rect, window);
 
   const recent = stored.filter((trade) => trade.time >= window.startTime && trade.time < window.endTime);
-  if (!recent.length) return;
+  if (!recent.length) {
+    setTapeState(state, `Нет сделок в текущем окне${staleTradeSuffix(symbol)}`);
+    return;
+  }
 
   const minQuote = Math.max(0, Number(state.minQuote) || 0);
   let maxQuote = Math.max(0, Number(state.maxQuote) || 0);
   if (maxQuote > 0 && maxQuote < minQuote) maxQuote = 0;
+  const range = visiblePriceRange(rows);
+
+  let candidates;
   let items;
   if (state.mode === "agg") {
-    // В AGG фильтр применяется к итоговой сумме секундного агрегата.
+    candidates = aggregateDiagnosticItems(recent, window, range?.step)
+      .filter((item) => passesTapeFilter(item, minQuote, maxQuote));
     items = aggregateTapeItemsBySecond(recent, rows, window)
       .filter((item) => passesTapeFilter(item, minQuote, maxQuote));
   } else {
-    // В RAW фильтр применяется к каждому отдельному исполнению.
-    const filteredTrades = recent.filter((trade) => passesTapeFilter(trade, minQuote, maxQuote));
-    items = rawTapeItemsBySecond(filteredTrades, rows, window);
+    candidates = recent.filter((trade) => passesTapeFilter(trade, minQuote, maxQuote));
+    items = rawTapeItemsBySecond(candidates, rows, window);
   }
-  if (!items.length) return;
 
+  if (!candidates.length) {
+    setTapeState(state, "Нет сделок по текущему фильтру");
+    return;
+  }
+
+  const visibility = classifyTapeCandidates(candidates, range);
+  setTapeRangeSummary(state, visibility.above, visibility.below);
+
+  if (!items.length) {
+    if (visibility.above > 0 && visibility.below > 0) {
+      setTapeState(state, "Сделки находятся вне видимого диапазона");
+    } else if (visibility.above > 0) {
+      setTapeState(state, "Сделки находятся выше видимого диапазона");
+    } else if (visibility.below > 0) {
+      setTapeState(state, "Сделки находятся ниже видимого диапазона");
+    } else {
+      setTapeState(state, `Нет сделок на видимых ценах${staleTradeSuffix(symbol)}`);
+    }
+    return;
+  }
+
+  setTapeState(state, "");
   const quotes = items.map((item) => item.quote).sort((a, b) => a - b);
   const p90 = Math.max(1, quotes[Math.floor((quotes.length - 1) * .9)] || 1);
   const p75 = Math.max(1, quotes[Math.floor((quotes.length - 1) * .75)] || 1);
@@ -1803,6 +2040,12 @@ function acceptTapeData(event) {
     ? Math.max(...normalizedIncoming.map((trade) => trade.time))
     : Date.now();
   const stored = tapeTradesBySymbol.get(symbol) ?? [];
+  const previousMeta = tapeMetaBySymbol.get(symbol) ?? {};
+  tapeMetaBySymbol.set(symbol, {
+    lastPacketAt: Date.now(),
+    lastTradeTime: stored.length ? Math.max(...stored.slice(0, 32).map((trade) => Number(trade.time) || 0)) : previousMeta.lastTradeTime || 0,
+    packets: (Number(previousMeta.packets) || 0) + 1,
+  });
   tapeRecentRate = stored.reduce((count, trade) => count + (trade.time >= now - 1_000 ? 1 : 0), 0);
   scheduleTapeDraw();
 }
@@ -1833,6 +2076,13 @@ function installOrderBookRuntime() {
   discoveryObserver.observe(document.body, { childList: true, subtree: true });
 
   window.addEventListener("resize", () => scheduleTapeDraw(true), { passive: true });
+  window.addEventListener("focus", () => scheduleTapeDraw(true), { passive: true });
+  window.addEventListener("pageshow", () => scheduleTapeDraw(true), { passive: true });
+  window.addEventListener("orientationchange", () => scheduleTapeDraw(true), { passive: true });
+  document.addEventListener("fullscreenchange", () => scheduleTapeDraw(true));
+  document.addEventListener("transitionend", (event) => {
+    if (event.target?.closest?.(".orderbook-card")) scheduleTapeDraw(true);
+  }, { passive: true });
   document.addEventListener("visibilitychange", () => {
     tapeDocumentHidden = document.hidden;
     if (tapeDocumentHidden) {
@@ -1854,6 +2104,14 @@ function installOrderBookRuntime() {
     }
     setTimeout(() => scheduleTapeDraw(true), 0);
   }, { capture: true, passive: true });
+
+  clearInterval(tapeStateTimer);
+  tapeStateTimer = setInterval(() => {
+    if (!tapeDocumentHidden) {
+      scanTapeCards(document);
+      scheduleTapeDraw();
+    }
+  }, TAPE_STATE_REFRESH_MS);
 
   scheduleTapeDraw(true);
 }
