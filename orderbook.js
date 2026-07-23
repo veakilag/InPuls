@@ -434,17 +434,23 @@ export function depthLiquidityWithinPercent(bids, asks, middlePrice, percent = 1
   let bidQuote = 0;
   let askQuote = 0;
 
+  // Worker отдаёт bids по убыванию. Как только цена ниже −1%,
+  // остальные уровни уже не могут попасть в диапазон.
   for (const row of bids ?? []) {
     const price = Number(row?.[0]);
     const quantity = Number(row?.[1]);
     if (!Number.isFinite(price) || !Number.isFinite(quantity) || quantity <= 0) continue;
-    if (price >= bidFloor && price <= middle) bidQuote += price * quantity;
+    if (price < bidFloor) break;
+    if (price <= middle) bidQuote += price * quantity;
   }
+
+  // Asks отсортированы по возрастанию — после +1% прекращаем обход.
   for (const row of asks ?? []) {
     const price = Number(row?.[0]);
     const quantity = Number(row?.[1]);
     if (!Number.isFinite(price) || !Number.isFinite(quantity) || quantity <= 0) continue;
-    if (price <= askCeiling && price >= middle) askQuote += price * quantity;
+    if (price > askCeiling) break;
+    if (price >= middle) askQuote += price * quantity;
   }
 
   const totalQuote = bidQuote + askQuote;
@@ -1445,7 +1451,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-17-lean-flow";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-18-layout-flow-fix";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const TAPE_MAX_STORED = 4_000;
@@ -1465,6 +1471,9 @@ const TAPE_MIN_FILTER_KEY = "inpuls-tape-min-filter-v3";
 const tapeTradesBySymbol = new Map();
 const latestBookDataBySymbol = new Map();
 const tapeMetaBySymbol = new Map();
+const tapePendingBySymbol = new Map();
+const liquidityTimersBySymbol = new Map();
+const liquidityLastDrawBySymbol = new Map();
 const tapeCardStates = new WeakMap();
 let tapeDrawFrame = 0;
 let tapeDrawTimer = 0;
@@ -1473,6 +1482,10 @@ let tapeNeedsDraw = true;
 let tapeDocumentHidden = typeof document !== "undefined" ? document.hidden : false;
 let tapeRecentRate = 0;
 let tapeStateTimer = 0;
+let tapeIngestFrame = 0;
+
+const TAPE_INGEST_PER_FRAME = 220;
+const LIQUIDITY_REFRESH_MS = 420;
 
 const BOOK_SPLIT_STORAGE_KEY = "inpuls-orderbook-split-v3";
 const BOOK_MIN_TAPE_PX = 58;
@@ -1723,22 +1736,32 @@ function installOrderBookStyles() {
       will-change: auto !important;
     }
     .orderbook-card .book-ladder-row {
-      grid-template-columns: minmax(30px, 1fr) max-content !important;
+      grid-template-columns: minmax(0, 1fr) var(--book-price-width, 7.5ch) !important;
       column-gap: 0 !important;
+      align-items: stretch !important;
+    }
+    .orderbook-card .book-ladder-row .book-size,
+    .orderbook-card .book-ladder-row strong {
+      min-height: 100%;
+      display: flex !important;
+      align-items: center !important;
+      line-height: 1 !important;
+      box-sizing: border-box;
+      font-variant-numeric: tabular-nums;
     }
     .orderbook-card .book-ladder-row .book-size {
       min-width: 0;
+      padding-right: 4px;
+      justify-content: flex-end;
       text-align: right;
-      font-variant-numeric: tabular-nums;
     }
     .orderbook-card .book-ladder-row strong {
-      width: auto !important;
+      width: 100% !important;
       min-width: 0 !important;
-      padding: 0 1px 0 4px !important;
-      box-sizing: border-box;
-      justify-self: end !important;
+      padding: 0 1px 0 3px !important;
+      justify-self: stretch !important;
+      justify-content: flex-start !important;
       text-align: left !important;
-      font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
     .orderbook-card .book-ladder-row .book-size::before {
@@ -1766,6 +1789,17 @@ function installOrderBookStyles() {
       color: #e6eef2;
       font-weight: 900;
     }
+    .orderbook-card .book-ladder-row.is-anomaly .book-size,
+    .orderbook-card .book-ladder-row.is-anomaly strong,
+    .orderbook-card .book-ladder-row.is-market .book-size,
+    .orderbook-card .book-ladder-row.is-market strong {
+      color: #f6fbfd !important;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, .92);
+      font-weight: 900 !important;
+    }
+    .orderbook-card .book-ladder-row.is-anomaly .book-size::before {
+      opacity: .48 !important;
+    }
     .orderbook-card .inpuls-layer-toggle {
       min-width: 32px;
       height: 20px;
@@ -1788,6 +1822,13 @@ function installOrderBookStyles() {
     .orderbook-card.is-flow-hidden .orderbook-tape,
     .orderbook-card.is-flow-hidden .book-splitter {
       display: none !important;
+    }
+    .orderbook-card .inpuls-layer-dock {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      min-width: 0;
     }
     .orderbook-card .inpuls-liquidity-meter {
       position: absolute;
@@ -1944,6 +1985,22 @@ function runtimePriceStep(card) {
 }
 
 function decorateRuntimeBookRows(card) {
+  const rows = [...card.querySelectorAll(".orderbook-rows .book-ladder-row")];
+  const priceElements = rows
+    .map((row) => row.querySelector("strong"))
+    .filter(Boolean);
+  const maximumCharacters = priceElements.reduce(
+    (maximum, element) => Math.max(
+      maximum,
+      String(element.textContent ?? "").replace(/\s/g, "").length,
+    ),
+    0,
+  );
+  if (maximumCharacters > 0) {
+    const width = clampTape(maximumCharacters + .55, 5.5, 14);
+    card.style.setProperty("--book-price-width", `${width}ch`);
+  }
+
   const step = runtimePriceStep(card);
   if (!Number.isFinite(step) || step <= 0) return;
 
@@ -1954,7 +2011,7 @@ function decorateRuntimeBookRows(card) {
     return Math.abs(ratio - Math.round(ratio)) <= 1e-6;
   };
 
-  for (const row of card.querySelectorAll(".orderbook-rows .book-ladder-row")) {
+  for (const row of rows) {
     const price = parseRuntimeNumber(row.querySelector("strong")?.textContent);
     const round = Number.isFinite(price) && nearMultiple(price, majorUnit);
     const half = !round && Number.isFinite(price) && nearMultiple(price, halfUnit);
@@ -2075,8 +2132,8 @@ function syncTapeModeButton(button, state) {
 }
 
 function syncLayerButtons(card, state) {
-  const tapeButton = state.controls?.querySelector("[data-inpuls-tape-visible]");
-  const clusterButton = state.controls?.querySelector("[data-inpuls-clusters-visible]");
+  const tapeButton = state.layerControls?.querySelector("[data-inpuls-tape-visible]");
+  const clusterButton = state.layerControls?.querySelector("[data-inpuls-clusters-visible]");
   tapeButton?.classList.toggle("is-active", state.tapeVisible);
   tapeButton?.setAttribute("aria-pressed", String(state.tapeVisible));
   clusterButton?.classList.toggle("is-active", state.clustersVisible);
@@ -2104,6 +2161,7 @@ function ensureTapeUi(card) {
       tapeVisible: localStorage.getItem(TAPE_VISIBLE_KEY) !== "0",
       clustersVisible: localStorage.getItem(CLUSTERS_VISIBLE_KEY) === "1",
       controls: null,
+      layerControls: null,
       liquidity: null,
       status: null,
       rangeSummary: null,
@@ -2154,8 +2212,6 @@ function ensureTapeUi(card) {
     const controls = document.createElement("div");
     controls.className = "inpuls-tape-controls";
     controls.innerHTML = `
-      <button data-inpuls-tape-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть ленту">TAPE</button>
-      <button data-inpuls-clusters-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть кластеры">КЛ</button>
       <label class="inpuls-tape-filter" title="Показывать сделки или агрегаты не меньше суммы">
         <span>ОТ $</span><input data-inpuls-trade-min type="number" min="0" step="100" value="${state.minQuote}" aria-label="Минимальный размер сделки или агрегата" />
       </label>
@@ -2165,8 +2221,6 @@ function ensureTapeUi(card) {
 
     const minInput = controls.querySelector("[data-inpuls-trade-min]");
     const modeButton = controls.querySelector("[data-inpuls-tape-mode]");
-    const tapeButton = controls.querySelector("[data-inpuls-tape-visible]");
-    const clusterButton = controls.querySelector("[data-inpuls-clusters-visible]");
 
     const applyMinimum = () => {
       state.minQuote = Math.max(0, Number(minInput.value) || 0);
@@ -2181,24 +2235,37 @@ function ensureTapeUi(card) {
       syncTapeModeButton(modeButton, state);
       scheduleTapeDraw(true, card);
     });
-    tapeButton.addEventListener("click", () => {
+    syncTapeModeButton(modeButton, state);
+    syncLayerButtons(card, state);
+  } else {
+    syncTapeModeButton(state.controls.querySelector("[data-inpuls-tape-mode]"), state);
+  }
+
+  const paneActions = card.querySelector(".inpuls-book-pane-actions");
+  if (paneActions && (!state.layerControls?.isConnected || state.layerControls.parentElement !== paneActions)) {
+    state.layerControls?.remove();
+    const layerControls = document.createElement("div");
+    layerControls.className = "inpuls-layer-dock";
+    layerControls.innerHTML = `
+      <button data-inpuls-tape-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть ленту">TAPE</button>
+      <button data-inpuls-clusters-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть кластеры">КЛ</button>`;
+    paneActions.prepend(layerControls);
+    state.layerControls = layerControls;
+
+    layerControls.querySelector("[data-inpuls-tape-visible]").addEventListener("click", () => {
       state.tapeVisible = !state.tapeVisible;
       localStorage.setItem(TAPE_VISIBLE_KEY, state.tapeVisible ? "1" : "0");
       syncLayerButtons(card, state);
       scheduleTapeDraw(true, card);
     });
-    clusterButton.addEventListener("click", () => {
+    layerControls.querySelector("[data-inpuls-clusters-visible]").addEventListener("click", () => {
       state.clustersVisible = !state.clustersVisible;
       localStorage.setItem(CLUSTERS_VISIBLE_KEY, state.clustersVisible ? "1" : "0");
       syncLayerButtons(card, state);
       scheduleTapeDraw(true, card);
     });
-    syncTapeModeButton(modeButton, state);
-    syncLayerButtons(card, state);
-  } else {
-    syncTapeModeButton(state.controls.querySelector("[data-inpuls-tape-mode]"), state);
-    syncLayerButtons(card, state);
   }
+  syncLayerButtons(card, state);
 
   const rows = card.querySelector(".orderbook-rows");
   if (state.rowTarget !== rows) {
@@ -2278,15 +2345,29 @@ function updateLiquidityMeter(card, state = tapeCardStates.get(card)) {
   meter.title = `Глубина ±1% · BID ${formatTapeUsd(liquidity.bidQuote)} · ASK ${formatTapeUsd(liquidity.askQuote)}`;
 }
 
+function flushLiquidityForSymbol(symbol) {
+  liquidityTimersBySymbol.delete(symbol);
+  liquidityLastDrawBySymbol.set(symbol, performance.now());
+  document.querySelectorAll(".orderbook-card").forEach((card) => {
+    if (cardSymbol(card) !== symbol) return;
+    updateLiquidityMeter(card);
+  });
+}
+
+function scheduleLiquidityForSymbol(symbol) {
+  if (liquidityTimersBySymbol.has(symbol)) return;
+  const elapsed = performance.now() - (liquidityLastDrawBySymbol.get(symbol) || 0);
+  const delay = Math.max(0, LIQUIDITY_REFRESH_MS - elapsed);
+  const timer = setTimeout(() => flushLiquidityForSymbol(symbol), delay);
+  liquidityTimersBySymbol.set(symbol, timer);
+}
+
 function acceptBookData(event) {
   const symbol = String(event?.detail?.symbol ?? "").toUpperCase();
   const data = event?.detail?.data;
   if (!symbol.endsWith("USDT") || !data) return;
   latestBookDataBySymbol.set(symbol, data);
-  document.querySelectorAll(".orderbook-card").forEach((card) => {
-    if (cardSymbol(card) !== symbol) return;
-    updateLiquidityMeter(card);
-  });
+  scheduleLiquidityForSymbol(symbol);
 }
 
 function setTapeState(state, text = "", tone = "neutral") {
@@ -2815,48 +2896,140 @@ function normalizeTapeTrade(trade) {
   };
 }
 
+function tapeTradeKey(trade) {
+  return `${String(trade.id)}:${trade.time}:${trade.price}:${trade.quantity}`;
+}
+
 function mergeTapeHistory(current, incoming, replace = false) {
-  const source = replace ? incoming : [...incoming, ...(current ?? [])];
-  const seen = new Set();
-  return source
+  const normalizedIncoming = incoming
     .map(normalizeTapeTrade)
     .filter(Boolean)
-    .sort((left, right) => right.time - left.time)
-    .filter((trade) => {
-      const key = `${String(trade.id)}:${trade.time}:${trade.price}:${trade.quantity}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, TAPE_MAX_STORED);
+    .sort((left, right) => right.time - left.time);
+
+  if (replace) {
+    const seen = new Set();
+    return normalizedIncoming
+      .filter((trade) => {
+        const key = tapeTradeKey(trade);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, TAPE_MAX_STORED);
+  }
+
+  const existing = current ?? [];
+  const incomingKeys = new Set();
+  const uniqueIncoming = normalizedIncoming.filter((trade) => {
+    const key = tapeTradeKey(trade);
+    if (incomingKeys.has(key)) return false;
+    incomingKeys.add(key);
+    return true;
+  });
+
+  const result = [];
+  let incomingIndex = 0;
+  let currentIndex = 0;
+  const seen = new Set();
+
+  while (
+    result.length < TAPE_MAX_STORED
+    && (incomingIndex < uniqueIncoming.length || currentIndex < existing.length)
+  ) {
+    const incomingTrade = uniqueIncoming[incomingIndex];
+    const currentTrade = existing[currentIndex];
+    const takeIncoming = currentTrade === undefined
+      || (incomingTrade !== undefined && incomingTrade.time >= currentTrade.time);
+    const trade = takeIncoming ? incomingTrade : currentTrade;
+    if (takeIncoming) incomingIndex += 1;
+    else currentIndex += 1;
+    if (!trade) continue;
+
+    const key = tapeTradeKey(trade);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(trade);
+  }
+
+  return result;
+}
+
+function flowLayerVisible(card) {
+  const state = tapeCardStates.get(card);
+  return !state || state.tapeVisible || state.clustersVisible;
+}
+
+function scheduleTapeIngest() {
+  if (tapeIngestFrame || tapeDocumentHidden || !tapePendingBySymbol.size) return;
+  tapeIngestFrame = requestAnimationFrame(drainTapeIngest);
+}
+
+function drainTapeIngest() {
+  tapeIngestFrame = 0;
+  let budget = TAPE_INGEST_PER_FRAME;
+  const cardCount = Math.max(1, document.querySelectorAll(".orderbook-card").length);
+  if (cardCount >= 6) budget = 120;
+  else if (cardCount >= 3) budget = 170;
+
+  for (const [symbol, pending] of tapePendingBySymbol) {
+    if (budget <= 0) break;
+    const take = Math.min(budget, pending.trades.length);
+    const chunk = pending.trades.splice(0, take);
+    const current = tapeTradesBySymbol.get(symbol) ?? [];
+    tapeTradesBySymbol.set(
+      symbol,
+      mergeTapeHistory(current, chunk, pending.replace),
+    );
+    pending.replace = false;
+    budget -= take;
+
+    const stored = tapeTradesBySymbol.get(symbol) ?? [];
+    const latestTime = stored[0]?.time || Date.now();
+    const previousMeta = tapeMetaBySymbol.get(symbol) ?? {};
+    tapeMetaBySymbol.set(symbol, {
+      lastPacketAt: Date.now(),
+      lastTradeTime: latestTime,
+      packets: (Number(previousMeta.packets) || 0) + 1,
+    });
+    tapeRecentRate = stored.reduce(
+      (count, trade) => count + (trade.time >= latestTime - 1_000 ? 1 : 0),
+      0,
+    );
+
+    const cards = [...document.querySelectorAll(".orderbook-card")]
+      .filter((card) => cardSymbol(card) === symbol && flowLayerVisible(card));
+    cards.forEach((card) => scheduleTapeDraw(false, card));
+
+    if (!pending.trades.length) tapePendingBySymbol.delete(symbol);
+  }
+
+  if (tapePendingBySymbol.size) scheduleTapeIngest();
 }
 
 function acceptTapeData(event) {
   const detail = event?.detail;
   const symbol = String(detail?.symbol ?? "").toUpperCase();
   if (!symbol.endsWith("USDT")) return;
-  const incoming = Array.isArray(detail?.trades) ? detail.trades : [];
-  if (detail.replace || incoming.length) {
-    const current = tapeTradesBySymbol.get(symbol) ?? [];
-    tapeTradesBySymbol.set(symbol, mergeTapeHistory(current, incoming, Boolean(detail.replace)));
-  }
+  const incoming = Array.isArray(detail?.trades)
+    ? detail.trades.map(normalizeTapeTrade).filter(Boolean)
+    : [];
+  if (!detail?.replace && !incoming.length) return;
 
-  const normalizedIncoming = incoming.map(normalizeTapeTrade).filter(Boolean);
-  const now = normalizedIncoming.length
-    ? Math.max(...normalizedIncoming.map((trade) => trade.time))
-    : Date.now();
-  const stored = tapeTradesBySymbol.get(symbol) ?? [];
-  const previousMeta = tapeMetaBySymbol.get(symbol) ?? {};
-  tapeMetaBySymbol.set(symbol, {
-    lastPacketAt: Date.now(),
-    lastTradeTime: stored.length ? Math.max(...stored.slice(0, 32).map((trade) => Number(trade.time) || 0)) : previousMeta.lastTradeTime || 0,
-    packets: (Number(previousMeta.packets) || 0) + 1,
-  });
-  tapeRecentRate = stored.reduce((count, trade) => count + (trade.time >= now - 1_000 ? 1 : 0), 0);
-  const cards = [...document.querySelectorAll(".orderbook-card")]
-    .filter((card) => cardSymbol(card) === symbol);
-  if (cards.length) cards.forEach((card) => scheduleTapeDraw(false, card));
-  else scheduleTapeDraw();
+  const pending = tapePendingBySymbol.get(symbol) ?? {
+    trades: [],
+    replace: false,
+  };
+  if (detail.replace) {
+    pending.trades = incoming.slice(0, TAPE_MAX_STORED);
+    pending.replace = true;
+  } else if (incoming.length) {
+    pending.trades.push(...incoming);
+    if (pending.trades.length > TAPE_MAX_STORED) {
+      pending.trades.splice(0, pending.trades.length - TAPE_MAX_STORED);
+    }
+  }
+  tapePendingBySymbol.set(symbol, pending);
+  scheduleTapeIngest();
 }
 
 function bindTapeCard(card) {
@@ -2901,7 +3074,9 @@ function installOrderBookRuntime() {
       tapeNeedsDraw = true;
       return;
     }
-    // Не догоняем пропущенные кадры: рисуем один актуальный снимок.
+    // Не догоняем пропущенные кадры: рисуем один актуальный снимок,
+    // а накопленные сделки добавляем небольшими порциями между кадрами.
+    scheduleTapeIngest();
     scheduleTapeDraw(true);
   });
 
