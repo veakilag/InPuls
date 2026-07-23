@@ -1,15 +1,22 @@
 const MAX_BOOK_LEVELS_PER_SIDE = 20_000;
-const MAX_EMITTED_LEVELS_PER_SIDE = 10_000;
+const MAX_EMITTED_LEVELS_PER_SIDE = 4_000;
 const MAX_BUFFERED_DEPTH_EVENTS = 4_000;
 const MAX_TRADE_HISTORY = 20_000;
 const MAX_TAPE_SNAPSHOT = 1_200;
-const MAX_RESUME_TAPE_SNAPSHOT = 300;
+const MAX_RESUME_TAPE_SNAPSHOT = 80;
+const MAX_RESUME_LEVELS_PER_SIDE = 700;
+const RESUME_STAGGER_MS = 140;
+const RESUME_STALE_MS = 3_500;
+const ACTIVE_STALE_MS = 12_000;
 const SNAPSHOT_TIMEOUT_MS = 2_800;
 const IDLE_CLOSE_MS = 10_000;
 
 const feeds = new Map();
 let tabVisible = true;
 let emitTimer = 0;
+let emitCursor = 0;
+let visibilityEpoch = 0;
+let watchdogTimer = 0;
 
 function post(type, symbol, payload = {}) {
   self.postMessage({ type, symbol, ...payload });
@@ -177,6 +184,10 @@ class SymbolFeed {
     this.tradeIds = new Set();
     this.tapeBatch = [];
     this.tapeTimer = 0;
+    this.resumeTimer = 0;
+    this.lastDepthAt = 0;
+    this.lastMessageAt = 0;
+    this.lastRestartAt = 0;
   }
 
   addSubscriber() {
@@ -226,6 +237,7 @@ class SymbolFeed {
     this.stopSockets();
     clearTimeout(this.tradeSaveTimer);
     clearTimeout(this.tapeTimer);
+    clearTimeout(this.resumeTimer);
     if (this.trades.length) tradeStore.set(this.symbol, this.trades).catch(() => {});
   }
 
@@ -241,6 +253,7 @@ class SymbolFeed {
     this.snapshotLoading = false;
     this.cachedSorted = null;
     this.dirty = false;
+    this.lastDepthAt = 0;
   }
 
   setStatus(state, text) {
@@ -264,15 +277,67 @@ class SymbolFeed {
     }
   }
 
-  resume() {
-    this.forceEmit = true;
-    this.tapeBatch = [];
-    clearTimeout(this.tapeTimer);
-    this.tapeTimer = 0;
-    post("tape", this.symbol, {
-      replace: true,
-      trades: this.trades.slice(0, MAX_RESUME_TAPE_SNAPSHOT),
-    });
+  resume(delayMs = 0, epoch = visibilityEpoch) {
+    clearTimeout(this.resumeTimer);
+    this.resumeTimer = setTimeout(() => {
+      this.resumeTimer = 0;
+      if (!tabVisible || epoch !== visibilityEpoch || this.subscribers <= 0) return;
+
+      const now = Date.now();
+      const socketOpen = this.socket?.readyState === WebSocket.OPEN;
+      const depthFresh = this.lastDepthAt > 0 && now - this.lastDepthAt <= RESUME_STALE_MS;
+
+      // Браузер может заморозить Worker/WebSocket в фоновой вкладке без close-события.
+      // В таком случае старую sequence-цепочку продолжать нельзя — пересобираем книгу.
+      if (!socketOpen || !depthFresh) {
+        this.restartAfterBackground();
+        return;
+      }
+
+      this.tapeBatch = [];
+      clearTimeout(this.tapeTimer);
+      this.tapeTimer = 0;
+      post("tape", this.symbol, {
+        replace: true,
+        trades: this.trades.slice(0, MAX_RESUME_TAPE_SNAPSHOT),
+      });
+
+      this.forceEmit = true;
+      this.emit(now, MAX_RESUME_LEVELS_PER_SIDE, true);
+    }, Math.max(0, delayMs));
+  }
+
+  restartAfterBackground() {
+    if (this.subscribers <= 0) return;
+    const now = Date.now();
+    if (now - this.lastRestartAt < 2_500) return;
+    this.lastRestartAt = now;
+    this.stopSockets();
+    this.generation += 1;
+    this.mode = "deep";
+    this.transportIndex = 0;
+    this.resetBook();
+    this.setStatus("loading", "Восстановление Worker");
+    const generation = this.generation;
+    this.connect(generation);
+  }
+
+  ensureHealthy(now = Date.now()) {
+    if (!tabVisible || this.subscribers <= 0) return;
+    const socketOpen = this.socket?.readyState === WebSocket.OPEN;
+    const socketConnecting = this.socket?.readyState === WebSocket.CONNECTING;
+    const reconnectPending = Boolean(this.reconnectTimer || this.firstDepthTimer || this.snapshotLoading);
+    const stale = this.depthReady && this.lastDepthAt > 0 && now - this.lastDepthAt > ACTIVE_STALE_MS;
+    if ((!socketOpen && !socketConnecting && !reconnectPending) || stale) {
+      this.restartAfterBackground();
+    }
+  }
+
+  emittedLimit() {
+    const active = [...feeds.values()].filter((feed) => feed.subscribers > 0).length;
+    if (active <= 1) return MAX_EMITTED_LEVELS_PER_SIDE;
+    if (active === 2) return 2_500;
+    return 1_500;
   }
 
   sortedDepth() {
@@ -283,10 +348,15 @@ class SymbolFeed {
     return this.cachedSorted;
   }
 
-  emit(now = Date.now()) {
-    if (!tabVisible || this.subscribers <= 0 || (!this.dirty && !this.forceEmit)) return;
-    if (!this.forceEmit && now - this.lastEmitAt < 100) return;
-    const view = this.sortedDepth();
+  emit(now = Date.now(), requestedLimit = this.emittedLimit(), force = false) {
+    if (!tabVisible || this.subscribers <= 0 || (!force && !this.dirty && !this.forceEmit)) return;
+    if (!force && !this.forceEmit && now - this.lastEmitAt < 100) return;
+    const fullView = this.sortedDepth();
+    const limit = Math.max(100, Math.min(MAX_EMITTED_LEVELS_PER_SIDE, Math.floor(requestedLimit)));
+    const view = {
+      bids: fullView.bids.slice(0, limit),
+      asks: fullView.asks.slice(0, limit),
+    };
     if (!view.bids.length || !view.asks.length) return;
     const bestBid = Number(view.bids[0][0]);
     const bestAsk = Number(view.asks[0][0]);
@@ -481,6 +551,7 @@ class SymbolFeed {
       const update = payload.data;
       const eventType = String(update?.e ?? "").toLowerCase();
       const stream = payload.stream.toLowerCase();
+      this.lastMessageAt = Date.now();
 
       if (eventType === "aggtrade" || stream.endsWith("@aggtrade")) {
         const trade = normalizeTrade(update);
@@ -493,6 +564,7 @@ class SymbolFeed {
       const bids = update?.b ?? update?.bids;
       const asks = update?.a ?? update?.asks;
       if (!Array.isArray(bids) || !Array.isArray(asks)) return;
+      this.lastDepthAt = Date.now();
       clearTimeout(this.firstDepthTimer);
       this.transportIndex = 0;
 
@@ -581,10 +653,34 @@ function scheduleEmit() {
   emitTimer = setTimeout(() => {
     emitTimer = 0;
     if (!tabVisible) return;
+
+    const active = [...feeds.values()].filter((feed) => feed.subscribers > 0);
+    if (!active.length) return;
+
+    // Не отправляем несколько тяжёлых книг в UI одним залпом.
+    // При 3+ стаканах один тик обслуживает один символ по кругу.
+    const budget = active.length <= 2 ? active.length : 1;
     const now = Date.now();
-    for (const feed of feeds.values()) feed.emit(now);
-    if ([...feeds.values()].some((feed) => feed.dirty || feed.forceEmit)) scheduleEmit();
+    for (let index = 0; index < budget; index += 1) {
+      const feed = active[emitCursor % active.length];
+      emitCursor = (emitCursor + 1) % active.length;
+      feed.emit(now);
+    }
+
+    if (active.some((feed) => feed.dirty || feed.forceEmit)) scheduleEmit();
   }, 25);
+}
+
+function scheduleWatchdog() {
+  clearTimeout(watchdogTimer);
+  watchdogTimer = setTimeout(() => {
+    watchdogTimer = 0;
+    if (tabVisible) {
+      const now = Date.now();
+      for (const feed of feeds.values()) feed.ensureHealthy(now);
+    }
+    scheduleWatchdog();
+  }, 2_000);
 }
 
 function getFeed(symbol) {
@@ -601,19 +697,29 @@ self.addEventListener("message", (event) => {
   if (!message || typeof message !== "object") return;
 
   if (message.type === "visibility") {
-    tabVisible = Boolean(message.visible);
+    const nextVisible = Boolean(message.visible);
+    if (nextVisible === tabVisible) return;
+
+    tabVisible = nextVisible;
+    visibilityEpoch += 1;
+    const epoch = visibilityEpoch;
+
     if (!tabVisible) {
       clearTimeout(emitTimer);
       emitTimer = 0;
       for (const feed of feeds.values()) {
         feed.tapeBatch = [];
         clearTimeout(feed.tapeTimer);
+        clearTimeout(feed.resumeTimer);
         feed.tapeTimer = 0;
+        feed.resumeTimer = 0;
       }
       return;
     }
-    for (const feed of feeds.values()) feed.resume();
-    scheduleEmit();
+
+    // Возвращаем книги по очереди, чтобы 3–6 окон не забивали главный поток одновременно.
+    const active = [...feeds.values()].filter((feed) => feed.subscribers > 0);
+    active.forEach((feed, index) => feed.resume(index * RESUME_STAGGER_MS, epoch));
     return;
   }
 
@@ -632,4 +738,5 @@ self.addEventListener("message", (event) => {
   }
 });
 
+scheduleWatchdog();
 post("ready", "");

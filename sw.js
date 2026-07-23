@@ -1,4 +1,4 @@
-const CACHE = "inpuls-v26-4-worker-safe-1";
+const CACHE = "inpuls-v26-5-worker-start-resume-1";
 
 const SHELL = [
   "./",
@@ -7,8 +7,8 @@ const SHELL = [
   "./app.js?v=23",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=26-4-worker-1",
-  "./orderbook-worker.js?v=26-4-worker-1",
+  "./orderbook.js?v=26-5-worker-resume-1",
+  "./orderbook-worker.js?v=26-5-worker-resume-1",
   "./assets/inpuls-world-map-v17.png",
   "./manifest.webmanifest",
   "./icon.svg",
@@ -16,7 +16,9 @@ const SHELL = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(SHELL)),
+    caches.open(CACHE).then((cache) =>
+      Promise.allSettled(SHELL.map((url) => cache.add(url))),
+    ),
   );
   self.skipWaiting();
 });
@@ -24,15 +26,13 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
-      .then(() => caches.open(CACHE))
-      .then((cache) => cache.addAll(SHELL)),
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim()),
   );
-  self.clients.claim();
 });
 
 async function fetchFresh(request) {
-  return fetch(request, { cache: "reload" });
+  return fetch(request, { cache: "no-store" });
 }
 
 self.addEventListener("fetch", (event) => {
@@ -41,13 +41,15 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  // app.js всё ещё импортирует orderbook.js?v=23.
-  // Независимо от старого query принудительно отдаём сборку v26.
   if (url.pathname.endsWith("/orderbook.js")) {
-    const forcedUrl = new URL("./orderbook.js?v=26-4-worker-1", self.registration.scope);
-    event.respondWith(
-      fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)),
-    );
+    const forcedUrl = new URL("./orderbook.js?v=26-5-worker-resume-1", self.registration.scope);
+    event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
+    return;
+  }
+
+  if (url.pathname.endsWith("/orderbook-worker.js")) {
+    const forcedUrl = new URL("./orderbook-worker.js?v=26-5-worker-resume-1", self.registration.scope);
+    event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
     return;
   }
 
