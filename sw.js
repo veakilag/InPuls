@@ -1,4 +1,4 @@
-const CACHE = "inpuls-v26-5-worker-start-resume-1";
+const CACHE = "inpuls-v26-6-tape-v2";
 
 const SHELL = [
   "./",
@@ -7,8 +7,8 @@ const SHELL = [
   "./app.js?v=23",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=26-5-worker-resume-1",
-  "./orderbook-worker.js?v=26-5-worker-resume-1",
+  "./orderbook.js?v=26-6-tape-v2",
+  "./orderbook-worker.js?v=26-6-tape-v2",
   "./assets/inpuls-world-map-v17.png",
   "./manifest.webmanifest",
   "./icon.svg",
@@ -42,13 +42,13 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   if (url.pathname.endsWith("/orderbook.js")) {
-    const forcedUrl = new URL("./orderbook.js?v=26-5-worker-resume-1", self.registration.scope);
+    const forcedUrl = new URL("./orderbook.js?v=26-6-tape-v2", self.registration.scope);
     event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
     return;
   }
 
   if (url.pathname.endsWith("/orderbook-worker.js")) {
-    const forcedUrl = new URL("./orderbook-worker.js?v=26-5-worker-resume-1", self.registration.scope);
+    const forcedUrl = new URL("./orderbook-worker.js?v=26-6-tape-v2", self.registration.scope);
     event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
     return;
   }
