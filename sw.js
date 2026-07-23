@@ -1,4 +1,4 @@
-const CACHE = "inpuls-v26-8-market-tape";
+const CACHE = "inpuls-v26-9-tape-visibility";
 
 const SHELL = [
   "./",
