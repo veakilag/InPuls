@@ -1002,7 +1002,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-7-tape-stream", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-8-market-tape", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 
 class OrderBookWorkerManager {
@@ -1029,7 +1029,7 @@ class OrderBookWorkerManager {
       // Worker не использует import/export, поэтому classic-режим надёжнее
       // module Worker в Chromium/Yandex при работе через Service Worker.
       this.worker = new Worker(ORDERBOOK_WORKER_URL, {
-        name: "inpuls-orderbook-worker-v26-7",
+        name: "inpuls-orderbook-worker-v26-8",
       });
       this.startupTimer = setTimeout(() => {
         if (!this.workerReady) this.#fail();
@@ -1224,7 +1224,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-7-tape-stream";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-8-market-tape";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const TAPE_MAX_STORED = 4_000;
 const TAPE_MAX_RAW_VISIBLE = 2_000;
