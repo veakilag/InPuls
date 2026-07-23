@@ -46,7 +46,7 @@
         status.textContent = "Подключаю v26.10: точные состояния ленты…";
         if ("serviceWorker" in navigator) {
           const registration = await navigator.serviceWorker.register(
-            "./sw.js?v=26-10-tape-range-status",
+            "./sw.js?v=26-11-price-format",
             { scope: "./", updateViaCache: "none" },
           );
           await registration.update();
@@ -61,7 +61,7 @@
         }
 
         status.textContent = "Готово. Открываю InPuls…";
-        location.replace(`./?build=26-10-tape-range-status&t=${Date.now()}`);
+        location.replace(`./?build=26-11-price-format&t=${Date.now()}`);
       } catch (error) {
         status.textContent = `Не удалось очистить автоматически: ${error?.message || error}`;
         button.disabled = false;

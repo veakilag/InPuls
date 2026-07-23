@@ -1,4 +1,4 @@
-const CACHE = "inpuls-v26-10-tape-range-status";
+const CACHE = "inpuls-v26-11-price-format";
 
 const SHELL = [
   "./",
@@ -7,7 +7,7 @@ const SHELL = [
   "./app.js?v=23",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=26-10-tape-range-status",
+  "./orderbook.js?v=26-11-price-format",
   "./orderbook-worker.js?v=26-8-market-tape",
   "./assets/inpuls-world-map-v17.png",
   "./manifest.webmanifest",
@@ -42,7 +42,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   if (url.pathname.endsWith("/orderbook.js")) {
-    const forcedUrl = new URL("./orderbook.js?v=26-10-tape-range-status", self.registration.scope);
+    const forcedUrl = new URL("./orderbook.js?v=26-11-price-format", self.registration.scope);
     event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
     return;
   }
