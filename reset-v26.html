@@ -20,7 +20,7 @@
 <body>
   <main>
     <h1>Очистка старого стакана</h1>
-    <p>Страница удалит старые кеши и Service Worker, подключит сборку <strong>orderbook v26.3</strong>, затем откроет InPuls.</p>
+    <p>Страница удалит старые кеши и Service Worker, подключит сборку <strong>orderbook v26.3 BOOK</strong>, затем откроет InPuls.</p>
     <button id="reset" type="button">Очистить и открыть InPuls</button>
     <small id="status"></small>
   </main>
@@ -43,10 +43,10 @@
           await Promise.all(keys.map((key) => caches.delete(key)));
         }
 
-        status.textContent = "Подключаю чистую сборку v26…";
+        status.textContent = "Подключаю безопасный стакан v26.3 BOOK…";
         if ("serviceWorker" in navigator) {
           const registration = await navigator.serviceWorker.register(
-            "./sw.js?v=26-3",
+            "./sw.js?v=26-3-book-1",
             { scope: "./", updateViaCache: "none" },
           );
           await registration.update();
@@ -61,7 +61,7 @@
         }
 
         status.textContent = "Готово. Открываю InPuls…";
-        location.replace(`./?build=26-3&t=${Date.now()}`);
+        location.replace(`./?build=26-3-book-1&t=${Date.now()}`);
       } catch (error) {
         status.textContent = `Не удалось очистить автоматически: ${error?.message || error}`;
         button.disabled = false;

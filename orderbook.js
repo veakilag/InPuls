@@ -112,20 +112,48 @@ export function adaptiveBookScaleIndex(baseTick, currentIndex, movement, rowCoun
   return Math.max(safeIndex, adaptiveIndex < 0 ? maximumBookScaleIndex() : adaptiveIndex);
 }
 
-export function depthCoverageScaleIndex(baseTick, bids, asks, middlePrice, rowCount, coverage = .92) {
+const AUTO_BOOK_MAX_MULTIPLIER = 50;
+
+export function depthCoverageScaleIndex(baseTick, bids, asks, middlePrice, rowCount, coverage = .82) {
   const middle = Number(middlePrice);
   const tick = Math.max(Number.EPSILON, Number(baseTick) || .01);
   if (!Number.isFinite(middle)) return 0;
+
   const distances = [...(bids ?? []), ...(asks ?? [])]
     .map((row) => Math.abs(Number(row?.[0]) - middle))
     .filter((distance) => Number.isFinite(distance) && distance > 0)
     .sort((left, right) => left - right);
   if (!distances.length) return 0;
-  const percentile = Math.max(0, Math.min(distances.length - 1, Math.floor((distances.length - 1) * Math.max(.5, Math.min(1, Number(coverage) || .92)))));
+
   const halfRows = Math.max(2, Math.floor((Number(rowCount) || 3) / 2));
-  const requiredMultiplier = (distances[percentile] / halfRows) / tick;
-  const index = BOOK_SCALE_MULTIPLIERS.findIndex((multiplier) => multiplier >= requiredMultiplier);
-  return index < 0 ? maximumBookScaleIndex() : index;
+
+  // AUTO должен показывать рабочую область около рынка, а не пытаться
+  // упаковать 92% всей глубокой книги в один экран. Берём только ближайшие
+  // несколько экранов реальных уровней; дальняя книга остаётся доступна
+  // обычным скроллом и ручным масштабом до ×500.
+  const localSampleSize = Math.min(
+    distances.length,
+    Math.max(24, halfRows * 3),
+  );
+  const localDistances = distances.slice(0, localSampleSize);
+  const localCoverage = Math.max(.65, Math.min(.9, Number(coverage) || .82));
+  const percentile = Math.max(
+    0,
+    Math.min(
+      localDistances.length - 1,
+      Math.floor((localDistances.length - 1) * localCoverage),
+    ),
+  );
+
+  const requiredMultiplier = (localDistances[percentile] / halfRows) / tick;
+  const requestedIndex = BOOK_SCALE_MULTIPLIERS.findIndex(
+    (multiplier) => multiplier >= requiredMultiplier,
+  );
+  const maxAutoIndex = BOOK_SCALE_MULTIPLIERS.findIndex(
+    (multiplier) => multiplier >= AUTO_BOOK_MAX_MULTIPLIER,
+  );
+  const safeRequested = requestedIndex < 0 ? maximumBookScaleIndex() : requestedIndex;
+  return Math.min(safeRequested, maxAutoIndex < 0 ? maximumBookScaleIndex() : maxAutoIndex);
 }
 
 export function recoverBookScaleIndex(userIndex, adaptiveIndex, calmTicks = 1) {
@@ -167,8 +195,24 @@ function aggregatedDepthRow(levels, side, displayPrice) {
   };
 }
 
+const depthAggregationCache = new WeakMap();
+
+function cachedDepthAggregation(levels, side, priceStep) {
+  if (!Array.isArray(levels)) return null;
+  let entries = depthAggregationCache.get(levels);
+  if (!entries) {
+    entries = new Map();
+    depthAggregationCache.set(levels, entries);
+  }
+  const key = `${side}:${Number(priceStep).toPrecision(14)}`;
+  return { entries, key, value: entries.get(key) };
+}
+
 function aggregateDepthByStep(levels, side, priceStep) {
   const step = Math.max(Number.EPSILON, Number(priceStep) || .01);
+  const cached = cachedDepthAggregation(levels, side, step);
+  if (cached?.value) return cached.value;
+
   const normalized = normalizeDepthLevels(levels, side);
   const buckets = new Map();
 
@@ -184,9 +228,11 @@ function aggregateDepthByStep(levels, side, priceStep) {
     buckets.set(key, bucket);
   }
 
-  return [...buckets.values()]
+  const result = [...buckets.values()]
     .map((bucket) => aggregatedDepthRow(bucket.levels, side, bucket.price))
     .sort((left, right) => side === "ask" ? left.price - right.price : right.price - left.price);
+  cached?.entries.set(cached.key, result);
+  return result;
 }
 
 function closestRowIndex(rows, targetPrice) {
@@ -955,7 +1001,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-3";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-3-book-1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const TAPE_HISTORY_MS = 5 * 60_000;
 const TAPE_MAX_STORED = 5_000;
