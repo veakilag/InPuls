@@ -14,9 +14,10 @@ test("files keep correct identities", () => {
   assert.match(reset, /^<!doctype html>/);
 });
 
-test("resume is bounded and depth limits are expanded", () => {
-  assert.match(worker, /MAX_RESUME_TAPE_SNAPSHOT = 420/);
-  assert.match(worker, /RESUME_TAPE_WINDOW_MS = 75_000/);
-  assert.match(worker, /MAX_EMITTED_LEVELS_PER_SIDE = 8_000/);
-  assert.match(runtime, /TAPE_RESUME_MAX_PENDING = 500/);
+test("long background sleep forces a clean staggered Worker restart", () => {
+  assert.match(worker, /MAX_RESUME_TAPE_SNAPSHOT = 80/);
+  assert.match(worker, /MAX_EMITTED_LEVELS_PER_SIDE = 4_000/);
+  assert.match(runtime, /ORDERBOOK_BACKGROUND_HARD_RESTART_MS = 15_000/);
+  assert.match(runtime, /this\.#restart\(`Возврат из фона/);
+  assert.match(runtime, /index \* ORDERBOOK_RESUBSCRIBE_STAGGER_MS/);
 });

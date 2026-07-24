@@ -1164,8 +1164,10 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-21-background-depth", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-22-background-restart", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
+const ORDERBOOK_BACKGROUND_HARD_RESTART_MS = 15_000;
+const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 160;
 
 class OrderBookWorkerManager {
   constructor() {
@@ -1184,6 +1186,8 @@ class OrderBookWorkerManager {
     this.lastHeartbeatAt = 0;
     this.restartCount = 0;
     this.needsResubscribe = false;
+    this.hiddenAt = typeof document !== "undefined" && document.hidden ? Date.now() : 0;
+    this.resubscribeEpoch = 0;
     this.#start();
     this.#startHealthWatch();
   }
@@ -1197,7 +1201,7 @@ class OrderBookWorkerManager {
       // Worker не использует import/export, поэтому classic-режим надёжнее
       // module Worker в Chromium/Yandex при работе через Service Worker.
       this.worker = new Worker(ORDERBOOK_WORKER_URL, {
-        name: "inpuls-orderbook-worker-v26-21",
+        name: "inpuls-orderbook-worker-v26-22",
       });
       this.startupTimer = setTimeout(() => {
         if (this.workerReady) return;
@@ -1215,9 +1219,29 @@ class OrderBookWorkerManager {
       this.worker.postMessage({ type: "visibility", visible });
       if (typeof document !== "undefined" && !this.visibilityHandler) {
         this.visibilityHandler = () => {
+          const visible = !document.hidden;
+          if (!visible) {
+            this.hiddenAt = Date.now();
+            if (this.worker && !this.failed) {
+              this.worker.postMessage({ type: "visibility", visible: false });
+            }
+            return;
+          }
+
+          const hiddenFor = this.hiddenAt ? Date.now() - this.hiddenAt : 0;
+          this.hiddenAt = 0;
+          this.lastHeartbeatAt = Date.now();
+
+          // После долгой заморозки Chromium может оставить WebSocket в OPEN,
+          // хотя sequence и сетевой поток уже мертвы. Не пытаемся оживлять
+          // такой Worker — создаём чистый и подписываем символы заново.
+          if (hiddenFor >= ORDERBOOK_BACKGROUND_HARD_RESTART_MS) {
+            this.#restart(`Возврат из фона ${Math.round(hiddenFor / 1_000)}с`);
+            return;
+          }
+
           if (!this.worker || this.failed) return;
-          this.worker.postMessage({ type: "visibility", visible: !document.hidden });
-          if (!document.hidden) this.lastHeartbeatAt = Date.now();
+          this.worker.postMessage({ type: "visibility", visible: true });
         };
         document.addEventListener("visibilitychange", this.visibilityHandler);
       }
@@ -1245,6 +1269,7 @@ class OrderBookWorkerManager {
     this.restarting = true;
     this.restartCount += 1;
     this.needsResubscribe = true;
+    this.resubscribeEpoch += 1;
     console.warn("InPuls orderbook Worker restart", reason);
     clearTimeout(this.startupTimer);
     this.startupTimer = 0;
@@ -1324,11 +1349,19 @@ class OrderBookWorkerManager {
       const visible = typeof document === "undefined" || !document.hidden;
       this.worker?.postMessage({ type: "visibility", visible });
       if (this.needsResubscribe) {
-        for (const symbol of this.clientsBySymbol.keys()) {
-          this.worker?.postMessage({ type: "subscribe", symbol });
-        }
+        const worker = this.worker;
+        const epoch = ++this.resubscribeEpoch;
+        const symbols = [...this.clientsBySymbol.keys()];
+        this.needsResubscribe = false;
+        symbols.forEach((symbol, index) => {
+          setTimeout(() => {
+            if (this.failed || !this.workerReady || this.worker !== worker || epoch !== this.resubscribeEpoch) return;
+            worker?.postMessage({ type: "subscribe", symbol });
+          }, index * ORDERBOOK_RESUBSCRIBE_STAGGER_MS);
+        });
+      } else {
+        this.needsResubscribe = false;
       }
-      this.needsResubscribe = false;
       return;
     }
     if (message.type === "heartbeat") return;
@@ -1452,7 +1485,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-21-background-depth";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-22-background-restart";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const TAPE_MAX_STORED = 4_000;
