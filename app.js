@@ -1662,24 +1662,8 @@ function renderOrderBook(panel, data) {
   const effectiveScaleIndex = Math.max(userScaleIndex, Number(panel.autoScaleIndex) || 0);
   panel.priceStep = priceStepForScale(panel.baseTick, effectiveScaleIndex);
   if (panel.model.bookCentered !== false || !Number.isFinite(panel.viewCenter)) panel.viewCenter = middle;
-  const halfSpan = panel.priceStep * Math.max(2, Math.floor(rowCount / 2));
-  const manualScrollFinished = now > panel.manualScrollUntil;
-  const marketMovedAfterScroll = !Number.isFinite(panel.manualScrollAnchorPrice) || Math.abs(middle - panel.manualScrollAnchorPrice) >= panel.priceStep * .5;
-  if (panel.model.bookCentered === false && manualScrollFinished && marketMovedAfterScroll && Math.abs(middle - panel.viewCenter) >= halfSpan * .9) panel.autoCentering = true;
-  if (panel.autoCentering) {
-    const difference = middle - panel.viewCenter;
-    panel.viewCenter += difference * .18;
-    if (Math.abs(difference) <= panel.priceStep * .08) {
-      panel.viewCenter = middle;
-      panel.autoCentering = false;
-      panel.manualScrollAnchorPrice = null;
-    } else if (!panel.centerFrame) {
-      panel.centerFrame = requestAnimationFrame(() => {
-        panel.centerFrame = null;
-        if (panel.latest) renderOrderBook(panel, panel.latest);
-      });
-    }
-  }
+  // Manual scroll is authoritative: market movement must never recenter the DOM.
+  panel.autoCentering = false;
   const rows = buildDepthLadder(data.bids, data.asks, middle, panel.viewCenter, panel.priceStep, rowCount);
   const values = rows.map((item) => item.quote).filter((value) => value > 0).sort((a, b) => a - b);
   const median = values.length ? values[Math.floor(values.length / 2)] : 0;
