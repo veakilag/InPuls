@@ -7,7 +7,7 @@ import {
   percentile,
   sourceFromTradePayload,
   summarize,
-} from "./trade-latency-core.js?v=2";
+} from "./trade-latency-core.js?v=2.1";
 
 const SOURCES = ["aggTrade", "trade"];
 const MAX_SAMPLES = 30_000;

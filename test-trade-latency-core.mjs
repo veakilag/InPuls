@@ -69,6 +69,28 @@ test("raw trades match aggregate by receive and render times", () => {
   assert.equal(match.volumeDifferencePercent, 0);
 });
 
+test("null render timestamps are not treated as painted", () => {
+  const rawById = new Map([
+    [100, { quantity: 1, receiveAt: 1000, renderAt: null }],
+    [101, { quantity: 2, receiveAt: 1002, renderAt: 1022 }],
+  ]);
+  const beforeAggregatePaint = matchAggregateToRaw(
+    { firstTradeId: 100, lastTradeId: 101, receiveAt: 1010, renderAt: null, quantity: 3 },
+    rawById,
+  );
+  assert.equal(beforeAggregatePaint.renderCoverage, .5);
+  assert.equal(beforeAggregatePaint.rawFirstPaintLeadMs, null);
+  assert.equal(beforeAggregatePaint.rawCompletePaintLeadMs, null);
+
+  const afterAggregatePaint = matchAggregateToRaw(
+    { firstTradeId: 100, lastTradeId: 101, receiveAt: 1010, renderAt: 1030, quantity: 3 },
+    rawById,
+  );
+  assert.equal(afterAggregatePaint.renderCoverage, .5);
+  assert.equal(afterAggregatePaint.rawFirstPaintLeadMs, 8);
+  assert.equal(afterAggregatePaint.rawCompletePaintLeadMs, 8);
+});
+
 test("run validity fails on reconnect, invalid payload or hidden tab", () => {
   assert.equal(buildRunValidity({ phase: "measuring" }).valid, null);
   assert.equal(buildRunValidity({ phase: "finished" }).valid, true);
@@ -94,5 +116,5 @@ test("v2 browser lab keeps both streams on one socket with warmup and invalidati
   assert.match(source, /document\.addEventListener\("visibilitychange"/);
   assert.match(source, /runtime\.sharedReconnects \+= 1;/);
   assert.match(html, /id="validity-state"/);
-  assert.match(html, /trade-latency-lab\.js\?v=2/);
+  assert.match(html, /trade-latency-lab\.js\?v=2\.1/);
 });

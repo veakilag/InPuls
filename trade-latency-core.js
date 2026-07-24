@@ -97,7 +97,8 @@ export function matchAggregateToRaw(aggregate, rawById, maximumRange = 10_000) {
   const first = Number(aggregate?.firstTradeId);
   const last = Number(aggregate?.lastTradeId);
   const aggregateReceiveAt = Number(aggregate?.receiveAt);
-  const aggregateRenderAt = Number(aggregate?.renderAt);
+  const aggregateHasRenderAt = aggregate?.renderAt !== null && aggregate?.renderAt !== undefined;
+  const aggregateRenderAt = aggregateHasRenderAt ? Number(aggregate.renderAt) : NaN;
   const aggregateQuantity = Number(aggregate?.quantity);
   if (![first, last, aggregateReceiveAt, aggregateQuantity].every(Number.isFinite) || last < first) return null;
 
@@ -135,10 +136,12 @@ export function matchAggregateToRaw(aggregate, rawById, maximumRange = 10_000) {
     rawQuantity += Number(raw.quantity) || 0;
     earliestReceiveAt = Math.min(earliestReceiveAt, Number(raw.receiveAt));
     latestReceiveAt = Math.max(latestReceiveAt, Number(raw.receiveAt));
-    if (Number.isFinite(Number(raw.renderAt))) {
+    const rawHasRenderAt = raw.renderAt !== null && raw.renderAt !== undefined;
+    const rawRenderAt = rawHasRenderAt ? Number(raw.renderAt) : NaN;
+    if (Number.isFinite(rawRenderAt)) {
       renderedCount += 1;
-      earliestRenderAt = Math.min(earliestRenderAt, Number(raw.renderAt));
-      latestRenderAt = Math.max(latestRenderAt, Number(raw.renderAt));
+      earliestRenderAt = Math.min(earliestRenderAt, rawRenderAt);
+      latestRenderAt = Math.max(latestRenderAt, rawRenderAt);
     }
   }
 
