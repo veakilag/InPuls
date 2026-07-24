@@ -873,10 +873,12 @@ class SymbolFeed {
 
   insertTrade(trade, newestFirst = true) {
     if (!trade) return false;
-    const firstTradeId = Number.isInteger(Number(trade.firstTradeId)) ? Number(trade.firstTradeId) : trade.id;
-    const lastTradeId = Number.isInteger(Number(trade.lastTradeId)) ? Number(trade.lastTradeId) : trade.id;
-    const key = `${firstTradeId}:${lastTradeId}:${trade.time}:${trade.price}:${trade.quantity}`;
-    if (Number.isInteger(Number(lastTradeId))) this.tapeGuard.advanceBoundary(lastTradeId);
+   const hasRawRange = Number.isInteger(Number(trade.firstTradeId))
+  && Number.isInteger(Number(trade.lastTradeId));
+const firstTradeId = hasRawRange ? Number(trade.firstTradeId) : trade.id;
+const lastTradeId = hasRawRange ? Number(trade.lastTradeId) : trade.id;
+const key = `${firstTradeId}:${lastTradeId}:${trade.time}:${trade.price}:${trade.quantity}`;
+if (hasRawRange) this.tapeGuard.advanceBoundary(lastTradeId);
     if (this.tradeIds.has(key)) return false;
     this.tradeIds.add(key);
     if (newestFirst) this.trades.unshift(trade);
