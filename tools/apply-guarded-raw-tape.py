@@ -110,11 +110,25 @@ function tradeTransports(streams) {
 
     source = replace_once(
         source,
-        '''    this.tradeReconnectAttempt = 0;
+        '''  start() {
+    this.stopSockets();
+    this.generation += 1;
+    this.mode = "deep";
+    this.transportIndex = 0;
+    this.tradeTransportIndex = 0;
+    this.depthReconnectAttempt = 0;
+    this.tradeReconnectAttempt = 0;
     this.tradeLive = false;
     this.tradeConnected = false;
     this.resetBook();''',
-        '''    this.tradeReconnectAttempt = 0;
+        '''  start() {
+    this.stopSockets();
+    this.generation += 1;
+    this.mode = "deep";
+    this.transportIndex = 0;
+    this.tradeTransportIndex = 0;
+    this.depthReconnectAttempt = 0;
+    this.tradeReconnectAttempt = 0;
     this.tradeLive = false;
     this.tradeConnected = false;
     this.tradeTransportName = "—";
@@ -149,12 +163,12 @@ function tradeTransports(streams) {
         "liveStatusText",
     )
 
-    source = replace_once(
-        source,
-        '''      this.setStatus("stale", `STALE ${Math.max(1, Math.floor(depthAge / 1_000))}с · WORKER${this.tradeLive && this.tradeConnected ? " · TAPE" : ""}`);''',
-        '''      this.setStatus("stale", `STALE ${Math.max(1, Math.floor(depthAge / 1_000))}с · WORKER${this.tradeLive && this.tradeConnected ? ` · ${this.tapeGuard.label()}` : ""}`);''',
-        "stale status source label",
-    )
+    stale_status_old = '''      this.setStatus("stale", `STALE ${Math.max(1, Math.floor(depthAge / 1_000))}с · WORKER${this.tradeLive && this.tradeConnected ? " · TAPE" : ""}`);'''
+    stale_status_new = '''      this.setStatus("stale", `STALE ${Math.max(1, Math.floor(depthAge / 1_000))}с · WORKER${this.tradeLive && this.tradeConnected ? ` · ${this.tapeGuard.label()}` : ""}`);'''
+    stale_status_count = source.count(stale_status_old)
+    if stale_status_count < 1:
+        raise RuntimeError("Expected at least one stale status source label anchor")
+    source = source.replace(stale_status_old, stale_status_new)
 
     source = replace_once(
         source,
