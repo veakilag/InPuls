@@ -1164,7 +1164,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-12-stability", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-21-background-depth", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 
 class OrderBookWorkerManager {
@@ -1197,7 +1197,7 @@ class OrderBookWorkerManager {
       // Worker не использует import/export, поэтому classic-режим надёжнее
       // module Worker в Chromium/Yandex при работе через Service Worker.
       this.worker = new Worker(ORDERBOOK_WORKER_URL, {
-        name: "inpuls-orderbook-worker-v26-12",
+        name: "inpuls-orderbook-worker-v26-21",
       });
       this.startupTimer = setTimeout(() => {
         if (this.workerReady) return;
@@ -1365,6 +1365,7 @@ class OrderBookWorkerManager {
         detail: {
           symbol,
           replace: Boolean(message.replace),
+          resume: Boolean(message.resume),
           trades: Array.isArray(message.trades) ? message.trades : [],
         },
       }));
@@ -1451,7 +1452,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-18-layout-flow-fix";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-21-background-depth";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const TAPE_MAX_STORED = 4_000;
@@ -1485,6 +1486,7 @@ let tapeStateTimer = 0;
 let tapeIngestFrame = 0;
 
 const TAPE_INGEST_PER_FRAME = 220;
+const TAPE_RESUME_MAX_PENDING = 500;
 const LIQUIDITY_REFRESH_MS = 420;
 
 const BOOK_SPLIT_STORAGE_KEY = "inpuls-orderbook-split-v3";
@@ -2973,7 +2975,9 @@ function drainTapeIngest() {
 
   for (const [symbol, pending] of tapePendingBySymbol) {
     if (budget <= 0) break;
-    const take = Math.min(budget, pending.trades.length);
+    const take = pending.resume
+      ? Math.min(TAPE_RESUME_MAX_PENDING, pending.trades.length)
+      : Math.min(budget, pending.trades.length);
     const chunk = pending.trades.splice(0, take);
     const current = tapeTradesBySymbol.get(symbol) ?? [];
     tapeTradesBySymbol.set(
@@ -2981,7 +2985,12 @@ function drainTapeIngest() {
       mergeTapeHistory(current, chunk, pending.replace),
     );
     pending.replace = false;
-    budget -= take;
+    if (pending.resume) {
+      pending.resume = false;
+      budget = 0;
+    } else {
+      budget -= take;
+    }
 
     const stored = tapeTradesBySymbol.get(symbol) ?? [];
     const latestTime = stored[0]?.time || Date.now();
@@ -3018,10 +3027,16 @@ function acceptTapeData(event) {
   const pending = tapePendingBySymbol.get(symbol) ?? {
     trades: [],
     replace: false,
+    resume: false,
   };
-  if (detail.replace) {
+  if (detail.resume) {
+    pending.trades = incoming.slice(0, TAPE_RESUME_MAX_PENDING);
+    pending.replace = false;
+    pending.resume = true;
+  } else if (detail.replace) {
     pending.trades = incoming.slice(0, TAPE_MAX_STORED);
     pending.replace = true;
+    pending.resume = false;
   } else if (incoming.length) {
     pending.trades.push(...incoming);
     if (pending.trades.length > TAPE_MAX_STORED) {
@@ -3071,6 +3086,9 @@ function installOrderBookRuntime() {
     tapeDocumentHidden = document.hidden;
     if (tapeDocumentHidden) {
       cancelTapeDraw();
+      if (tapeIngestFrame) cancelAnimationFrame(tapeIngestFrame);
+      tapeIngestFrame = 0;
+      tapePendingBySymbol.clear();
       tapeNeedsDraw = true;
       return;
     }

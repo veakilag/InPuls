@@ -43,10 +43,10 @@
           await Promise.all(keys.map((key) => caches.delete(key)));
         }
 
-        status.textContent = "Подключаю v26.13: чистый и плавный стакан…";
+        status.textContent = "Подключаю v26.21: быстрый возврат и глубокий стакан…";
         if ("serviceWorker" in navigator) {
           const registration = await navigator.serviceWorker.register(
-            "./sw.js?v=26-18-layout-flow-fix",
+            "./sw.js?v=26-21-background-depth",
             { scope: "./", updateViaCache: "none" },
           );
           await registration.update();
@@ -61,7 +61,7 @@
         }
 
         status.textContent = "Готово. Открываю InPuls…";
-        location.replace(`./?build=26-18-layout-flow-fix&t=${Date.now()}`);
+        location.replace(`./?build=26-21-background-depth&t=${Date.now()}`);
       } catch (error) {
         status.textContent = `Не удалось очистить автоматически: ${error?.message || error}`;
         button.disabled = false;
