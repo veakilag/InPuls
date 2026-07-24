@@ -1451,7 +1451,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-19-tape-cluster-book";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-20-runtime-hotfix";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const TAPE_MAX_STORED = 4_000;
@@ -1992,6 +1992,25 @@ function runtimePriceStep(card) {
     if (gap > Number.EPSILON && gap < step) step = gap;
   }
   return Number.isFinite(step) ? step : null;
+}
+
+function priceStepDecimals(step) {
+  const safeStep = Math.abs(Number(step));
+  if (!Number.isFinite(safeStep) || safeStep <= 0) return 4;
+  const fixed = safeStep.toFixed(12).replace(/0+$/, "");
+  const decimalIndex = fixed.indexOf(".");
+  return decimalIndex < 0 ? 0 : Math.min(10, fixed.length - decimalIndex - 1);
+}
+
+function formatBookPriceByStep(value, step) {
+  const numeric = Number(value);
+  const safeStep = Math.abs(Number(step));
+  if (!Number.isFinite(numeric)) return "";
+  if (!Number.isFinite(safeStep) || safeStep <= 0) return String(value ?? "");
+  const decimals = priceStepDecimals(safeStep);
+  const quantized = Math.round((numeric / safeStep) + Number.EPSILON) * safeStep;
+  const normalized = Math.abs(quantized) < safeStep / 2 ? 0 : quantized;
+  return normalized.toFixed(decimals);
 }
 
 function decorateRuntimeBookRows(card) {
@@ -3104,9 +3123,15 @@ function acceptTapeData(event) {
 }
 
 function bindTapeCard(card) {
-  arrangeOrderBookChrome(card);
-  ensureTapeUi(card);
-  scheduleTapeDraw(true, card);
+  try {
+    arrangeOrderBookChrome(card);
+    ensureTapeUi(card);
+    card.removeAttribute("data-inpuls-runtime-error");
+    scheduleTapeDraw(true, card);
+  } catch (error) {
+    card.dataset.inpulsRuntimeError = "1";
+    console.error("[InPuls] Order book runtime failed", error);
+  }
 }
 
 function scanTapeCards(root = document) {
