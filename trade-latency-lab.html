@@ -50,7 +50,7 @@
       .button-primary { background: rgba(57, 219, 162, .14); border-color: rgba(57, 219, 162, .5); color: #baffea; }
       .button-danger { background: rgba(255, 111, 119, .08); border-color: rgba(255, 111, 119, .35); }
       .button:disabled { opacity: .42; cursor: not-allowed; }
-      .runbar { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; margin: 10px 0; color: var(--muted); font-size: 12px; }
+      .runbar { display: grid; grid-template-columns: 1fr auto auto auto; gap: 10px; align-items: center; margin: 10px 0; color: var(--muted); font-size: 12px; }
       .progress { height: 5px; overflow: hidden; border-radius: 99px; background: #10191c; border: 1px solid var(--line-soft); }
       .progress i { display: block; width: 0; height: 100%; background: linear-gradient(90deg, var(--green), var(--blue), var(--violet)); transition: width .2s linear; }
       .status-pill { display: inline-flex; align-items: center; gap: 6px; }
@@ -80,7 +80,7 @@
       .verdict[data-tone="positive"] strong { color: var(--green); }
       .verdict[data-tone="negative"] strong { color: var(--red); }
       .verdict[data-tone="warning"] strong { color: var(--yellow); }
-      .comparison-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+      .comparison-metrics { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
       .comparison-metrics .metric { border-bottom: 0; }
       .clock-note { grid-column: 1 / -1; padding: 8px 12px; border-top: 1px solid var(--line-soft); color: var(--muted); font-size: 10px; }
       .tapes { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -107,7 +107,7 @@
         .metric:nth-child(2n) { border-right: 0; }
         .comparison-body { grid-template-columns: 1fr; }
         .verdict { border-right: 0; border-bottom: 1px solid var(--line-soft); }
-        .comparison-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .comparison-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
       }
       @media (max-width: 700px) {
         body { padding: 10px; }
@@ -128,17 +128,17 @@
       <div class="topbar">
         <a class="brand" href="./" aria-label="Вернуться в InPuls">
           <span class="brand-mark"></span>
-          <span><strong>INPULS</strong><span>TRADE LATENCY LAB</span></span>
+          <span><strong>INPULS</strong><span>TRADE LATENCY LAB V2</span></span>
         </a>
         <div class="intro">
           <h1>@trade против @aggTrade</h1>
-          <p>Параллельный A/B-тест двух Binance Futures-потоков: время получения, время до отрисовки, пропуски, объём и сопоставление raw trade ID с диапазоном aggregate trade. <span class="warning">Рабочая лента InPuls не переключается автоматически.</span></p>
+          <p>Чистый A/B-тест Binance Futures: оба потока идут через один WebSocket и один endpoint, затем проходят обязательный прогрев перед измерением времени получения и фактической отрисовки. <span class="warning">Любой reconnect, скрытие вкладки или повреждённое событие делает запуск невалидным.</span></p>
         </div>
       </div>
 
       <section class="controls" aria-label="Параметры теста">
         <label>Инструмент<input id="symbol" value="BTCUSDT" maxlength="20" autocomplete="off" spellcheck="false" /></label>
-        <label>Длительность<select id="duration"><option value="30">30 секунд</option><option value="60" selected>1 минута</option><option value="180">3 минуты</option><option value="300">5 минут</option></select></label>
+        <label>Длительность измерения<select id="duration"><option value="60">1 минута</option><option value="180" selected>3 минуты</option><option value="300">5 минут</option></select></label>
         <button id="start" class="button button-primary" type="button">Запустить A/B</button>
         <button id="stop" class="button button-danger" type="button" disabled>Остановить</button>
         <button id="marker" class="button" type="button" title="Метка для синхронизации видеозаписи; горячая клавиша M">Метка видео · M</button>
@@ -147,7 +147,8 @@
 
       <div class="runbar">
         <div class="progress" aria-label="Ход теста"><i id="progress"></i></div>
-        <span id="run-time">00:00 / 01:00</span>
+        <span id="run-time">00:00 / 03:00</span>
+        <span id="validity-state" class="status-pill" data-state="idle">Готов</span>
         <span id="clock-state" class="status-pill" data-state="loading">Синхронизация часов</span>
       </div>
 
@@ -187,7 +188,9 @@
             <div class="comparison-metrics">
               <div class="metric"><span>Сопоставлено групп</span><strong id="matched-count">0</strong><small id="matched-complete">0 полных</small></div>
               <div class="metric"><span>@trade раньше</span><strong id="raw-earlier">—</strong><small>доля групп</small></div>
-              <div class="metric"><span>Lead @trade P50</span><strong id="lead-p50">—</strong><small id="lead-p95">P95 —</small></div>
+              <div class="metric"><span>Первый raw · receive</span><strong id="lead-p50">—</strong><small id="lead-p95">P95 —</small></div>
+              <div class="metric"><span>Последний raw · receive</span><strong id="complete-lead-p50">—</strong><small id="complete-lead-p95">P95 —</small></div>
+              <div class="metric"><span>Первый raw · paint</span><strong id="paint-lead-p50">—</strong><small id="paint-lead-p95">P95 —</small></div>
               <div class="metric"><span>Покрытие raw</span><strong id="coverage-p50">—</strong><small>медиана</small></div>
               <div class="metric"><span>Расхождение объёма</span><strong id="volume-diff-p50">—</strong><small>медиана</small></div>
             </div>
@@ -204,13 +207,13 @@
           <header><h2>Последние сопоставленные группы</h2><span id="last-marker" class="transport">Метка видео: —</span></header>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Время</th><th>agg ID</th><th>raw шт.</th><th>Покрытие</th><th>@trade lead</th><th>raw complete</th><th>Δ объёма</th></tr></thead>
-              <tbody id="match-body"><tr><td colspan="7" class="empty">Совпадения появятся после получения обоих потоков</td></tr></tbody>
+              <thead><tr><th>Время</th><th>agg ID</th><th>raw шт.</th><th>Покрытие</th><th>Первый receive</th><th>Последний receive</th><th>Первый paint</th><th>Δ объёма</th></tr></thead>
+              <tbody id="match-body"><tr><td colspan="8" class="empty">Совпадения появятся после начала измерения</td></tr></tbody>
             </table>
           </div>
         </article>
       </main>
     </div>
-    <script type="module" src="./trade-latency-lab.js?v=1"></script>
+    <script type="module" src="./trade-latency-lab.js?v=2"></script>
   </body>
 </html>
