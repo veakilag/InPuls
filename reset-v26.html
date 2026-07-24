@@ -46,7 +46,7 @@
         status.textContent = "Подключаю v26.13: чистый и плавный стакан…";
         if ("serviceWorker" in navigator) {
           const registration = await navigator.serviceWorker.register(
-            "./sw.js?v=26-19-tape-cluster-book",
+            "./sw.js?v=26-20-runtime-hotfix",
             { scope: "./", updateViaCache: "none" },
           );
           await registration.update();
@@ -61,7 +61,7 @@
         }
 
         status.textContent = "Готово. Открываю InPuls…";
-        location.replace(`./?build=26-19-tape-cluster-book&t=${Date.now()}`);
+        location.replace(`./?build=26-20-runtime-hotfix&t=${Date.now()}`);
       } catch (error) {
         status.textContent = `Не удалось очистить автоматически: ${error?.message || error}`;
         button.disabled = false;
