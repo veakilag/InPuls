@@ -1,72 +1,67 @@
-<!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#090c11">
-  <title>InPuls — очистка сборки</title>
-  <style>
-    :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #090c11; color: #dbe8ee; }
-    main { width: min(520px, calc(100% - 32px)); padding: 28px; border: 1px solid #24434f; border-radius: 16px; background: #0d1218; }
-    h1 { margin: 0 0 12px; font-size: 22px; }
-    p { color: #8fa6b2; line-height: 1.5; }
-    strong { color: #45e0ad; }
-    button { width: 100%; padding: 13px; border: 0; border-radius: 10px; background: #45d8ab; color: #04110d; font-weight: 800; cursor: pointer; }
-    button:disabled { opacity: .55; cursor: wait; }
-    small { display: block; min-height: 20px; margin-top: 14px; color: #7f95a0; }
-  </style>
-</head>
-<body>
-  <main>
-    <h1>Очистка старого стакана</h1>
-    <p>Страница удалит старые кеши и подключит стабильную сборку <strong>orderbook v26.13</strong>, затем откроет InPuls.</p>
-    <button id="reset" type="button">Очистить и открыть InPuls</button>
-    <small id="status"></small>
-  </main>
-  <script>
-    const button = document.getElementById("reset");
-    const status = document.getElementById("status");
+const CACHE = "inpuls-v26-18-layout-flow-fix";
 
-    button.addEventListener("click", async () => {
-      button.disabled = true;
-      try {
-        status.textContent = "Удаляю старые Service Worker…";
-        const registrations = "serviceWorker" in navigator
-          ? await navigator.serviceWorker.getRegistrations()
-          : [];
-        await Promise.all(registrations.map((registration) => registration.unregister()));
+const SHELL = [
+  "./",
+  "./index.html",
+  "./styles.css?v=23",
+  "./app.js?v=23",
+  "./chart.js?v=23",
+  "./engine.js?v=23",
+  "./orderbook.js?v=26-18-layout-flow-fix",
+  "./orderbook-worker.js?v=26-15-price-ladder",
+  "./assets/inpuls-world-map-v17.png",
+  "./manifest.webmanifest",
+  "./icon.svg",
+];
 
-        status.textContent = "Удаляю старые кеши…";
-        if ("caches" in window) {
-          const keys = await caches.keys();
-          await Promise.all(keys.map((key) => caches.delete(key)));
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches.open(CACHE).then((cache) =>
+      Promise.allSettled(SHELL.map((url) => cache.add(url))),
+    ),
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim()),
+  );
+});
+
+async function fetchFresh(request) {
+  return fetch(request, { cache: "no-store" });
+}
+
+self.addEventListener("fetch", (event) => {
+  if (event.request.method !== "GET") return;
+
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+
+  if (url.pathname.endsWith("/orderbook.js")) {
+    const forcedUrl = new URL("./orderbook.js?v=26-18-layout-flow-fix", self.registration.scope);
+    event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
+    return;
+  }
+
+  if (url.pathname.endsWith("/orderbook-worker.js")) {
+    const forcedUrl = new URL("./orderbook-worker.js?v=26-15-price-ladder", self.registration.scope);
+    event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
+    return;
+  }
+
+  event.respondWith(
+    fetchFresh(event.request)
+      .then((response) => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(event.request, copy));
         }
-
-        status.textContent = "Подключаю v26.21: быстрый возврат и глубокий стакан…";
-        if ("serviceWorker" in navigator) {
-          const registration = await navigator.serviceWorker.register(
-            "./sw.js?v=26-21-background-depth",
-            { scope: "./", updateViaCache: "none" },
-          );
-          await registration.update();
-
-          await Promise.race([
-            new Promise((resolve) => {
-              if (navigator.serviceWorker.controller) resolve();
-              else navigator.serviceWorker.addEventListener("controllerchange", resolve, { once: true });
-            }),
-            new Promise((resolve) => setTimeout(resolve, 2500)),
-          ]);
-        }
-
-        status.textContent = "Готово. Открываю InPuls…";
-        location.replace(`./?build=26-21-background-depth&t=${Date.now()}`);
-      } catch (error) {
-        status.textContent = `Не удалось очистить автоматически: ${error?.message || error}`;
-        button.disabled = false;
-      }
-    });
-  </script>
-</body>
-</html>
+        return response;
+      })
+      .catch(() => caches.match(event.request)),
+  );
+});
