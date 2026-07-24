@@ -115,4 +115,13 @@ test("worker contract uses one combined socket and explicit source states", (con
   assert.match(guard, /AGG FALLBACK/);
   assert.match(worker, /tapeGuard\.label\(\)/);
   assert.doesNotMatch(worker, /return \[`\$\{name\}@aggTrade`, `\$\{name\}@trade`\];/);
+    assert.match(worker, /const hasRawRange =/);
+  assert.match(
+    worker,
+    /if \(hasRawRange\) this\.tapeGuard\.advanceBoundary\(lastTradeId\);/,
+  );
+  assert.doesNotMatch(
+    worker,
+    /if \(Number\.isInteger\(Number\(lastTradeId\)\)\) this\.tapeGuard\.advanceBoundary/,
+  );
 });
