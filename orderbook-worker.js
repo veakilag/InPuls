@@ -1,12 +1,12 @@
 const MAX_BOOK_LEVELS_PER_SIDE = 20_000;
-const MAX_EMITTED_LEVELS_PER_SIDE = 8_000;
+const MAX_EMITTED_LEVELS_PER_SIDE = 4_000;
 const MAX_BUFFERED_DEPTH_EVENTS = 4_000;
 const MAX_TRADE_HISTORY = 12_000;
 const MAX_PERSISTED_TRADE_HISTORY = 5_000;
 const MAX_TAPE_SNAPSHOT = 1_200;
-const MAX_RESUME_TAPE_SNAPSHOT = 420;
-const MAX_RESUME_LEVELS_PER_SIDE = 900;
-const RESUME_STAGGER_MS = 220;
+const MAX_RESUME_TAPE_SNAPSHOT = 80;
+const MAX_RESUME_LEVELS_PER_SIDE = 700;
+const RESUME_STAGGER_MS = 140;
 const RESUME_STALE_MS = 3_500;
 const RESUME_TAPE_WINDOW_MS = 75_000;
 const DEPTH_STALE_NOTICE_MS = 3_000;
@@ -445,9 +445,8 @@ class SymbolFeed {
   emittedLimit() {
     const active = [...feeds.values()].filter((feed) => feed.subscribers > 0).length;
     if (active <= 1) return MAX_EMITTED_LEVELS_PER_SIDE;
-    if (active === 2) return 5_000;
-    if (active === 3) return 3_500;
-    return 2_500;
+    if (active === 2) return 2_500;
+    return 1_500;
   }
 
   sortedDepth() {
