@@ -1451,7 +1451,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-20-runtime-hotfix";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-18-layout-flow-fix";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const TAPE_MAX_STORED = 4_000;
@@ -1486,8 +1486,6 @@ let tapeIngestFrame = 0;
 
 const TAPE_INGEST_PER_FRAME = 220;
 const LIQUIDITY_REFRESH_MS = 420;
-const CLUSTER_MIN_WIDTH_PX = 120;
-const CLUSTER_MAX_FRACTION = .36;
 
 const BOOK_SPLIT_STORAGE_KEY = "inpuls-orderbook-split-v3";
 const BOOK_MIN_TAPE_PX = 58;
@@ -1756,9 +1754,6 @@ function installOrderBookStyles() {
       padding-right: 4px;
       justify-content: flex-end;
       text-align: right;
-      color: #071015 !important;
-      font-weight: 900;
-      text-shadow: none !important;
     }
     .orderbook-card .book-ladder-row strong {
       width: 100% !important;
@@ -1795,12 +1790,8 @@ function installOrderBookStyles() {
       font-weight: 900;
     }
     .orderbook-card .book-ladder-row.is-anomaly .book-size,
-    .orderbook-card .book-ladder-row.is-market .book-size {
-      color: #061116 !important;
-      text-shadow: none !important;
-      font-weight: 900 !important;
-    }
     .orderbook-card .book-ladder-row.is-anomaly strong,
+    .orderbook-card .book-ladder-row.is-market .book-size,
     .orderbook-card .book-ladder-row.is-market strong {
       color: #f6fbfd !important;
       text-shadow: 0 1px 2px rgba(0, 0, 0, .92);
@@ -1826,7 +1817,7 @@ function installOrderBookStyles() {
       background: color-mix(in srgb, var(--accent) 11%, transparent);
     }
     .orderbook-card.is-flow-hidden .orderbook-stage {
-      grid-template-columns: var(--tape-percent, 64%) 0 minmax(96px, 1fr) !important;
+      grid-template-columns: 0 0 minmax(0, 1fr) !important;
     }
     .orderbook-card.is-flow-hidden .orderbook-tape,
     .orderbook-card.is-flow-hidden .book-splitter {
@@ -1887,7 +1878,6 @@ function installOrderBookStyles() {
     }
     .orderbook-card .orderbook-stage {
       overflow: hidden !important;
-      --cluster-width: 0px;
     }
     .orderbook-card .orderbook-tape {
       min-width: 58px !important;
@@ -1994,41 +1984,11 @@ function runtimePriceStep(card) {
   return Number.isFinite(step) ? step : null;
 }
 
-function priceStepDecimals(step) {
-  const safeStep = Math.abs(Number(step));
-  if (!Number.isFinite(safeStep) || safeStep <= 0) return 4;
-  const fixed = safeStep.toFixed(12).replace(/0+$/, "");
-  const decimalIndex = fixed.indexOf(".");
-  return decimalIndex < 0 ? 0 : Math.min(10, fixed.length - decimalIndex - 1);
-}
-
-function formatBookPriceByStep(value, step) {
-  const numeric = Number(value);
-  const safeStep = Math.abs(Number(step));
-  if (!Number.isFinite(numeric)) return "";
-  if (!Number.isFinite(safeStep) || safeStep <= 0) return String(value ?? "");
-  const decimals = priceStepDecimals(safeStep);
-  const quantized = Math.round((numeric / safeStep) + Number.EPSILON) * safeStep;
-  const normalized = Math.abs(quantized) < safeStep / 2 ? 0 : quantized;
-  return normalized.toFixed(decimals);
-}
-
 function decorateRuntimeBookRows(card) {
   const rows = [...card.querySelectorAll(".orderbook-rows .book-ladder-row")];
-  const step = runtimePriceStep(card);
-  const decimals = priceStepDecimals(step);
   const priceElements = rows
     .map((row) => row.querySelector("strong"))
     .filter(Boolean);
-
-  for (const element of priceElements) {
-    const numeric = parseRuntimeNumber(element.textContent);
-    if (!Number.isFinite(numeric)) continue;
-    const formatted = formatBookPriceByStep(numeric, step);
-    if (formatted) element.textContent = formatted;
-    element.dataset.priceDecimals = String(decimals);
-  }
-
   const maximumCharacters = priceElements.reduce(
     (maximum, element) => Math.max(
       maximum,
@@ -2037,10 +1997,11 @@ function decorateRuntimeBookRows(card) {
     0,
   );
   if (maximumCharacters > 0) {
-    const width = clampTape(maximumCharacters + .2, 5.4, 14);
+    const width = clampTape(maximumCharacters + .55, 5.5, 14);
     card.style.setProperty("--book-price-width", `${width}ch`);
   }
 
+  const step = runtimePriceStep(card);
   if (!Number.isFinite(step) || step <= 0) return;
 
   const majorUnit = 10 ** Math.ceil(Math.log10(step * 20));
@@ -2564,27 +2525,9 @@ function buildContinuousTapeWindow(width, latestTime) {
   };
 }
 
-function makeSubRect(rect, x, width) {
-  return { x, y: 0, width: Math.max(1, width), height: rect.height };
-}
-
-function tradeFlowPanels(rect, state) {
-  const clustersWidth = state?.clustersVisible
-    ? clampTape(rect.width * .34, Math.min(CLUSTER_MIN_WIDTH_PX, rect.width * .22), rect.width * CLUSTER_MAX_FRACTION)
-    : 0;
-  const gap = state?.clustersVisible && state?.tapeVisible ? 8 : 0;
-  const tapeWidth = Math.max(1, rect.width - clustersWidth - gap);
-  return {
-    clusters: state?.clustersVisible ? makeSubRect(rect, 0, clustersWidth) : null,
-    tape: makeSubRect(rect, clustersWidth + gap, tapeWidth),
-  };
-}
-
-function tapeTimeX(time, window, rectOrWidth) {
-  const width = typeof rectOrWidth === "number" ? rectOrWidth : Number(rectOrWidth?.width) || 0;
-  const offset = typeof rectOrWidth === "number" ? 0 : Number(rectOrWidth?.x) || 0;
+function tapeTimeX(time, window, width) {
   const ratio = (Number(time) - window.startTime) / Math.max(1, window.duration);
-  return offset + clampTape(ratio * width, 1, Math.max(1, width - 1));
+  return clampTape(ratio * width, 1, Math.max(1, width - 1));
 }
 
 function rawTapeItemsContinuous(trades, rows, window) {
@@ -2616,17 +2559,11 @@ function aggregateTapeBurstsContinuous(trades, rows, window, step) {
     0,
     step,
     180,
-    2,
+    1,
   )
     .map((burst) => {
-      const mappedRows = burst.executions
-        .map((execution) => nearestVisibleRow(rows, execution.price))
-        .filter(Boolean);
       const row = nearestVisibleRow(rows, burst.price);
-      if (!row) return null;
-      const topY = mappedRows.length ? Math.min(...mappedRows.map((entry) => entry.y)) : row.y;
-      const bottomY = mappedRows.length ? Math.max(...mappedRows.map((entry) => entry.y)) : row.y;
-      return { ...burst, row, topY, bottomY };
+      return row ? { ...burst, row } : null;
     })
     .filter(Boolean)
     .slice(-TAPE_MAX_AGG_VISIBLE);
@@ -2655,36 +2592,34 @@ function aggregateVisibleRowClusters(trades, rows, window, minimumQuote = 0) {
 }
 
 function drawPriceClusters(context, rect, clusters, strong = false) {
-  if (!clusters.length || !rect || rect.width <= 2) return;
+  if (!clusters.length) return;
   const maximum = Math.max(...clusters.map((item) => item.quote), 1);
-  const half = rect.width / 2;
+  const centerX = rect.width * .5;
+  const maximumSideWidth = Math.max(12, rect.width * .46);
 
   context.save();
-  context.font = strong ? "900 8px Inter, system-ui, sans-serif" : "800 7px Inter, system-ui, sans-serif";
+  context.font = "800 8px Inter, system-ui, sans-serif";
   context.textBaseline = "middle";
 
   for (const item of clusters) {
-    const y = item.row.y;
-    const height = clampTape(item.row.height * .76, strong ? 10 : 7, strong ? 15 : 10);
-    const sellWidth = clampTape(Math.sqrt(item.sellQuote / maximum) * (half - 8), 0, half - 8);
-    const buyWidth = clampTape(Math.sqrt(item.buyQuote / maximum) * (half - 8), 0, half - 8);
+    const buyWidth = Math.sqrt(item.buyQuote / maximum) * maximumSideWidth;
+    const sellWidth = Math.sqrt(item.sellQuote / maximum) * maximumSideWidth;
+    const height = Math.max(2, Math.min(item.row.height * .72, strong ? 11 : 7));
 
-    if (sellWidth > 4) {
-      roundedRectPath(context, rect.x + half - sellWidth - 2, y - height / 2, sellWidth, height, 2.2);
-      context.fillStyle = strong ? "rgba(244, 97, 110, .88)" : "rgba(244, 97, 110, .72)";
-      context.fill();
-      context.fillStyle = "#091116";
-      context.textAlign = "center";
-      context.fillText(formatTapeUsd(item.sellQuote), rect.x + half - sellWidth / 2 - 2, y + .2);
+    if (sellWidth > 0) {
+      context.fillStyle = strong ? "rgba(222, 70, 87, .44)" : "rgba(222, 70, 87, .18)";
+      context.fillRect(centerX - sellWidth, item.row.y - height / 2, sellWidth, height);
+    }
+    if (buyWidth > 0) {
+      context.fillStyle = strong ? "rgba(38, 191, 138, .44)" : "rgba(38, 191, 138, .18)";
+      context.fillRect(centerX, item.row.y - height / 2, buyWidth, height);
     }
 
-    if (buyWidth > 4) {
-      roundedRectPath(context, rect.x + half + 2, y - height / 2, buyWidth, height, 2.2);
-      context.fillStyle = strong ? "rgba(63, 224, 159, .88)" : "rgba(63, 224, 159, .72)";
-      context.fill();
-      context.fillStyle = "#091116";
+    if (strong && item.quote >= maximum * .32) {
+      const label = formatTapeUsd(item.quote);
       context.textAlign = "center";
-      context.fillText(formatTapeUsd(item.buyQuote), rect.x + half + 2 + buyWidth / 2, y + .2);
+      context.fillStyle = "rgba(230, 241, 238, .96)";
+      context.fillText(label, centerX, item.row.y);
     }
   }
   context.restore();
@@ -2719,7 +2654,6 @@ function drawTapeCard(card) {
 
   const rect = flow.getBoundingClientRect();
   if (rect.width <= 2 || rect.height <= 2) return;
-  const panels = tradeFlowPanels(rect, state);
   const dprLimit = rect.width >= 900 ? 1.1 : 1.4;
   const dpr = Math.max(1, Math.min(dprLimit, globalThis.devicePixelRatio || 1));
   const pixelWidth = Math.max(1, Math.round(rect.width * dpr));
@@ -2778,10 +2712,9 @@ function drawTapeCard(card) {
   const step = range?.step ?? .01;
 
   // Кластеры считаются только когда слой включён.
-  if (state.clustersVisible && panels.clusters) {
-    const clusterMinimum = state.mode === "agg" ? Math.max(minQuote, 1_000) : minQuote;
-    const clusters = aggregateVisibleRowClusters(recent, rows, window, clusterMinimum);
-    drawPriceClusters(context, panels.clusters, clusters, !state.tapeVisible);
+  if (state.clustersVisible) {
+    const clusters = aggregateVisibleRowClusters(recent, rows, window, minQuote);
+    drawPriceClusters(context, rect, clusters, !state.tapeVisible);
   }
 
   if (!state.tapeVisible) {
@@ -2790,14 +2723,9 @@ function drawTapeCard(card) {
   }
 
   const rawCandidates = recent.filter((trade) => passesTapeFilter(trade, minQuote, 0));
-  const aggregateCandidates = aggregateTapeBurstsContinuous(recent, rows, window, step)
-    .filter((item) => passesTapeFilter(item, minQuote, 0));
-  const aggregateQuotes = aggregateCandidates.map((item) => Number(item.quote) || 0).filter((value) => value > 0).sort((a, b) => a - b);
-  const aggregateGate = aggregateQuotes.length
-    ? Math.max(minQuote, aggregateQuotes[Math.floor(Math.max(0, aggregateQuotes.length * .45 - 1))] || 0)
-    : minQuote;
   const items = state.mode === "agg"
-    ? aggregateCandidates.filter((item) => item.quote >= aggregateGate)
+    ? aggregateTapeBurstsContinuous(recent, rows, window, step)
+        .filter((item) => passesTapeFilter(item, minQuote, 0))
     : rawTapeItemsContinuous(rawCandidates, rows, window);
 
   const candidates = state.mode === "agg"
@@ -2828,24 +2756,8 @@ function drawTapeCard(card) {
   context.font = "800 8px Inter, system-ui, sans-serif";
 
   const drawItems = state.mode === "raw"
-    ? [...items].sort((left, right) => Number(left.time) - Number(right.time))
-    : [...items].sort((left, right) => Number(left.time) - Number(right.time));
-
-  if (state.mode === "raw" && drawItems.length >= 2) {
-    context.save();
-    context.beginPath();
-    for (let index = 0; index < drawItems.length; index += 1) {
-      const item = drawItems[index];
-      const x = tapeTimeX(item.lastTime ?? item.time, window, panels.tape);
-      const y = item.row.y;
-      if (index === 0) context.moveTo(x, y);
-      else context.lineTo(x, y);
-    }
-    context.strokeStyle = "rgba(188, 203, 214, .18)";
-    context.lineWidth = .75;
-    context.stroke();
-    context.restore();
-  }
+    ? [...items].sort((left, right) => Number(left.quote) - Number(right.quote))
+    : items;
 
   for (let index = 0; index < drawItems.length; index += 1) {
     const item = drawItems[index];
@@ -2853,33 +2765,33 @@ function drawTapeCard(card) {
     const buy = item.buyQuote >= item.sellQuote;
     const stroke = buy ? "rgba(88, 239, 184, .9)" : "rgba(255, 121, 137, .9)";
     const strength = strengthFor(item.quote);
-    const baseX = tapeTimeX(item.lastTime ?? item.time, window, panels.tape);
+    const baseX = tapeTimeX(item.lastTime ?? item.time, window, rect.width);
 
     if (state.mode === "raw") {
       const jitter = (((index * 1103515245 + 12345) >>> 8) % 1000) / 1000 - .5;
-      const maximumDiameter = Math.min(28, Math.max(6, panels.tape.width * .045));
+      const maximumDiameter = Math.min(30, Math.max(6, rect.width * .035));
       const diameter = clampTape(
-        2 + Math.pow(strength, 1.08) * 12.4,
-        2,
+        1.7 + Math.pow(strength, 1.12) * 13.5,
+        1.7,
         maximumDiameter,
       );
       const x = clampTape(
-        baseX + jitter * Math.min(7, diameter * .36),
-        panels.tape.x + diameter / 2 + .5,
-        panels.tape.x + panels.tape.width - diameter / 2 - .5,
+        baseX + jitter * Math.min(7, diameter * .45),
+        diameter / 2 + .5,
+        rect.width - diameter / 2 - .5,
       );
       context.beginPath();
       context.arc(x, y, diameter / 2, 0, Math.PI * 2);
       context.fillStyle = buy
-        ? `rgba(50, 205, 151, ${clampTape(.34 + strength * .23, .34, .9)})`
-        : `rgba(238, 91, 108, ${clampTape(.34 + strength * .23, .34, .9)})`;
+        ? `rgba(50, 205, 151, ${clampTape(.4 + strength * .23, .4, .9)})`
+        : `rgba(238, 91, 108, ${clampTape(.4 + strength * .23, .4, .9)})`;
       context.fill();
       if (diameter >= 4.5) {
-        context.lineWidth = diameter >= 14 ? 1.15 : .65;
+        context.lineWidth = diameter >= 14 ? 1.25 : .7;
         context.strokeStyle = stroke;
         context.stroke();
       }
-      if (item.quote >= rawLabelThreshold && diameter >= 13) {
+      if (item.quote >= rawLabelThreshold && diameter >= 14) {
         const label = formatTapeUsd(item.quote);
         const measured = context.measureText(label).width;
         if (measured + 2 <= diameter) {
@@ -2890,23 +2802,21 @@ function drawTapeCard(card) {
       continue;
     }
 
-    // AGG: похоже на Tiger — только значимые импульсные пачки.
+    // AGG: каждый последовательный удар всегда показывает суммарный объём.
     const label = formatTapeUsd(item.quote);
     const measured = context.measureText(label).width;
-    const span = Math.max(0, (item.bottomY ?? y) - (item.topY ?? y));
-    const height = clampTape(Math.max(10, span + 8), 10, 64);
-    const width = clampTape(measured + 12, 20, Math.min(96, panels.tape.width * .34));
-    const x = clampTape(baseX, panels.tape.x + width / 2 + .5, panels.tape.x + panels.tape.width - width / 2 - .5);
-    const yCenter = ((item.topY ?? y) + (item.bottomY ?? y)) / 2;
+    const height = clampTape(8 + strength * 8, 8, 18);
+    const width = clampTape(measured + 9, 18, Math.min(92, rect.width * .32));
+    const x = clampTape(baseX, width / 2 + .5, rect.width - width / 2 - .5);
 
-    roundedRectPath(context, x - width / 2, yCenter - height / 2, width, height, 2.6);
-    context.fillStyle = buy ? "rgba(42, 191, 137, .78)" : "rgba(222, 70, 87, .8)";
+    roundedRectPath(context, x - width / 2, y - height / 2, width, height, height * .28);
+    context.fillStyle = buy ? "rgba(42, 191, 137, .72)" : "rgba(222, 70, 87, .74)";
     context.fill();
-    context.lineWidth = item.count > 1 ? 1.1 : .8;
+    context.lineWidth = item.count > 1 ? 1.1 : .7;
     context.strokeStyle = stroke;
     context.stroke();
-    context.fillStyle = "#091116";
-    context.fillText(label, x, yCenter + .2);
+    context.fillStyle = "rgba(244, 250, 248, .98)";
+    context.fillText(label, x, y + .2);
   }
 }
 
@@ -3123,15 +3033,9 @@ function acceptTapeData(event) {
 }
 
 function bindTapeCard(card) {
-  try {
-    arrangeOrderBookChrome(card);
-    ensureTapeUi(card);
-    card.removeAttribute("data-inpuls-runtime-error");
-    scheduleTapeDraw(true, card);
-  } catch (error) {
-    card.dataset.inpulsRuntimeError = "1";
-    console.error("[InPuls] Order book runtime failed", error);
-  }
+  arrangeOrderBookChrome(card);
+  ensureTapeUi(card);
+  scheduleTapeDraw(true, card);
 }
 
 function scanTapeCards(root = document) {
