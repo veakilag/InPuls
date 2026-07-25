@@ -37,6 +37,28 @@ test('continuous flow is split into local groups', () => {
   assert.ok(Math.max(...laid.map(x=>x.density)) <= TAPE_READABLE_LAYOUT.maxClusterItems);
 });
 
+test('neighboring dense groups never cross chronological order', () => {
+  const window = windowFor(500);
+  const timeAtX = (x) => (
+    window.startTime + x / window.plotRight * window.duration
+  );
+  const first = Array.from(
+    { length: 20 },
+    (_, id) => ({ id, time: timeAtX(100) }),
+  );
+  const second = Array.from(
+    { length: 20 },
+    (_, index) => ({ id: 20 + index, time: timeAtX(104) }),
+  );
+  const laid = buildReadableTapeLayout([...first, ...second], window, 500);
+  const firstEnd = Math.max(...laid.slice(0, 20).map((item) => item.x));
+  const secondStart = Math.min(...laid.slice(20).map((item) => item.x));
+  assert.ok(firstEnd <= secondStart + 1e-9);
+  for (let index = 1; index < laid.length; index += 1) {
+    assert.ok(laid[index].x >= laid[index - 1].x);
+  }
+});
+
 test('dense raw dots shrink while large sparse dots stay visible', () => {
   const sparseLarge = adaptiveRawDiameter(1, 1, 600);
   const denseLarge = adaptiveRawDiameter(1, 100, 600);
