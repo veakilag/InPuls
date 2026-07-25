@@ -1537,6 +1537,7 @@ const TAPE_MIN_SECONDS = 12;
 const TAPE_MAX_SECONDS = 45;
 const TAPE_NOW_GUTTER_PX = 16;
 const TAPE_COLLISION_GAP_PX = 2.4;
+const TAPE_COLLISION_MAX_SHIFT_PX = 12;
 const TAPE_TIMELINE_MIN_LABEL_GAP_PX = 42;
 const TAPE_RAW_MIN_DIAMETER = 2.2;
 const TAPE_RAW_MAX_DIAMETER = 15;
@@ -2634,9 +2635,11 @@ function layoutTapeSequence(items, window, width) {
 
   const leftEdge = 1;
   const rightEdge = Math.max(leftEdge, Math.min(Number(window?.plotRight) || width, width) - 1);
-  const available = Math.max(0, rightEdge - leftEdge);
   const gap = ordered.length > 1
-    ? Math.min(TAPE_COLLISION_GAP_PX, available / (ordered.length - 1))
+    ? Math.min(
+        TAPE_COLLISION_GAP_PX,
+        TAPE_COLLISION_MAX_SHIFT_PX / (ordered.length - 1),
+      )
     : 0;
   const positions = ordered.map((item) => clampTape(item.baseX, leftEdge, rightEdge));
 

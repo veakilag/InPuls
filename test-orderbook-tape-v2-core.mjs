@@ -23,7 +23,13 @@ function tapeApi() {
     `${orderbook.slice(constantsStart, constantsEnd)}
 ${orderbook.slice(clampStart, clampEnd)}
 ${orderbook.slice(helperStart, helperEnd)}
-globalThis.tapeApi = { buildContinuousTapeWindow, tapeTimeX, layoutTapeSequence, formatTapeClock };`,
+globalThis.tapeApi = {
+  buildContinuousTapeWindow,
+  tapeTimeX,
+  layoutTapeSequence,
+  formatTapeClock,
+  TAPE_COLLISION_MAX_SHIFT_PX,
+};`,
     context,
   );
   return context.tapeApi;
@@ -68,6 +74,17 @@ test("collision solver remains bounded at maximum visible RAW density", () => {
   assert.ok(laidOut.every((item) => Number.isFinite(item.x)));
   assert.ok(laidOut[0].x >= 1);
   assert.ok(laidOut.at(-1).x <= window.plotRight + 1e-9);
+  assert.ok(laidOut.every((item) => {
+    const boundedBaseX = Math.min(
+      Math.max(item.baseX, 1),
+      window.plotRight - 1,
+    );
+    return Math.abs(item.x - boundedBaseX)
+      <= api.TAPE_COLLISION_MAX_SHIFT_PX + 1e-9;
+  }));
+  assert.ok(
+    laidOut.at(-1).x - laidOut[0].x <= api.TAPE_COLLISION_MAX_SHIFT_PX + 1e-9,
+  );
   for (let index = 1; index < laidOut.length; index += 1) {
     assert.ok(laidOut[index].x >= laidOut[index - 1].x);
   }
