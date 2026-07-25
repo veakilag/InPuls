@@ -8,7 +8,7 @@ const MAX_PERSISTED_TRADE_HISTORY = 5_000;
 const MAX_TAPE_SNAPSHOT = 1_200;
 const MAX_RESUME_TAPE_SNAPSHOT = 80;
 const MAX_RESUME_LEVELS_PER_SIDE = 700;
-const RESUME_STAGGER_MS = 140;
+const RESUME_STAGGER_MS = 180;
 const RESUME_STALE_MS = 3_500;
 const RESUME_TAPE_WINDOW_MS = 75_000;
 const DEPTH_STALE_NOTICE_MS = 3_000;
@@ -236,6 +236,7 @@ class SymbolFeed {
     this.lastTradeAt = 0;
     this.lastMessageAt = 0;
     this.lastRestartAt = 0;
+    this.syncing = false;
     this.tradeBootstrapLoading = false;
     this.tradeLive = false;
     this.tradeConnected = false;
@@ -292,6 +293,7 @@ class SymbolFeed {
     this.tradeLive = false;
     this.tradeConnected = false;
     this.tradeTransportName = "—";
+    this.syncing = false;
     this.resetTapeGuard();
     this.resetBook();
     this.setStatus("loading", "Подключение Worker");
@@ -357,6 +359,10 @@ class SymbolFeed {
   }
 
   publishLiveStatus(tapeState = null) {
+    if (this.syncing) {
+      this.setStatus("stale", "СИНХРОНИЗАЦИЯ · последний кадр");
+      return;
+    }
     const depthAge = this.lastDepthAt ? Date.now() - this.lastDepthAt : Infinity;
     if (this.depthReady && depthAge > DEPTH_STALE_NOTICE_MS) {
       this.setStatus("stale", `STALE ${Math.max(1, Math.floor(depthAge / 1_000))}с · WORKER${this.tradeLive && this.tradeConnected ? ` · ${this.tapeGuard.label()}` : ""}`);
@@ -401,6 +407,7 @@ class SymbolFeed {
         resume: true,
         trades: resumeTrades,
       });
+      this.loadRecentTrades(this.generation, { resume: true });
 
       const socketOpen = this.socket?.readyState === WebSocket.OPEN;
       const tradeOpen = this.tradeSocket?.readyState === WebSocket.OPEN;
@@ -426,6 +433,8 @@ class SymbolFeed {
     const now = Date.now();
     if (now - this.lastRestartAt < 2_500) return;
     this.lastRestartAt = now;
+    const preserveLastFrame = this.depthReady || (this.bids.size > 0 && this.asks.size > 0);
+    this.syncing = preserveLastFrame;
     this.stopSockets();
     this.generation += 1;
     this.mode = "deep";
@@ -438,10 +447,14 @@ class SymbolFeed {
     this.tradeTransportName = "—";
     this.tapeGuard.disconnect("background-restart");
     this.resetBook();
-    this.setStatus("loading", "Восстановление Worker");
+    this.setStatus(
+      preserveLastFrame ? "stale" : "loading",
+      preserveLastFrame ? "СИНХРОНИЗАЦИЯ · последний кадр" : "Восстановление Worker",
+    );
     const generation = this.generation;
     this.connectDepth(generation);
     this.connectTrades(generation);
+    this.loadRecentTrades(generation, { resume: true });
   }
 
   ensureHealthy(now = Date.now()) {
@@ -528,6 +541,7 @@ class SymbolFeed {
           depthTransport: this.transportIndex,
           tradeTransport: this.tradeTransportIndex,
           tradeTransportName: this.tradeTransportName,
+          syncing: this.syncing,
           tape: this.tapeGuard.snapshot(now),
         },
         worker: true,
@@ -596,6 +610,7 @@ class SymbolFeed {
     this.depthBuffer = [];
     this.pendingSnapshot = null;
     this.depthReady = true;
+    this.syncing = false;
     this.publishLiveStatus();
     this.markDirty(true);
     return true;
@@ -627,12 +642,17 @@ class SymbolFeed {
 
   activatePartial(generation) {
     if (generation !== this.generation || this.mode === "partial") return;
+    const preserveLastFrame = this.syncing || this.depthReady || (this.bids.size > 0 && this.asks.size > 0);
     this.mode = "partial";
     this.transportIndex = 0;
+    this.syncing = preserveLastFrame;
     this.resetBook();
     clearTimeout(this.firstDepthTimer);
     clearTimeout(this.snapshotTimer);
-    this.setStatus("loading", "Резервный Worker-стакан");
+    this.setStatus(
+      preserveLastFrame ? "stale" : "loading",
+      preserveLastFrame ? "СИНХРОНИЗАЦИЯ · последний кадр" : "Резервный Worker-стакан",
+    );
     try { this.socket?.close(); } catch {}
     this.socket = null;
     this.reconnectTimer = setTimeout(() => this.connectDepth(generation), 0);
@@ -644,8 +664,13 @@ class SymbolFeed {
     if (now - this.lastResyncAt < 350) return;
     this.lastResyncAt = now;
     this.resyncCount += 1;
+    const preserveLastFrame = this.syncing || this.depthReady || (this.bids.size > 0 && this.asks.size > 0);
+    this.syncing = preserveLastFrame;
     this.resetBook();
-    this.setStatus("loading", text);
+    this.setStatus(
+      preserveLastFrame ? "stale" : "loading",
+      preserveLastFrame ? `СИНХРОНИЗАЦИЯ · ${text}` : text,
+    );
     clearTimeout(this.snapshotTimer);
     const delay = Math.min(2_000, 250 + this.resyncCount * 75);
     this.snapshotTimer = setTimeout(() => this.loadSnapshot(this.generation), delay);
@@ -695,7 +720,8 @@ class SymbolFeed {
           id: Date.now() % 2_147_483_647,
         }));
       }
-      this.setStatus("loading", this.mode === "deep" ? "Синхронизация Worker" : "Подключаю резерв Worker");
+      if (this.syncing) this.setStatus("stale", "СИНХРОНИЗАЦИЯ · последний кадр");
+      else this.setStatus("loading", this.mode === "deep" ? "Синхронизация Worker" : "Подключаю резерв Worker");
       if (this.mode === "deep") this.loadSnapshot(generation);
     });
 
@@ -721,6 +747,7 @@ class SymbolFeed {
         this.partialAskKeys = this.replacePartial(this.asks, this.partialAskKeys, asks);
         this.lastUpdateId = Number(update.u ?? update.lastUpdateId) || this.lastUpdateId;
         this.depthReady = true;
+        this.syncing = false;
         this.cachedSorted = null;
         this.publishLiveStatus();
         this.markDirty(true);
@@ -742,8 +769,13 @@ class SymbolFeed {
       clearTimeout(this.firstDepthTimer);
       this.socket = null;
       this.transportIndex += 1;
+      const preserveLastFrame = this.depthReady || this.syncing;
+      this.syncing = preserveLastFrame;
       this.resetBook();
-      this.setStatus("offline", "RECONNECT · WORKER");
+      this.setStatus(
+        preserveLastFrame ? "stale" : "offline",
+        preserveLastFrame ? "СИНХРОНИЗАЦИЯ · последний кадр" : "RECONNECT · WORKER",
+      );
       const delay = reconnectDelay(this.depthReconnectAttempt++);
       this.reconnectTimer = setTimeout(() => this.connectDepth(generation), delay);
     });
@@ -843,7 +875,7 @@ class SymbolFeed {
     });
   }
 
-  async loadRecentTrades(generation) {
+  async loadRecentTrades(generation, { resume = false } = {}) {
     if (generation !== this.generation || this.tradeBootstrapLoading) return;
     this.tradeBootstrapLoading = true;
     const hosts = ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"];
@@ -856,29 +888,33 @@ class SymbolFeed {
     this.tradeBootstrapLoading = false;
     if (generation !== this.generation || !Array.isArray(rows)) return;
 
-    let added = false;
+    const addedTrades = [];
     for (const row of rows) {
       const trade = normalizeTrade(row, "agg");
-      if (this.insertTrade(trade, true)) added = true;
+      if (this.insertTrade(trade, true)) addedTrades.push(trade);
     }
-    if (!added) return;
+    if (!addedTrades.length) return;
     this.trades.sort((left, right) => Number(right.time) - Number(left.time));
     if (tabVisible) {
+      const trades = resume
+        ? addedTrades.sort((left, right) => Number(left.time) - Number(right.time)).slice(-MAX_RESUME_TAPE_SNAPSHOT)
+        : this.trades.slice(0, MAX_TAPE_SNAPSHOT);
       post("tape", this.symbol, {
-        replace: true,
-        trades: this.trades.slice(0, MAX_TAPE_SNAPSHOT),
+        replace: !resume,
+        resume,
+        trades,
       });
     }
   }
 
   insertTrade(trade, newestFirst = true) {
     if (!trade) return false;
-   const hasRawRange = Number.isInteger(Number(trade.firstTradeId))
-  && Number.isInteger(Number(trade.lastTradeId));
-const firstTradeId = hasRawRange ? Number(trade.firstTradeId) : trade.id;
-const lastTradeId = hasRawRange ? Number(trade.lastTradeId) : trade.id;
-const key = `${firstTradeId}:${lastTradeId}:${trade.time}:${trade.price}:${trade.quantity}`;
-if (hasRawRange) this.tapeGuard.advanceBoundary(lastTradeId);
+    const hasRawRange = Number.isInteger(Number(trade.firstTradeId))
+      && Number.isInteger(Number(trade.lastTradeId));
+    const firstTradeId = hasRawRange ? Number(trade.firstTradeId) : trade.id;
+    const lastTradeId = hasRawRange ? Number(trade.lastTradeId) : trade.id;
+    const key = `${firstTradeId}:${lastTradeId}:${trade.time}:${trade.price}:${trade.quantity}`;
+    if (hasRawRange) this.tapeGuard.advanceBoundary(lastTradeId);
     if (this.tradeIds.has(key)) return false;
     this.tradeIds.add(key);
     if (newestFirst) this.trades.unshift(trade);
@@ -1007,8 +1043,18 @@ self.addEventListener("message", (event) => {
       return;
     }
 
-    // Возвращаем книги по очереди, чтобы 3–6 окон не забивали главный поток одновременно.
-    const active = [...feeds.values()].filter((feed) => feed.subscribers > 0);
+    // Видимый/последний выбранный инструмент восстанавливаем первым,
+    // остальные книги — по очереди, без WebSocket-шторма.
+    const prioritySymbols = Array.isArray(message.prioritySymbols)
+      ? message.prioritySymbols.map((symbol) => String(symbol).toUpperCase())
+      : [];
+    const priorityRank = new Map(prioritySymbols.map((symbol, index) => [symbol, index]));
+    const active = [...feeds.values()]
+      .filter((feed) => feed.subscribers > 0)
+      .sort((left, right) => (
+        (priorityRank.get(left.symbol) ?? Number.MAX_SAFE_INTEGER)
+        - (priorityRank.get(right.symbol) ?? Number.MAX_SAFE_INTEGER)
+      ));
     active.forEach((feed, index) => feed.resume(index * RESUME_STAGGER_MS, epoch));
     return;
   }

@@ -1,4 +1,4 @@
-const CACHE = "inpuls-v26-22-background-restart";
+const CACHE = "inpuls-v26-23-seamless-resume";
 
 const SHELL = [
   "./",
@@ -7,8 +7,8 @@ const SHELL = [
   "./app.js?v=23",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=26-22-background-restart",
-  "./orderbook-worker.js?v=26-22-background-restart",
+  "./orderbook.js?v=26-23-seamless-resume",
+  "./orderbook-worker.js?v=26-23-seamless-resume",
   "./assets/inpuls-world-map-v17.png",
   "./manifest.webmanifest",
   "./icon.svg",
@@ -42,13 +42,13 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   if (url.pathname.endsWith("/orderbook.js")) {
-    const forcedUrl = new URL("./orderbook.js?v=26-22-background-restart", self.registration.scope);
+    const forcedUrl = new URL("./orderbook.js?v=26-23-seamless-resume", self.registration.scope);
     event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
     return;
   }
 
   if (url.pathname.endsWith("/orderbook-worker.js")) {
-    const forcedUrl = new URL("./orderbook-worker.js?v=26-22-background-restart", self.registration.scope);
+    const forcedUrl = new URL("./orderbook-worker.js?v=26-23-seamless-resume", self.registration.scope);
     event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
     return;
   }
