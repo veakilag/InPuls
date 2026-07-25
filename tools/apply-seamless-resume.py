@@ -539,14 +539,41 @@ if (hasRawRange) this.tapeGuard.advanceBoundary(lastTradeId);''',
 
 
 def transform_service_worker(source: str) -> str:
-    source = replace_all(
-        source,
-        "v26-22-background-restart",
-        "v26-23-seamless-resume",
-        5,
-        "service worker cache version",
+    cache_old = "v26-22-background-restart"
+    cache_new = "v26-23-seamless-resume"
+    asset_old = "v=26-22-background-restart"
+    asset_new = "v=26-23-seamless-resume"
+
+    cache_count = source.count(cache_old)
+    asset_count = source.count(asset_old)
+    if cache_count != 1:
+        raise RuntimeError(
+            f"Expected one Service Worker cache name anchor, got {cache_count}"
+        )
+    if asset_count != 4:
+        raise RuntimeError(
+            f"Expected four Service Worker asset version anchors, got {asset_count}"
+        )
+
+    updated = source.replace(cache_old, cache_new).replace(asset_old, asset_new)
+    required = (
+        'const CACHE = "inpuls-v26-23-seamless-resume";',
+        '"./orderbook.js?v=26-23-seamless-resume"',
+        '"./orderbook-worker.js?v=26-23-seamless-resume"',
+        'new URL("./orderbook.js?v=26-23-seamless-resume"',
+        'new URL("./orderbook-worker.js?v=26-23-seamless-resume"',
     )
-    return source
+    missing = [anchor for anchor in required if anchor not in updated]
+    if missing:
+        raise RuntimeError(
+            "Service Worker cache update is incomplete: " + ", ".join(missing)
+        )
+    if cache_old in updated or asset_old in updated:
+        raise RuntimeError("Old Service Worker cache version remains after replacement")
+    print(
+        f"Updated {cache_count} cache name and {asset_count} asset version anchors"
+    )
+    return updated
 
 
 def main() -> None:
