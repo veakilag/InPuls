@@ -16,7 +16,8 @@ test("background return reuses the existing worker before a guarded restart", ()
 
 test("last rendered book remains visible while strict resync happens", () => {
   assert.match(orderbook, /СИНХРОНИЗАЦИЯ · последний кадр/);
-  assert.match(worker, /this\.syncing = true/);
+  assert.match(worker, /const preserveLastFrame = this\.depthReady \|\|/);
+  assert.match(worker, /this\.syncing = preserveLastFrame/);
   assert.match(worker, /this\.setStatus\("stale", "СИНХРОНИЗАЦИЯ · последний кадр"\)/);
   assert.match(worker, /this\.syncing = false;\n\s*this\.publishLiveStatus\(\)/);
   assert.match(worker, /syncing: this\.syncing/);
