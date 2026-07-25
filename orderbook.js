@@ -1525,7 +1525,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-23-seamless-resume";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-24-tape-v2-core";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const TAPE_MAX_STORED = 4_000;
@@ -1535,6 +1535,13 @@ const TAPE_SECOND_MS = 1_000;
 const TAPE_MIN_SECOND_WIDTH = 22;
 const TAPE_MIN_SECONDS = 12;
 const TAPE_MAX_SECONDS = 45;
+const TAPE_NOW_GUTTER_PX = 16;
+const TAPE_COLLISION_GAP_PX = 2.4;
+const TAPE_COLLISION_MAX_SHIFT_PX = 12;
+const TAPE_TIMELINE_MIN_LABEL_GAP_PX = 42;
+const TAPE_RAW_MIN_DIAMETER = 2.2;
+const TAPE_RAW_MAX_DIAMETER = 15;
+const TAPE_RAW_LABEL_QUANTILE = .94;
 const TAPE_STALE_NOTICE_MS = 60_000;
 const TAPE_STATE_REFRESH_MS = 1_000;
 const TAPE_MODE_KEY = "inpuls-tape-mode-v2";
@@ -2231,7 +2238,7 @@ function ensureTapeUi(card) {
     state = {
       canvas: null,
       context: null,
-      mode: localStorage.getItem(TAPE_MODE_KEY) === "raw" ? "raw" : "agg",
+      mode: localStorage.getItem(TAPE_MODE_KEY) === "agg" ? "agg" : "raw",
       minQuote: savedMinimum === null ? 0 : Math.max(0, Number(savedMinimum) || 0),
       tapeVisible: localStorage.getItem(TAPE_VISIBLE_KEY) !== "0",
       clustersVisible: localStorage.getItem(CLUSTERS_VISIBLE_KEY) === "1",
@@ -2586,23 +2593,122 @@ function nearestVisibleRow(rows, price) {
 }
 
 function buildContinuousTapeWindow(width, latestTime) {
+  const safeWidth = Math.max(1, Number(width) || 1);
   const seconds = clampTape(
-    Math.floor(width / TAPE_MIN_SECOND_WIDTH),
+    Math.floor(safeWidth / TAPE_MIN_SECOND_WIDTH),
     TAPE_MIN_SECONDS,
     TAPE_MAX_SECONDS,
   );
   const duration = seconds * TAPE_SECOND_MS;
-  const endTime = Number(latestTime) + 1;
+  const latest = Number(latestTime) || Date.now();
+  const endTime = Math.max(latest + 1, Date.now());
+  const plotRight = Math.max(2, safeWidth - TAPE_NOW_GUTTER_PX);
   return {
     duration,
     startTime: endTime - duration,
     endTime,
+    plotRight,
   };
 }
 
 function tapeTimeX(time, window, width) {
+  const safeRight = Math.max(
+    1,
+    Math.min(Number(window?.plotRight) || Number(width) || 1, Number(width) || 1),
+  );
   const ratio = (Number(time) - window.startTime) / Math.max(1, window.duration);
-  return clampTape(ratio * width, 1, Math.max(1, width - 1));
+  return clampTape(ratio * safeRight, 1, safeRight);
+}
+
+function layoutTapeSequence(items, window, width) {
+  const ordered = (items ?? [])
+    .map((item, sequenceIndex) => ({
+      ...item,
+      sequenceIndex,
+      baseX: tapeTimeX(item.lastTime ?? item.time, window, width),
+    }))
+    .sort((left, right) => (
+      Number(left.lastTime ?? left.time) - Number(right.lastTime ?? right.time)
+      || left.sequenceIndex - right.sequenceIndex
+    ));
+  if (!ordered.length) return [];
+
+  const leftEdge = 1;
+  const rightEdge = Math.max(leftEdge, Math.min(Number(window?.plotRight) || width, width) - 1);
+  const gap = ordered.length > 1
+    ? Math.min(
+        TAPE_COLLISION_GAP_PX,
+        TAPE_COLLISION_MAX_SHIFT_PX / (ordered.length - 1),
+      )
+    : 0;
+  const positions = ordered.map((item) => clampTape(item.baseX, leftEdge, rightEdge));
+
+  for (let index = 1; index < positions.length; index += 1) {
+    positions[index] = Math.max(positions[index], positions[index - 1] + gap);
+  }
+  positions[positions.length - 1] = Math.min(positions.at(-1), rightEdge);
+  for (let index = positions.length - 2; index >= 0; index -= 1) {
+    positions[index] = Math.min(positions[index], positions[index + 1] - gap);
+  }
+  positions[0] = Math.max(positions[0], leftEdge);
+  for (let index = 1; index < positions.length; index += 1) {
+    positions[index] = Math.max(positions[index], positions[index - 1] + gap);
+  }
+
+  return ordered.map(({ sequenceIndex, ...item }, index) => ({
+    ...item,
+    x: clampTape(positions[index], leftEdge, rightEdge),
+  }));
+}
+
+function formatTapeClock(time) {
+  const date = new Date(Number(time));
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function drawTapeTimeline(context, rect, window) {
+  const right = Math.max(2, Math.min(Number(window?.plotRight) || rect.width, rect.width));
+  const seconds = Math.max(1, window.duration / TAPE_SECOND_MS);
+  const pixelsPerSecond = right / seconds;
+  const stepSeconds = pixelsPerSecond >= TAPE_TIMELINE_MIN_LABEL_GAP_PX
+    ? 1
+    : pixelsPerSecond * 2 >= TAPE_TIMELINE_MIN_LABEL_GAP_PX
+      ? 2
+      : pixelsPerSecond * 5 >= TAPE_TIMELINE_MIN_LABEL_GAP_PX
+        ? 5
+        : 10;
+  const stepMs = stepSeconds * TAPE_SECOND_MS;
+  const firstTick = Math.ceil(window.startTime / stepMs) * stepMs;
+
+  context.save();
+  context.lineWidth = .7;
+  context.strokeStyle = "rgba(112, 137, 149, .18)";
+  context.fillStyle = "rgba(145, 165, 175, .72)";
+  context.font = "700 7px Inter, system-ui, sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "bottom";
+
+  for (let time = firstTick; time < window.endTime; time += stepMs) {
+    const x = tapeTimeX(time, window, rect.width);
+    if (x < 20 || x > right - 20) continue;
+    context.beginPath();
+    context.moveTo(x, rect.height - 4);
+    context.lineTo(x, rect.height);
+    context.stroke();
+    context.fillText(formatTapeClock(time), x, rect.height - 5);
+  }
+
+  context.strokeStyle = "rgba(93, 225, 181, .36)";
+  context.beginPath();
+  context.moveTo(right, 0);
+  context.lineTo(right, rect.height);
+  context.stroke();
+  context.textAlign = "right";
+  context.textBaseline = "top";
+  context.fillStyle = "rgba(93, 225, 181, .82)";
+  context.fillText("NOW", right - 2, 2);
+  context.restore();
 }
 
 function rawTapeItemsContinuous(trades, rows, window) {
@@ -2774,6 +2880,7 @@ function drawTapeCard(card) {
     0,
   ) || Date.now();
   const window = buildContinuousTapeWindow(rect.width, latestTime);
+  drawTapeTimeline(context, rect, window);
   const recent = stored.filter(
     (trade) => trade.time >= window.startTime && trade.time <= window.endTime,
   );
@@ -2824,14 +2931,16 @@ function drawTapeCard(card) {
   const quotes = items.map((item) => Number(item.quote) || 0).filter((value) => value > 0);
   const strengthFor = createTapeStrengthScale(quotes);
   const sortedQuotes = [...quotes].sort((a, b) => a - b);
-  const rawLabelThreshold = sortedQuotes[Math.floor((sortedQuotes.length - 1) * .86)] || Infinity;
+  const rawLabelThreshold = sortedQuotes[
+    Math.floor((sortedQuotes.length - 1) * TAPE_RAW_LABEL_QUANTILE)
+  ] || Infinity;
 
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.font = "800 8px Inter, system-ui, sans-serif";
 
   const drawItems = state.mode === "raw"
-    ? [...items].sort((left, right) => Number(left.quote) - Number(right.quote))
+    ? layoutTapeSequence(items, window, rect.width)
     : items;
 
   for (let index = 0; index < drawItems.length; index += 1) {
@@ -2840,33 +2949,36 @@ function drawTapeCard(card) {
     const buy = item.buyQuote >= item.sellQuote;
     const stroke = buy ? "rgba(88, 239, 184, .9)" : "rgba(255, 121, 137, .9)";
     const strength = strengthFor(item.quote);
-    const baseX = tapeTimeX(item.lastTime ?? item.time, window, rect.width);
+    const baseX = item.x ?? tapeTimeX(item.lastTime ?? item.time, window, rect.width);
 
     if (state.mode === "raw") {
-      const jitter = (((index * 1103515245 + 12345) >>> 8) % 1000) / 1000 - .5;
-      const maximumDiameter = Math.min(30, Math.max(6, rect.width * .035));
+      const maximumDiameter = Math.min(
+        TAPE_RAW_MAX_DIAMETER,
+        Math.max(10, rect.width * .03),
+      );
       const diameter = clampTape(
-        1.7 + Math.pow(strength, 1.12) * 13.5,
-        1.7,
+        TAPE_RAW_MIN_DIAMETER + Math.pow(strength, .72) * 6.3,
+        TAPE_RAW_MIN_DIAMETER,
         maximumDiameter,
       );
+      const rightEdge = Math.max(diameter / 2 + .5, window.plotRight - diameter / 2 - .5);
       const x = clampTape(
-        baseX + jitter * Math.min(7, diameter * .45),
+        baseX,
         diameter / 2 + .5,
-        rect.width - diameter / 2 - .5,
+        rightEdge,
       );
       context.beginPath();
       context.arc(x, y, diameter / 2, 0, Math.PI * 2);
       context.fillStyle = buy
-        ? `rgba(50, 205, 151, ${clampTape(.4 + strength * .23, .4, .9)})`
-        : `rgba(238, 91, 108, ${clampTape(.4 + strength * .23, .4, .9)})`;
+        ? `rgba(50, 205, 151, ${clampTape(.36 + strength * .2, .36, .84)})`
+        : `rgba(238, 91, 108, ${clampTape(.36 + strength * .2, .36, .84)})`;
       context.fill();
       if (diameter >= 4.5) {
-        context.lineWidth = diameter >= 14 ? 1.25 : .7;
+        context.lineWidth = diameter >= 11 ? 1.1 : .65;
         context.strokeStyle = stroke;
         context.stroke();
       }
-      if (item.quote >= rawLabelThreshold && diameter >= 14) {
+      if (item.quote >= rawLabelThreshold && diameter >= 11.5) {
         const label = formatTapeUsd(item.quote);
         const measured = context.measureText(label).width;
         if (measured + 2 <= diameter) {
