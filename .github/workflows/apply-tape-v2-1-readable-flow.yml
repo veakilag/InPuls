@@ -495,6 +495,23 @@ jobs:
       - name: Apply Tape v2.1 changes
         run: python /tmp/apply-tape-v2-1.py
 
+      - name: Update module identity test
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("test-orderbook-background-depth.mjs")
+          source = path.read_text(encoding="utf-8")
+          old = '  assert.match(runtime, /^export function applyDepthUpdates/);'
+          new = '''  assert.match(runtime, /^import \\{/);
+            assert.match(runtime, /export function applyDepthUpdates/);'''
+          count = source.count(old)
+          if count != 1:
+              raise RuntimeError(f"Expected one runtime identity assertion, got {count}")
+          path.write_text(source.replace(old, new, 1), encoding="utf-8")
+          PY
+
       - name: Validate JavaScript
         run: |
           node --input-type=module --check < orderbook.js
@@ -502,6 +519,7 @@ jobs:
           node --check sw.js
           node --check orderbook-tape-layout.js
           node --check orderbook-tape-latency.js
+          node --check test-orderbook-background-depth.mjs
           node --check test-orderbook-tape-v2-core.mjs
           node --check test-orderbook-tape-v2-readable-flow.mjs
           node --check test-orderbook-tape-latency.mjs
