@@ -38,6 +38,22 @@ test("resume backfills recent trades without replacing the visible tape", () => 
   assert.match(worker, /resume,\n\s*trades,/);
 });
 
+test("resume backfill rejects raw and aggregate range overlap", () => {
+  assert.match(worker, /tradeRangeOverlaps\(firstTradeId, lastTradeId\)/);
+  const reject = "if (hasRawRange && this.tradeRangeOverlaps(firstTradeId, lastTradeId)) return false;";
+  const advance = "if (hasRawRange) this.tapeGuard.advanceBoundary(lastTradeId);";
+  assert.ok(worker.includes(reject));
+  assert.ok(worker.includes(advance));
+  assert.ok(worker.indexOf(reject) < worker.indexOf(advance));
+});
+
+test("current generation replaces an obsolete bootstrap request", () => {
+  assert.doesNotMatch(worker, /tradeBootstrapLoading/);
+  assert.match(worker, /this\.tradeBootstrapRequest = 0/);
+  assert.match(worker, /const requestId = \+\+this\.tradeBootstrapRequest/);
+  assert.match(worker, /requestId !== this\.tradeBootstrapRequest/);
+});
+
 test("cache versions force the seamless resume runtime to production", () => {
   assert.match(orderbook, /orderbook-worker\.js\?v=26-23-seamless-resume/);
   assert.match(serviceWorker, /inpuls-v26-23-seamless-resume/);
