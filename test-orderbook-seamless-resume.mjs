@@ -85,10 +85,10 @@ test("current generation replaces an obsolete bootstrap request", () => {
   assert.match(worker, /requestId !== this\.tradeBootstrapRequest/);
 });
 
-test("cache versions force the seamless resume runtime to production", () => {
+test("cache versions keep seamless resume while shipping Tape v2", () => {
   assert.match(orderbook, /orderbook-worker\.js\?v=26-23-seamless-resume/);
-  assert.match(serviceWorker, /inpuls-v26-23-seamless-resume/);
-  assert.match(serviceWorker, /orderbook\.js\?v=26-23-seamless-resume/);
+  assert.match(serviceWorker, /inpuls-v26-24-tape-v2-core/);
+  assert.match(serviceWorker, /orderbook\.js\?v=26-24-tape-v2-core/);
   assert.match(serviceWorker, /orderbook-worker\.js\?v=26-23-seamless-resume/);
   assert.doesNotMatch(serviceWorker, /v26-22-background-restart/);
 });
