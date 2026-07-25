@@ -237,7 +237,7 @@ class SymbolFeed {
     this.lastMessageAt = 0;
     this.lastRestartAt = 0;
     this.syncing = false;
-    this.tradeBootstrapLoading = false;
+    this.tradeBootstrapRequest = 0;
     this.tradeLive = false;
     this.tradeConnected = false;
     this.depthReconnectAttempt = 0;
@@ -876,8 +876,8 @@ class SymbolFeed {
   }
 
   async loadRecentTrades(generation, { resume = false } = {}) {
-    if (generation !== this.generation || this.tradeBootstrapLoading) return;
-    this.tradeBootstrapLoading = true;
+    if (generation !== this.generation) return;
+    const requestId = ++this.tradeBootstrapRequest;
     const hosts = ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"];
     let rows = null;
     try {
@@ -885,8 +885,11 @@ class SymbolFeed {
         `https://${host}/fapi/v1/aggTrades?symbol=${encodeURIComponent(this.symbol)}&limit=${TRADE_BOOTSTRAP_LIMIT}`,
       )));
     } catch {}
-    this.tradeBootstrapLoading = false;
-    if (generation !== this.generation || !Array.isArray(rows)) return;
+    if (
+      generation !== this.generation
+      || requestId !== this.tradeBootstrapRequest
+      || !Array.isArray(rows)
+    ) return;
 
     const addedTrades = [];
     for (const row of rows) {
@@ -907,6 +910,20 @@ class SymbolFeed {
     }
   }
 
+  tradeRangeOverlaps(firstTradeId, lastTradeId) {
+    const first = Number(firstTradeId);
+    const last = Number(lastTradeId);
+    if (!Number.isInteger(first) || !Number.isInteger(last) || first < 0 || last < first) return false;
+    return this.trades.some((item) => {
+      const itemFirst = Number(item?.firstTradeId);
+      const itemLast = Number(item?.lastTradeId);
+      return Number.isInteger(itemFirst)
+        && Number.isInteger(itemLast)
+        && itemFirst <= last
+        && itemLast >= first;
+    });
+  }
+
   insertTrade(trade, newestFirst = true) {
     if (!trade) return false;
     const hasRawRange = Number.isInteger(Number(trade.firstTradeId))
@@ -914,8 +931,9 @@ class SymbolFeed {
     const firstTradeId = hasRawRange ? Number(trade.firstTradeId) : trade.id;
     const lastTradeId = hasRawRange ? Number(trade.lastTradeId) : trade.id;
     const key = `${firstTradeId}:${lastTradeId}:${trade.time}:${trade.price}:${trade.quantity}`;
-    if (hasRawRange) this.tapeGuard.advanceBoundary(lastTradeId);
     if (this.tradeIds.has(key)) return false;
+    if (hasRawRange && this.tradeRangeOverlaps(firstTradeId, lastTradeId)) return false;
+    if (hasRawRange) this.tapeGuard.advanceBoundary(lastTradeId);
     this.tradeIds.add(key);
     if (newestFirst) this.trades.unshift(trade);
     else this.trades.push(trade);
