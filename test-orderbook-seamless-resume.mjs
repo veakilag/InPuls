@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import vm from "node:vm";
 
 const orderbook = readFileSync(new URL("./orderbook.js", import.meta.url), "utf8");
 const worker = readFileSync(new URL("./orderbook-worker.js", import.meta.url), "utf8");
@@ -38,13 +39,43 @@ test("resume backfills recent trades without replacing the visible tape", () => 
   assert.match(worker, /resume,\n\s*trades,/);
 });
 
-test("resume backfill rejects raw and aggregate range overlap", () => {
-  assert.match(worker, /tradeRangeOverlaps\(firstTradeId, lastTradeId\)/);
-  const reject = "if (hasRawRange && this.tradeRangeOverlaps(firstTradeId, lastTradeId)) return false;";
-  const advance = "if (hasRawRange) this.tapeGuard.advanceBoundary(lastTradeId);";
-  assert.ok(worker.includes(reject));
-  assert.ok(worker.includes(advance));
-  assert.ok(worker.indexOf(reject) < worker.indexOf(advance));
+test("resume overlap filtering stays off the live trade hot path", () => {
+  assert.match(worker, /const coveredRanges = resume \? mergeTradeCoverage\(this\.trades\) : null/);
+  assert.match(worker, /tradeCoverageOverlaps\(coveredRanges, trade\.firstTradeId, trade\.lastTradeId\)/);
+  assert.match(worker, /addTradeCoverage\(coveredRanges, trade\.firstTradeId, trade\.lastTradeId\)/);
+  assert.doesNotMatch(worker, /return this\.trades\.some/);
+  assert.doesNotMatch(worker, /this\.tradeRangeOverlaps/);
+
+  const insertStart = worker.indexOf("  insertTrade(");
+  const insertEnd = worker.indexOf("\n  queueTape(", insertStart);
+  assert.ok(insertStart >= 0 && insertEnd > insertStart);
+  const insertBlock = worker.slice(insertStart, insertEnd);
+  assert.doesNotMatch(insertBlock, /mergeTradeCoverage|tradeCoverageOverlaps|addTradeCoverage|this\.trades\.some/);
+});
+
+test("resume coverage helpers merge and query trade ID intervals", () => {
+  const helperStart = worker.indexOf("function mergeTradeCoverage");
+  const helperEnd = worker.indexOf("async function fetchJson", helperStart);
+  assert.ok(helperStart >= 0 && helperEnd > helperStart);
+
+  const context = {};
+  vm.runInNewContext(
+    `${worker.slice(helperStart, helperEnd)}
+globalThis.coverageApi = { mergeTradeCoverage, tradeCoverageOverlaps, addTradeCoverage };`,
+    context,
+  );
+
+  const ranges = context.coverageApi.mergeTradeCoverage([
+    { firstTradeId: 10, lastTradeId: 12 },
+    { firstTradeId: 13, lastTradeId: 15 },
+    { firstTradeId: 20, lastTradeId: 22 },
+    { id: 999 },
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(ranges)), [[10, 15], [20, 22]]);
+  assert.equal(context.coverageApi.tradeCoverageOverlaps(ranges, 12, 14), true);
+  assert.equal(context.coverageApi.tradeCoverageOverlaps(ranges, 16, 19), false);
+  context.coverageApi.addTradeCoverage(ranges, 16, 21);
+  assert.deepEqual(JSON.parse(JSON.stringify(ranges)), [[10, 22]]);
 });
 
 test("current generation replaces an obsolete bootstrap request", () => {
