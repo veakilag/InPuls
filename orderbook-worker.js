@@ -97,6 +97,58 @@ function sequenceDecision(lastUpdateId, event, firstEvent = false) {
   return "apply";
 }
 
+function mergeTradeCoverage(trades) {
+  const ranges = [];
+  for (const trade of trades ?? []) {
+    const first = Number(trade?.firstTradeId);
+    const last = Number(trade?.lastTradeId);
+    if (!Number.isInteger(first) || !Number.isInteger(last) || first < 0 || last < first) continue;
+    ranges.push([first, last]);
+  }
+  ranges.sort((left, right) => left[0] - right[0] || left[1] - right[1]);
+
+  const merged = [];
+  for (const [first, last] of ranges) {
+    const previous = merged.at(-1);
+    if (!previous || first > previous[1] + 1) merged.push([first, last]);
+    else previous[1] = Math.max(previous[1], last);
+  }
+  return merged;
+}
+
+function tradeCoverageOverlaps(ranges, firstTradeId, lastTradeId) {
+  const first = Number(firstTradeId);
+  const last = Number(lastTradeId);
+  if (!Number.isInteger(first) || !Number.isInteger(last) || first < 0 || last < first) return false;
+
+  let low = 0;
+  let high = (ranges?.length ?? 0) - 1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const range = ranges[middle];
+    if (last < range[0]) high = middle - 1;
+    else if (first > range[1]) low = middle + 1;
+    else return true;
+  }
+  return false;
+}
+
+function addTradeCoverage(ranges, firstTradeId, lastTradeId) {
+  let first = Number(firstTradeId);
+  let last = Number(lastTradeId);
+  if (!Number.isInteger(first) || !Number.isInteger(last) || first < 0 || last < first) return ranges;
+
+  let index = 0;
+  while (index < ranges.length && ranges[index][1] + 1 < first) index += 1;
+  while (index < ranges.length && ranges[index][0] <= last + 1) {
+    first = Math.min(first, ranges[index][0]);
+    last = Math.max(last, ranges[index][1]);
+    ranges.splice(index, 1);
+  }
+  ranges.splice(index, 0, [first, last]);
+  return ranges;
+}
+
 async function fetchJson(url, timeoutMs = SNAPSHOT_TIMEOUT_MS) {
   const controller = typeof AbortController === "function" ? new AbortController() : null;
   let timer;
@@ -891,10 +943,19 @@ class SymbolFeed {
       || !Array.isArray(rows)
     ) return;
 
+    const coveredRanges = resume ? mergeTradeCoverage(this.trades) : null;
     const addedTrades = [];
     for (const row of rows) {
       const trade = normalizeTrade(row, "agg");
-      if (this.insertTrade(trade, true)) addedTrades.push(trade);
+      if (
+        resume
+        && trade
+        && tradeCoverageOverlaps(coveredRanges, trade.firstTradeId, trade.lastTradeId)
+      ) continue;
+      if (this.insertTrade(trade, true)) {
+        addedTrades.push(trade);
+        if (resume) addTradeCoverage(coveredRanges, trade.firstTradeId, trade.lastTradeId);
+      }
     }
     if (!addedTrades.length) return;
     this.trades.sort((left, right) => Number(right.time) - Number(left.time));
@@ -910,20 +971,6 @@ class SymbolFeed {
     }
   }
 
-  tradeRangeOverlaps(firstTradeId, lastTradeId) {
-    const first = Number(firstTradeId);
-    const last = Number(lastTradeId);
-    if (!Number.isInteger(first) || !Number.isInteger(last) || first < 0 || last < first) return false;
-    return this.trades.some((item) => {
-      const itemFirst = Number(item?.firstTradeId);
-      const itemLast = Number(item?.lastTradeId);
-      return Number.isInteger(itemFirst)
-        && Number.isInteger(itemLast)
-        && itemFirst <= last
-        && itemLast >= first;
-    });
-  }
-
   insertTrade(trade, newestFirst = true) {
     if (!trade) return false;
     const hasRawRange = Number.isInteger(Number(trade.firstTradeId))
@@ -932,7 +979,6 @@ class SymbolFeed {
     const lastTradeId = hasRawRange ? Number(trade.lastTradeId) : trade.id;
     const key = `${firstTradeId}:${lastTradeId}:${trade.time}:${trade.price}:${trade.quantity}`;
     if (this.tradeIds.has(key)) return false;
-    if (hasRawRange && this.tradeRangeOverlaps(firstTradeId, lastTradeId)) return false;
     if (hasRawRange) this.tapeGuard.advanceBoundary(lastTradeId);
     this.tradeIds.add(key);
     if (newestFirst) this.trades.unshift(trade);
