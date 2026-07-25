@@ -1,4 +1,5 @@
 importScripts("./orderbook-tape-guard.js?v=1");
+importScripts("./orderbook-tape-latency.js?v=26-25-tape-v2-1");
 
 const MAX_BOOK_LEVELS_PER_SIDE = 20_000;
 const MAX_EMITTED_LEVELS_PER_SIDE = 4_000;
@@ -57,14 +58,15 @@ function applyDepthUpdates(levels, updates) {
   }
 }
 
-function normalizeTrade(event, sourceHint = null) {
+function normalizeTrade(event, sourceHint = null, receivedAt = null) {
   const eventType = String(event?.e ?? "").toLowerCase();
   const inferredRaw = eventType === "trade"
     || (Number.isFinite(Number(event?.t)) && !Number.isFinite(Number(event?.a)));
   const source = sourceHint === "raw" || (sourceHint !== "agg" && inferredRaw) ? "raw" : "agg";
   const price = Number(event?.p);
   const quantity = Number(event?.q);
-  const time = Number(event?.T ?? event?.E);
+  const timing = self.InPulsTapeLatency.normalizeTiming(event, receivedAt);
+  const time = timing.tradeTime;
   const id = source === "raw" ? Number(event?.t) : Number(event?.a);
   const firstTradeId = source === "raw" ? id : Number(event?.f);
   const lastTradeId = source === "raw" ? id : Number(event?.l);
@@ -80,6 +82,10 @@ function normalizeTrade(event, sourceHint = null) {
     quantity,
     quote: price * quantity,
     time,
+    tradeTime: timing.tradeTime,
+    eventTime: timing.eventTime,
+    receivedAt: timing.receivedAt,
+    rxLatencyMs: timing.rxLatencyMs,
     side: event?.m ? "sell" : "buy",
   };
 }
@@ -297,6 +303,7 @@ class SymbolFeed {
     this.lastResyncAt = 0;
     this.tradeTransportName = "—";
     this.tapeGuard = new self.InPulsTapeGuard({ rawWarmupTrades: 6, rawStaleMs: 1_500 });
+    this.tradeLatency = new self.InPulsTapeLatency.RollingLatency({ windowMs: 2_000, maxSamples: 400, updateMs: 250 });
   }
 
   tradeBoundary() {
@@ -345,6 +352,7 @@ class SymbolFeed {
     this.tradeLive = false;
     this.tradeConnected = false;
     this.tradeTransportName = "—";
+    this.tradeLatency.reset();
     this.syncing = false;
     this.resetTapeGuard();
     this.resetBook();
@@ -401,13 +409,18 @@ class SymbolFeed {
     post("status", this.symbol, { state, text });
   }
 
+  latencyText() {
+    const latency = this.tradeLatency.current();
+    return Number.isFinite(latency) ? ` · RX ${Math.round(latency)}ms` : "";
+  }
+
   liveStatusText(tapeState = null) {
     const partial = this.mode === "partial" ? " · 20" : "";
     const reconnectingTape = tapeState === "reconnect" || (this.tradeLive && !this.tradeConnected);
     const tape = reconnectingTape
       ? " · TAPE RECONNECT"
       : (this.tradeLive && this.tradeConnected ? ` · ${this.tapeGuard.label()}` : "");
-    return `LIVE 100ms · WORKER${partial}${tape}`;
+    return `LIVE 100ms · WORKER${partial}${tape}${this.latencyText()}`;
   }
 
   publishLiveStatus(tapeState = null) {
@@ -889,12 +902,14 @@ class SymbolFeed {
       if (!rawEvent && !aggregateEvent) return;
 
       const source = rawEvent && !aggregateEvent ? "raw" : "agg";
-      const trade = normalizeTrade(update, source);
+      const receivedAt = Date.now();
+      const trade = normalizeTrade(update, source, receivedAt);
       if (!trade) return;
       receivedTrade = true;
       clearTimeout(this.tradeFirstMessageTimer);
       this.tradeFirstMessageTimer = 0;
-      this.lastTradeAt = Date.now();
+      this.lastTradeAt = receivedAt;
+      this.tradeLatency.record(trade.rxLatencyMs, receivedAt);
       this.tradeTransportIndex = 0;
       this.tradeReconnectAttempt = 0;
       this.tradeLive = true;

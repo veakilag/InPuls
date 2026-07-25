@@ -1,3 +1,9 @@
+import {
+  adaptiveRawDiameter,
+  buildReadableTapeLayout,
+  selectReadableAggLabels,
+} from "./orderbook-tape-layout.js?v=26-25-tape-v2-1";
+
 export function applyDepthUpdates(levels, updates) {
   for (const [priceValue, quantityValue] of updates ?? []) {
     const price = Number(priceValue);
@@ -1164,7 +1170,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-23-seamless-resume", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-25-tape-v2-1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
 const ORDERBOOK_RESUME_PROBE_MS = 3_500;
@@ -1229,7 +1235,7 @@ class OrderBookWorkerManager {
       // Worker не использует import/export, поэтому classic-режим надёжнее
       // module Worker в Chromium/Yandex при работе через Service Worker.
       this.worker = new Worker(ORDERBOOK_WORKER_URL, {
-        name: "inpuls-orderbook-worker-v26-23",
+        name: "inpuls-orderbook-worker-v26-25",
       });
       this.startupTimer = setTimeout(() => {
         if (this.workerReady) return;
@@ -1525,7 +1531,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-24-tape-v2-core";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-25-tape-v2-1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const TAPE_MAX_STORED = 4_000;
@@ -1536,12 +1542,8 @@ const TAPE_MIN_SECOND_WIDTH = 22;
 const TAPE_MIN_SECONDS = 12;
 const TAPE_MAX_SECONDS = 45;
 const TAPE_NOW_GUTTER_PX = 16;
-const TAPE_COLLISION_GAP_PX = 2.4;
-const TAPE_COLLISION_MAX_SHIFT_PX = 12;
 const TAPE_TIMELINE_MIN_LABEL_GAP_PX = 42;
-const TAPE_RAW_MIN_DIAMETER = 2.2;
-const TAPE_RAW_MAX_DIAMETER = 15;
-const TAPE_RAW_LABEL_QUANTILE = .94;
+const TAPE_AGG_LABEL_QUANTILE = .95;
 const TAPE_STALE_NOTICE_MS = 60_000;
 const TAPE_STATE_REFRESH_MS = 1_000;
 const TAPE_MODE_KEY = "inpuls-tape-mode-v2";
@@ -2621,44 +2623,7 @@ function tapeTimeX(time, window, width) {
 }
 
 function layoutTapeSequence(items, window, width) {
-  const ordered = (items ?? [])
-    .map((item, sequenceIndex) => ({
-      ...item,
-      sequenceIndex,
-      baseX: tapeTimeX(item.lastTime ?? item.time, window, width),
-    }))
-    .sort((left, right) => (
-      Number(left.lastTime ?? left.time) - Number(right.lastTime ?? right.time)
-      || left.sequenceIndex - right.sequenceIndex
-    ));
-  if (!ordered.length) return [];
-
-  const leftEdge = 1;
-  const rightEdge = Math.max(leftEdge, Math.min(Number(window?.plotRight) || width, width) - 1);
-  const gap = ordered.length > 1
-    ? Math.min(
-        TAPE_COLLISION_GAP_PX,
-        TAPE_COLLISION_MAX_SHIFT_PX / (ordered.length - 1),
-      )
-    : 0;
-  const positions = ordered.map((item) => clampTape(item.baseX, leftEdge, rightEdge));
-
-  for (let index = 1; index < positions.length; index += 1) {
-    positions[index] = Math.max(positions[index], positions[index - 1] + gap);
-  }
-  positions[positions.length - 1] = Math.min(positions.at(-1), rightEdge);
-  for (let index = positions.length - 2; index >= 0; index -= 1) {
-    positions[index] = Math.min(positions[index], positions[index + 1] - gap);
-  }
-  positions[0] = Math.max(positions[0], leftEdge);
-  for (let index = 1; index < positions.length; index += 1) {
-    positions[index] = Math.max(positions[index], positions[index - 1] + gap);
-  }
-
-  return ordered.map(({ sequenceIndex, ...item }, index) => ({
-    ...item,
-    x: clampTape(positions[index], leftEdge, rightEdge),
-  }));
+  return buildReadableTapeLayout(items, window, width);
 }
 
 function formatTapeClock(time) {
@@ -2893,7 +2858,6 @@ function drawTapeCard(card) {
   const range = visiblePriceRange(rows);
   const step = range?.step ?? .01;
 
-  // Кластеры считаются только когда слой включён.
   if (state.clustersVisible) {
     const clusters = aggregateVisibleRowClusters(recent, rows, window, minQuote);
     drawPriceClusters(context, rect, clusters, !state.tapeVisible);
@@ -2930,76 +2894,85 @@ function drawTapeCard(card) {
   setTapeState(state, "");
   const quotes = items.map((item) => Number(item.quote) || 0).filter((value) => value > 0);
   const strengthFor = createTapeStrengthScale(quotes);
-  const sortedQuotes = [...quotes].sort((a, b) => a - b);
-  const rawLabelThreshold = sortedQuotes[
-    Math.floor((sortedQuotes.length - 1) * TAPE_RAW_LABEL_QUANTILE)
-  ] || Infinity;
 
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.font = "800 8px Inter, system-ui, sans-serif";
 
-  const drawItems = state.mode === "raw"
-    ? layoutTapeSequence(items, window, rect.width)
-    : items;
+  const drawItems = layoutTapeSequence(items, window, rect.width);
+  const aggLabels = state.mode === "agg"
+    ? selectReadableAggLabels(
+        drawItems.map((item) => ({
+          ...item,
+          label: formatTapeUsd(item.quote),
+          height: clampTape(7 + strengthFor(item.quote) * 7, 7, 14),
+          y: item.row.y + (Number(item.yOffset) || 0),
+        })),
+        (label) => context.measureText(label).width,
+        { width: window.plotRight },
+        {
+          quantile: TAPE_AGG_LABEL_QUANTILE,
+          maximum: Math.max(2, Math.floor(rect.width / 150)),
+        },
+      )
+    : new Set();
 
-  for (let index = 0; index < drawItems.length; index += 1) {
-    const item = drawItems[index];
-    const y = item.row.y;
+  for (const item of drawItems) {
+    const y = item.row.y + (Number(item.yOffset) || 0);
     const buy = item.buyQuote >= item.sellQuote;
     const stroke = buy ? "rgba(88, 239, 184, .9)" : "rgba(255, 121, 137, .9)";
     const strength = strengthFor(item.quote);
     const baseX = item.x ?? tapeTimeX(item.lastTime ?? item.time, window, rect.width);
 
     if (state.mode === "raw") {
-      const maximumDiameter = Math.min(
-        TAPE_RAW_MAX_DIAMETER,
-        Math.max(10, rect.width * .03),
-      );
-      const diameter = clampTape(
-        TAPE_RAW_MIN_DIAMETER + Math.pow(strength, .72) * 6.3,
-        TAPE_RAW_MIN_DIAMETER,
-        maximumDiameter,
-      );
+      const diameter = adaptiveRawDiameter(strength, item.density, rect.width);
       const rightEdge = Math.max(diameter / 2 + .5, window.plotRight - diameter / 2 - .5);
-      const x = clampTape(
-        baseX,
-        diameter / 2 + .5,
-        rightEdge,
-      );
+      const x = clampTape(baseX, diameter / 2 + .5, rightEdge);
       context.beginPath();
       context.arc(x, y, diameter / 2, 0, Math.PI * 2);
       context.fillStyle = buy
-        ? `rgba(50, 205, 151, ${clampTape(.36 + strength * .2, .36, .84)})`
-        : `rgba(238, 91, 108, ${clampTape(.36 + strength * .2, .36, .84)})`;
+        ? `rgba(50, 205, 151, ${clampTape(.3 + strength * .28, .3, .82)})`
+        : `rgba(238, 91, 108, ${clampTape(.3 + strength * .28, .3, .82)})`;
       context.fill();
-      if (diameter >= 4.5) {
-        context.lineWidth = diameter >= 11 ? 1.1 : .65;
+      if (diameter >= 4.2) {
+        context.lineWidth = diameter >= 7 ? .95 : .6;
         context.strokeStyle = stroke;
         context.stroke();
-      }
-      if (item.quote >= rawLabelThreshold && diameter >= 11.5) {
-        const label = formatTapeUsd(item.quote);
-        const measured = context.measureText(label).width;
-        if (measured + 2 <= diameter) {
-          context.fillStyle = "rgba(244, 250, 248, .98)";
-          context.fillText(label, x, y + .2);
-        }
       }
       continue;
     }
 
-    // AGG: каждый последовательный удар всегда показывает суммарный объём.
+    const showLabel = aggLabels.has(item.key);
     const label = formatTapeUsd(item.quote);
-    const measured = context.measureText(label).width;
-    const height = clampTape(8 + strength * 8, 8, 18);
-    const width = clampTape(measured + 9, 18, Math.min(92, rect.width * .32));
-    const x = clampTape(baseX, width / 2 + .5, rect.width - width / 2 - .5);
+    const diameter = clampTape(4 + strength * 7, 4, 11);
+    if (!showLabel) {
+      const x = clampTape(
+        baseX,
+        diameter / 2 + .5,
+        Math.max(diameter / 2 + .5, window.plotRight - diameter / 2 - .5),
+      );
+      context.beginPath();
+      context.arc(x, y, diameter / 2, 0, Math.PI * 2);
+      context.fillStyle = buy ? "rgba(42, 191, 137, .68)" : "rgba(222, 70, 87, .7)";
+      context.fill();
+      context.lineWidth = item.count > 1 ? .95 : .6;
+      context.strokeStyle = stroke;
+      context.stroke();
+      continue;
+    }
 
+    const measured = context.measureText(label).width;
+    const height = clampTape(7 + strength * 7, 7, 14);
+    const width = clampTape(measured + 9, 18, Math.min(84, rect.width * .26));
+    const x = clampTape(
+      baseX,
+      width / 2 + .5,
+      Math.max(width / 2 + .5, window.plotRight - width / 2 - .5),
+    );
     roundedRectPath(context, x - width / 2, y - height / 2, width, height, height * .28);
-    context.fillStyle = buy ? "rgba(42, 191, 137, .72)" : "rgba(222, 70, 87, .74)";
+    context.fillStyle = buy ? "rgba(42, 191, 137, .76)" : "rgba(222, 70, 87, .78)";
     context.fill();
-    context.lineWidth = item.count > 1 ? 1.1 : .7;
+    context.lineWidth = 1;
     context.strokeStyle = stroke;
     context.stroke();
     context.fillStyle = "rgba(244, 250, 248, .98)";
@@ -3071,14 +3044,25 @@ function normalizeTapeTrade(trade) {
   const price = Number(trade?.price);
   const quantity = Number(trade?.quantity);
   const quote = Number(trade?.quote);
-  const time = Number(trade?.time);
+  const time = Number(trade?.time ?? trade?.tradeTime);
+  const tradeTime = Number(trade?.tradeTime ?? time);
+  const eventTime = Number(trade?.eventTime ?? time);
+  const receivedAt = Number(trade?.receivedAt);
+  const rxLatencyMs = Number(trade?.rxLatencyMs);
   if (![price, quantity, quote, time].every(Number.isFinite) || quote <= 0) return null;
   return {
     id: trade?.id ?? `${time}-${price}-${quantity}`,
+    firstTradeId: Number.isInteger(Number(trade?.firstTradeId)) ? Number(trade.firstTradeId) : null,
+    lastTradeId: Number.isInteger(Number(trade?.lastTradeId)) ? Number(trade.lastTradeId) : null,
+    source: trade?.source === "raw" ? "raw" : "agg",
     price,
     quantity,
     quote,
     time,
+    tradeTime: Number.isFinite(tradeTime) ? tradeTime : time,
+    eventTime: Number.isFinite(eventTime) ? eventTime : time,
+    receivedAt: Number.isFinite(receivedAt) ? receivedAt : null,
+    rxLatencyMs: Number.isFinite(rxLatencyMs) ? rxLatencyMs : null,
     side: trade?.side === "sell" ? "sell" : "buy",
   };
 }

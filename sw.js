@@ -1,4 +1,4 @@
-const CACHE = "inpuls-v26-24-tape-v2-core";
+const CACHE = "inpuls-v26-25-tape-v2-1";
 
 const SHELL = [
   "./",
@@ -7,8 +7,10 @@ const SHELL = [
   "./app.js?v=23",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=26-24-tape-v2-core",
-  "./orderbook-worker.js?v=26-23-seamless-resume",
+  "./orderbook.js?v=26-25-tape-v2-1",
+  "./orderbook-worker.js?v=26-25-tape-v2-1",
+  "./orderbook-tape-layout.js?v=26-25-tape-v2-1",
+  "./orderbook-tape-latency.js?v=26-25-tape-v2-1",
   "./assets/inpuls-world-map-v17.png",
   "./manifest.webmanifest",
   "./icon.svg",
@@ -42,13 +44,13 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   if (url.pathname.endsWith("/orderbook.js")) {
-    const forcedUrl = new URL("./orderbook.js?v=26-24-tape-v2-core", self.registration.scope);
+    const forcedUrl = new URL("./orderbook.js?v=26-25-tape-v2-1", self.registration.scope);
     event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
     return;
   }
 
   if (url.pathname.endsWith("/orderbook-worker.js")) {
-    const forcedUrl = new URL("./orderbook-worker.js?v=26-23-seamless-resume", self.registration.scope);
+    const forcedUrl = new URL("./orderbook-worker.js?v=26-25-tape-v2-1", self.registration.scope);
     event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
     return;
   }
