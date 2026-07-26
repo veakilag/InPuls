@@ -32,6 +32,61 @@ jobs:
       - name: Integrate Flow Workspace
         run: python /tmp/apply-flow-workspace-v1.py
 
+      - name: Update Flow Workspace cache contracts
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          seamless_path = Path("test-orderbook-seamless-resume.mjs")
+          seamless = seamless_path.read_text(encoding="utf-8")
+          seamless_replacement = r'''test("cache versions keep seamless resume while shipping Flow Workspace v1", () => {
+            assert.match(orderbook, /orderbook-worker\.js\?v=26-25-tape-v2-1/);
+            assert.match(serviceWorker, /inpuls-v26-26-flow-workspace-v1/);
+            assert.match(serviceWorker, /orderbook\.js\?v=26-26-flow-workspace-v1/);
+            assert.match(serviceWorker, /orderbook-worker\.js\?v=26-25-tape-v2-1/);
+            assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-26-flow-workspace-v1/);
+            assert.doesNotMatch(serviceWorker, /v26-22-background-restart/);
+          });'''
+          seamless, count = re.subn(
+              r'test\("cache versions keep seamless resume.*?\n\}\);',
+              seamless_replacement,
+              seamless,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise RuntimeError(f"Expected one seamless cache contract, got {count}")
+          seamless_path.write_text(seamless, encoding="utf-8")
+
+          tape_path = Path("test-orderbook-tape-v2-core.mjs")
+          tape = tape_path.read_text(encoding="utf-8")
+          tape_replacement = r'''test("Flow Workspace cache and reset page point to the new runtime", () => {
+            assert.match(orderbook, /inpuls-orderbook-runtime-v26-25-tape-v2-1/);
+            assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-26-flow-workspace-v1/);
+            assert.match(serviceWorker, /inpuls-v26-26-flow-workspace-v1/);
+            assert.match(serviceWorker, /orderbook\.js\?v=26-26-flow-workspace-v1/);
+            assert.match(serviceWorker, /orderbook-worker\.js\?v=26-25-tape-v2-1/);
+            assert.match(serviceWorker, /orderbook-tape-layout\.js\?v=26-25-tape-v2-1/);
+            assert.match(serviceWorker, /orderbook-tape-latency\.js\?v=26-25-tape-v2-1/);
+            assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-26-flow-workspace-v1/);
+            assert.match(resetPage, /Flow Workspace v1/);
+            assert.match(resetPage, /sw\.js\?v=26-26-flow-workspace-v1/);
+            assert.match(resetPage, /build=26-26-flow-workspace-v1/);
+          });'''
+          tape, count = re.subn(
+              r'test\("Tape v2\.1 cache and reset page point to the new runtime".*?\n\}\);',
+              tape_replacement,
+              tape,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise RuntimeError(f"Expected one Tape cache contract, got {count}")
+          tape_path.write_text(tape, encoding="utf-8")
+          PY
+
       - name: Validate JavaScript
         run: |
           node --input-type=module --check < orderbook.js
