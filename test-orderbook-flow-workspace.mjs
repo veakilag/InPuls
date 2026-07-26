@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import {
   FLOW_WORKSPACE,
   buildFootprintColumns,
@@ -51,4 +52,21 @@ test("footprint tone reports buy and sell dominance", () => {
   assert.equal(footprintTone({ buyQuote: 100, sellQuote: 0 }), 1);
   assert.equal(footprintTone({ buyQuote: 0, sellQuote: 100 }), -1);
   assert.equal(footprintTone({ buyQuote: 50, sellQuote: 50 }), 0);
+});
+
+test("Flow Workspace redraw observer cannot trigger itself", () => {
+  const source = readFileSync(
+    new URL("./orderbook-flow-workspace.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /observer\.observe\(bookRows,/);
+  assert.doesNotMatch(source, /observer\.observe\(card,/);
+  assert.match(
+    source,
+    /if \(state\.count\.textContent !== countText\) state\.count\.textContent = countText/,
+  );
+  assert.match(
+    source,
+    /if \(state\.flowCount\.textContent !== countText\) state\.flowCount\.textContent = countText/,
+  );
 });

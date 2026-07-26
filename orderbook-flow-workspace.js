@@ -436,8 +436,15 @@ function ensureCard(card) {
   bindSplitter(card, splitClusters, "clusters");
   bindSplitter(card, splitTape, "tape");
 
+  const bookRows = card.querySelector(".orderbook-rows");
   const observer = new MutationObserver(requestDraw);
-  observer.observe(card, { childList: true, subtree: true, characterData: true });
+  if (bookRows) {
+    observer.observe(bookRows, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+  }
   state.observer = observer;
   return state;
 }
@@ -513,8 +520,9 @@ function renderCard(card, state) {
   }
 
   const visibleCount = visibleFlowCount(trades, window.startTime, window.endTime);
-  state.count.textContent = `${visibleCount} trades`;
-  state.flowCount.textContent = `${visibleCount} trades`;
+  const countText = `${visibleCount} trades`;
+  if (state.count.textContent !== countText) state.count.textContent = countText;
+  if (state.flowCount.textContent !== countText) state.flowCount.textContent = countText;
 }
 
 function acceptTape(event) {
