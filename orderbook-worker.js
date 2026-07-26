@@ -1,5 +1,5 @@
 importScripts("./orderbook-tape-guard.js?v=1");
-importScripts("./orderbook-tape-latency.js?v=26-27-runtime-stability-v1");
+importScripts("./orderbook-tape-latency.js?v=26-28-resume-v2");
 
 const MAX_BOOK_LEVELS_PER_SIDE = 20_000;
 const MAX_EMITTED_LEVELS_PER_SIDE = 4_000;
@@ -10,6 +10,8 @@ const MAX_TAPE_SNAPSHOT = 1_200;
 const MAX_RESUME_TAPE_SNAPSHOT = 80;
 const MAX_RESUME_LEVELS_PER_SIDE = 700;
 const RESUME_STAGGER_MS = 180;
+const BACKGROUND_GRACE_MS = 2_000;
+const RECOVERY_TIMEOUT_MS = 8_000;
 const RESUME_STALE_MS = 3_500;
 const RESUME_TAPE_WINDOW_MS = 75_000;
 const DEPTH_STALE_NOTICE_MS = 3_000;
@@ -30,6 +32,7 @@ let tabVisible = true;
 let emitTimer = 0;
 let emitCursor = 0;
 let visibilityEpoch = 0;
+let backgroundPauseTimer = 0;
 let watchdogTimer = 0;
 let prioritySymbols = [];
 let serverClockOffsetMs = null;
@@ -508,11 +511,16 @@ class SymbolFeed {
     this.stopSockets();
     this.tradeConnected = false;
     this.tradeLive = false;
+    this.tradeLatency.reset();
     this.tapeBatch = [];
     clearTimeout(this.tapeTimer);
     clearTimeout(this.resumeTimer);
     this.tapeTimer = 0;
     this.resumeTimer = 0;
+    this.setStatus(
+      preserveLastFrame ? "stale" : "loading",
+      preserveLastFrame ? "СИНХРОНИЗАЦИЯ · последний кадр" : "Пауза Worker",
+    );
   }
 
   resume(delayMs = 0, epoch = visibilityEpoch) {
@@ -522,44 +530,30 @@ class SymbolFeed {
       if (!tabVisible || epoch !== visibilityEpoch || this.subscribers <= 0) return;
 
       const now = Date.now();
-      if (this.backgroundPaused) {
-        this.backgroundPaused = false;
-        this.restartAfterBackground(true);
-        return;
-      }
-
-      // UI сохраняет старую историю, а Worker добавляет к ней сделки,
-      // накопленные во время скрытой вкладки. replace=false не стирает
-      // существующую временную картину коротким resume-хвостом.
-      this.tapeBatch = [];
-      clearTimeout(this.tapeTimer);
-      this.tapeTimer = 0;
-      const resumeTrades = this.trades
-        .filter((trade) => Number(trade?.time) >= now - RESUME_TAPE_WINDOW_MS)
-        .slice(0, MAX_RESUME_TAPE_SNAPSHOT);
-      post("tape", this.symbol, {
-        replace: false,
-        resume: true,
-        trades: resumeTrades,
-      });
-      this.loadRecentTrades(this.generation, { resume: true });
-
       const socketOpen = this.socket?.readyState === WebSocket.OPEN;
       const tradeOpen = this.tradeSocket?.readyState === WebSocket.OPEN;
       const depthFresh = this.lastDepthAt > 0 && now - this.lastDepthAt <= RESUME_STALE_MS;
 
-      // Браузер может заморозить Worker/WebSocket в фоновой вкладке без close-события.
-      // В таком случае старую sequence-цепочку продолжать нельзя — пересобираем книгу.
-      if (!socketOpen || !depthFresh) {
-        this.restartAfterBackground();
+      if (!this.backgroundPaused && socketOpen && depthFresh) {
+        const resumeTrades = this.trades
+          .filter((trade) => Number(trade?.time) >= now - RESUME_TAPE_WINDOW_MS)
+          .slice(0, MAX_RESUME_TAPE_SNAPSHOT);
+        post("tape", this.symbol, {
+          replace: false,
+          resume: true,
+          trades: resumeTrades,
+        });
+        if (!tradeOpen && !this.tradeReconnectTimer) {
+          this.connectTrades(this.generation);
+        }
+        this.forceEmit = true;
+        this.emit(now, MAX_RESUME_LEVELS_PER_SIDE, true);
+        this.publishLiveStatus(tradeOpen ? null : "reconnect");
         return;
       }
-      if (!tradeOpen && !this.tradeReconnectTimer) {
-        this.connectTrades(this.generation);
-      }
 
-      this.forceEmit = true;
-      this.emit(now, MAX_RESUME_LEVELS_PER_SIDE, true);
+      this.backgroundPaused = false;
+      this.restartAfterBackground(true);
     }, Math.max(0, delayMs));
   }
 
@@ -594,6 +588,14 @@ class SymbolFeed {
 
   ensureHealthy(now = Date.now()) {
     if (!tabVisible || this.subscribers <= 0) return;
+    const recoveryDelayed = this.syncing
+      && this.lastRestartAt > 0
+      && now - this.lastRestartAt > RECOVERY_TIMEOUT_MS;
+    if (recoveryDelayed) {
+      this.setStatus("stale", "RECOVERY DELAY · повторное подключение");
+      this.restartAfterBackground(true);
+      return;
+    }
     const socketOpen = this.socket?.readyState === WebSocket.OPEN;
     const socketConnecting = this.socket?.readyState === WebSocket.CONNECTING;
     const reconnectPending = Boolean(this.reconnectTimer || this.firstDepthTimer || this.snapshotLoading);
@@ -1188,6 +1190,20 @@ function getFeed(symbol) {
   return feed;
 }
 
+function cancelBackgroundPause() {
+  clearTimeout(backgroundPauseTimer);
+  backgroundPauseTimer = 0;
+}
+
+function scheduleBackgroundPause(epoch) {
+  cancelBackgroundPause();
+  backgroundPauseTimer = setTimeout(() => {
+    backgroundPauseTimer = 0;
+    if (tabVisible || epoch !== visibilityEpoch) return;
+    for (const feed of feeds.values()) feed.pauseForBackground();
+  }, BACKGROUND_GRACE_MS);
+}
+
 self.addEventListener("message", (event) => {
   const message = event.data;
   if (!message || typeof message !== "object") return;
@@ -1203,18 +1219,20 @@ self.addEventListener("message", (event) => {
     if (!tabVisible) {
       clearTimeout(emitTimer);
       emitTimer = 0;
-      for (const feed of feeds.values()) feed.pauseForBackground();
+      scheduleBackgroundPause(epoch);
       return;
     }
 
-    syncServerClock().catch(() => {});
+    cancelBackgroundPause();
+    syncServerClock(true).catch(() => {});
 
-    // Видимый/последний выбранный инструмент восстанавливаем первым,
-    // остальные книги — по очереди, без WebSocket-шторма.
-    const prioritySymbols = Array.isArray(message.prioritySymbols)
+    const resumePrioritySymbols = Array.isArray(message.prioritySymbols)
       ? message.prioritySymbols.map((symbol) => String(symbol).toUpperCase())
       : [];
-    const priorityRank = new Map(prioritySymbols.map((symbol, index) => [symbol, index]));
+    prioritySymbols = resumePrioritySymbols;
+    const priorityRank = new Map(
+      resumePrioritySymbols.map((symbol, index) => [symbol, index]),
+    );
     const active = [...feeds.values()]
       .filter((feed) => feed.subscribers > 0)
       .sort((left, right) => (

@@ -31,9 +31,15 @@ test("resume prioritizes the last selected symbol and staggers other feeds", () 
   assert.match(worker, /active\.forEach\(\(feed, index\) => feed\.resume\(index \* RESUME_STAGGER_MS, epoch\)\)/);
 });
 
-test("resume backfills recent trades without replacing the visible tape", () => {
-  assert.match(worker, /loadRecentTrades\(this\.generation, \{ resume: true \}\)/);
-  assert.match(worker, /loadRecentTrades\(generation, \{ resume: true \}\)/);
+test("long recovery backfills trades while fast resume avoids REST", () => {
+  assert.match(
+    worker,
+    /restartAfterBackground\(force = false\)[\s\S]*loadRecentTrades\(generation, \{ resume: true \}\)/,
+  );
+  const resumeStart = worker.indexOf("  resume(");
+  const resumeEnd = worker.indexOf("\n  restartAfterBackground(", resumeStart);
+  const resumeBlock = worker.slice(resumeStart, resumeEnd);
+  assert.doesNotMatch(resumeBlock, /loadRecentTrades/);
   assert.match(worker, /async loadRecentTrades\(generation, \{ resume = false \} = \{\}\)/);
   assert.match(worker, /replace: !resume/);
   assert.match(worker, /resume,\n\s*trades,/);
@@ -85,11 +91,11 @@ test("current generation replaces an obsolete bootstrap request", () => {
   assert.match(worker, /requestId !== this\.tradeBootstrapRequest/);
 });
 
-test("cache versions keep seamless resume while shipping Runtime Stability v1", () => {
-  assert.match(orderbook, /orderbook-worker\.js\?v=26-27-runtime-stability-v1/);
-  assert.match(serviceWorker, /inpuls-26-27-runtime-stability-v1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=26-27-runtime-stability-v1/);
-  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-27-runtime-stability-v1/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-27-runtime-stability-v1/);
+test("cache versions keep seamless resume while shipping Resume v2", () => {
+  assert.match(orderbook, /orderbook-worker\.js\?v=26-28-resume-v2/);
+  assert.match(serviceWorker, /inpuls-26-28-resume-v2/);
+  assert.match(serviceWorker, /orderbook\.js\?v=26-28-resume-v2/);
+  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-28-resume-v2/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-28-resume-v2/);
   assert.doesNotMatch(serviceWorker, /v26-22-background-restart/);
 });
