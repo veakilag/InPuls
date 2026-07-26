@@ -5,7 +5,7 @@ import {
   formatCompactUsd,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { adaptiveBookScaleIndex, aggregateFootprintClusters, aggregateTradePath, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, inferPriceTick, maximumBookScaleIndex, OrderBookFeed, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "./orderbook.js?v=23";
+import { adaptiveBookScaleIndex, aggregateFootprintClusters, aggregateTradePath, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, inferPriceTick, maximumBookScaleIndex, OrderBookFeed, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "./orderbook.js?v=26-27-runtime-stability-v1";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -2613,15 +2613,17 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-// During active development always prefer the current GitHub Pages build.
-// Offline PWA caching will return after the interface stabilizes.
+const INPULS_RUNTIME_BUILD = "26-27-runtime-stability-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
-    const registrations = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(registrations.map((registration) => registration.unregister()));
-    if ("caches" in window) {
-      const keys = await caches.keys();
-      await Promise.all(keys.filter((key) => key.startsWith("inpuls-")).map((key) => caches.delete(key)));
+    try {
+      const registration = await navigator.serviceWorker.register(
+        `./sw.js?v=${INPULS_RUNTIME_BUILD}`,
+        { scope: "./", updateViaCache: "none" },
+      );
+      await registration.update();
+    } catch (error) {
+      console.warn("InPuls Service Worker registration failed", error);
     }
   });
 }

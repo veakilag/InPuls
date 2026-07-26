@@ -3,7 +3,7 @@ import {
   buildReadableTapeLayout,
   selectReadableAggLabels,
 } from "./orderbook-tape-layout.js?v=26-25-tape-v2-1";
-import "./orderbook-flow-workspace.js?v=26-26-flow-workspace-v1";
+import "./orderbook-flow-workspace.js?v=26-27-runtime-stability-v1";
 
 export function applyDepthUpdates(levels, updates) {
   for (const [priceValue, quantityValue] of updates ?? []) {
@@ -1171,7 +1171,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-25-tape-v2-1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-27-runtime-stability-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
 const ORDERBOOK_RESUME_PROBE_MS = 3_500;
@@ -1236,7 +1236,7 @@ class OrderBookWorkerManager {
       // Worker не использует import/export, поэтому classic-режим надёжнее
       // module Worker в Chromium/Yandex при работе через Service Worker.
       this.worker = new Worker(ORDERBOOK_WORKER_URL, {
-        name: "inpuls-orderbook-worker-v26-25",
+        name: "inpuls-orderbook-worker-26-27-runtime-stability-v1",
       });
       this.startupTimer = setTimeout(() => {
         if (this.workerReady) return;
@@ -1369,6 +1369,10 @@ class OrderBookWorkerManager {
       this.clientsBySymbol.set(symbol, group);
     }
     group.add(id);
+    this.worker.postMessage({
+      type: "priority",
+      prioritySymbols: this.#orderedSymbols(),
+    });
 
     const client = this.clients.get(id);
     const status = this.lastStatusBySymbol.get(symbol);
@@ -1532,7 +1536,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-v26-25-tape-v2-1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-27-runtime-stability-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const TAPE_MAX_STORED = 4_000;
@@ -2218,12 +2222,9 @@ function syncTapeModeButton(button, state) {
 
 function syncLayerButtons(card, state) {
   const tapeButton = state.layerControls?.querySelector("[data-inpuls-tape-visible]");
-  const clusterButton = state.layerControls?.querySelector("[data-inpuls-clusters-visible]");
   tapeButton?.classList.toggle("is-active", state.tapeVisible);
   tapeButton?.setAttribute("aria-pressed", String(state.tapeVisible));
-  clusterButton?.classList.toggle("is-active", state.clustersVisible);
-  clusterButton?.setAttribute("aria-pressed", String(state.clustersVisible));
-  card.classList.toggle("is-flow-hidden", !state.tapeVisible && !state.clustersVisible);
+  card.classList.toggle("is-flow-hidden", !state.tapeVisible);
 }
 
 function ensureTapeUi(card) {
@@ -2244,7 +2245,7 @@ function ensureTapeUi(card) {
       mode: localStorage.getItem(TAPE_MODE_KEY) === "agg" ? "agg" : "raw",
       minQuote: savedMinimum === null ? 0 : Math.max(0, Number(savedMinimum) || 0),
       tapeVisible: localStorage.getItem(TAPE_VISIBLE_KEY) !== "0",
-      clustersVisible: localStorage.getItem(CLUSTERS_VISIBLE_KEY) === "1",
+      clustersVisible: false,
       controls: null,
       layerControls: null,
       liquidity: null,
@@ -2332,20 +2333,13 @@ function ensureTapeUi(card) {
     const layerControls = document.createElement("div");
     layerControls.className = "inpuls-layer-dock";
     layerControls.innerHTML = `
-      <button data-inpuls-tape-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть ленту">TAPE</button>
-      <button data-inpuls-clusters-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть кластеры">КЛ</button>`;
+      <button data-inpuls-tape-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть ленту">TAPE</button>`;
     paneActions.prepend(layerControls);
     state.layerControls = layerControls;
 
     layerControls.querySelector("[data-inpuls-tape-visible]").addEventListener("click", () => {
       state.tapeVisible = !state.tapeVisible;
       localStorage.setItem(TAPE_VISIBLE_KEY, state.tapeVisible ? "1" : "0");
-      syncLayerButtons(card, state);
-      scheduleTapeDraw(true, card);
-    });
-    layerControls.querySelector("[data-inpuls-clusters-visible]").addEventListener("click", () => {
-      state.clustersVisible = !state.clustersVisible;
-      localStorage.setItem(CLUSTERS_VISIBLE_KEY, state.clustersVisible ? "1" : "0");
       syncLayerButtons(card, state);
       scheduleTapeDraw(true, card);
     });
@@ -2813,7 +2807,7 @@ function drawTapeCard(card) {
   context.clearRect(0, 0, rect.width, rect.height);
   setTapeRangeSummary(state, 0, 0);
 
-  if (!state.tapeVisible && !state.clustersVisible) {
+  if (!state.tapeVisible) {
     setTapeState(state, "");
     return;
   }
@@ -2858,11 +2852,6 @@ function drawTapeCard(card) {
   const minQuote = Math.max(0, Number(state.minQuote) || 0);
   const range = visiblePriceRange(rows);
   const step = range?.step ?? .01;
-
-  if (state.clustersVisible) {
-    const clusters = aggregateVisibleRowClusters(recent, rows, window, minQuote);
-    drawPriceClusters(context, rect, clusters, !state.tapeVisible);
-  }
 
   if (!state.tapeVisible) {
     setTapeState(state, "");

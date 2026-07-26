@@ -19,14 +19,30 @@
 </head>
 <body>
   <main>
-    <h1>Очистка старого стакана</h1>
-    <p>Страница удалит старые кеши и подключит стабильную сборку <strong>Flow Workspace v1</strong>, затем откроет InPuls.</p>
+    <h1>Очистка runtime InPuls</h1>
+    <p>Страница подключит стабильную сборку <strong>Runtime Stability v1</strong> и проверит активный Service Worker перед открытием сайта.</p>
     <button id="reset" type="button">Очистить и открыть InPuls</button>
     <small id="status"></small>
   </main>
   <script>
+    const BUILD = "26-27-runtime-stability-v1";
+    const WORKER_URL = "./sw.js?v=26-27-runtime-stability-v1";
+    const APP_URL = "./?build=26-27-runtime-stability-v1";
     const button = document.getElementById("reset");
     const status = document.getElementById("status");
+
+    const expectedController = () => (
+      navigator.serviceWorker.controller?.scriptURL.includes(BUILD)
+    );
+
+    const waitForExpectedController = async (registration) => {
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 8_000) {
+        if (registration.active?.scriptURL.includes(BUILD) && expectedController()) return true;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return false;
+    };
 
     button.addEventListener("click", async () => {
       button.disabled = true;
@@ -40,33 +56,48 @@
         status.textContent = "Удаляю старые кеши…";
         if ("caches" in window) {
           const keys = await caches.keys();
-          await Promise.all(keys.map((key) => caches.delete(key)));
+          await Promise.all(keys.filter((key) => key.startsWith("inpuls-")).map((key) => caches.delete(key)));
         }
 
-        status.textContent = "Подключаю Flow Workspace v1…";
         if ("serviceWorker" in navigator) {
+          status.textContent = "Подключаю Runtime Stability v1…";
           const registration = await navigator.serviceWorker.register(
-            "./sw.js?v=26-26-flow-workspace-v1",
+            WORKER_URL,
             { scope: "./", updateViaCache: "none" },
           );
           await registration.update();
 
-          await Promise.race([
-            new Promise((resolve) => {
-              if (navigator.serviceWorker.controller) resolve();
-              else navigator.serviceWorker.addEventListener("controllerchange", resolve, { once: true });
-            }),
-            new Promise((resolve) => setTimeout(resolve, 2500)),
-          ]);
+          if (!expectedController()) {
+            await new Promise((resolve) => {
+              const timeout = setTimeout(resolve, 8_000);
+              navigator.serviceWorker.addEventListener("controllerchange", () => {
+                clearTimeout(timeout);
+                resolve();
+              }, { once: true });
+            });
+          }
+
+          const ready = await waitForExpectedController(registration);
+          if (!ready) {
+            status.textContent = "Активирую новую сборку повторной загрузкой…";
+            sessionStorage.setItem("inpuls-runtime-reset", BUILD);
+            location.reload();
+            return;
+          }
         }
 
         status.textContent = "Готово. Открываю InPuls…";
-        location.replace(`./?build=26-26-flow-workspace-v1&t=${Date.now()}`);
+        location.replace(`${APP_URL}&t=${Date.now()}`);
       } catch (error) {
         status.textContent = `Не удалось очистить автоматически: ${error?.message || error}`;
         button.disabled = false;
       }
     });
+
+    if (sessionStorage.getItem("inpuls-runtime-reset") === BUILD && expectedController()) {
+      sessionStorage.removeItem("inpuls-runtime-reset");
+      location.replace(`${APP_URL}&t=${Date.now()}`);
+    }
   </script>
 </body>
 </html>

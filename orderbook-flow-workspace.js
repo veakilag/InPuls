@@ -220,10 +220,10 @@ function injectStyles() {
       grid-template-columns:
         minmax(${FLOW_WORKSPACE.minimumPanePx}px, var(--flow-cluster-width, 24%))
         7px
-        minmax(${FLOW_WORKSPACE.minimumBookPx}px, var(--flow-book-width, 22%))
+        minmax(${FLOW_WORKSPACE.minimumTapePx}px, 1fr)
         7px
-        minmax(${FLOW_WORKSPACE.minimumTapePx}px, 1fr) !important;
-      grid-template-areas: "clusters split-a book split-b tape" !important;
+        minmax(${FLOW_WORKSPACE.minimumBookPx}px, var(--flow-book-width, 22%)) !important;
+      grid-template-areas: "clusters split-a tape split-b book" !important;
       min-width: 0;
     }
     .orderbook-card .inpuls-footprint-pane {

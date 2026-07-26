@@ -1,5 +1,5 @@
 importScripts("./orderbook-tape-guard.js?v=1");
-importScripts("./orderbook-tape-latency.js?v=26-25-tape-v2-1");
+importScripts("./orderbook-tape-latency.js?v=26-27-runtime-stability-v1");
 
 const MAX_BOOK_LEVELS_PER_SIDE = 20_000;
 const MAX_EMITTED_LEVELS_PER_SIDE = 4_000;
@@ -23,6 +23,8 @@ const TAPE_FLUSH_MS = 25;
 const RECONNECT_BASE_MS = 400;
 const RECONNECT_MAX_MS = 8_000;
 const WORKER_HEARTBEAT_MS = 2_000;
+const CLOCK_SYNC_INTERVAL_MS = 5 * 60_000;
+const MULTI_BOOK_LEVEL_LIMIT = 8_000;
 
 const feeds = new Map();
 let tabVisible = true;
@@ -30,6 +32,11 @@ let emitTimer = 0;
 let emitCursor = 0;
 let visibilityEpoch = 0;
 let watchdogTimer = 0;
+let prioritySymbols = [];
+let serverClockOffsetMs = null;
+let serverClockRttMs = null;
+let serverClockSyncAt = 0;
+let serverClockSyncPromise = null;
 
 function post(type, symbol, payload = {}) {
   self.postMessage({ type, symbol, ...payload });
@@ -65,7 +72,7 @@ function normalizeTrade(event, sourceHint = null, receivedAt = null) {
   const source = sourceHint === "raw" || (sourceHint !== "agg" && inferredRaw) ? "raw" : "agg";
   const price = Number(event?.p);
   const quantity = Number(event?.q);
-  const timing = self.InPulsTapeLatency.normalizeTiming(event, receivedAt);
+  const timing = self.InPulsTapeLatency.normalizeTiming(event, receivedAt, serverClockOffsetMs);
   const time = timing.tradeTime;
   const id = source === "raw" ? Number(event?.t) : Number(event?.a);
   const firstTradeId = source === "raw" ? id : Number(event?.f);
@@ -176,6 +183,46 @@ async function fetchJson(url, timeoutMs = SNAPSHOT_TIMEOUT_MS) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function syncServerClock(force = false) {
+  const now = Date.now();
+  if (
+    !force
+    && Number.isFinite(serverClockOffsetMs)
+    && now - serverClockSyncAt < CLOCK_SYNC_INTERVAL_MS
+  ) return serverClockOffsetMs;
+  if (serverClockSyncPromise) return serverClockSyncPromise;
+
+  serverClockSyncPromise = (async () => {
+    const hosts = ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"];
+    const samples = [];
+    for (const host of hosts) {
+      const startedAt = Date.now();
+      try {
+        const data = await fetchJson(`https://${host}/fapi/v1/time`, 1_800);
+        const finishedAt = Date.now();
+        const serverTime = Number(data?.serverTime);
+        if (!Number.isFinite(serverTime)) continue;
+        const rtt = Math.max(0, finishedAt - startedAt);
+        samples.push({
+          rtt,
+          offset: serverTime - (startedAt + finishedAt) / 2,
+        });
+      } catch {}
+    }
+    samples.sort((left, right) => left.rtt - right.rtt);
+    const best = samples[0];
+    if (best) {
+      serverClockOffsetMs = best.offset;
+      serverClockRttMs = best.rtt;
+      serverClockSyncAt = Date.now();
+    }
+    return serverClockOffsetMs;
+  })().finally(() => {
+    serverClockSyncPromise = null;
+  });
+  return serverClockSyncPromise;
 }
 
 class TradeStore {
@@ -290,6 +337,7 @@ class SymbolFeed {
     this.tapeBatch = [];
     this.tapeTimer = 0;
     this.resumeTimer = 0;
+    this.backgroundPaused = false;
     this.lastDepthAt = 0;
     this.lastTradeAt = 0;
     this.lastMessageAt = 0;
@@ -354,6 +402,7 @@ class SymbolFeed {
     this.tradeTransportName = "—";
     this.tradeLatency.reset();
     this.syncing = false;
+    this.backgroundPaused = false;
     this.resetTapeGuard();
     this.resetBook();
     this.setStatus("loading", "Подключение Worker");
@@ -450,6 +499,23 @@ class SymbolFeed {
     }
   }
 
+  pauseForBackground() {
+    if (this.subscribers <= 0 || this.backgroundPaused) return;
+    this.backgroundPaused = true;
+    const preserveLastFrame = this.depthReady || (this.bids.size > 0 && this.asks.size > 0);
+    this.syncing = preserveLastFrame;
+    this.generation += 1;
+    this.tradeBootstrapRequest += 1;
+    this.stopSockets();
+    this.tradeConnected = false;
+    this.tradeLive = false;
+    this.tapeBatch = [];
+    clearTimeout(this.tapeTimer);
+    clearTimeout(this.resumeTimer);
+    this.tapeTimer = 0;
+    this.resumeTimer = 0;
+  }
+
   resume(delayMs = 0, epoch = visibilityEpoch) {
     clearTimeout(this.resumeTimer);
     this.resumeTimer = setTimeout(() => {
@@ -457,6 +523,11 @@ class SymbolFeed {
       if (!tabVisible || epoch !== visibilityEpoch || this.subscribers <= 0) return;
 
       const now = Date.now();
+      if (this.backgroundPaused) {
+        this.backgroundPaused = false;
+        this.restartAfterBackground(true);
+        return;
+      }
 
       // UI сохраняет старую историю, а Worker добавляет к ней сделки,
       // накопленные во время скрытой вкладки. replace=false не стирает
@@ -493,10 +564,10 @@ class SymbolFeed {
     }, Math.max(0, delayMs));
   }
 
-  restartAfterBackground() {
+  restartAfterBackground(force = false) {
     if (this.subscribers <= 0) return;
     const now = Date.now();
-    if (now - this.lastRestartAt < 2_500) return;
+    if (!force && now - this.lastRestartAt < 2_500) return;
     this.lastRestartAt = now;
     const preserveLastFrame = this.depthReady || (this.bids.size > 0 && this.asks.size > 0);
     this.syncing = preserveLastFrame;
@@ -550,11 +621,30 @@ class SymbolFeed {
     }
   }
 
+  priorityRank() {
+    const index = prioritySymbols.indexOf(this.symbol);
+    return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+  }
+
   emittedLimit() {
     const active = [...feeds.values()].filter((feed) => feed.subscribers > 0).length;
     if (active <= 1) return MAX_EMITTED_LEVELS_PER_SIDE;
-    if (active === 2) return 2_500;
-    return 1_500;
+    if (this.priorityRank() === 0) return active <= 2 ? 1_800 : 900;
+    if (active === 2) return 900;
+    if (active <= 4) return 450;
+    return 280;
+  }
+
+  emitIntervalMs() {
+    const active = [...feeds.values()].filter((feed) => feed.subscribers > 0).length;
+    if (active <= 1 || this.priorityRank() === 0) return 100;
+    if (active <= 4) return 220;
+    return 320;
+  }
+
+  bookStorageLimit() {
+    const active = [...feeds.values()].filter((feed) => feed.subscribers > 0).length;
+    return active <= 1 ? MAX_BOOK_LEVELS_PER_SIDE : MULTI_BOOK_LEVEL_LIMIT;
   }
 
   sortedDepth() {
@@ -567,7 +657,7 @@ class SymbolFeed {
 
   emit(now = Date.now(), requestedLimit = this.emittedLimit(), force = false) {
     if (!tabVisible || this.subscribers <= 0 || (!force && !this.dirty && !this.forceEmit)) return;
-    if (!force && !this.forceEmit && now - this.lastEmitAt < 100) return;
+    if (!force && !this.forceEmit && now - this.lastEmitAt < this.emitIntervalMs()) return;
     const fullView = this.sortedDepth();
     const limit = Math.max(100, Math.min(MAX_EMITTED_LEVELS_PER_SIDE, Math.floor(requestedLimit)));
     const view = {
@@ -618,8 +708,9 @@ class SymbolFeed {
   }
 
   trimBook() {
-    trimSide(this.bids, "bid", MAX_BOOK_LEVELS_PER_SIDE);
-    trimSide(this.asks, "ask", MAX_BOOK_LEVELS_PER_SIDE);
+    const limit = this.bookStorageLimit();
+    trimSide(this.bids, "bid", limit);
+    trimSide(this.asks, "ask", limit);
   }
 
   applyDepth(event, first = false) {
@@ -1112,15 +1203,11 @@ self.addEventListener("message", (event) => {
     if (!tabVisible) {
       clearTimeout(emitTimer);
       emitTimer = 0;
-      for (const feed of feeds.values()) {
-        feed.tapeBatch = [];
-        clearTimeout(feed.tapeTimer);
-        clearTimeout(feed.resumeTimer);
-        feed.tapeTimer = 0;
-        feed.resumeTimer = 0;
-      }
+      for (const feed of feeds.values()) feed.pauseForBackground();
       return;
     }
+
+    syncServerClock().catch(() => {});
 
     // Видимый/последний выбранный инструмент восстанавливаем первым,
     // остальные книги — по очереди, без WebSocket-шторма.
@@ -1135,6 +1222,13 @@ self.addEventListener("message", (event) => {
         - (priorityRank.get(right.symbol) ?? Number.MAX_SAFE_INTEGER)
       ));
     active.forEach((feed, index) => feed.resume(index * RESUME_STAGGER_MS, epoch));
+    return;
+  }
+
+  if (message.type === "priority") {
+    prioritySymbols = Array.isArray(message.prioritySymbols)
+      ? message.prioritySymbols.map((symbol) => String(symbol).toUpperCase())
+      : [];
     return;
   }
 
@@ -1153,5 +1247,6 @@ self.addEventListener("message", (event) => {
   }
 });
 
+syncServerClock(true).catch(() => {});
 scheduleWatchdog();
 post("ready", "");

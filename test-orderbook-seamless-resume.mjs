@@ -85,11 +85,11 @@ test("current generation replaces an obsolete bootstrap request", () => {
   assert.match(worker, /requestId !== this\.tradeBootstrapRequest/);
 });
 
-test("cache versions keep seamless resume while shipping Flow Workspace v1", () => {
-  assert.match(orderbook, /orderbook-worker\.js\?v=26-25-tape-v2-1/);
-  assert.match(serviceWorker, /inpuls-v26-26-flow-workspace-v1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=26-26-flow-workspace-v1/);
-  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-25-tape-v2-1/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-26-flow-workspace-v1/);
+test("cache versions keep seamless resume while shipping Runtime Stability v1", () => {
+  assert.match(orderbook, /orderbook-worker\.js\?v=26-27-runtime-stability-v1/);
+  assert.match(serviceWorker, /inpuls-26-27-runtime-stability-v1/);
+  assert.match(serviceWorker, /orderbook\.js\?v=26-27-runtime-stability-v1/);
+  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-27-runtime-stability-v1/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-27-runtime-stability-v1/);
   assert.doesNotMatch(serviceWorker, /v26-22-background-restart/);
 });
