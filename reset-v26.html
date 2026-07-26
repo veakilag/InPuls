@@ -20,14 +20,14 @@
 <body>
   <main>
     <h1>Очистка runtime InPuls</h1>
-    <p>Страница подключит стабильную сборку <strong>Runtime Stability v1</strong> и проверит активный Service Worker перед открытием сайта.</p>
+    <p>Страница подключит стабильную сборку <strong>Resume v2</strong> и проверит активный Service Worker перед открытием сайта.</p>
     <button id="reset" type="button">Очистить и открыть InPuls</button>
     <small id="status"></small>
   </main>
   <script>
-    const BUILD = "26-27-runtime-stability-v1";
-    const WORKER_URL = "./sw.js?v=26-27-runtime-stability-v1";
-    const APP_URL = "./?build=26-27-runtime-stability-v1";
+    const BUILD = "26-28-resume-v2";
+    const WORKER_URL = "./sw.js?v=26-28-resume-v2";
+    const APP_URL = "./?build=26-28-resume-v2";
     const button = document.getElementById("reset");
     const status = document.getElementById("status");
 
@@ -60,7 +60,7 @@
         }
 
         if ("serviceWorker" in navigator) {
-          status.textContent = "Подключаю Runtime Stability v1…";
+          status.textContent = "Подключаю Resume v2…";
           const registration = await navigator.serviceWorker.register(
             WORKER_URL,
             { scope: "./", updateViaCache: "none" },

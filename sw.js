@@ -1,26 +1,26 @@
-const CACHE = "inpuls-26-27-runtime-stability-v1";
-const BUILD = "26-27-runtime-stability-v1";
+const CACHE = "inpuls-26-28-resume-v2";
+const BUILD = "26-28-resume-v2";
 
 const FORCED = new Map([
-  ["/app.js", "./app.js?v=26-27-runtime-stability-v1"],
-  ["/orderbook.js", "./orderbook.js?v=26-27-runtime-stability-v1"],
-  ["/orderbook-worker.js", "./orderbook-worker.js?v=26-27-runtime-stability-v1"],
-  ["/orderbook-tape-latency.js", "./orderbook-tape-latency.js?v=26-27-runtime-stability-v1"],
-  ["/orderbook-flow-workspace.js", "./orderbook-flow-workspace.js?v=26-27-runtime-stability-v1"],
+  ["/app.js", "./app.js?v=26-28-resume-v2"],
+  ["/orderbook.js", "./orderbook.js?v=26-28-resume-v2"],
+  ["/orderbook-worker.js", "./orderbook-worker.js?v=26-28-resume-v2"],
+  ["/orderbook-tape-latency.js", "./orderbook-tape-latency.js?v=26-28-resume-v2"],
+  ["/orderbook-flow-workspace.js", "./orderbook-flow-workspace.js?v=26-28-resume-v2"],
 ]);
 
 const SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=23",
-  "./app.js?v=26-27-runtime-stability-v1",
+  "./app.js?v=26-28-resume-v2",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=26-27-runtime-stability-v1",
-  "./orderbook-worker.js?v=26-27-runtime-stability-v1",
+  "./orderbook.js?v=26-28-resume-v2",
+  "./orderbook-worker.js?v=26-28-resume-v2",
   "./orderbook-tape-layout.js?v=26-25-tape-v2-1",
-  "./orderbook-tape-latency.js?v=26-27-runtime-stability-v1",
-  "./orderbook-flow-workspace.js?v=26-27-runtime-stability-v1",
+  "./orderbook-tape-latency.js?v=26-28-resume-v2",
+  "./orderbook-flow-workspace.js?v=26-28-resume-v2",
   "./assets/inpuls-world-map-v17.png",
   "./manifest.webmanifest",
   "./icon.svg",

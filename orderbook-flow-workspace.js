@@ -140,6 +140,7 @@ export function visibleFlowCount(trades, startTime, endTime) {
 }
 
 const tradesBySymbol = new Map();
+const statusBySymbol = new Map();
 const cardStates = new WeakMap();
 let drawFrame = 0;
 
@@ -167,6 +168,15 @@ function formatUsd(value) {
   if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(amount >= 10_000_000 ? 0 : 1)}M`;
   if (amount >= 1_000) return `${(amount / 1_000).toFixed(amount >= 100_000 ? 0 : 1)}K`;
   return amount >= 100 ? String(Math.round(amount)) : amount.toFixed(amount >= 10 ? 0 : 1);
+}
+
+function flowRecoveryFrozen(symbol) {
+  const status = statusBySymbol.get(symbol);
+  if (!status) return false;
+  const state = String(status.state ?? "").toLowerCase();
+  const text = String(status.text ?? "").toUpperCase();
+  const tapeLive = text.includes("RAW LIVE") || text.includes("AGG FALLBACK");
+  return state !== "online" || !tapeLive;
 }
 
 function visibleRows(card, pane) {
@@ -422,6 +432,8 @@ function ensureCard(card) {
     count: pane.querySelector("[data-footprint-count]"),
     flowCount,
     visible: true,
+    hasFrame: false,
+    lastSymbol: null,
   };
   cardStates.set(card, state);
 
@@ -452,6 +464,12 @@ function ensureCard(card) {
 function renderCard(card, state) {
   const symbol = cardSymbol(card);
   if (!symbol || !state.context) return;
+  if (state.lastSymbol !== symbol) {
+    state.lastSymbol = symbol;
+    state.hasFrame = false;
+  }
+  const frozen = flowRecoveryFrozen(symbol);
+  if (frozen && state.hasFrame) return;
   const trades = tradesBySymbol.get(symbol) ?? [];
   const paneRect = state.pane.getBoundingClientRect();
   const width = Math.max(1, paneRect.width);
@@ -523,6 +541,7 @@ function renderCard(card, state) {
   const countText = `${visibleCount} trades`;
   if (state.count.textContent !== countText) state.count.textContent = countText;
   if (state.flowCount.textContent !== countText) state.flowCount.textContent = countText;
+  state.hasFrame = true;
 }
 
 function acceptTape(event) {
@@ -543,10 +562,19 @@ function acceptTape(event) {
   requestDraw();
 }
 
+function acceptBookStatus(event) {
+  const symbol = String(event?.detail?.symbol ?? "").toUpperCase();
+  const status = event?.detail?.status;
+  if (!symbol.endsWith("USDT") || !status) return;
+  statusBySymbol.set(symbol, status);
+  requestDraw();
+}
+
 function install() {
   if (typeof document === "undefined") return;
   injectStyles();
   globalThis.addEventListener("inpuls:tape-data", acceptTape);
+  globalThis.addEventListener("inpuls:book-status", acceptBookStatus);
   document.querySelectorAll(".orderbook-card").forEach(ensureCard);
 
   const observer = new MutationObserver((mutations) => {

@@ -36,7 +36,7 @@ test("RX display is a rolling short-window median", () => {
 });
 
 test("worker records receive time and exposes RX in live status", () => {
-  assert.match(worker, /importScripts\("\.\/orderbook-tape-latency\.js\?v=26-27-runtime-stability-v1"\)/);
+  assert.match(worker, /importScripts\("\.\/orderbook-tape-latency\.js\?v=26-28-resume-v2"\)/);
   assert.match(worker, /new self\.InPulsTapeLatency\.RollingLatency/);
   assert.match(worker, /normalizeTrade\(update, source, receivedAt\)/);
   assert.match(worker, /this\.tradeLatency\.record\(trade\.rxLatencyMs, receivedAt\)/);

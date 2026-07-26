@@ -3,7 +3,7 @@ import {
   buildReadableTapeLayout,
   selectReadableAggLabels,
 } from "./orderbook-tape-layout.js?v=26-25-tape-v2-1";
-import "./orderbook-flow-workspace.js?v=26-27-runtime-stability-v1";
+import "./orderbook-flow-workspace.js?v=26-28-resume-v2";
 
 export function applyDepthUpdates(levels, updates) {
   for (const [priceValue, quantityValue] of updates ?? []) {
@@ -1171,8 +1171,9 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-27-runtime-stability-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-28-resume-v2", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
+const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
 const ORDERBOOK_RESUME_PROBE_MS = 3_500;
 const ORDERBOOK_PRIORITY_LIMIT = 12;
@@ -1236,7 +1237,7 @@ class OrderBookWorkerManager {
       // Worker не использует import/export, поэтому classic-режим надёжнее
       // module Worker в Chromium/Yandex при работе через Service Worker.
       this.worker = new Worker(ORDERBOOK_WORKER_URL, {
-        name: "inpuls-orderbook-worker-26-27-runtime-stability-v1",
+        name: "inpuls-orderbook-worker-26-28-resume-v2",
       });
       this.startupTimer = setTimeout(() => {
         if (this.workerReady) return;
@@ -1423,6 +1424,12 @@ class OrderBookWorkerManager {
     if (message.type === "status") {
       const status = { state: message.state, text: message.text };
       this.lastStatusBySymbol.set(symbol, status);
+      if (typeof globalThis.dispatchEvent === "function"
+        && typeof globalThis.CustomEvent === "function") {
+        globalThis.dispatchEvent(new CustomEvent(ORDERBOOK_WORKER_STATUS_EVENT, {
+          detail: { symbol, status },
+        }));
+      }
       for (const id of this.clientsBySymbol.get(symbol) ?? []) {
         this.clients.get(id)?._receiveStatus(status);
       }
@@ -1536,7 +1543,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-27-runtime-stability-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-28-resume-v2";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const TAPE_MAX_STORED = 4_000;
@@ -1551,6 +1558,7 @@ const TAPE_TIMELINE_MIN_LABEL_GAP_PX = 42;
 const TAPE_AGG_LABEL_QUANTILE = .95;
 const TAPE_STALE_NOTICE_MS = 60_000;
 const TAPE_STATE_REFRESH_MS = 1_000;
+const TAPE_FREEZE_AFTER_MS = 2_500;
 const TAPE_MODE_KEY = "inpuls-tape-mode-v2";
 const TAPE_VISIBLE_KEY = "inpuls-tape-visible-v1";
 const CLUSTERS_VISIBLE_KEY = "inpuls-clusters-visible-v1";
@@ -1559,6 +1567,7 @@ const TAPE_MIN_FILTER_KEY = "inpuls-tape-min-filter-v3";
 const tapeTradesBySymbol = new Map();
 const latestBookDataBySymbol = new Map();
 const tapeMetaBySymbol = new Map();
+const bookStatusBySymbol = new Map();
 const tapePendingBySymbol = new Map();
 const liquidityTimersBySymbol = new Map();
 const liquidityLastDrawBySymbol = new Map();
@@ -1624,6 +1633,21 @@ export function parseRuntimeNumber(text) {
 
 function clampTape(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
+}
+
+export function resolveTapeWindowEnd(latestTime, frozen, now = Date.now()) {
+  const latest = Number(latestTime) || Number(now) || Date.now();
+  const current = Number(now) || Date.now();
+  return frozen ? latest + 1 : Math.max(latest + 1, current);
+}
+
+function tapeRecoveryFrozen(symbol) {
+  const status = bookStatusBySymbol.get(symbol);
+  if (!status) return false;
+  const state = String(status.state ?? "").toLowerCase();
+  const text = String(status.text ?? "").toUpperCase();
+  const tapeLive = text.includes("RAW LIVE") || text.includes("AGG FALLBACK");
+  return state !== "online" || !tapeLive;
 }
 
 function formatTapeUsd(value) {
@@ -2258,6 +2282,7 @@ function ensureTapeUi(card) {
       titleObserver: null,
       titleTarget: null,
       lastSymbol: null,
+      hasFrame: false,
     };
     tapeCardStates.set(card, state);
   }
@@ -2377,6 +2402,7 @@ function ensureTapeUi(card) {
         const nextSymbol = cardSymbol(card);
         if (nextSymbol !== state.lastSymbol) {
           state.lastSymbol = nextSymbol;
+          state.hasFrame = false;
           scheduleTapeDraw(true, card);
         }
       });
@@ -2447,6 +2473,16 @@ function acceptBookData(event) {
   if (!symbol.endsWith("USDT") || !data) return;
   latestBookDataBySymbol.set(symbol, data);
   scheduleLiquidityForSymbol(symbol);
+}
+
+function acceptBookStatus(event) {
+  const symbol = String(event?.detail?.symbol ?? "").toUpperCase();
+  const status = event?.detail?.status;
+  if (!symbol.endsWith("USDT") || !status) return;
+  bookStatusBySymbol.set(symbol, status);
+  document.querySelectorAll(".orderbook-card").forEach((card) => {
+    if (cardSymbol(card) === symbol) scheduleTapeDraw(true, card);
+  });
 }
 
 function setTapeState(state, text = "", tone = "neutral") {
@@ -2589,7 +2625,7 @@ function nearestVisibleRow(rows, price) {
   return best;
 }
 
-function buildContinuousTapeWindow(width, latestTime) {
+function buildContinuousTapeWindow(width, latestTime, requestedEndTime = null) {
   const safeWidth = Math.max(1, Number(width) || 1);
   const seconds = clampTape(
     Math.floor(safeWidth / TAPE_MIN_SECOND_WIDTH),
@@ -2598,7 +2634,10 @@ function buildContinuousTapeWindow(width, latestTime) {
   );
   const duration = seconds * TAPE_SECOND_MS;
   const latest = Number(latestTime) || Date.now();
-  const endTime = Math.max(latest + 1, Date.now());
+  const requested = Number(requestedEndTime);
+  const endTime = Number.isFinite(requested)
+    ? Math.max(latest + 1, requested)
+    : Math.max(latest + 1, Date.now());
   const plotRight = Math.max(2, safeWidth - TAPE_NOW_GUTTER_PX);
   return {
     duration,
@@ -2802,30 +2841,41 @@ function drawTapeCard(card) {
   if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
     canvas.width = pixelWidth;
     canvas.height = pixelHeight;
+    state.hasFrame = false;
   }
   context.setTransform(dpr, 0, 0, dpr, 0, 0);
-  context.clearRect(0, 0, rect.width, rect.height);
-  setTapeRangeSummary(state, 0, 0);
 
   if (!state.tapeVisible) {
+    context.clearRect(0, 0, rect.width, rect.height);
+    state.hasFrame = false;
+    setTapeRangeSummary(state, 0, 0);
     setTapeState(state, "");
     return;
   }
 
   const symbol = cardSymbol(card);
   if (!symbol) {
+    context.clearRect(0, 0, rect.width, rect.height);
+    state.hasFrame = false;
     setTapeState(state, "Выберите монету");
     return;
   }
 
   const stored = tapeTradesBySymbol.get(symbol) ?? [];
   if (!stored.length) {
+    if (!state.hasFrame) context.clearRect(0, 0, rect.width, rect.height);
     const live = tapeStatusText(card).includes("TAPE");
     setTapeState(
       state,
       live ? "Поток подключён · ждём сделку" : "Подключаю поток сделок…",
       live ? "neutral" : "attention",
     );
+    return;
+  }
+
+  const frozen = tapeRecoveryFrozen(symbol);
+  if (frozen && state.hasFrame) {
+    setTapeState(state, "ПОСЛЕДНИЙ КАДР · ждём свежий поток", "attention");
     return;
   }
 
@@ -2839,15 +2889,23 @@ function drawTapeCard(card) {
     (latest, trade) => Math.max(latest, Number(trade?.time) || 0),
     0,
   ) || Date.now();
-  const window = buildContinuousTapeWindow(rect.width, latestTime);
-  drawTapeTimeline(context, rect, window);
+  const endTime = resolveTapeWindowEnd(latestTime, frozen);
+  const window = buildContinuousTapeWindow(rect.width, latestTime, endTime);
   const recent = stored.filter(
     (trade) => trade.time >= window.startTime && trade.time <= window.endTime,
   );
   if (!recent.length) {
+    context.clearRect(0, 0, rect.width, rect.height);
+    state.hasFrame = false;
+    setTapeRangeSummary(state, 0, 0);
     setTapeState(state, `Нет сделок в текущем окне${staleTradeSuffix(symbol)}`);
     return;
   }
+
+  context.clearRect(0, 0, rect.width, rect.height);
+  state.hasFrame = false;
+  setTapeRangeSummary(state, 0, 0);
+  drawTapeTimeline(context, rect, window);
 
   const minQuote = Math.max(0, Number(state.minQuote) || 0);
   const range = visiblePriceRange(rows);
@@ -2881,7 +2939,11 @@ function drawTapeCard(card) {
     return;
   }
 
-  setTapeState(state, "");
+  setTapeState(
+    state,
+    frozen ? "ПОСЛЕДНИЙ КАДР · ждём свежий поток" : "",
+    frozen ? "attention" : "neutral",
+  );
   const quotes = items.map((item) => Number(item.quote) || 0).filter((value) => value > 0);
   const strengthFor = createTapeStrengthScale(quotes);
 
@@ -2994,6 +3056,7 @@ function drawTapeCard(card) {
     context.fillStyle = "rgba(244, 250, 248, .98)";
     context.fillText(label, x, y + .2);
   }
+  state.hasFrame = true;
 }
 
 function drawAllTapes() {
@@ -3248,6 +3311,7 @@ function installOrderBookRuntime() {
   installOrderBookStyles();
   globalThis.addEventListener(TAPE_EVENT_NAME, acceptTapeData);
   globalThis.addEventListener(BOOK_DATA_EVENT_NAME, acceptBookData);
+  globalThis.addEventListener(ORDERBOOK_WORKER_STATUS_EVENT, acceptBookStatus);
   scanTapeCards(document);
 
   const discoveryObserver = new MutationObserver((mutations) => {
@@ -3273,7 +3337,6 @@ function installOrderBookRuntime() {
       cancelTapeDraw();
       if (tapeIngestFrame) cancelAnimationFrame(tapeIngestFrame);
       tapeIngestFrame = 0;
-      tapePendingBySymbol.clear();
       tapeNeedsDraw = true;
       return;
     }
