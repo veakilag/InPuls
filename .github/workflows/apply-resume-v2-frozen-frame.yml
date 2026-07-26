@@ -32,6 +32,46 @@ jobs:
       - name: Apply Resume v2
         run: python /tmp/apply-resume-v2.py
 
+      - name: Update Resume v2 backfill contract
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          test_path = Path("test-orderbook-seamless-resume.mjs")
+          source = test_path.read_text(encoding="utf-8")
+
+          old = '''test("resume backfills recent trades without replacing the visible tape", () => {
+            assert.match(worker, /loadRecentTrades\\(this\\.generation, \\{ resume: true \\}\\)/);
+            assert.match(worker, /loadRecentTrades\\(generation, \\{ resume: true \\}\\)/);
+            assert.match(worker, /async loadRecentTrades\\(generation, \\{ resume = false \\} = \\{\\}\\)/);
+            assert.match(worker, /replace: !resume/);
+            assert.match(worker, /resume,\\n\\s*trades,/);
+          });'''
+
+          new = '''test("long recovery backfills trades while fast resume avoids REST", () => {
+            assert.match(
+              worker,
+              /restartAfterBackground\\(force = false\\)[\\s\\S]*loadRecentTrades\\(generation, \\{ resume: true \\}\\)/,
+            );
+            const resumeStart = worker.indexOf("  resume(");
+            const resumeEnd = worker.indexOf("\\n  restartAfterBackground(", resumeStart);
+            const resumeBlock = worker.slice(resumeStart, resumeEnd);
+            assert.doesNotMatch(resumeBlock, /loadRecentTrades/);
+            assert.match(worker, /async loadRecentTrades\\(generation, \\{ resume = false \\} = \\{\\}\\)/);
+            assert.match(worker, /replace: !resume/);
+            assert.match(worker, /resume,\\n\\s*trades,/);
+          });'''
+
+          count = source.count(old)
+          if count != 1:
+            raise RuntimeError(
+              f"Expected one legacy resume backfill contract, got {count}"
+            )
+
+          test_path.write_text(source.replace(old, new, 1), encoding="utf-8")
+          PY
+
       - name: Validate JavaScript
         run: |
           node --input-type=module --check < app.js
