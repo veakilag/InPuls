@@ -1298,7 +1298,18 @@ class OrderBookWorkerManager {
   }
 
   #notifyAll(status) {
-    for (const client of this.clients.values()) client?._receiveStatus(status);
+    for (const [symbol, ids] of this.clientsBySymbol) {
+      this.lastStatusBySymbol.set(symbol, status);
+      if (typeof globalThis.dispatchEvent === "function"
+        && typeof globalThis.CustomEvent === "function") {
+        globalThis.dispatchEvent(new CustomEvent(ORDERBOOK_WORKER_STATUS_EVENT, {
+          detail: { symbol, status },
+        }));
+      }
+      for (const id of ids) {
+        this.clients.get(id)?._receiveStatus(status);
+      }
+    }
   }
 
   #restart(reason = "Перезапуск Worker") {

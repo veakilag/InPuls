@@ -83,3 +83,21 @@ test("Resume v2 ships one consistent runtime", () => {
   assert.match(sw, /inpuls-26-28-resume-v2/);
   assert.match(reset, /Resume v2/);
 });
+
+test("manager hard restart preserves frozen symbol frames", () => {
+  const notifyStart = orderbook.indexOf("  #notifyAll(status) {");
+  const notifyEnd = orderbook.indexOf("\n  available()", notifyStart);
+  const notifyBlock = orderbook.slice(notifyStart, notifyEnd);
+  assert.ok(notifyStart >= 0 && notifyEnd > notifyStart);
+  assert.match(notifyBlock, /for \(const \[symbol, ids\] of this\.clientsBySymbol\)/);
+  assert.match(notifyBlock, /this\.lastStatusBySymbol\.set\(symbol, status\)/);
+  assert.match(
+    notifyBlock,
+    /new CustomEvent\(ORDERBOOK_WORKER_STATUS_EVENT,[\s\S]*detail: \{ symbol, status \}/,
+  );
+  assert.match(notifyBlock, /this\.clients\.get\(id\)\?\._receiveStatus\(status\)/);
+  assert.match(
+    orderbook,
+    /this\.#notifyAll\(\{ state: "stale", text: "СИНХРОНИЗАЦИЯ · последний кадр" \}\)/,
+  );
+});
