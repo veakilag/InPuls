@@ -1,0 +1,53 @@
+name: Preserve deep multi-book state
+
+on:
+  push:
+    branches:
+      - agent/runtime-stability-v1
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Write transformer
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import base64
+          Path("/tmp/fix-runtime-deep-book.py").write_bytes(
+            base64.b64decode("ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCgp3b3JrZXJfcGF0aCA9IFBhdGgoIm9yZGVyYm9vay13b3JrZXIuanMiKQp0ZXN0X3BhdGggPSBQYXRoKCJ0ZXN0LW9yZGVyYm9vay1ydW50aW1lLXN0YWJpbGl0eS5tanMiKQp3b3JrZmxvd19wYXRoID0gUGF0aCgiLmdpdGh1Yi93b3JrZmxvd3MvZml4LXJ1bnRpbWUtZGVlcC1ib29rLnltbCIpCgp3b3JrZXIgPSB3b3JrZXJfcGF0aC5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04IikKCm9sZF9jb25zdGFudCA9ICJjb25zdCBNVUxUSV9CT09LX0xFVkVMX0xJTUlUID0gOF8wMDA7XG4iCmlmIHdvcmtlci5jb3VudChvbGRfY29uc3RhbnQpICE9IDE6CiAgICByYWlzZSBSdW50aW1lRXJyb3IoCiAgICAgICAgZiJFeHBlY3RlZCBvbmUgbXVsdGktYm9vayBzdG9yYWdlIGNvbnN0YW50LCBnb3Qge3dvcmtlci5jb3VudChvbGRfY29uc3RhbnQpfSIKICAgICkKd29ya2VyID0gd29ya2VyLnJlcGxhY2Uob2xkX2NvbnN0YW50LCAiIiwgMSkKCm9sZF9tZXRob2QgPSAnJycgIGJvb2tTdG9yYWdlTGltaXQoKSB7CiAgICBjb25zdCBhY3RpdmUgPSBbLi4uZmVlZHMudmFsdWVzKCldLmZpbHRlcigoZmVlZCkgPT4gZmVlZC5zdWJzY3JpYmVycyA+IDApLmxlbmd0aDsKICAgIHJldHVybiBhY3RpdmUgPD0gMSA/IE1BWF9CT09LX0xFVkVMU19QRVJfU0lERSA6IE1VTFRJX0JPT0tfTEVWRUxfTElNSVQ7CiAgfScnJwpuZXdfbWV0aG9kID0gJycnICBib29rU3RvcmFnZUxpbWl0KCkgewogICAgLy8gVUkgZW1pc3Npb24gaXMgdGhyb3R0bGVkIHNlcGFyYXRlbHkuIE5ldmVyIGRlc3Ryb3kgdGhlIGRlZXAgbG9jYWwKICAgIC8vIGJvb2sgbWVyZWx5IGJlY2F1c2Ugc2V2ZXJhbCBwYW5lbHMgYXJlIG9wZW4uCiAgICByZXR1cm4gTUFYX0JPT0tfTEVWRUxTX1BFUl9TSURFOwogIH0nJycKaWYgd29ya2VyLmNvdW50KG9sZF9tZXRob2QpICE9IDE6CiAgICByYWlzZSBSdW50aW1lRXJyb3IoCiAgICAgICAgZiJFeHBlY3RlZCBvbmUgZHluYW1pYyBib29rU3RvcmFnZUxpbWl0IG1ldGhvZCwgZ290IHt3b3JrZXIuY291bnQob2xkX21ldGhvZCl9IgogICAgKQp3b3JrZXIgPSB3b3JrZXIucmVwbGFjZShvbGRfbWV0aG9kLCBuZXdfbWV0aG9kLCAxKQp3b3JrZXJfcGF0aC53cml0ZV90ZXh0KHdvcmtlciwgZW5jb2Rpbmc9InV0Zi04IikKCnRlc3RzID0gdGVzdF9wYXRoLnJlYWRfdGV4dChlbmNvZGluZz0idXRmLTgiKQpvbGRfdGVzdCA9ICcnJ3Rlc3QoIm11bHRpLWJvb2sgd29ya2VyIHByaW9yaXRpemVzIHRoZSBhY3RpdmUgc3ltYm9sIiwgKCkgPT4gewogIGFzc2VydC5tYXRjaChvcmRlcmJvb2ssIC90eXBlOiAicHJpb3JpdHkiLyk7CiAgYXNzZXJ0Lm1hdGNoKHdvcmtlciwgL3ByaW9yaXR5U3ltYm9scy8pOwogIGFzc2VydC5tYXRjaCh3b3JrZXIsIC9lbWl0SW50ZXJ2YWxNc1xcKFxcKS8pOwogIGFzc2VydC5tYXRjaCh3b3JrZXIsIC9ib29rU3RvcmFnZUxpbWl0XFwoXFwpLyk7Cn0pOycnJwpuZXdfdGVzdCA9ICcnJ3Rlc3QoIm11bHRpLWJvb2sgd29ya2VyIHByaW9yaXRpemVzIFVJIHdpdGhvdXQgdHJ1bmNhdGluZyBsb2NhbCBkZXB0aCIsICgpID0+IHsKICBhc3NlcnQubWF0Y2gob3JkZXJib29rLCAvdHlwZTogInByaW9yaXR5Ii8pOwogIGFzc2VydC5tYXRjaCh3b3JrZXIsIC9wcmlvcml0eVN5bWJvbHMvKTsKICBhc3NlcnQubWF0Y2god29ya2VyLCAvZW1pdEludGVydmFsTXNcXChcXCkvKTsKICBhc3NlcnQubWF0Y2goCiAgICB3b3JrZXIsCiAgICAvYm9va1N0b3JhZ2VMaW1pdFxcKFxcKSBcXHtbXFxzXFxTXSpyZXR1cm4gTUFYX0JPT0tfTEVWRUxTX1BFUl9TSURFOy8sCiAgKTsKICBhc3NlcnQuZG9lc05vdE1hdGNoKHdvcmtlciwgL01VTFRJX0JPT0tfTEVWRUxfTElNSVQvKTsKICBhc3NlcnQubWF0Y2goCiAgICB3b3JrZXIsCiAgICAvdHJpbVNpZGVcXCh0aGlzXFwuYmlkcywgImJpZCIsIGxpbWl0XFwpO1tcXHNcXFNdKnRyaW1TaWRlXFwodGhpc1xcLmFza3MsICJhc2siLCBsaW1pdFxcKTsvLAogICk7Cn0pOycnJwppZiB0ZXN0cy5jb3VudChvbGRfdGVzdCkgIT0gMToKICAgIHJhaXNlIFJ1bnRpbWVFcnJvcigKICAgICAgICBmIkV4cGVjdGVkIG9uZSBtdWx0aS1ib29rIHJ1bnRpbWUgdGVzdCwgZ290IHt0ZXN0cy5jb3VudChvbGRfdGVzdCl9IgogICAgKQp0ZXN0cyA9IHRlc3RzLnJlcGxhY2Uob2xkX3Rlc3QsIG5ld190ZXN0LCAxKQp0ZXN0X3BhdGgud3JpdGVfdGV4dCh0ZXN0cywgZW5jb2Rpbmc9InV0Zi04IikKCndvcmtmbG93X3BhdGgudW5saW5rKG1pc3Npbmdfb2s9VHJ1ZSkK")
+          )
+          PY
+
+      - name: Preserve deep local books
+        run: python /tmp/fix-runtime-deep-book.py
+
+      - name: Validate JavaScript
+        run: |
+          node --check orderbook-worker.js
+          node --check test-orderbook-runtime-stability.mjs
+
+      - name: Run orderbook tests
+        run: node --test test-orderbook-*.mjs
+
+      - name: Commit deep-book fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No generated changes"
+            exit 1
+          fi
+          git commit -m "Preserve deep multi-book state"
+          git push
