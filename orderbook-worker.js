@@ -24,7 +24,6 @@ const RECONNECT_BASE_MS = 400;
 const RECONNECT_MAX_MS = 8_000;
 const WORKER_HEARTBEAT_MS = 2_000;
 const CLOCK_SYNC_INTERVAL_MS = 5 * 60_000;
-const MULTI_BOOK_LEVEL_LIMIT = 8_000;
 
 const feeds = new Map();
 let tabVisible = true;
@@ -643,8 +642,9 @@ class SymbolFeed {
   }
 
   bookStorageLimit() {
-    const active = [...feeds.values()].filter((feed) => feed.subscribers > 0).length;
-    return active <= 1 ? MAX_BOOK_LEVELS_PER_SIDE : MULTI_BOOK_LEVEL_LIMIT;
+    // UI emission is throttled separately. Never destroy the deep local
+    // book merely because several panels are open.
+    return MAX_BOOK_LEVELS_PER_SIDE;
   }
 
   sortedDepth() {

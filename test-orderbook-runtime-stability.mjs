@@ -48,9 +48,17 @@ test("RX uses calibrated Binance server time", () => {
   assert.match(worker, /normalizeTiming\(event, receivedAt, serverClockOffsetMs\)/);
 });
 
-test("multi-book worker prioritizes the active symbol", () => {
+test("multi-book worker prioritizes UI without truncating local depth", () => {
   assert.match(orderbook, /type: "priority"/);
   assert.match(worker, /prioritySymbols/);
   assert.match(worker, /emitIntervalMs\(\)/);
-  assert.match(worker, /bookStorageLimit\(\)/);
+  assert.match(
+    worker,
+    /bookStorageLimit\(\) \{[\s\S]*return MAX_BOOK_LEVELS_PER_SIDE;/,
+  );
+  assert.doesNotMatch(worker, /MULTI_BOOK_LEVEL_LIMIT/);
+  assert.match(
+    worker,
+    /trimSide\(this\.bids, "bid", limit\);[\s\S]*trimSide\(this\.asks, "ask", limit\);/,
+  );
 });
