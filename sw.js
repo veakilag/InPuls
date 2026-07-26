@@ -1,17 +1,26 @@
-const CACHE = "inpuls-v26-26-flow-workspace-v1";
+const CACHE = "inpuls-26-27-runtime-stability-v1";
+const BUILD = "26-27-runtime-stability-v1";
+
+const FORCED = new Map([
+  ["/app.js", "./app.js?v=26-27-runtime-stability-v1"],
+  ["/orderbook.js", "./orderbook.js?v=26-27-runtime-stability-v1"],
+  ["/orderbook-worker.js", "./orderbook-worker.js?v=26-27-runtime-stability-v1"],
+  ["/orderbook-tape-latency.js", "./orderbook-tape-latency.js?v=26-27-runtime-stability-v1"],
+  ["/orderbook-flow-workspace.js", "./orderbook-flow-workspace.js?v=26-27-runtime-stability-v1"],
+]);
 
 const SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=23",
-  "./app.js?v=23",
+  "./app.js?v=26-27-runtime-stability-v1",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=26-26-flow-workspace-v1",
-  "./orderbook-worker.js?v=26-25-tape-v2-1",
+  "./orderbook.js?v=26-27-runtime-stability-v1",
+  "./orderbook-worker.js?v=26-27-runtime-stability-v1",
   "./orderbook-tape-layout.js?v=26-25-tape-v2-1",
-  "./orderbook-tape-latency.js?v=26-25-tape-v2-1",
-  "./orderbook-flow-workspace.js?v=26-26-flow-workspace-v1",
+  "./orderbook-tape-latency.js?v=26-27-runtime-stability-v1",
+  "./orderbook-flow-workspace.js?v=26-27-runtime-stability-v1",
   "./assets/inpuls-world-map-v17.png",
   "./manifest.webmanifest",
   "./icon.svg",
@@ -29,7 +38,10 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(
+        keys.filter((key) => key.startsWith("inpuls-") && key !== CACHE)
+          .map((key) => caches.delete(key)),
+      ))
       .then(() => self.clients.claim()),
   );
 });
@@ -38,21 +50,36 @@ async function fetchFresh(request) {
   return fetch(request, { cache: "no-store" });
 }
 
+function forcedUrlFor(url) {
+  for (const [suffix, forced] of FORCED) {
+    if (url.pathname.endsWith(suffix)) return new URL(forced, self.registration.scope);
+  }
+  return null;
+}
+
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
-
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  if (url.pathname.endsWith("/orderbook.js")) {
-    const forcedUrl = new URL("./orderbook.js?v=26-26-flow-workspace-v1", self.registration.scope);
+  const forcedUrl = forcedUrlFor(url);
+  if (forcedUrl) {
     event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
     return;
   }
 
-  if (url.pathname.endsWith("/orderbook-worker.js")) {
-    const forcedUrl = new URL("./orderbook-worker.js?v=26-25-tape-v2-1", self.registration.scope);
-    event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetchFresh(event.request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE).then((cache) => cache.put("./index.html", copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match("./index.html")),
+    );
     return;
   }
 

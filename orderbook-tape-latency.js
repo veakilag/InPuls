@@ -1,14 +1,14 @@
 (function installTapeLatency(scope) {
-  function normalizeTiming(event, receivedAt = null) {
+  function normalizeTiming(event, receivedAt = null, clockOffsetMs = null) {
     const tradeTime = Number(event?.T ?? event?.E);
     const eventTime = Number(event?.E ?? event?.T);
-    const received = receivedAt === null || receivedAt === undefined
-      ? null
-      : Number(receivedAt);
-    const rawLatency = Number.isFinite(received) && Number.isFinite(eventTime)
-      ? received - eventTime
+    const received = receivedAt === null || receivedAt === undefined ? null : Number(receivedAt);
+    const offset = clockOffsetMs === null || clockOffsetMs === undefined ? null : Number(clockOffsetMs);
+    const calibrated = Number.isFinite(offset);
+    const rawLatency = calibrated && Number.isFinite(received) && Number.isFinite(eventTime)
+      ? received + offset - eventTime
       : null;
-    const validLatency = Number.isFinite(rawLatency) && rawLatency >= -250 && rawLatency <= 10_000
+    const validLatency = Number.isFinite(rawLatency) && rawLatency >= -100 && rawLatency <= 10_000
       ? Math.max(0, rawLatency)
       : null;
     return {
