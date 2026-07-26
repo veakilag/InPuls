@@ -23,14 +23,16 @@ test("renderer uses readable layout and removes RAW labels", () => {
   assert.match(orderbook, /const showLabel = aggLabels\.has\(item\.key\)/);
 });
 
-test("Tape v2.1 cache and reset page point to the new runtime", () => {
+test("Flow Workspace cache and reset page point to the new runtime", () => {
   assert.match(orderbook, /inpuls-orderbook-runtime-v26-25-tape-v2-1/);
-  assert.match(serviceWorker, /inpuls-v26-25-tape-v2-1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=26-25-tape-v2-1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-26-flow-workspace-v1/);
+  assert.match(serviceWorker, /inpuls-v26-26-flow-workspace-v1/);
+  assert.match(serviceWorker, /orderbook\.js\?v=26-26-flow-workspace-v1/);
   assert.match(serviceWorker, /orderbook-worker\.js\?v=26-25-tape-v2-1/);
   assert.match(serviceWorker, /orderbook-tape-layout\.js\?v=26-25-tape-v2-1/);
   assert.match(serviceWorker, /orderbook-tape-latency\.js\?v=26-25-tape-v2-1/);
-  assert.match(resetPage, /Tape v2\.1/);
-  assert.match(resetPage, /sw\.js\?v=26-25-tape-v2-1/);
-  assert.match(resetPage, /build=26-25-tape-v2-1/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-26-flow-workspace-v1/);
+  assert.match(resetPage, /Flow Workspace v1/);
+  assert.match(resetPage, /sw\.js\?v=26-26-flow-workspace-v1/);
+  assert.match(resetPage, /build=26-26-flow-workspace-v1/);
 });

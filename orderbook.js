@@ -3,6 +3,7 @@ import {
   buildReadableTapeLayout,
   selectReadableAggLabels,
 } from "./orderbook-tape-layout.js?v=26-25-tape-v2-1";
+import "./orderbook-flow-workspace.js?v=26-26-flow-workspace-v1";
 
 export function applyDepthUpdates(levels, updates) {
   for (const [priceValue, quantityValue] of updates ?? []) {
@@ -2916,6 +2917,32 @@ function drawTapeCard(card) {
         },
       )
     : new Set();
+
+  if (drawItems.length > 1) {
+    context.save();
+    context.strokeStyle = "rgba(130, 151, 160, .28)";
+    context.lineWidth = .65;
+    context.beginPath();
+    let previous = null;
+    for (const pathItem of drawItems) {
+      const pathX = pathItem.x ?? tapeTimeX(
+        pathItem.lastTime ?? pathItem.time,
+        window,
+        rect.width,
+      );
+      const pathY = pathItem.row.y + (Number(pathItem.yOffset) || 0);
+      const pathTime = Number(pathItem.lastTime ?? pathItem.time);
+      const previousTime = Number(previous?.lastTime ?? previous?.time);
+      if (!previous || pathTime - previousTime > 1_500) {
+        context.moveTo(pathX, pathY);
+      } else {
+        context.lineTo(pathX, pathY);
+      }
+      previous = pathItem;
+    }
+    context.stroke();
+    context.restore();
+  }
 
   for (const item of drawItems) {
     const y = item.row.y + (Number(item.yOffset) || 0);
