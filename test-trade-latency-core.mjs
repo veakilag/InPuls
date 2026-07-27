@@ -113,8 +113,10 @@ test("v2 browser lab keeps both streams on one socket with warmup and invalidati
   assert.match(source, /const WARMUP_MS = 5_000;/);
   assert.match(source, /const streams = \[`\$\{name\}@trade`, `\$\{name\}@aggTrade`\];/);
   assert.equal((source.match(/new WebSocket\(/g) ?? []).length, 1);
+  assert.match(source, /fstream\.binance\.com\/market\/stream\?streams=/);
+  assert.doesNotMatch(source, /stream\.binancefuture\.com/);
   assert.match(source, /document\.addEventListener\("visibilitychange"/);
   assert.match(source, /runtime\.sharedReconnects \+= 1;/);
   assert.match(html, /id="validity-state"/);
-  assert.match(html, /trade-latency-lab\.js\?v=2\.1/);
+  assert.match(html, /trade-latency-lab\.js\?v=2\.2/);
 });

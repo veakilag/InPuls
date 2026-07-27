@@ -73,6 +73,56 @@ test("worker timing metadata is converted into end-to-end metrics", async () => 
   }
 });
 
+test("worker flow diagnostics become per-symbol backpressure metrics", async () => {
+  const previousLocation = globalThis.location;
+  const previousAnimationFrame = globalThis.requestAnimationFrame;
+  globalThis.location = { search: "?obs=1" };
+  globalThis.requestAnimationFrame = () => 1;
+  try {
+    const { observability } = await import("../observability.js?worker-flow-test");
+    const now = Date.now();
+    observability.workerMessage({
+      type: "diagnostic",
+      symbol: "SOLUSDT",
+      diagnostic: {
+        phase: "worker.flow",
+        state: "sampled",
+        atEpochMs: now,
+        depthEventsPerSecond: 10,
+        tradeEventsPerSecond: 25,
+        depthProcessMeanMs: .2,
+        depthProcessMaxMs: 1.5,
+        tradeProcessMeanMs: .1,
+        tradeProcessMaxMs: .8,
+        tapeQueue: 4,
+        depthSourceLagMs: 35,
+        tradeSourceLagMs: 42,
+      },
+      __obs: {
+        sentAtEpochMs: now,
+        processMs: null,
+        observerOverheadMs: 0,
+        payloadBytes: null,
+        sourceClockOffsetMs: 0,
+        sourceEventTimeMs: null,
+        sourceKind: null,
+      },
+    }, performance.now(), now);
+    const snapshot = observability.snapshot();
+    assert.equal(snapshot.metrics["worker.trade-events-per-second"].p50, 25);
+    assert.equal(snapshot.metrics["worker.tape-queue"].p50, 4);
+    assert.equal(
+      snapshot.metricsByTags["worker.trade-source-lag"][0].tags.symbol,
+      "SOLUSDT",
+    );
+  } finally {
+    if (previousLocation === undefined) delete globalThis.location;
+    else globalThis.location = previousLocation;
+    if (previousAnimationFrame === undefined) delete globalThis.requestAnimationFrame;
+    else globalThis.requestAnimationFrame = previousAnimationFrame;
+  }
+});
+
 test("capture exports connection phases, render skips and five-second intervals", async () => {
   const previousLocation = globalThis.location;
   const previousAnimationFrame = globalThis.requestAnimationFrame;

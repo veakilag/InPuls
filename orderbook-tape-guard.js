@@ -136,7 +136,7 @@
       }
 
       if (this.mode !== "agg") return this.result(false, "agg-shadow");
-      return this.emitIfSafe(trade, firstTradeId, lastTradeId, "agg-fallback");
+      return this.emitIfSafe(trade, firstTradeId, lastTradeId, "agg-live");
     }
 
     advanceBoundary(lastTradeId) {
@@ -170,7 +170,7 @@
 
     label() {
       if (!this.connected) return "TAPE RECONNECT";
-      return this.mode === "raw" ? "RAW LIVE" : "AGG FALLBACK";
+      return this.mode === "raw" ? "RAW SHADOW" : "AGG LIVE";
     }
 
     snapshot(now = Date.now()) {

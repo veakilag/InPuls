@@ -167,6 +167,10 @@ class InPulsObservability {
     this.record("worker.process", message.__obs.processMs, tags);
     this.record("worker.observer-overhead", message.__obs.observerOverheadMs, tags);
     this.record("worker.payload-bytes", message.__obs.payloadBytes, tags);
+    if (message.type === "tape" && message.backpressure) {
+      this.record("worker.tape-dropped", message.backpressure.dropped, tags);
+      this.record("worker.tape-pending", message.backpressure.pending, tags);
+    }
     if (
       String(message.__obs.sourceKind ?? "").startsWith("live-")
       && Number.isFinite(message.__obs.sourceEventTimeMs)
@@ -198,6 +202,18 @@ class InPulsObservability {
         state: diagnostic.state || null,
         host: diagnostic.host || null,
       });
+      if (diagnostic.phase === "worker.flow") {
+        const flowTags = { symbol: tags.symbol };
+        this.record("worker.depth-events-per-second", diagnostic.depthEventsPerSecond, flowTags);
+        this.record("worker.trade-events-per-second", diagnostic.tradeEventsPerSecond, flowTags);
+        this.record("worker.depth-process-mean", diagnostic.depthProcessMeanMs, flowTags);
+        this.record("worker.depth-process-max", diagnostic.depthProcessMaxMs, flowTags);
+        this.record("worker.trade-process-mean", diagnostic.tradeProcessMeanMs, flowTags);
+        this.record("worker.trade-process-max", diagnostic.tradeProcessMaxMs, flowTags);
+        this.record("worker.tape-queue", diagnostic.tapeQueue, flowTags);
+        this.record("worker.depth-source-lag", diagnostic.depthSourceLagMs, flowTags);
+        this.record("worker.trade-source-lag", diagnostic.tradeSourceLagMs, flowTags);
+      }
     } else if (message.type === "status") {
       this.event("connection", "status", {
         symbol: tags.symbol,

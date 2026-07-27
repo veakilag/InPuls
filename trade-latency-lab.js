@@ -155,16 +155,12 @@ const runtime = {
 
 const SHARED_ENDPOINTS = [
   {
-    name: "standard · combined · 1 socket",
-    url: (streams) => `wss://fstream.binance.com/stream?streams=${streams.join("/")}`,
-  },
-  {
     name: "market · combined · 1 socket",
     url: (streams) => `wss://fstream.binance.com/market/stream?streams=${streams.join("/")}`,
   },
   {
-    name: "alt · combined · 1 socket",
-    url: (streams) => `wss://stream.binancefuture.com/stream?streams=${streams.join("/")}`,
+    name: "market · raw path · 1 socket",
+    url: (streams) => `wss://fstream.binance.com/market/ws/${streams.join("/")}`,
   },
 ];
 

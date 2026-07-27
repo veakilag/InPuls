@@ -33,12 +33,17 @@ test("RX display is a rolling short-window median", () => {
   assert.equal(metric.current(), 30);
   metric.record(50, 4_000);
   assert.equal(metric.current(), 50);
+  assert.equal(
+    readFileSync(new URL("./orderbook-tape-latency.js", import.meta.url), "utf8")
+      .includes("samples.shift()"),
+    false,
+  );
 });
 
 test("worker records receive time and exposes RX in live status", () => {
-  assert.match(worker, /importScripts\("\.\/orderbook-tape-latency\.js\?v=26-28-resume-v2"\)/);
+  assert.match(worker, /importScripts\("\.\/orderbook-tape-latency\.js\?v=worker-bp-v1"\)/);
   assert.match(worker, /new self\.InPulsTapeLatency\.RollingLatency/);
-  assert.match(worker, /normalizeTrade\(update, source, receivedAt\)/);
+  assert.match(worker, /normalizeTrade\(update, "agg", receivedAt\)/);
   assert.match(worker, /this\.tradeLatency\.record\(trade\.rxLatencyMs, receivedAt\)/);
   assert.match(worker, /RX \$\{Math\.round\(latency\)\}ms/);
 });

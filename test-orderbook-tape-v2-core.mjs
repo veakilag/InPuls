@@ -25,14 +25,14 @@ test("renderer uses readable layout and removes RAW labels", () => {
 
 test("Flow Workspace cache and reset page point to the new runtime", () => {
   assert.match(orderbook, /inpuls-orderbook-runtime-26-28-resume-v2/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=obs-pr1-1/);
-  assert.match(serviceWorker, /inpuls-26-28-resume-v2-obs-pr1-1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=obs-pr1-1/);
-  assert.match(serviceWorker, /orderbook-worker\.js\?v=obs-pr1-1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=worker-bp-v1/);
+  assert.match(serviceWorker, /inpuls-26-29-worker-bp-v1/);
+  assert.match(serviceWorker, /orderbook\.js\?v=worker-bp-v1/);
+  assert.match(serviceWorker, /orderbook-worker\.js\?v=worker-bp-v1/);
   assert.match(serviceWorker, /orderbook-tape-layout\.js\?v=26-25-tape-v2-1/);
-  assert.match(serviceWorker, /orderbook-tape-latency\.js\?v=26-28-resume-v2/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=obs-pr1-1/);
+  assert.match(serviceWorker, /orderbook-tape-latency\.js\?v=worker-bp-v1/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=worker-bp-v1/);
   assert.match(resetPage, /Resume v2/);
-  assert.match(resetPage, /sw\.js\?v=26-28-resume-v2-obs-pr1-1/);
-  assert.match(resetPage, /build=26-28-resume-v2-obs-pr1-1/);
+  assert.match(resetPage, /sw\.js\?v=26-29-worker-bp-v1/);
+  assert.match(resetPage, /build=26-29-worker-bp-v1/);
 });

@@ -1,4 +1,4 @@
-import { observability } from "./observability.js?v=obs-pr1-1";
+import { observability } from "./observability.js?v=worker-bp-v1";
 
 export const FLOW_WORKSPACE = Object.freeze({
   historyMs: 15_000,
@@ -177,8 +177,9 @@ function flowRecoveryFrozen(symbol) {
   if (!status) return false;
   const state = String(status.state ?? "").toLowerCase();
   const text = String(status.text ?? "").toUpperCase();
-  const tapeLive = text.includes("RAW LIVE") || text.includes("AGG FALLBACK");
-  return state !== "online" || !tapeLive;
+  const tapeStateKnown = text.includes("RAW") || text.includes("AGG") || text.includes("TAPE");
+  const tapeLive = text.includes("RAW SHADOW") || text.includes("AGG LIVE");
+  return state !== "online" || (tapeStateKnown && !tapeLive);
 }
 
 function visibleRows(card, pane) {

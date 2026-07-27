@@ -46,7 +46,7 @@ test("long recovery backfills trades while fast resume avoids REST", () => {
 });
 
 test("resume overlap filtering stays off the live trade hot path", () => {
-  assert.match(worker, /const coveredRanges = resume \? mergeTradeCoverage\(this\.trades\) : null/);
+  assert.match(worker, /const coveredRanges = resume \? mergeTradeCoverage\(this\.tradeSnapshot\(\)\) : null/);
   assert.match(worker, /tradeCoverageOverlaps\(coveredRanges, trade\.firstTradeId, trade\.lastTradeId\)/);
   assert.match(worker, /addTradeCoverage\(coveredRanges, trade\.firstTradeId, trade\.lastTradeId\)/);
   assert.doesNotMatch(worker, /return this\.trades\.some/);
@@ -92,10 +92,10 @@ test("current generation replaces an obsolete bootstrap request", () => {
 });
 
 test("cache versions keep seamless resume while shipping Resume v2", () => {
-  assert.match(orderbook, /orderbook-worker\.js\?v=obs-pr1-1/);
-  assert.match(serviceWorker, /inpuls-26-28-resume-v2-obs-pr1-1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=obs-pr1-1/);
-  assert.match(serviceWorker, /orderbook-worker\.js\?v=obs-pr1-1/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=obs-pr1-1/);
+  assert.match(orderbook, /orderbook-worker\.js\?v=worker-bp-v1/);
+  assert.match(serviceWorker, /inpuls-26-29-worker-bp-v1/);
+  assert.match(serviceWorker, /orderbook\.js\?v=worker-bp-v1/);
+  assert.match(serviceWorker, /orderbook-worker\.js\?v=worker-bp-v1/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=worker-bp-v1/);
   assert.doesNotMatch(serviceWorker, /v26-22-background-restart/);
 });
