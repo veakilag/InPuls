@@ -153,20 +153,28 @@ const runtime = {
   markers: [],
 };
 
-const SHARED_ENDPOINTS = [
-  {
-    name: "standard · combined · 1 socket",
-    url: (streams) => `wss://fstream.binance.com/stream?streams=${streams.join("/")}`,
-  },
-  {
-    name: "market · combined · 1 socket",
-    url: (streams) => `wss://fstream.binance.com/market/stream?streams=${streams.join("/")}`,
-  },
-  {
-    name: "alt · combined · 1 socket",
-    url: (streams) => `wss://stream.binancefuture.com/stream?streams=${streams.join("/")}`,
-  },
-];
+const ROUTED_ENDPOINTS = {
+  trade: [
+    {
+      name: "public · combined · @trade",
+      url: (stream) => `wss://fstream.binance.com/public/stream?streams=${stream}`,
+    },
+    {
+      name: "public · raw path · @trade",
+      url: (stream) => `wss://fstream.binance.com/public/ws/${stream}`,
+    },
+  ],
+  aggTrade: [
+    {
+      name: "market · combined · @aggTrade",
+      url: (stream) => `wss://fstream.binance.com/market/stream?streams=${stream}`,
+    },
+    {
+      name: "market · raw path · @aggTrade",
+      url: (stream) => `wss://fstream.binance.com/market/ws/${stream}`,
+    },
+  ],
+};
 
 function parsePayload(raw) {
   let payload;
@@ -175,114 +183,131 @@ function parsePayload(raw) {
   return { stream: String(payload?.stream ?? "").toLowerCase(), data: payload?.data ?? payload };
 }
 
-class SharedStreamProbe {
+class RoutedStreamProbe {
   constructor(symbol, generation, handlers) {
     this.symbol = symbol;
     this.generation = generation;
     this.handlers = handlers;
-    this.socket = null;
-    this.endpointIndex = 0;
-    this.firstBothTimer = 0;
+    this.sockets = new Map();
+    this.endpointIndexes = new Map(SOURCES.map((source) => [source, 0]));
+    this.firstMessageTimers = new Map();
     this.stopped = false;
     this.ready = false;
     this.seenSources = new Set();
   }
 
-  start() { this.connect(); }
+  start() {
+    for (const source of SOURCES) this.connectSource(source);
+  }
 
   stop() {
     this.stopped = true;
-    clearTimeout(this.firstBothTimer);
-    try { this.socket?.close(); } catch {}
-    this.socket = null;
+    for (const timer of this.firstMessageTimers.values()) clearTimeout(timer);
+    this.firstMessageTimers.clear();
+    for (const socket of this.sockets.values()) {
+      try { socket.close(); } catch {}
+    }
+    this.sockets.clear();
   }
 
-  connect() {
+  endpointSummary() {
+    return SOURCES
+      .map((source) => `${source}: ${runtime.streams[source].transport}`)
+      .join(" | ");
+  }
+
+  connectSource(source) {
     if (this.stopped || this.generation !== runtime.generation || runtime.phase === "idle") return;
-    clearTimeout(this.firstBothTimer);
-    this.ready = false;
-    this.seenSources.clear();
-    const endpoint = SHARED_ENDPOINTS[this.endpointIndex];
+    clearTimeout(this.firstMessageTimers.get(source));
+    this.firstMessageTimers.delete(source);
+    const endpointIndex = this.endpointIndexes.get(source) ?? 0;
+    const endpoints = ROUTED_ENDPOINTS[source] ?? [];
+    const endpoint = endpoints[endpointIndex];
     if (!endpoint) {
-      this.handlers.onUnavailable();
+      this.handlers.onUnavailable(source);
       return;
     }
 
     const name = this.symbol.toLowerCase();
-    const streams = [`${name}@trade`, `${name}@aggTrade`];
-    const url = endpoint.url(streams);
-    this.handlers.onEndpoint(endpoint.name, this.endpointIndex + 1);
+    const stream = `${name}@${source}`;
+    const url = endpoint.url(stream);
+    this.handlers.onEndpoint(source, endpoint.name, endpointIndex + 1);
 
     let socket;
     try { socket = new WebSocket(url); }
     catch {
-      this.tryNextEndpoint();
+      this.tryNextEndpoint(source);
       return;
     }
-    this.socket = socket;
+    this.sockets.set(source, socket);
 
-    this.firstBothTimer = setTimeout(() => {
-      if (!this.ready && socket === this.socket) {
+    const firstMessageTimer = setTimeout(() => {
+      if (!this.seenSources.has(source) && socket === this.sockets.get(source)) {
         try { socket.close(); } catch {}
       }
     }, FIRST_BOTH_STREAMS_TIMEOUT_MS);
+    this.firstMessageTimers.set(source, firstMessageTimer);
 
     socket.addEventListener("open", () => {
-      if (this.stopped || socket !== this.socket) return;
-      this.handlers.onConnecting(endpoint.name, "Жду оба потока");
+      if (this.stopped || socket !== this.sockets.get(source)) return;
+      this.handlers.onConnecting(source, endpoint.name, "Жду поток");
     });
 
     socket.addEventListener("message", (message) => {
-      if (this.stopped || socket !== this.socket) return;
+      if (this.stopped || socket !== this.sockets.get(source)) return;
       const payload = parsePayload(message.data);
       if (!payload) return;
-      const source = sourceFromTradePayload(payload);
-      if (!source) return;
+      const payloadSource = sourceFromTradePayload(payload);
+      if (payloadSource !== source) return;
       const receiveAt = epochNow();
       const sample = normalizeTradeEvent(payload.data, source, receiveAt, this.symbol);
       if (!sample) {
         this.handlers.onInvalid(source);
         return;
       }
+      const firstSourceMessage = !this.seenSources.has(source);
       this.seenSources.add(source);
+      if (firstSourceMessage) {
+        clearTimeout(this.firstMessageTimers.get(source));
+        this.firstMessageTimers.delete(source);
+      }
       this.handlers.onSourceLive(source, endpoint.name);
       this.handlers.onSample(sample, endpoint.name);
 
       if (!this.ready && this.seenSources.size === SOURCES.length) {
         this.ready = true;
-        clearTimeout(this.firstBothTimer);
-        this.firstBothTimer = 0;
-        this.handlers.onReady(endpoint.name);
+        this.handlers.onReady(this.endpointSummary());
       }
     });
 
     socket.addEventListener("close", () => {
-      if (this.stopped || socket !== this.socket) return;
-      clearTimeout(this.firstBothTimer);
-      this.firstBothTimer = 0;
-      this.socket = null;
-      if (this.ready) {
-        this.handlers.onDisconnect(endpoint.name);
+      if (this.stopped || socket !== this.sockets.get(source)) return;
+      clearTimeout(this.firstMessageTimers.get(source));
+      this.firstMessageTimers.delete(source);
+      this.sockets.delete(source);
+      if (this.ready || this.seenSources.has(source)) {
+        this.handlers.onDisconnect(source, endpoint.name);
         return;
       }
-      this.tryNextEndpoint();
+      this.tryNextEndpoint(source);
     });
 
     socket.addEventListener("error", () => {
-      if (!this.stopped && socket === this.socket) {
+      if (!this.stopped && socket === this.sockets.get(source)) {
         try { socket.close(); } catch {}
       }
     });
   }
 
-  tryNextEndpoint() {
+  tryNextEndpoint(source) {
     if (this.stopped) return;
-    this.endpointIndex += 1;
-    if (this.endpointIndex >= SHARED_ENDPOINTS.length) {
-      this.handlers.onUnavailable();
+    const nextEndpointIndex = (this.endpointIndexes.get(source) ?? 0) + 1;
+    this.endpointIndexes.set(source, nextEndpointIndex);
+    if (nextEndpointIndex >= (ROUTED_ENDPOINTS[source]?.length ?? 0)) {
+      this.handlers.onUnavailable(source);
       return;
     }
-    setTimeout(() => this.connect(), 250);
+    setTimeout(() => this.connectSource(source), 250);
   }
 }
 
@@ -385,8 +410,8 @@ async function synchronizeClock(generation) {
     ? `Часы ±${formatMs(Math.abs(runtime.clockOffsetMs))} · RTT ${formatMs(runtime.clockRttMs)}`
     : "Часы Binance не синхронизированы";
   els.clockNote.textContent = runtime.clockSynced
-    ? `Поправка часов ${runtime.clockOffsetMs >= 0 ? "+" : ""}${runtime.clockOffsetMs.toFixed(1)} мс, RTT ${runtime.clockRttMs?.toFixed(1) ?? "—"} мс. Сравнительный lead считается внутри одного WebSocket и не зависит от поправки часов.`
-    : "Абсолютный Server → receive может быть смещён часами компьютера. Сравнительный lead остаётся корректным: оба потока идут через один WebSocket и один таймер.";
+    ? `Поправка часов ${runtime.clockOffsetMs >= 0 ? "+" : ""}${runtime.clockOffsetMs.toFixed(1)} мс, RTT ${runtime.clockRttMs?.toFixed(1) ?? "—"} мс. @trade и @aggTrade идут через обязательные routed endpoints; lead включает реальную разницу их маршрутов.`
+    : "Абсолютный Server → receive может быть смещён часами компьютера. Сравнительный lead использует один таймер вкладки, но включает реальную разницу routed endpoints.";
 }
 
 function pushCapped(list, value, limit = MAX_SAMPLES) {
@@ -423,14 +448,11 @@ function recordSequence(stream, sample) {
   return true;
 }
 
-function onEndpoint(endpoint, attempt) {
-  runtime.endpoint = endpoint;
-  runtime.endpointAttempts = attempt;
-  for (const source of SOURCES) {
-    runtime.streams[source].transport = endpoint;
-    runtime.streams[source].status = "loading";
-    runtime.streams[source].statusText = `Endpoint ${attempt}`;
-  }
+function onEndpoint(source, endpoint, attempt) {
+  runtime.endpointAttempts = Math.max(runtime.endpointAttempts, attempt);
+  runtime.streams[source].transport = endpoint;
+  runtime.streams[source].status = "loading";
+  runtime.streams[source].statusText = `Endpoint ${attempt}`;
 }
 
 function onSourceLive(source, endpoint) {
@@ -622,27 +644,25 @@ function startTest() {
   els.symbol.disabled = true;
   els.duration.disabled = true;
 
-  runtime.probe = new SharedStreamProbe(symbol, generation, {
+  runtime.probe = new RoutedStreamProbe(symbol, generation, {
     onEndpoint,
-    onConnecting: (endpoint, text) => {
-      for (const source of SOURCES) {
-        runtime.streams[source].transport = endpoint;
-        runtime.streams[source].status = "loading";
-        runtime.streams[source].statusText = text;
-      }
+    onConnecting: (source, endpoint, text) => {
+      runtime.streams[source].transport = endpoint;
+      runtime.streams[source].status = "loading";
+      runtime.streams[source].statusText = text;
     },
     onSourceLive,
     onSample: onSharedSample,
     onInvalid: onInvalidEvent,
     onReady: onBothStreamsReady,
-    onDisconnect: () => {
+    onDisconnect: (source) => {
       runtime.sharedReconnects += 1;
       runtime.socketClosedDuringMeasurement = ["warming", "measuring"].includes(runtime.phase);
-      invalidateRun("Единый WebSocket закрылся после выхода обоих потоков в LIVE");
+      invalidateRun(`Routed WebSocket ${source} закрылся после выхода потока в LIVE`);
     },
-    onUnavailable: () => {
+    onUnavailable: (source) => {
       runtime.missingStreams = true;
-      invalidateRun("Не найден endpoint, одновременно отдающий @trade и @aggTrade");
+      invalidateRun(`Routed endpoint не отдал ${source}`);
     },
   });
   runtime.probe.start();
@@ -755,7 +775,7 @@ function updateValidityUI() {
   if (runtime.phase === "idle") { state = "idle"; text = "Готов"; }
   if (runtime.phase === "connecting") text = `Подключение · endpoint ${runtime.endpointAttempts || 1}`;
   if (runtime.phase === "warming") text = `Прогрев · ${Math.max(0, Math.ceil((WARMUP_MS - (epochNow() - runtime.warmupStartedAt)) / 1_000))}с`;
-  if (runtime.phase === "measuring") { state = "live"; text = "Измерение · 1 WebSocket"; }
+  if (runtime.phase === "measuring") { state = "live"; text = "Измерение · 2 routed WebSocket"; }
   if (runtime.phase === "finished") { state = validity.valid ? "live" : "error"; text = validity.title; }
   if (runtime.phase === "invalid") { state = "error"; text = "Тест невалиден"; }
   els.validityState.dataset.state = state;

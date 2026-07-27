@@ -29,18 +29,18 @@ function agg(firstTradeId, lastTradeId, time = 2_000 + lastTradeId) {
   };
 }
 
-test("starts on aggregate fallback and promotes raw after a clean warmup", () => {
+test("starts on aggregate live and promotes raw only inside the shadow guard", () => {
   const guard = new TapeGuard({ rawWarmupTrades: 3, rawStaleMs: 1_500 });
   guard.connect();
 
   assert.equal(guard.ingest(agg(1, 1), 10).emit, true);
-  assert.equal(guard.label(), "AGG FALLBACK");
+  assert.equal(guard.label(), "AGG LIVE");
   assert.equal(guard.ingest(raw(2), 20).emit, false);
   assert.equal(guard.ingest(raw(3), 30).emit, false);
   const promoted = guard.ingest(raw(4), 40);
   assert.equal(promoted.emit, true);
   assert.equal(promoted.mode, "raw");
-  assert.equal(guard.label(), "RAW LIVE");
+  assert.equal(guard.label(), "RAW SHADOW");
 });
 
 test("raw sequence gap immediately falls back without emitting the broken trade", () => {
@@ -53,7 +53,7 @@ test("raw sequence gap immediately falls back without emitting the broken trade"
   assert.equal(gap.emit, false);
   assert.equal(gap.mode, "agg");
   assert.equal(guard.snapshot(40).rawGapCount, 2);
-  assert.equal(guard.label(), "AGG FALLBACK");
+  assert.equal(guard.label(), "AGG LIVE");
 });
 
 test("aggregate fallback waits for a fully new range to avoid double volume", () => {
@@ -62,7 +62,7 @@ test("aggregate fallback waits for a fully new range to avoid double volume", ()
   guard.ingest(agg(20, 20), 10);
   guard.ingest(raw(21), 20);
   assert.equal(guard.ingest(raw(22), 30).emit, true);
-  assert.equal(guard.label(), "RAW LIVE");
+  assert.equal(guard.label(), "RAW SHADOW");
 
   const overlap = guard.ingest(agg(22, 23), 400);
   assert.equal(overlap.emit, false);
@@ -71,7 +71,7 @@ test("aggregate fallback waits for a fully new range to avoid double volume", ()
 
   const clean = guard.ingest(agg(24, 25), 410);
   assert.equal(clean.emit, true);
-  assert.equal(clean.reason, "agg-fallback");
+  assert.equal(clean.reason, "agg-live");
 });
 
 test("recovery to raw requires consecutive IDs beyond the aggregate boundary", () => {
@@ -82,7 +82,7 @@ test("recovery to raw requires consecutive IDs beyond the aggregate boundary", (
   assert.equal(guard.ingest(raw(101), 20).emit, false);
   assert.equal(guard.ingest(raw(102), 30).emit, false);
   assert.equal(guard.ingest(raw(103), 40).emit, true);
-  assert.equal(guard.label(), "RAW LIVE");
+  assert.equal(guard.label(), "RAW SHADOW");
 });
 
 test("invalid, duplicate and out-of-order events never reach the tape", () => {
@@ -100,19 +100,19 @@ test("invalid, duplicate and out-of-order events never reach the tape", () => {
   assert.equal(snapshot.rawOutOfOrderCount, 1);
 });
 
-test("worker contract uses one combined socket and explicit source states", (context) => {
+test("production worker keeps aggregate live while the isolated guard retains RAW shadow checks", (context) => {
   const workerUrl = new URL("./orderbook-worker.js", import.meta.url);
   if (!existsSync(workerUrl)) { context.skip("worker is added by the branch transformer"); return; }
   const worker = readFileSync(workerUrl, "utf8");
   const guard = readFileSync(new URL("./orderbook-tape-guard.js", import.meta.url), "utf8");
-  assert.match(worker, /importScripts\("\.\/orderbook-tape-guard\.js\?v=1"\);/);
-  assert.match(worker, /`\$\{name\}@trade`/);
+  assert.match(worker, /importScripts\("\.\/orderbook-tape-guard\.js\?v=worker-bp-v1"\);/);
   assert.match(worker, /`\$\{name\}@aggTrade`/);
-  assert.match(worker, /streams\.join\("\/"\)/);
+  assert.doesNotMatch(worker, /`\$\{name\}@trade`/);
+  assert.match(worker, /\/market\/stream\?streams=/);
   assert.match(worker, /new self\.InPulsTapeGuard/);
   assert.match(worker, /decision = this\.tapeGuard\.ingest/);
-  assert.match(guard, /RAW LIVE/);
-  assert.match(guard, /AGG FALLBACK/);
+  assert.match(guard, /RAW SHADOW/);
+  assert.match(guard, /AGG LIVE/);
   assert.match(worker, /tapeGuard\.label\(\)/);
   assert.doesNotMatch(worker, /return \[`\$\{name\}@aggTrade`, `\$\{name\}@trade`\];/);
     assert.match(worker, /const hasRawRange =/);

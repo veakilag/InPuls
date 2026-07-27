@@ -1,30 +1,34 @@
-const CACHE = "inpuls-26-28-resume-v2-obs-pr1-1";
-const BUILD = "26-28-resume-v2-obs-pr1-1";
+const CACHE = "inpuls-26-29-worker-bp-v1";
+const BUILD = "26-29-worker-bp-v1";
 
 const FORCED = new Map([
-  ["/app.js", "./app.js?v=26-28-resume-v2-obs-pr1-1"],
-  ["/orderbook.js", "./orderbook.js?v=obs-pr1-1"],
-  ["/orderbook-worker.js", "./orderbook-worker.js?v=obs-pr1-1"],
+  ["/app.js", "./app.js?v=26-29-worker-bp-v1"],
+  ["/orderbook.js", "./orderbook.js?v=worker-bp-v1"],
+  ["/orderbook-worker.js", "./orderbook-worker.js?v=worker-bp-v1"],
+  ["/orderbook-worker-buffers.js", "./orderbook-worker-buffers.js?v=worker-bp-v1"],
+  ["/orderbook-tape-guard.js", "./orderbook-tape-guard.js?v=worker-bp-v1"],
   ["/orderbook-network.js", "./orderbook-network.js?v=obs-pr1-1"],
-  ["/orderbook-tape-latency.js", "./orderbook-tape-latency.js?v=26-28-resume-v2"],
-  ["/orderbook-flow-workspace.js", "./orderbook-flow-workspace.js?v=obs-pr1-1"],
-  ["/observability.js", "./observability.js?v=obs-pr1-1"],
+  ["/orderbook-tape-latency.js", "./orderbook-tape-latency.js?v=worker-bp-v1"],
+  ["/orderbook-flow-workspace.js", "./orderbook-flow-workspace.js?v=worker-bp-v1"],
+  ["/observability.js", "./observability.js?v=worker-bp-v1"],
 ]);
 
 const SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=23",
-  "./app.js?v=26-28-resume-v2-obs-pr1-1",
+  "./app.js?v=26-29-worker-bp-v1",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=obs-pr1-1",
-  "./orderbook-worker.js?v=obs-pr1-1",
+  "./orderbook.js?v=worker-bp-v1",
+  "./orderbook-worker.js?v=worker-bp-v1",
+  "./orderbook-worker-buffers.js?v=worker-bp-v1",
+  "./orderbook-tape-guard.js?v=worker-bp-v1",
   "./orderbook-network.js?v=obs-pr1-1",
   "./orderbook-tape-layout.js?v=26-25-tape-v2-1",
-  "./orderbook-tape-latency.js?v=26-28-resume-v2",
-  "./orderbook-flow-workspace.js?v=obs-pr1-1",
-  "./observability.js?v=obs-pr1-1",
+  "./orderbook-tape-latency.js?v=worker-bp-v1",
+  "./orderbook-flow-workspace.js?v=worker-bp-v1",
+  "./observability.js?v=worker-bp-v1",
   "./assets/inpuls-world-map-v17.png",
   "./manifest.webmanifest",
   "./icon.svg",

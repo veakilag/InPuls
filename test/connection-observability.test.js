@@ -30,6 +30,9 @@ test("connection lifecycle identifies WebSocket, snapshot, retry and LIVE phases
     "tape.ws.open",
     "tape.ws.first-message",
     "tape.ws.retry",
+    "worker.flow",
+    "depth.freshness",
+    "tape.freshness",
   ]) {
     assert.match(worker, new RegExp(phase.replaceAll(".", "\\.")));
   }
@@ -57,6 +60,7 @@ test("main-thread render diagnostics cover computation, ladder DOM and skipped T
 
 test("new diagnostic runtime files are in the Service Worker release", () => {
   assert.match(serviceWorker, /orderbook-network\.js\?v=obs-pr1-1/);
-  assert.match(serviceWorker, /observability\.js\?v=obs-pr1-1/);
-  assert.match(serviceWorker, /inpuls-26-28-resume-v2-obs-pr1-1/);
+  assert.match(serviceWorker, /observability\.js\?v=worker-bp-v1/);
+  assert.match(serviceWorker, /orderbook-worker-buffers\.js\?v=worker-bp-v1/);
+  assert.match(serviceWorker, /inpuls-26-29-worker-bp-v1/);
 });

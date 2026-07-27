@@ -25,12 +25,14 @@
       this.maxSamples = Math.max(16, Math.floor(Number(options.maxSamples) || 400));
       this.updateMs = Math.max(50, Number(options.updateMs) || 250);
       this.samples = [];
+      this.head = 0;
       this.display = null;
       this.lastUpdateAt = 0;
     }
 
     reset() {
       this.samples = [];
+      this.head = 0;
       this.display = null;
       this.lastUpdateAt = 0;
     }
@@ -43,12 +45,21 @@
       }
       this.samples.push({ at: now, value: latency });
       const cutoff = now - this.windowMs;
-      while (this.samples.length && this.samples[0].at < cutoff) this.samples.shift();
-      if (this.samples.length > this.maxSamples) {
-        this.samples.splice(0, this.samples.length - this.maxSamples);
+      while (this.head < this.samples.length && this.samples[this.head].at < cutoff) {
+        this.head += 1;
+      }
+      if (this.samples.length - this.head > this.maxSamples) {
+        this.head = this.samples.length - this.maxSamples;
+      }
+      if (this.head >= this.maxSamples && this.head >= this.samples.length / 2) {
+        this.samples = this.samples.slice(this.head);
+        this.head = 0;
       }
       if (this.display !== null && now - this.lastUpdateAt < this.updateMs) return this.display;
-      const sorted = this.samples.map((sample) => sample.value).sort((left, right) => left - right);
+      const sorted = this.samples
+        .slice(this.head)
+        .map((sample) => sample.value)
+        .sort((left, right) => left - right);
       if (!sorted.length) return this.display;
       const middle = Math.floor(sorted.length / 2);
       this.display = sorted.length % 2

@@ -4,8 +4,8 @@ import {
   selectReadableAggLabels,
 } from "./orderbook-tape-layout.js?v=26-25-tape-v2-1";
 import "./orderbook-network.js?v=obs-pr1-1";
-import "./orderbook-flow-workspace.js?v=obs-pr1-1";
-import { observability } from "./observability.js?v=obs-pr1-1";
+import "./orderbook-flow-workspace.js?v=worker-bp-v1";
+import { observability } from "./observability.js?v=worker-bp-v1";
 
 export function applyDepthUpdates(levels, updates) {
   for (const [priceValue, quantityValue] of updates ?? []) {
@@ -585,9 +585,8 @@ function tradeStreamCandidates(symbol) {
 
 function tradeTransports(stream) {
   return [
-    { name: "raw-market", url: `wss://fstream.binance.com/market/ws/${stream}`, subscribe: false },
     { name: "combined-market", url: `wss://fstream.binance.com/market/stream?streams=${stream}`, subscribe: false },
-    { name: "subscribe-market", url: "wss://fstream.binance.com/market/stream", subscribe: true },
+    { name: "raw-market", url: `wss://fstream.binance.com/market/ws/${stream}`, subscribe: false },
   ];
 }
 
@@ -595,14 +594,14 @@ function marketTransports(streams) {
   const joined = streams.join("/");
   return [
     {
-      name: "combined",
-      url: `wss://fstream.binance.com/stream?streams=${joined}`,
+      name: "combined-public",
+      url: `wss://fstream.binance.com/public/stream?streams=${joined}`,
       subscribe: false,
     },
     {
-      name: "subscribe",
-      url: "wss://fstream.binance.com/ws",
-      subscribe: true,
+      name: "raw-public",
+      url: `wss://fstream.binance.com/public/ws/${joined}`,
+      subscribe: false,
     },
   ];
 }
@@ -699,7 +698,7 @@ class LegacyOrderBookFeed {
     this.tradeSocket = null;
     this.symbol = null;
     this.generation = 0;
-    this.mode = "deep";
+    this.mode = typeof this.fetchImpl === "function" ? "deep" : "partial";
     this.transportIndex = 0;
     this.tradeTransportIndex = 0;
 
@@ -743,7 +742,7 @@ class LegacyOrderBookFeed {
     }
 
     this.symbol = symbol;
-    this.mode = "deep";
+    this.mode = typeof this.fetchImpl === "function" ? "deep" : "partial";
     this.transportIndex = 0;
     this.tradeTransportIndex = 0;
     this.#resetBook();
@@ -1215,7 +1214,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=obs-pr1-1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=worker-bp-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1287,7 +1286,7 @@ class OrderBookWorkerManager {
       // Worker не использует import/export, поэтому classic-режим надёжнее
       // module Worker в Chromium/Yandex при работе через Service Worker.
       this.worker = new Worker(ORDERBOOK_WORKER_URL, {
-        name: "inpuls-orderbook-worker-obs-pr1-1",
+        name: "inpuls-orderbook-worker-bp-v1",
       });
       this.startupTimer = setTimeout(() => {
         if (this.workerReady) return;
@@ -1667,6 +1666,7 @@ let tapeIngestFrame = 0;
 
 const TAPE_INGEST_PER_FRAME = 220;
 const TAPE_RESUME_MAX_PENDING = 500;
+const TAPE_LIVE_MAX_PENDING = 900;
 const LIQUIDITY_REFRESH_MS = 420;
 
 const BOOK_SPLIT_STORAGE_KEY = "inpuls-orderbook-split-v3";
@@ -1730,8 +1730,9 @@ function tapeRecoveryFrozen(symbol) {
   if (!status) return false;
   const state = String(status.state ?? "").toLowerCase();
   const text = String(status.text ?? "").toUpperCase();
-  const tapeLive = text.includes("RAW LIVE") || text.includes("AGG FALLBACK");
-  return state !== "online" || !tapeLive;
+  const tapeStateKnown = text.includes("RAW") || text.includes("AGG") || text.includes("TAPE");
+  const tapeLive = text.includes("RAW SHADOW") || text.includes("AGG LIVE");
+  return state !== "online" || (tapeStateKnown && !tapeLive);
 }
 
 function formatTapeUsd(value) {
@@ -3414,8 +3415,10 @@ function acceptTapeData(event) {
     pending.resume = false;
   } else if (incoming.length) {
     pending.trades.push(...incoming);
-    if (pending.trades.length > TAPE_MAX_STORED) {
-      pending.trades.splice(0, pending.trades.length - TAPE_MAX_STORED);
+    if (pending.trades.length > TAPE_LIVE_MAX_PENDING) {
+      const dropped = pending.trades.length - TAPE_LIVE_MAX_PENDING;
+      pending.trades.splice(0, dropped);
+      observability.record("tape.main-dropped", dropped, { symbol });
     }
   }
   tapePendingBySymbol.set(symbol, pending);

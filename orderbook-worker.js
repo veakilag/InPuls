@@ -1,6 +1,7 @@
-importScripts("./orderbook-tape-guard.js?v=1");
-importScripts("./orderbook-tape-latency.js?v=26-28-resume-v2");
+importScripts("./orderbook-tape-guard.js?v=worker-bp-v1");
+importScripts("./orderbook-tape-latency.js?v=worker-bp-v1");
 importScripts("./orderbook-network.js?v=obs-pr1-1");
+importScripts("./orderbook-worker-buffers.js?v=worker-bp-v1");
 
 const MAX_BOOK_LEVELS_PER_SIDE = 20_000;
 const MAX_EMITTED_LEVELS_PER_SIDE = 4_000;
@@ -22,7 +23,10 @@ const IDLE_CLOSE_MS = 10_000;
 const TRADE_FIRST_MESSAGE_TIMEOUT_MS = 8_000;
 const TRADE_BOOTSTRAP_LIMIT = 120;
 const MAX_TAPE_BATCH_PER_POST = 500;
+const MAX_PENDING_TAPE_TRADES = 800;
 const TAPE_FLUSH_MS = 25;
+const ACTIVE_SOURCE_LAG_MS = 4_000;
+const TRADE_ACTIVE_STALE_MS = 30_000;
 const RECONNECT_BASE_MS = 400;
 const RECONNECT_MAX_MS = 8_000;
 const WORKER_HEARTBEAT_MS = 2_000;
@@ -133,6 +137,19 @@ function normalizeTrade(event, sourceHint = null, receivedAt = null) {
     rxLatencyMs: timing.rxLatencyMs,
     side: event?.m ? "sell" : "buy",
   };
+}
+
+function calibratedSourceLag(eventTime, receivedAt = Date.now()) {
+  const sourceTime = Number(eventTime);
+  const localTime = Number(receivedAt);
+  if (
+    !Number.isFinite(sourceTime)
+    || !Number.isFinite(localTime)
+    || !Number.isFinite(serverClockOffsetMs)
+  ) return null;
+  const lag = localTime + serverClockOffsetMs - sourceTime;
+  if (!Number.isFinite(lag) || lag < -100 || lag > 60_000) return null;
+  return Math.max(0, lag);
 }
 
 function sequenceDecision(lastUpdateId, event, firstEvent = false) {
@@ -330,26 +347,21 @@ const tradeStore = new TradeStore();
 function depthTransports(symbol, mode) {
   const stream = `${symbol.toLowerCase()}@${mode === "partial" ? "depth20" : "depth"}@100ms`;
   return [
-    { url: `wss://fstream.binance.com/ws/${stream}`, subscribe: false, stream },
-    { url: `wss://fstream.binance.com/stream?streams=${stream}`, subscribe: false, stream },
-    { url: "wss://fstream.binance.com/ws", subscribe: true, stream },
-    { url: `wss://stream.binancefuture.com/ws/${stream}`, subscribe: false, stream },
+    { name: "public · combined", url: `wss://fstream.binance.com/public/stream?streams=${stream}`, subscribe: false, stream },
+    { name: "public · raw", url: `wss://fstream.binance.com/public/ws/${stream}`, subscribe: false, stream },
   ];
 }
 
 function tradeStreams(symbol) {
   const name = symbol.toLowerCase();
-  return [`${name}@trade`, `${name}@aggTrade`];
+  return [`${name}@aggTrade`];
 }
 
 function tradeTransports(streams) {
   const joined = streams.join("/");
   return [
-    { name: "standard · combined", url: `wss://fstream.binance.com/stream?streams=${joined}`, subscribe: false, streams },
     { name: "market · combined", url: `wss://fstream.binance.com/market/stream?streams=${joined}`, subscribe: false, streams },
-    { name: "standard · subscribe", url: "wss://fstream.binance.com/ws", subscribe: true, streams },
-    { name: "market · subscribe", url: "wss://fstream.binance.com/market/stream", subscribe: true, streams },
-    { name: "alt · combined", url: `wss://stream.binancefuture.com/stream?streams=${joined}`, subscribe: false, streams },
+    { name: "market · raw", url: `wss://fstream.binance.com/market/ws/${joined}`, subscribe: false, streams },
   ];
 }
 
@@ -391,15 +403,18 @@ class SymbolFeed {
     this.lastEmitAt = 0;
     this.cachedSorted = null;
     this.statusKey = "";
-    this.trades = [];
+    this.trades = new self.InPulsOrderBookBuffers.RecentRingBuffer(MAX_TRADE_HISTORY);
     this.tradeIds = new Set();
-    this.tapeBatch = [];
+    this.tapeBatch = new self.InPulsOrderBookBuffers.LatestBatchQueue(MAX_PENDING_TAPE_TRADES);
     this.tapeTimer = 0;
     this.resumeTimer = 0;
     this.backgroundPaused = false;
     this.lastDepthAt = 0;
     this.lastDepthEventTime = 0;
+    this.lastDepthSourceLagMs = null;
     this.lastTradeAt = 0;
+    this.lastTradeEventTime = 0;
+    this.lastTradeSourceLagMs = null;
     this.lastMessageAt = 0;
     this.lastRestartAt = 0;
     this.syncing = false;
@@ -410,6 +425,15 @@ class SymbolFeed {
     this.tradeReconnectAttempt = 0;
     this.lastResyncAt = 0;
     this.tradeTransportName = "—";
+    this.flowWindowStartedAt = Date.now();
+    this.depthEventsInWindow = 0;
+    this.tradeEventsInWindow = 0;
+    this.depthProcessMsInWindow = 0;
+    this.tradeProcessMsInWindow = 0;
+    this.depthProcessMaxMsInWindow = 0;
+    this.tradeProcessMaxMsInWindow = 0;
+    this.tapeDroppedInWindow = 0;
+    this.latestFlowHealth = null;
     this.tapeGuard = new self.InPulsTapeGuard({ rawWarmupTrades: 6, rawStaleMs: 1_500 });
     this.tradeLatency = new self.InPulsTapeLatency.RollingLatency({ windowMs: 2_000, maxSamples: 400, updateMs: 250 });
   }
@@ -421,6 +445,20 @@ class SymbolFeed {
       if (Number.isInteger(value) && value >= 0) boundary = boundary === null ? value : Math.max(boundary, value);
     }
     return boundary;
+  }
+
+  tradeSnapshot(limit = MAX_TRADE_HISTORY) {
+    return this.trades.toArray(limit);
+  }
+
+  tradeKey(trade) {
+    const firstTradeId = Number.isInteger(Number(trade?.firstTradeId))
+      ? Number(trade.firstTradeId)
+      : trade?.id;
+    const lastTradeId = Number.isInteger(Number(trade?.lastTradeId))
+      ? Number(trade.lastTradeId)
+      : trade?.id;
+    return `${firstTradeId}:${lastTradeId}:${trade?.time}:${trade?.price}:${trade?.quantity}`;
   }
 
   resetTapeGuard() {
@@ -460,7 +498,11 @@ class SymbolFeed {
     this.tradeLive = false;
     this.tradeConnected = false;
     this.tradeTransportName = "—";
+    this.lastTradeAt = 0;
+    this.lastTradeEventTime = 0;
+    this.lastTradeSourceLagMs = null;
     this.tradeLatency.reset();
+    this.resetFlowWindow();
     this.syncing = false;
     this.backgroundPaused = false;
     this.resetTapeGuard();
@@ -502,7 +544,8 @@ class SymbolFeed {
     clearTimeout(this.tradeSaveTimer);
     clearTimeout(this.tapeTimer);
     clearTimeout(this.resumeTimer);
-    if (this.trades.length) tradeStore.set(this.symbol, this.trades).catch(() => {});
+    this.tapeBatch.clear();
+    if (this.trades.length) tradeStore.set(this.symbol, this.tradeSnapshot()).catch(() => {});
   }
 
   resetBook() {
@@ -519,6 +562,7 @@ class SymbolFeed {
     this.dirty = false;
     this.lastDepthAt = 0;
     this.lastDepthEventTime = 0;
+    this.lastDepthSourceLagMs = null;
   }
 
   setStatus(state, text) {
@@ -568,7 +612,7 @@ class SymbolFeed {
       post(
         "tape",
         this.symbol,
-        { replace: true, trades: this.trades.slice(0, MAX_TAPE_SNAPSHOT) },
+        { replace: true, trades: this.tradeSnapshot(MAX_TAPE_SNAPSHOT) },
         null,
         { sourceKind: "cached-trades" },
       );
@@ -586,7 +630,7 @@ class SymbolFeed {
     this.tradeConnected = false;
     this.tradeLive = false;
     this.tradeLatency.reset();
-    this.tapeBatch = [];
+    this.tapeBatch.clear();
     clearTimeout(this.tapeTimer);
     clearTimeout(this.resumeTimer);
     this.tapeTimer = 0;
@@ -610,6 +654,7 @@ class SymbolFeed {
 
       if (!this.backgroundPaused && socketOpen && depthFresh) {
         const resumeTrades = this.trades
+          .toArray()
           .filter((trade) => Number(trade?.time) >= now - RESUME_TAPE_WINDOW_MS)
           .slice(0, MAX_RESUME_TAPE_SNAPSHOT);
         post("tape", this.symbol, {
@@ -648,7 +693,11 @@ class SymbolFeed {
     this.tradeLive = false;
     this.tradeConnected = false;
     this.tradeTransportName = "—";
+    this.lastTradeAt = 0;
+    this.lastTradeEventTime = 0;
+    this.lastTradeSourceLagMs = null;
     this.tapeGuard.disconnect("background-restart");
+    this.resetFlowWindow();
     this.resetBook();
     this.setStatus(
       preserveLastFrame ? "stale" : "loading",
@@ -658,6 +707,60 @@ class SymbolFeed {
     this.connectDepth(generation);
     this.connectTrades(generation);
     this.loadRecentTrades(generation, { resume: true });
+  }
+
+  resetFlowWindow(now = Date.now()) {
+    this.flowWindowStartedAt = now;
+    this.depthEventsInWindow = 0;
+    this.tradeEventsInWindow = 0;
+    this.depthProcessMsInWindow = 0;
+    this.tradeProcessMsInWindow = 0;
+    this.depthProcessMaxMsInWindow = 0;
+    this.tradeProcessMaxMsInWindow = 0;
+    this.tapeDroppedInWindow = 0;
+  }
+
+  recordFlow(kind, startedAt) {
+    const durationMs = Math.max(0, performance.now() - startedAt);
+    if (kind === "depth") {
+      this.depthEventsInWindow += 1;
+      this.depthProcessMsInWindow += durationMs;
+      this.depthProcessMaxMsInWindow = Math.max(this.depthProcessMaxMsInWindow, durationMs);
+      return;
+    }
+    this.tradeEventsInWindow += 1;
+    this.tradeProcessMsInWindow += durationMs;
+    this.tradeProcessMaxMsInWindow = Math.max(this.tradeProcessMaxMsInWindow, durationMs);
+  }
+
+  reportFlow(now = Date.now()) {
+    const durationMs = Math.max(1, now - this.flowWindowStartedAt);
+    const perSecond = 1_000 / durationMs;
+    const snapshot = {
+      durationMs,
+      depthEventsPerSecond: this.depthEventsInWindow * perSecond,
+      tradeEventsPerSecond: this.tradeEventsInWindow * perSecond,
+      depthProcessMeanMs: this.depthEventsInWindow
+        ? this.depthProcessMsInWindow / this.depthEventsInWindow
+        : 0,
+      tradeProcessMeanMs: this.tradeEventsInWindow
+        ? this.tradeProcessMsInWindow / this.tradeEventsInWindow
+        : 0,
+      depthProcessMaxMs: this.depthProcessMaxMsInWindow,
+      tradeProcessMaxMs: this.tradeProcessMaxMsInWindow,
+      tapeQueue: this.tapeBatch.length,
+      tapeDropped: this.tapeDroppedInWindow,
+      depthSourceLagMs: this.lastDepthSourceLagMs,
+      tradeSourceLagMs: this.lastTradeSourceLagMs,
+    };
+    this.latestFlowHealth = snapshot;
+    diagnose(this.symbol, "worker.flow", {
+      state: "sampled",
+      generation: this.generation,
+      ...snapshot,
+    });
+    this.resetFlowWindow(now);
+    return snapshot;
   }
 
   ensureHealthy(now = Date.now()) {
@@ -674,9 +777,21 @@ class SymbolFeed {
     const socketConnecting = this.socket?.readyState === WebSocket.CONNECTING;
     const reconnectPending = Boolean(this.reconnectTimer || this.firstDepthTimer || this.snapshotLoading);
     const depthAge = this.lastDepthAt > 0 ? now - this.lastDepthAt : Infinity;
-    const stale = this.depthReady && depthAge > ACTIVE_STALE_MS;
+    const depthSourceStale = this.depthReady
+      && Number.isFinite(this.lastDepthSourceLagMs)
+      && this.lastDepthSourceLagMs > ACTIVE_SOURCE_LAG_MS;
+    const stale = this.depthReady && (depthAge > ACTIVE_STALE_MS || depthSourceStale);
 
     if ((!socketOpen && !socketConnecting && !reconnectPending) || stale) {
+      if (stale) {
+        diagnose(this.symbol, "depth.freshness", {
+          state: "stale",
+          generation: this.generation,
+          depthAgeMs: depthAge,
+          sourceLagMs: this.lastDepthSourceLagMs,
+          socketOpen,
+        });
+      }
       this.setStatus("offline", "RECONNECT · WORKER");
       this.restartAfterBackground();
       return;
@@ -690,6 +805,23 @@ class SymbolFeed {
 
     const tradeOpen = this.tradeSocket?.readyState === WebSocket.OPEN;
     const tradeConnecting = this.tradeSocket?.readyState === WebSocket.CONNECTING;
+    const tradeAge = this.lastTradeAt > 0 ? now - this.lastTradeAt : Infinity;
+    const tradeSourceStale = Number.isFinite(this.lastTradeSourceLagMs)
+      && this.lastTradeSourceLagMs > ACTIVE_SOURCE_LAG_MS;
+    const tradeStale = this.tradeConnected
+      && (tradeAge > TRADE_ACTIVE_STALE_MS || tradeSourceStale);
+    if (tradeOpen && tradeStale) {
+      diagnose(this.symbol, "tape.freshness", {
+        state: "stale",
+        generation: this.generation,
+        tradeAgeMs: tradeAge,
+        sourceLagMs: this.lastTradeSourceLagMs,
+        socketOpen: true,
+      });
+      this.publishLiveStatus("reconnect");
+      try { this.tradeSocket?.close(); } catch {}
+      return;
+    }
     if (!tradeOpen && !tradeConnecting && !this.tradeReconnectTimer) {
       if (this.tradeLive) this.publishLiveStatus("reconnect");
       this.connectTrades(this.generation);
@@ -768,12 +900,16 @@ class SymbolFeed {
           mode: this.mode,
           depthAgeMs: this.lastDepthAt ? Math.max(0, now - this.lastDepthAt) : null,
           tradeAgeMs: this.lastTradeAt ? Math.max(0, now - this.lastTradeAt) : null,
+          depthSourceLagMs: this.lastDepthSourceLagMs,
+          tradeSourceLagMs: this.lastTradeSourceLagMs,
           depthBuffer: this.depthBuffer.length,
+          tapeQueue: this.tapeBatch.length,
           subscribers: this.subscribers,
           depthTransport: this.transportIndex,
           tradeTransport: this.tradeTransportIndex,
           tradeTransportName: this.tradeTransportName,
           syncing: this.syncing,
+          flow: this.latestFlowHealth,
           tape: this.tapeGuard.snapshot(now),
         },
         worker: true,
@@ -991,6 +1127,7 @@ class SymbolFeed {
       generation,
       mode: this.mode,
       transport: transportIndex,
+      transportName: transport.name,
       url: transport.url,
     });
     let socket;
@@ -1001,6 +1138,7 @@ class SymbolFeed {
         generation,
         mode: this.mode,
         transport: transportIndex,
+        transportName: transport.name,
         errorKind: self.InPulsOrderBookNetwork.errorKind(error),
         message: String(error?.message ?? error ?? "WebSocket creation failed").slice(0, 180),
       });
@@ -1023,6 +1161,7 @@ class SymbolFeed {
           generation,
           mode: this.mode,
           transport: transportIndex,
+          transportName: transport.name,
           durationMs: 8_000,
         });
         try { socket.close(); } catch {}
@@ -1036,6 +1175,7 @@ class SymbolFeed {
         generation,
         mode: this.mode,
         transport: transportIndex,
+        transportName: transport.name,
       });
       if (transport.subscribe) {
         socket.send(JSON.stringify({
@@ -1053,50 +1193,58 @@ class SymbolFeed {
       if (generation !== this.generation || socket !== this.socket) return;
       const payload = parsePayload(message.data);
       if (!payload) return;
-      const update = payload.data;
-      const eventType = String(update?.e ?? "").toLowerCase();
-      const stream = payload.stream.toLowerCase();
-      this.lastMessageAt = Date.now();
+      const processStartedAt = performance.now();
+      try {
+        const update = payload.data;
+        this.lastMessageAt = Date.now();
 
-      const bids = update?.b ?? update?.bids;
-      const asks = update?.a ?? update?.asks;
-      if (!Array.isArray(bids) || !Array.isArray(asks)) return;
-      const receivedFirstDepth = this.lastDepthAt === 0;
-      this.lastDepthAt = Date.now();
-      const sourceEventTime = Number(update?.E);
-      if (Number.isFinite(sourceEventTime)) this.lastDepthEventTime = sourceEventTime;
-      if (receivedFirstDepth) {
-        diagnose(this.symbol, "depth.ws.first-message", {
-          state: "received",
-          generation,
-          mode: this.mode,
-          transport: this.transportIndex,
-        });
-      }
-      clearTimeout(this.firstDepthTimer);
-      this.transportIndex = 0;
-      this.depthReconnectAttempt = 0;
+        const bids = update?.b ?? update?.bids;
+        const asks = update?.a ?? update?.asks;
+        if (!Array.isArray(bids) || !Array.isArray(asks)) return;
+        const receivedFirstDepth = this.lastDepthAt === 0;
+        const receivedAt = Date.now();
+        this.lastDepthAt = receivedAt;
+        const sourceEventTime = Number(update?.E);
+        if (Number.isFinite(sourceEventTime)) {
+          this.lastDepthEventTime = sourceEventTime;
+          this.lastDepthSourceLagMs = calibratedSourceLag(sourceEventTime, receivedAt);
+        }
+        if (receivedFirstDepth) {
+          diagnose(this.symbol, "depth.ws.first-message", {
+            state: "received",
+            generation,
+            mode: this.mode,
+            transport: this.transportIndex,
+            transportName: transport.name,
+          });
+        }
+        clearTimeout(this.firstDepthTimer);
+        this.transportIndex = 0;
+        this.depthReconnectAttempt = 0;
 
-      if (this.mode === "partial") {
-        this.partialBidKeys = this.replacePartial(this.bids, this.partialBidKeys, bids);
-        this.partialAskKeys = this.replacePartial(this.asks, this.partialAskKeys, asks);
-        this.lastUpdateId = Number(update.u ?? update.lastUpdateId) || this.lastUpdateId;
-        this.depthReady = true;
-        this.syncing = false;
-        this.cachedSorted = null;
-        this.publishLiveStatus();
-        this.markDirty(true);
-        return;
-      }
+        if (this.mode === "partial") {
+          this.partialBidKeys = this.replacePartial(this.bids, this.partialBidKeys, bids);
+          this.partialAskKeys = this.replacePartial(this.asks, this.partialAskKeys, asks);
+          this.lastUpdateId = Number(update.u ?? update.lastUpdateId) || this.lastUpdateId;
+          this.depthReady = true;
+          this.syncing = false;
+          this.cachedSorted = null;
+          this.publishLiveStatus();
+          this.markDirty(true);
+          return;
+        }
 
-      if (!Number.isFinite(Number(update?.U)) || !Number.isFinite(Number(update?.u))) return;
-      if (!this.depthReady) {
-        this.bufferDepth(update);
-        if (!this.pendingSnapshot && !this.snapshotLoading) this.loadSnapshot(generation);
-        this.installSnapshot();
-        return;
+        if (!Number.isFinite(Number(update?.U)) || !Number.isFinite(Number(update?.u))) return;
+        if (!this.depthReady) {
+          this.bufferDepth(update);
+          if (!this.pendingSnapshot && !this.snapshotLoading) this.loadSnapshot(generation);
+          this.installSnapshot();
+          return;
+        }
+        this.applyDepth(update);
+      } finally {
+        this.recordFlow("depth", processStartedAt);
       }
-      this.applyDepth(update);
     });
 
     socket.addEventListener("close", (event) => {
@@ -1109,6 +1257,7 @@ class SymbolFeed {
         generation,
         mode: this.mode,
         transport: transportIndex,
+        transportName: transport.name,
         code: Number(event?.code) || null,
         clean: Boolean(event?.wasClean),
         reason: String(event?.reason ?? "").slice(0, 120),
@@ -1137,6 +1286,7 @@ class SymbolFeed {
           generation,
           mode: this.mode,
           transport: transportIndex,
+          transportName: transport.name,
           message: String(event?.message ?? "WebSocket error").slice(0, 180),
         });
         try { socket.close(); } catch {}
@@ -1220,43 +1370,47 @@ class SymbolFeed {
       if (generation !== this.generation || socket !== this.tradeSocket) return;
       const payload = parsePayload(message.data);
       if (!payload) return;
-      const update = payload.data;
-      const eventType = String(update?.e ?? "").toLowerCase();
-      const payloadStream = payload.stream.toLowerCase();
-      const rawEvent = eventType === "trade"
-        || (payloadStream.endsWith("@trade") && !payloadStream.endsWith("@aggtrade"));
-      const aggregateEvent = eventType === "aggtrade" || payloadStream.endsWith("@aggtrade");
-      if (!rawEvent && !aggregateEvent) return;
+      const processStartedAt = performance.now();
+      try {
+        const update = payload.data;
+        const eventType = String(update?.e ?? "").toLowerCase();
+        const payloadStream = payload.stream.toLowerCase();
+        const aggregateEvent = eventType === "aggtrade" || payloadStream.endsWith("@aggtrade");
+        if (!aggregateEvent) return;
 
-      const source = rawEvent && !aggregateEvent ? "raw" : "agg";
-      const receivedAt = Date.now();
-      const trade = normalizeTrade(update, source, receivedAt);
-      if (!trade) return;
-      const firstTradeMessage = !receivedTrade;
-      receivedTrade = true;
-      clearTimeout(this.tradeFirstMessageTimer);
-      this.tradeFirstMessageTimer = 0;
-      this.lastTradeAt = receivedAt;
-      this.tradeLatency.record(trade.rxLatencyMs, receivedAt);
-      this.tradeTransportIndex = 0;
-      this.tradeReconnectAttempt = 0;
-      this.tradeLive = true;
-      this.tradeConnected = true;
-      if (firstTradeMessage) {
-        diagnose(this.symbol, "tape.ws.first-message", {
-          state: "received",
-          generation,
-          transport: transportIndex,
-          transportName: transport.name,
-          source,
-        });
+        const receivedAt = Date.now();
+        const trade = normalizeTrade(update, "agg", receivedAt);
+        if (!trade) return;
+        const firstTradeMessage = !receivedTrade;
+        receivedTrade = true;
+        clearTimeout(this.tradeFirstMessageTimer);
+        this.tradeFirstMessageTimer = 0;
+        this.lastTradeAt = receivedAt;
+        this.lastTradeEventTime = trade.eventTime;
+        this.lastTradeSourceLagMs = calibratedSourceLag(trade.eventTime, receivedAt);
+        this.tradeLatency.record(trade.rxLatencyMs, receivedAt);
+        this.tradeTransportIndex = 0;
+        this.tradeReconnectAttempt = 0;
+        this.tradeLive = true;
+        this.tradeConnected = true;
+        if (firstTradeMessage) {
+          diagnose(this.symbol, "tape.ws.first-message", {
+            state: "received",
+            generation,
+            transport: transportIndex,
+            transportName: transport.name,
+            source: "agg",
+          });
+        }
+
+        const decision = this.tapeGuard.ingest(trade, this.lastTradeAt);
+        this.publishLiveStatus();
+        if (!decision.emit || !this.insertTrade(trade, true)) return;
+        this.queueTape(trade);
+        this.scheduleTradeSave();
+      } finally {
+        this.recordFlow("trade", processStartedAt);
       }
-
-      const decision = this.tapeGuard.ingest(trade, this.lastTradeAt);
-      this.publishLiveStatus();
-      if (!decision.emit || !this.insertTrade(trade, true)) return;
-      this.queueTape(trade);
-      this.scheduleTradeSave();
     });
 
     socket.addEventListener("close", (event) => {
@@ -1358,7 +1512,7 @@ class SymbolFeed {
       rows: rows.length,
     });
 
-    const coveredRanges = resume ? mergeTradeCoverage(this.trades) : null;
+    const coveredRanges = resume ? mergeTradeCoverage(this.tradeSnapshot()) : null;
     const addedTrades = [];
     for (const row of rows) {
       const trade = normalizeTrade(row, "agg");
@@ -1373,11 +1527,13 @@ class SymbolFeed {
       }
     }
     if (!addedTrades.length) return;
-    this.trades.sort((left, right) => Number(right.time) - Number(left.time));
+    this.trades.replace(
+      this.tradeSnapshot().sort((left, right) => Number(right.time) - Number(left.time)),
+    );
     if (tabVisible) {
       const trades = resume
         ? addedTrades.sort((left, right) => Number(left.time) - Number(right.time)).slice(-MAX_RESUME_TAPE_SNAPSHOT)
-        : this.trades.slice(0, MAX_TAPE_SNAPSHOT);
+        : this.tradeSnapshot(MAX_TAPE_SNAPSHOT);
       post("tape", this.symbol, {
         replace: !resume,
         resume,
@@ -1392,20 +1548,18 @@ class SymbolFeed {
       && Number.isInteger(Number(trade.lastTradeId));
     const firstTradeId = hasRawRange ? Number(trade.firstTradeId) : trade.id;
     const lastTradeId = hasRawRange ? Number(trade.lastTradeId) : trade.id;
-    const key = `${firstTradeId}:${lastTradeId}:${trade.time}:${trade.price}:${trade.quantity}`;
+    const key = this.tradeKey(trade);
     if (this.tradeIds.has(key)) return false;
     if (hasRawRange) this.tapeGuard.advanceBoundary(lastTradeId);
     this.tradeIds.add(key);
-    if (newestFirst) this.trades.unshift(trade);
-    else this.trades.push(trade);
-    if (this.trades.length > MAX_TRADE_HISTORY) {
-      this.trades.length = MAX_TRADE_HISTORY;
-      this.tradeIds = new Set(this.trades.map((item) => {
-        const firstTradeId = Number.isInteger(Number(item.firstTradeId)) ? Number(item.firstTradeId) : item.id;
-        const lastTradeId = Number.isInteger(Number(item.lastTradeId)) ? Number(item.lastTradeId) : item.id;
-        return `${firstTradeId}:${lastTradeId}:${item.time}:${item.price}:${item.quantity}`;
-      }));
+    const evicted = newestFirst
+      ? this.trades.prepend(trade)
+      : this.trades.append(trade);
+    if (evicted === trade) {
+      this.tradeIds.delete(key);
+      return false;
     }
+    if (evicted) this.tradeIds.delete(this.tradeKey(evicted));
     return true;
   }
 
@@ -1420,10 +1574,12 @@ class SymbolFeed {
   flushTapeBatch() {
     this.tapeTimer = 0;
     if (!tabVisible) {
-      this.tapeBatch = [];
+      this.tapeBatch.clear();
       return;
     }
-    const trades = this.tapeBatch.splice(0, MAX_TAPE_BATCH_PER_POST);
+    const latest = this.tapeBatch.takeLatest(MAX_TAPE_BATCH_PER_POST);
+    const trades = latest.items;
+    this.tapeDroppedInWindow += latest.dropped;
     if (trades.length) {
       const sourceEventTimeMs = trades.reduce(
         (latest, trade) => Math.max(latest, Number(trade?.eventTime) || 0),
@@ -1432,20 +1588,24 @@ class SymbolFeed {
       post(
         "tape",
         this.symbol,
-        { replace: false, trades },
-        null,
+        {
+          replace: false,
+          trades,
+          backpressure: {
+            dropped: latest.dropped,
+            pending: this.tapeBatch.length,
+          },
+        },
+        observabilityEnabled ? performance.now() : null,
         { sourceEventTimeMs, sourceKind: "live-trade" },
       );
-    }
-    if (this.tapeBatch.length) {
-      this.tapeTimer = setTimeout(() => this.flushTapeBatch(), TAPE_FLUSH_MS);
     }
   }
 
   scheduleTradeSave() {
     clearTimeout(this.tradeSaveTimer);
     this.tradeSaveTimer = setTimeout(
-      () => tradeStore.set(this.symbol, this.trades).catch(() => {}),
+      () => tradeStore.set(this.symbol, this.tradeSnapshot()).catch(() => {}),
       12_000,
     );
   }
@@ -1458,7 +1618,7 @@ class SymbolFeed {
       post(
         "tape",
         this.symbol,
-        { replace: true, trades: this.trades.slice(0, MAX_TAPE_SNAPSHOT) },
+        { replace: true, trades: this.tradeSnapshot(MAX_TAPE_SNAPSHOT) },
         null,
         { sourceKind: "cached-trades" },
       );
@@ -1495,7 +1655,11 @@ function scheduleWatchdog() {
     watchdogTimer = 0;
     const now = Date.now();
     if (tabVisible) {
-      for (const feed of feeds.values()) feed.ensureHealthy(now);
+      for (const feed of feeds.values()) {
+        if (feed.subscribers <= 0) continue;
+        feed.reportFlow(now);
+        feed.ensureHealthy(now);
+      }
     }
     self.postMessage({
       type: "heartbeat",
