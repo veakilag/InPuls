@@ -1,14 +1,17 @@
 import {
   RAW_STABILITY_MIN_VISIBLE_MS,
   RAW_STABILITY_SCHEMA_VERSION,
+  advanceSourceStallCandidate,
   buildStabilityAssessment,
+  diagnoseTradePayload,
   normalizeSymbols,
   reconnectDelay,
   reservoirPush,
+  sanitizeTradePayload,
   sequenceDelta,
   summarizeMatching,
   summarizeReservoir,
-} from "./raw-stability-core.js?v=1";
+} from "./raw-stability-core.js?v=2";
 import {
   matchAggregateToRaw,
   normalizeTradeEvent,
@@ -21,8 +24,9 @@ const SAMPLE_LIMIT = 20_000;
 const RAW_ID_LIMIT = 50_000;
 const SEEN_ID_LIMIT = 50_000;
 const EVENT_LOG_LIMIT = 2_000;
+const INVALID_SAMPLE_LIMIT = 100;
 const MATCH_WAIT_MS = 2_500;
-const MATCH_GUARD_MS = 500;
+const MATCH_GUARD_MS = 5_000;
 const FIRST_MESSAGE_TIMEOUT_MS = 15_000;
 const SOURCE_STALL_MS = 3_000;
 const WATCHDOG_STALE_MS = 10_000;
@@ -66,6 +70,8 @@ function createStreamSymbolState() {
     messages: 0,
     quote: 0,
     invalidEvents: 0,
+    invalidReasons: new Map(),
+    rejectedSequenceIds: 0,
     gaps: 0,
     duplicates: 0,
     outOfOrder: 0,
@@ -132,6 +138,7 @@ function createConnectionState(source) {
     validMessages: 0,
     liveSymbols: new Set(),
     invalidEvents: 0,
+    invalidReasons: new Map(),
     pendingClose: null,
     recoveryPendingAt: 0,
     recoveryReason: null,
@@ -161,6 +168,7 @@ function createRuntime() {
     stopping: false,
     eventLog: [],
     droppedEvents: 0,
+    invalidSamples: [],
     symbolStates: new Map(),
     connections: {
       aggTrade: createConnectionState("aggTrade"),
@@ -198,6 +206,56 @@ function logEvent(type, details = {}) {
     const overflow = runtime.eventLog.length - EVENT_LOG_LIMIT;
     runtime.eventLog.splice(0, overflow);
     runtime.droppedEvents += overflow;
+  }
+}
+
+function incrementReason(reasons, reason) {
+  const key = String(reason || "unknown");
+  reasons.set(key, (reasons.get(key) || 0) + 1);
+}
+
+function reasonsSummary(reasons) {
+  return Object.fromEntries([...reasons.entries()].sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function recordInvalidPayload(source, event, receiveAt, diagnosis) {
+  const connection = runtime.connections[source];
+  const state = runtime.symbolStates.get(diagnosis.symbol);
+  connection.invalidEvents += 1;
+  incrementReason(connection.invalidReasons, diagnosis.reason);
+
+  let sequenceObserved = false;
+  if (state) {
+    const stream = state.streams[source];
+    stream.invalidEvents += 1;
+    incrementReason(stream.invalidReasons, diagnosis.reason);
+    const sample = diagnosis.sequenceSample;
+    if (sample && recordSeen(stream, sample.id)) {
+      const delta = sequenceDelta(source, stream.lastSequence, sample);
+      if (delta.valid) {
+        stream.lastSequence = delta.nextLast;
+        stream.gaps += delta.gapCount;
+        if (delta.outOfOrder) stream.outOfOrder += 1;
+        if (delta.overlap && !delta.outOfOrder) stream.overlap += 1;
+        stream.rejectedSequenceIds += 1;
+        sequenceObserved = true;
+      }
+    }
+  }
+
+  const details = {
+    source,
+    symbol: diagnosis.symbol,
+    reason: diagnosis.reason,
+    sequenceObserved,
+  };
+  logEvent("invalid-event", details);
+  if (runtime.invalidSamples.length < INVALID_SAMPLE_LIMIT) {
+    runtime.invalidSamples.push({
+      at: receiveAt,
+      ...details,
+      payload: sanitizeTradePayload(event),
+    });
   }
 }
 
@@ -298,11 +356,11 @@ function connectSource(source, reason = "initial") {
     const receiveAt = nowEpoch();
     const sample = normalizeTradeEvent(payload.data, source, receiveAt);
     if (!sample || !runtime.symbolStates.has(sample.symbol)) {
-      const symbol = String(payload?.data?.s ?? "UNKNOWN").toUpperCase();
-      connection.invalidEvents += 1;
-      const symbolState = runtime.symbolStates.get(symbol);
-      if (symbolState) symbolState.streams[source].invalidEvents += 1;
-      logEvent("invalid-event", { source, symbol });
+      const initialDiagnosis = diagnoseTradePayload(payload.data, source, receiveAt);
+      const diagnosis = initialDiagnosis.valid
+        ? { ...initialDiagnosis, valid: false, reason: "unexpected-symbol" }
+        : initialDiagnosis;
+      recordInvalidPayload(source, payload.data, receiveAt, diagnosis);
       return;
     }
 
@@ -497,17 +555,19 @@ function maybeStartCounterpartStall(state, activeSource, receiveAt) {
   const connection = runtime.connections[stalledSource];
   if (connection.status !== "live") return;
   const stalled = state.streams[stalledSource];
-  if (!stalled.lastEventAt || stalled.activeStall) return;
-  if (receiveAt - stalled.lastEventAt < SOURCE_STALL_MS) return;
-  stalled.activeStall = {
-    startedAt: stalled.lastEventAt,
-    detectedAt: receiveAt,
-    reason: "source-only",
-  };
+  if (!stalled.lastEventAt || receiveAt <= stalled.lastEventAt) return;
+  const observation = advanceSourceStallCandidate(
+    stalled.activeStall,
+    receiveAt,
+    SOURCE_STALL_MS,
+    WATCHDOG_COUNTERPART_FRESH_MS,
+  );
+  stalled.activeStall = observation.candidate;
+  if (!observation.confirmedNow) return;
   logEvent("source-only-stall", {
     source: stalledSource,
     symbol: state.symbol,
-    detectedAfterMs: receiveAt - stalled.lastEventAt,
+    detectedAfterMs: receiveAt - stalled.activeStall.startedAt,
   });
 }
 
@@ -516,11 +576,19 @@ function finishStall(state, source, endedAt, reason, countFailure) {
   const stall = stream.activeStall;
   if (!stall) return;
   const durationMs = Math.max(0, Number(endedAt) - stall.startedAt);
-  if (countFailure && stall.reason === "source-only") {
+  if (countFailure && stall.reason === "source-only" && stall.confirmed) {
     stream.unplannedStalls += 1;
     stream.unplannedStallMs += durationMs;
   }
-  logEvent("stall-ended", { source, symbol: state.symbol, reason, durationMs, counted: Boolean(countFailure) });
+  if (stall.confirmed) {
+    logEvent("stall-ended", {
+      source,
+      symbol: state.symbol,
+      reason,
+      durationMs,
+      counted: Boolean(countFailure),
+    });
+  }
   stream.activeStall = null;
 }
 
@@ -657,6 +725,7 @@ function connectionSummary(source) {
     unplannedReconnects: connection.unplannedReconnects,
     openFailures: connection.openFailures,
     invalidEvents: connection.invalidEvents,
+    invalidReasons: reasonsSummary(connection.invalidReasons),
     recoveryPending: Boolean(connection.recoveryPendingAt),
     lastAnyEventAt: connection.lastAnyEventAt || null,
     recovery: summarizeReservoir(connection.recovery),
@@ -668,6 +737,8 @@ function streamSummary(stream) {
     messages: stream.messages,
     quote: stream.quote,
     invalidEvents: stream.invalidEvents,
+    invalidReasons: reasonsSummary(stream.invalidReasons),
+    rejectedSequenceIds: stream.rejectedSequenceIds,
     gaps: stream.gaps,
     duplicates: stream.duplicates,
     outOfOrder: stream.outOfOrder,
@@ -706,7 +777,7 @@ function buildSnapshot() {
   });
   return {
     schemaVersion: RAW_STABILITY_SCHEMA_VERSION,
-    labVersion: "raw-stability-v1",
+    labVersion: "raw-stability-v2",
     generatedAt: new Date(at).toISOString(),
     config: {
       symbols: runtime.symbols,
@@ -740,6 +811,7 @@ function buildSnapshot() {
     assessment,
     events: runtime.eventLog,
     droppedEvents: runtime.droppedEvents,
+    invalidSamples: runtime.invalidSamples,
     limitations: [
       "Browser background throttling is part of the observation and is separated from visible time.",
       "@trade is undocumented in the current Binance USDⓈ-M routed stream table.",

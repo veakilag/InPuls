@@ -1,4 +1,4 @@
-# RAW stability lab v1
+# RAW stability lab v2
 
 ## Purpose
 
@@ -18,9 +18,10 @@ Both URL-combined and path-combined modes use the post-migration routed endpoint
 Per source and symbol:
 
 - valid event count and quote notional;
-- exact trade-ID continuity inside each uninterrupted WebSocket segment;
+- exact trade-ID continuity inside each uninterrupted WebSocket segment, separated from payloads that arrived but were rejected by validation;
+- rejection reasons and bounded, public-market-only payload shape samples;
 - duplicates, overlaps and out-of-order events;
-- source-only stalls when the paired source is still active;
+- source-only stalls confirmed only after one feed continues producing events while the paired feed remains silent for three seconds;
 - planned and unplanned reconnects;
 - recovery time from restart request/socket close to the first valid event;
 - visible and background wall time.
@@ -39,6 +40,12 @@ Long-running distributions use bounded reservoir samples. Exact totals, gap coun
 A sequence anchor is reset whenever that source opens a new WebSocket segment. A gap between two separate connections is not reported as an intra-segment loss because the browser cannot observe trades emitted while disconnected.
 
 Pending cross-source matches are discarded at a segment boundary. They are counted as abandoned and never mixed into the next segment.
+
+An event with a usable trade ID can fail price, quantity or timestamp validation without proving a transport gap. The rejected ID advances the sequence anchor and is counted separately. Only IDs that were not observed at all remain transport-gap candidates.
+
+After both feeds become live, matching waits five seconds before collecting lead samples. This prevents route startup and clean background recovery from contaminating steady-state latency.
+
+A source-only stall is not inferred from a long period with no trades. The candidate starts at the first new event from the active feed and becomes a failure only if that feed keeps producing while the counterpart remains silent for three seconds.
 
 When the tab returns from the background, the lab deliberately performs a clean restart of both sessions. This mirrors the production recovery rule and avoids treating a browser-delivered stale backlog as live data.
 
@@ -71,3 +78,5 @@ A green run means only that one exported observation was clean:
 - both sources delivered data for every selected symbol.
 
 Promotion still requires the full 1 / 2 / 4-symbol matrix, background recovery and reconnect coverage. If that campaign passes, the follow-up production change must keep `@aggTrade` as an automatic fallback and must not run both full-rate sources permanently.
+
+Binance documents that `@aggTrade` contains only market trades; insurance-fund and ADL trades are not aggregated. It also exposes `nq` separately from `q` for quantity excluding RPI involvement. The hidden `@trade` candidate therefore cannot be promoted merely because raw IDs are fast or mostly contiguous: event-class and volume semantics must also be demonstrated.

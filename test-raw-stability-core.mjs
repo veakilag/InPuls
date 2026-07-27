@@ -3,10 +3,13 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import {
   RAW_STABILITY_MIN_VISIBLE_MS,
+  advanceSourceStallCandidate,
   buildStabilityAssessment,
+  diagnoseTradePayload,
   normalizeSymbols,
   reconnectDelay,
   reservoirPush,
+  sanitizeTradePayload,
   sequenceDelta,
   summarizeMatching,
 } from "./raw-stability-core.js";
@@ -32,6 +35,67 @@ test("RAW sequence gaps are counted only after the segment anchor", () => {
   const old = sequenceDelta("trade", gap.nextLast, { id: 103 });
   assert.equal(old.outOfOrder, true);
   assert.equal(old.nextLast, 104);
+});
+
+test("rejected trade payloads keep a usable sequence identity and an exact reason", () => {
+  const zeroQuantity = {
+    e: "trade",
+    E: 100,
+    T: 99,
+    s: "BTCUSDT",
+    t: 101,
+    p: "10",
+    q: "0",
+    m: false,
+  };
+  const diagnosis = diagnoseTradePayload(zeroQuantity, "trade", 120, "BTCUSDT");
+  assert.equal(diagnosis.valid, false);
+  assert.equal(diagnosis.reason, "non-positive-quantity");
+  assert.deepEqual(diagnosis.sequenceSample, {
+    id: 101,
+    firstTradeId: 101,
+    lastTradeId: 101,
+  });
+
+  const next = sequenceDelta("trade", diagnosis.sequenceSample.id, { id: 102 });
+  assert.equal(next.gapCount, 0);
+});
+
+test("invalid payload diagnostics are bounded to public market fields", () => {
+  const payload = {
+    e: "trade",
+    s: "BTCUSDT",
+    t: 7,
+    p: "10",
+    q: "0",
+    secret: "must-not-export",
+    nested: { ignored: true },
+  };
+  const sample = sanitizeTradePayload(payload);
+  assert.deepEqual(sample.keys, ["e", "nested", "p", "q", "s", "secret", "t"]);
+  assert.equal(sample.fields.s, "BTCUSDT");
+  assert.equal(sample.fields.q, "0");
+  assert.equal("secret" in sample.fields, false);
+  assert.equal("nested" in sample.fields, false);
+});
+
+test("source-only stalls require continued counterpart activity after market silence", () => {
+  const first = advanceSourceStallCandidate(null, 10_000, 3_000);
+  assert.equal(first.candidate.startedAt, 10_000);
+  assert.equal(first.confirmedNow, false);
+
+  const normalPairArrival = advanceSourceStallCandidate(first.candidate, 10_120, 3_000);
+  assert.equal(normalPairArrival.confirmedNow, false);
+  assert.equal(normalPairArrival.candidate.confirmed, false);
+
+  const quietMarketReset = advanceSourceStallCandidate(normalPairArrival.candidate, 13_100, 3_000);
+  assert.equal(quietMarketReset.confirmedNow, false);
+  assert.equal(quietMarketReset.candidate.startedAt, 13_100);
+
+  const second = advanceSourceStallCandidate(quietMarketReset.candidate, 14_600, 3_000);
+  const continuedActivity = advanceSourceStallCandidate(second.candidate, 16_200, 3_000);
+  assert.equal(continuedActivity.confirmedNow, true);
+  assert.equal(continuedActivity.candidate.confirmed, true);
 });
 
 test("aggregate sequence uses the complete f-l coverage range", () => {
@@ -132,7 +196,7 @@ test("assessment blocks fast unplanned reconnects and unfinished recovery", () =
     symbols: [cleanSymbol()],
   });
   assert.equal(result.tone, "negative");
-  assert.match(result.text, /RAW: некорректный payload/);
+  assert.match(result.text, /RAW: отклонённый payload/);
   assert.match(result.text, /RAW: аварийный reconnect/);
   assert.match(result.text, /RAW: recovery не завершён/);
   assert.match(result.text, /AGG: recovery P95 больше 10 секунд/);
@@ -180,11 +244,14 @@ test("browser lab keeps RAW isolated from production and uses routed multi-strea
   assert.match(source, /source-only-stall/);
   assert.match(source, /window\.__INPULS_RAW_LAB__/);
   assert.match(html, /Production TAPE эта страница не переключает/);
-  assert.match(html, /raw-stability-lab\.js\?v=1/);
+  assert.match(source, /MATCH_GUARD_MS = 5_000/);
+  assert.match(source, /sequenceObserved/);
+  assert.match(source, /invalidSamples/);
+  assert.match(html, /raw-stability-lab\.js\?v=2/);
   assert.match(worker, /return \[`\$\{name\}@aggTrade`\];/);
   assert.doesNotMatch(worker, /return \[`\$\{name\}@trade`\];/);
-  assert.match(serviceWorker, /inpuls-26-31-raw-stability-lab-v1/);
+  assert.match(serviceWorker, /inpuls-26-32-raw-stability-lab-v2/);
   assert.match(serviceWorker, /raw-stability-lab\.html/);
-  assert.match(serviceWorker, /raw-stability-lab\.js\?v=1/);
-  assert.match(serviceWorker, /raw-stability-core\.js\?v=1/);
+  assert.match(serviceWorker, /raw-stability-lab\.js\?v=2/);
+  assert.match(serviceWorker, /raw-stability-core\.js\?v=2/);
 });
