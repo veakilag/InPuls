@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adaptiveBookScaleIndex, aggregateDepthBands, aggregateFootprintClusters, aggregateTradeClusters, aggregateTradePath, applyDepthUpdates, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, depthView, inferPriceTick, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "../orderbook.js";
+import { adaptiveBookScaleIndex, aggregateDepthBands, aggregateFootprintClusters, aggregateTradeClusters, aggregateTradePath, applyDepthUpdates, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, depthView, inferPriceTick, maximumBookScaleIndex, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "../orderbook.js";
 
 test("depth updates add, replace and remove price levels", () => {
   const levels = new Map([[100, 2], [99, 4]]);
@@ -57,30 +57,32 @@ test("trade clusters respect the minimum quote filter", () => {
   assert.equal(clusters[0].quote, 5_000);
 });
 
-test("aggregated trade path groups executions by time and price before applying the filter", () => {
+test("RAW trade path preserves executions and applies the minimum filter per event", () => {
   const path = aggregateTradePath([
     { price: 100, quantity: 4, quote: 400, side: "buy", time: 1_010 },
     { price: 100.02, quantity: 7, quote: 700, side: "sell", time: 1_090 },
     { price: 101, quantity: 2, quote: 202, side: "buy", time: 2_000 },
-  ], 1_000, .1, 20, 500);
+  ], 500, .1, 20, 500);
   assert.equal(path.length, 1);
-  assert.equal(path[0].count, 2);
-  assert.equal(path[0].quote, 1_100);
-  assert.equal(path[0].executions.length, 2);
+  assert.equal(path[0].count, 1);
+  assert.equal(path[0].quote, 700);
+  assert.equal(path[0].executions.length, 1);
 });
 
-test("impulse adaptation enlarges the effective price step without changing the user minimum", () => {
-  const next = adaptiveBookScaleIndex(.01, 3, 20, 21);
-  assert.ok(next > 3);
-  assert.ok(priceStepForScale(.01, next) * 10 >= 20 / .7);
+test("impulse adaptation preserves the user-selected price step", () => {
+  assert.equal(adaptiveBookScaleIndex(.01, 3, 20, 21), 3);
+  assert.equal(adaptiveBookScaleIndex(.01, -5, 20, 21), 0);
+  assert.equal(adaptiveBookScaleIndex(.01, 99, 20, 21), maximumBookScaleIndex());
 });
 
-test("maximum-depth fit covers distant received levels and scale recovery returns to the user value", () => {
+test("AUTO depth fits the working area and scale recovery preserves the user value", () => {
   const bids = Array.from({ length: 100 }, (_, index) => [100 - (index + 1) * .1, 1]);
   const asks = Array.from({ length: 100 }, (_, index) => [100 + (index + 1) * .1, 1]);
   const index = depthCoverageScaleIndex(.1, bids, asks, 100, 21);
-  assert.ok(priceStepForScale(.1, index) * 10 >= 9);
-  assert.equal(recoverBookScaleIndex(3, 8), 7);
+  assert.equal(index, 1);
+  assert.ok(priceStepForScale(.1, index) * 10 >= 1);
+  assert.ok(priceStepForScale(.1, index) * 10 < 9);
+  assert.equal(recoverBookScaleIndex(3, 8), 3);
   assert.equal(recoverBookScaleIndex(3, 3), 3);
 });
 

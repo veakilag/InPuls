@@ -1,9 +1,9 @@
-const CACHE = "inpuls-26-32-raw-stability-lab-v2";
-const BUILD = "26-32-raw-stability-lab-v2";
+const CACHE = "inpuls-26-33-orderbook-contracts-v1";
+const BUILD = "26-33-orderbook-contracts-v1";
 
 const FORCED = new Map([
-  ["/app.js", "./app.js?v=26-32-raw-stability-lab-v2"],
-  ["/orderbook.js", "./orderbook.js?v=render-scheduler-v1"],
+  ["/app.js", "./app.js?v=26-33-orderbook-contracts-v1"],
+  ["/orderbook.js", "./orderbook.js?v=orderbook-contracts-v1"],
   ["/render-scheduler.js", "./render-scheduler.js?v=render-scheduler-v1"],
   ["/orderbook-worker.js", "./orderbook-worker.js?v=worker-bp-v1"],
   ["/orderbook-worker-buffers.js", "./orderbook-worker-buffers.js?v=worker-bp-v1"],
@@ -18,10 +18,10 @@ const SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=23",
-  "./app.js?v=26-32-raw-stability-lab-v2",
+  "./app.js?v=26-33-orderbook-contracts-v1",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=render-scheduler-v1",
+  "./orderbook.js?v=orderbook-contracts-v1",
   "./render-scheduler.js?v=render-scheduler-v1",
   "./orderbook-worker.js?v=worker-bp-v1",
   "./orderbook-worker-buffers.js?v=worker-bp-v1",
