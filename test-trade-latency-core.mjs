@@ -107,16 +107,18 @@ test("verdict requires valid run, quality and material visual lead", () => {
 });
 
 
-test("v2 browser lab keeps both streams on one socket with warmup and invalidation", () => {
+test("v2 browser lab compares streams through their routed endpoints", () => {
   const source = readFileSync(new URL("./trade-latency-lab.js", import.meta.url), "utf8");
   const html = readFileSync(new URL("./trade-latency-lab.html", import.meta.url), "utf8");
   assert.match(source, /const WARMUP_MS = 5_000;/);
-  assert.match(source, /const streams = \[`\$\{name\}@trade`, `\$\{name\}@aggTrade`\];/);
+  assert.match(source, /fstream\.binance\.com\/public\/stream\?streams=\$\{stream\}/);
+  assert.match(source, /fstream\.binance\.com\/market\/stream\?streams=\$\{stream\}/);
+  assert.match(source, /const stream = `\$\{name\}@\$\{source\}`;/);
   assert.equal((source.match(/new WebSocket\(/g) ?? []).length, 1);
-  assert.match(source, /fstream\.binance\.com\/market\/stream\?streams=/);
+  assert.match(source, /for \(const source of SOURCES\) this\.connectSource\(source\);/);
   assert.doesNotMatch(source, /stream\.binancefuture\.com/);
   assert.match(source, /document\.addEventListener\("visibilitychange"/);
   assert.match(source, /runtime\.sharedReconnects \+= 1;/);
   assert.match(html, /id="validity-state"/);
-  assert.match(html, /trade-latency-lab\.js\?v=2\.2/);
+  assert.match(html, /trade-latency-lab\.js\?v=2\.3/);
 });

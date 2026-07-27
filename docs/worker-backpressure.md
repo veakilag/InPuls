@@ -3,8 +3,10 @@
 ## Production streams
 
 - Depth uses Binance USDⓈ-M Futures `/public` routes.
-- TAPE uses one `<symbol>@aggTrade` stream through `/market`.
-- The high-volume `<symbol>@trade` stream is not part of the production Worker. RAW comparison remains isolated in `trade-latency-lab.html`.
+- TAPE temporarily uses one documented `<symbol>@aggTrade` stream through `/market` as the safe backpressure baseline.
+- This is not a latency verdict. The valid 24 July shadow runs found `<symbol>@trade` earlier in about 93% of 1,195 matched BTC/BANK/AKE groups; the BTC median first-arrival lead was about 142 ms with full volume coverage and no duplicates.
+- The high-volume, undocumented `<symbol>@trade` stream is not promoted to production by this PR. The routed RAW-vs-AGG comparison remains isolated in `trade-latency-lab.html`: RAW uses `/public`, while aggregate trades use `/market`.
+- Production source selection stays open until the hidden RAW stream passes a longer routed-endpoint stability run, including reconnects, gaps, duplicates, background recovery, and 1 / 2 / 4 simultaneous order books.
 
 Depth events are still applied one by one through the strict `U/u/pu` sequence checks. Backpressure never drops or coalesces exchange depth events; only rendered book frames and TAPE delivery are rate-limited.
 
