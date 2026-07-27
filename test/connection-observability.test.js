@@ -63,5 +63,5 @@ test("new diagnostic runtime files are in the Service Worker release", () => {
   assert.match(serviceWorker, /observability\.js\?v=render-scheduler-v1/);
   assert.match(serviceWorker, /orderbook-worker-buffers\.js\?v=worker-bp-v1/);
   assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(serviceWorker, /inpuls-26-32-raw-stability-lab-v2/);
+  assert.match(serviceWorker, /inpuls-26-33-orderbook-contracts-v1/);
 });

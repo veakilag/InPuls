@@ -472,11 +472,12 @@ export function depthLiquidityWithinPercent(bids, asks, middlePrice, percent = 1
 }
 
 export function aggregateTradePath(trades, minimumQuote = 0, priceStep = .01, limit = 36, bucketMs = 750) {
+  const threshold = Math.max(0, Number(minimumQuote) || 0);
   const safeLimit = Math.max(3, Math.floor(Number(limit) || 36));
   const ordered = [...(trades ?? [])]
     .filter((trade) => trade
       && [trade.price, trade.quote, trade.quantity, trade.time].every(Number.isFinite)
-      && trade.quote > 0)
+      && trade.quote >= threshold)
     .sort((left, right) => left.time - right.time || Number(left.id) - Number(right.id))
     .slice(-safeLimit);
 
@@ -497,9 +498,14 @@ export function aggregateTradePath(trades, minimumQuote = 0, priceStep = .01, li
 
 export function tradeTimeWindow(now, durationMs, offsetMs = 0) {
   const requestedNow = Number(now);
-  const liveAnchor = latestTradeEventTime > 0 ? latestTradeEventTime : requestedNow;
-  const end = liveAnchor - Math.max(0, Number(offsetMs) || 0);
   const duration = Math.max(5_000, Number(durationMs) || 60_000);
+  const safeNow = Number.isFinite(requestedNow) ? requestedNow : Date.now();
+  const latest = Number(latestTradeEventTime);
+  const latestIsFresh = latest > 0
+    && latest <= safeNow + 5_000
+    && safeNow - latest <= duration;
+  const liveAnchor = latestIsFresh ? latest : safeNow;
+  const end = liveAnchor - Math.max(0, Number(offsetMs) || 0);
   return { start: end - duration, end, duration };
 }
 
@@ -1346,7 +1352,7 @@ class OrderBookWorkerManager {
   }
 
   #startHealthWatch() {
-    if (this.healthTimer || typeof setInterval !== "function") return;
+    if (this.failed || this.healthTimer || typeof setInterval !== "function") return;
     this.healthTimer = setInterval(() => {
       if (this.failed || this.restarting || !this.worker || !this.workerReady) return;
       if (typeof document !== "undefined" && document.hidden) return;

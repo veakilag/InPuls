@@ -1,3 +1,3 @@
 InPuls v23
-Build: 26-32-raw-stability-lab-v2
+Build: 26-33-orderbook-contracts-v1
 Features: latched-first-anchor-magnet, centered-chart-reset, adaptive-scale-recovery, maximum-depth-fit, stable-inplay-order, persistent-trade-history, time-price-tape, footprint-clusters, global-panel-font-scale, latest-only-orderbook-rendering, budgeted-tape-frames, budgeted-footprint-frames, raw-stability-lab-v2
