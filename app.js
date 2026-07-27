@@ -6,6 +6,7 @@ import {
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
 import { adaptiveBookScaleIndex, aggregateFootprintClusters, aggregateTradePath, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, inferPriceTick, maximumBookScaleIndex, OrderBookFeed, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "./orderbook.js?v=26-28-resume-v2";
+import { observability } from "./observability.js?v=obs-pr1";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -600,6 +601,7 @@ async function warmupRadarHistory() {
 }
 
 function render() {
+  const renderStartedAt = observability.enabled ? performance.now() : 0;
   const now = Date.now();
   const metrics = getMetrics(now);
   state.lastMetrics = metrics;
@@ -626,6 +628,7 @@ function render() {
   updateExtraChartMetrics(metrics);
   updateChartHeader(metrics);
   if (state.selectedSymbol) renderDetail(state.selectedSymbol);
+  if (observability.enabled) observability.record("app.render", performance.now() - renderStartedAt);
 }
 
 function renderInPlay(metrics) {

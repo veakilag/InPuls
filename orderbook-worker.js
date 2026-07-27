@@ -39,9 +39,31 @@ let serverClockOffsetMs = null;
 let serverClockRttMs = null;
 let serverClockSyncAt = 0;
 let serverClockSyncPromise = null;
+let observabilityEnabled = false;
+let observabilityPostCount = 0;
 
-function post(type, symbol, payload = {}) {
-  self.postMessage({ type, symbol, ...payload });
+function post(type, symbol, payload = {}, processStartedAt = null) {
+  if (!observabilityEnabled) {
+    self.postMessage({ type, symbol, ...payload });
+    return;
+  }
+  const observerStartedAt = performance.now();
+  const message = { type, symbol, ...payload };
+  const samplePayload = observabilityPostCount++ % 50 === 0;
+  let payloadBytes = null;
+  if (samplePayload) {
+    try { payloadBytes = new Blob([JSON.stringify(message)]).size; } catch {}
+  }
+  const exchangeEventTime = Number(payload?.data?.eventTime ?? payload?.trades?.[0]?.eventTime);
+  message.__obs = {
+    sentAt: performance.now(),
+    processMs: Number.isFinite(processStartedAt) ? performance.now() - processStartedAt : null,
+    observerOverheadMs: performance.now() - observerStartedAt,
+    payloadBytes,
+    payloadSampleRate: 50,
+    exchangeEventTime: Number.isFinite(exchangeEventTime) ? exchangeEventTime : null,
+  };
+  self.postMessage(message);
 }
 
 function reconnectDelay(attempt = 0) {
@@ -658,6 +680,7 @@ class SymbolFeed {
   }
 
   emit(now = Date.now(), requestedLimit = this.emittedLimit(), force = false) {
+    const processStartedAt = observabilityEnabled ? performance.now() : null;
     if (!tabVisible || this.subscribers <= 0 || (!force && !this.dirty && !this.forceEmit)) return;
     if (!force && !this.forceEmit && now - this.lastEmitAt < this.emitIntervalMs()) return;
     const fullView = this.sortedDepth();
@@ -703,7 +726,7 @@ class SymbolFeed {
         },
         worker: true,
       },
-    });
+    }, processStartedAt);
     this.lastEmitAt = now;
     this.dirty = false;
     this.forceEmit = false;
@@ -1207,6 +1230,11 @@ function scheduleBackgroundPause(epoch) {
 self.addEventListener("message", (event) => {
   const message = event.data;
   if (!message || typeof message !== "object") return;
+
+  if (message.type === "observability") {
+    observabilityEnabled = Boolean(message.enabled);
+    return;
+  }
 
   if (message.type === "visibility") {
     const nextVisible = Boolean(message.visible);

@@ -4,6 +4,7 @@ import {
   selectReadableAggLabels,
 } from "./orderbook-tape-layout.js?v=26-25-tape-v2-1";
 import "./orderbook-flow-workspace.js?v=26-28-resume-v2";
+import { observability } from "./observability.js?v=obs-pr1";
 
 export function applyDepthUpdates(levels, updates) {
   for (const [priceValue, quantityValue] of updates ?? []) {
@@ -1253,6 +1254,7 @@ class OrderBookWorkerManager {
       const visible = typeof document === "undefined" || !document.hidden;
       this.lastHeartbeatAt = Date.now();
       this.worker.postMessage(this.#visibilityPayload(visible));
+      this.worker.postMessage({ type: "observability", enabled: observability.enabled });
       if (typeof document !== "undefined" && !this.visibilityHandler) {
         this.visibilityHandler = () => {
           const visible = !document.hidden;
@@ -1397,6 +1399,7 @@ class OrderBookWorkerManager {
 
   #onMessage(message) {
     if (!message || typeof message !== "object") return;
+    observability.workerMessage(message);
     this.lastHeartbeatAt = Date.now();
     clearTimeout(this.resumeProbeTimer);
     this.resumeProbeTimer = 0;
@@ -2837,6 +2840,7 @@ function roundedRectPath(context, x, y, width, height, radius) {
 
 
 function drawTapeCard(card) {
+  const drawStartedAt = observability.enabled ? performance.now() : 0;
   const state = ensureTapeUi(card);
   const flow = card.querySelector(".trade-flow");
   const canvas = state?.canvas;
@@ -3068,6 +3072,14 @@ function drawTapeCard(card) {
     context.fillText(label, x, y + .2);
   }
   state.hasFrame = true;
+  if (observability.enabled) {
+    observability.rendered(symbol, "tape");
+    observability.record("tape.render-card", performance.now() - drawStartedAt, {
+      symbol,
+      trades: stored.length,
+      items: items.length,
+    });
+  }
 }
 
 function drawAllTapes() {

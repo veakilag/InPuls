@@ -1,3 +1,5 @@
+import { observability } from "./observability.js?v=obs-pr1";
+
 export const FLOW_WORKSPACE = Object.freeze({
   historyMs: 15_000,
   minimumBucketMs: 250,
@@ -331,11 +333,18 @@ function injectStyles() {
 function requestDraw() {
   if (drawFrame) return;
   drawFrame = requestAnimationFrame(() => {
+    const drawStartedAt = observability.enabled ? performance.now() : 0;
+    let cardCount = 0;
     drawFrame = 0;
     document.querySelectorAll(".orderbook-card").forEach((card) => {
+      cardCount += 1;
       const state = ensureCard(card);
       if (state) renderCard(card, state);
     });
+    if (observability.enabled) {
+      observability.record("footprint.draw-all", performance.now() - drawStartedAt, { cardCount });
+      observability.record("footprint.cards-per-draw", cardCount);
+    }
   });
 }
 
@@ -462,6 +471,7 @@ function ensureCard(card) {
 }
 
 function renderCard(card, state) {
+  const renderStartedAt = observability.enabled ? performance.now() : 0;
   const symbol = cardSymbol(card);
   if (!symbol || !state.context) return;
   if (state.lastSymbol !== symbol) {
@@ -542,6 +552,15 @@ function renderCard(card, state) {
   if (state.count.textContent !== countText) state.count.textContent = countText;
   if (state.flowCount.textContent !== countText) state.flowCount.textContent = countText;
   state.hasFrame = true;
+  if (observability.enabled) {
+    observability.rendered(symbol, "footprint");
+    observability.record("footprint.render-card", performance.now() - renderStartedAt, {
+      symbol,
+      trades: trades.length,
+      columns: columns.length,
+      rows: rows.length,
+    });
+  }
 }
 
 function acceptTape(event) {
