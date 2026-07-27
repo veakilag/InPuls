@@ -1,5 +1,6 @@
 importScripts("./orderbook-tape-guard.js?v=1");
 importScripts("./orderbook-tape-latency.js?v=26-28-resume-v2");
+importScripts("./orderbook-network.js?v=obs-pr1-1");
 
 const MAX_BOOK_LEVELS_PER_SIDE = 20_000;
 const MAX_EMITTED_LEVELS_PER_SIDE = 4_000;
@@ -42,7 +43,7 @@ let serverClockSyncPromise = null;
 let observabilityEnabled = false;
 let observabilityPostCount = 0;
 
-function post(type, symbol, payload = {}, processStartedAt = null) {
+function post(type, symbol, payload = {}, processStartedAt = null, obsContext = {}) {
   if (!observabilityEnabled) {
     self.postMessage({ type, symbol, ...payload });
     return;
@@ -54,16 +55,29 @@ function post(type, symbol, payload = {}, processStartedAt = null) {
   if (samplePayload) {
     try { payloadBytes = new Blob([JSON.stringify(message)]).size; } catch {}
   }
-  const exchangeEventTime = Number(payload?.data?.eventTime ?? payload?.trades?.[0]?.eventTime);
+  const sourceEventTimeMs = Number(obsContext.sourceEventTimeMs);
   message.__obs = {
-    sentAt: performance.now(),
+    sentAtEpochMs: Date.now(),
     processMs: Number.isFinite(processStartedAt) ? performance.now() - processStartedAt : null,
     observerOverheadMs: performance.now() - observerStartedAt,
     payloadBytes,
     payloadSampleRate: 50,
-    exchangeEventTime: Number.isFinite(exchangeEventTime) ? exchangeEventTime : null,
+    sourceClockOffsetMs: Number.isFinite(serverClockOffsetMs) ? serverClockOffsetMs : null,
+    sourceEventTimeMs: Number.isFinite(sourceEventTimeMs) ? sourceEventTimeMs : null,
+    sourceKind: obsContext.sourceKind ?? null,
   };
   self.postMessage(message);
+}
+
+function diagnose(symbol, phase, details = {}) {
+  if (!observabilityEnabled) return;
+  post("diagnostic", symbol, {
+    diagnostic: {
+      phase,
+      atEpochMs: Date.now(),
+      ...details,
+    },
+  });
 }
 
 function reconnectDelay(attempt = 0) {
@@ -186,9 +200,12 @@ function addTradeCoverage(ranges, firstTradeId, lastTradeId) {
   return ranges;
 }
 
-async function fetchJson(url, timeoutMs = SNAPSHOT_TIMEOUT_MS) {
+async function fetchJson(url, timeoutMs = SNAPSHOT_TIMEOUT_MS, externalSignal = null) {
   const controller = typeof AbortController === "function" ? new AbortController() : null;
   let timer;
+  const abortFromExternal = () => controller?.abort();
+  if (externalSignal?.aborted) abortFromExternal();
+  else externalSignal?.addEventListener?.("abort", abortFromExternal, { once: true });
   try {
     const timeout = new Promise((_, reject) => {
       timer = setTimeout(() => {
@@ -206,6 +223,7 @@ async function fetchJson(url, timeoutMs = SNAPSHOT_TIMEOUT_MS) {
     return await Promise.race([request, timeout]);
   } finally {
     clearTimeout(timer);
+    externalSignal?.removeEventListener?.("abort", abortFromExternal);
   }
 }
 
@@ -220,27 +238,44 @@ async function syncServerClock(force = false) {
 
   serverClockSyncPromise = (async () => {
     const hosts = ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"];
-    const samples = [];
-    for (const host of hosts) {
-      const startedAt = Date.now();
-      try {
-        const data = await fetchJson(`https://${host}/fapi/v1/time`, 1_800);
-        const finishedAt = Date.now();
-        const serverTime = Number(data?.serverTime);
-        if (!Number.isFinite(serverTime)) continue;
-        const rtt = Math.max(0, finishedAt - startedAt);
-        samples.push({
-          rtt,
-          offset: serverTime - (startedAt + finishedAt) / 2,
-        });
-      } catch {}
-    }
-    samples.sort((left, right) => left.rtt - right.rtt);
-    const best = samples[0];
+    diagnose("", "clock.rest", { state: "scheduled", hosts: hosts.length });
+    let result = null;
+    try {
+      result = await self.InPulsOrderBookNetwork.firstSuccessful(
+        hosts,
+        async (host, { signal }) => {
+          const startedAt = Date.now();
+          const data = await fetchJson(`https://${host}/fapi/v1/time`, 1_800, signal);
+          const finishedAt = Date.now();
+          const serverTime = Number(data?.serverTime);
+          if (!Number.isFinite(serverTime)) throw new Error("invalid server time");
+          return {
+            rtt: Math.max(0, finishedAt - startedAt),
+            offset: serverTime - (startedAt + finishedAt) / 2,
+          };
+        },
+        {
+          onAttempt: (event) => diagnose("", "clock.rest.host", {
+            ...event,
+            host: event.target,
+            target: undefined,
+          }),
+        },
+      );
+    } catch {}
+    const best = result?.value;
     if (best) {
       serverClockOffsetMs = best.offset;
       serverClockRttMs = best.rtt;
       serverClockSyncAt = Date.now();
+      diagnose("", "clock.rest", {
+        state: "succeeded",
+        host: result.target,
+        durationMs: result.durationMs,
+        rttMs: best.rtt,
+      });
+    } else {
+      diagnose("", "clock.rest", { state: "failed" });
     }
     return serverClockOffsetMs;
   })().finally(() => {
@@ -363,6 +398,7 @@ class SymbolFeed {
     this.resumeTimer = 0;
     this.backgroundPaused = false;
     this.lastDepthAt = 0;
+    this.lastDepthEventTime = 0;
     this.lastTradeAt = 0;
     this.lastMessageAt = 0;
     this.lastRestartAt = 0;
@@ -431,6 +467,11 @@ class SymbolFeed {
     this.resetBook();
     this.setStatus("loading", "Подключение Worker");
     const generation = this.generation;
+    diagnose(this.symbol, "feed.start", {
+      state: "started",
+      generation,
+      subscribers: this.subscribers,
+    });
     this.connectDepth(generation);
     this.connectTrades(generation);
     this.loadTradeHistory(generation);
@@ -452,6 +493,10 @@ class SymbolFeed {
   }
 
   stop() {
+    diagnose(this.symbol, "feed.stop", {
+      state: "started",
+      generation: this.generation,
+    });
     this.generation += 1;
     this.stopSockets();
     clearTimeout(this.tradeSaveTimer);
@@ -473,6 +518,7 @@ class SymbolFeed {
     this.cachedSorted = null;
     this.dirty = false;
     this.lastDepthAt = 0;
+    this.lastDepthEventTime = 0;
   }
 
   setStatus(state, text) {
@@ -519,7 +565,13 @@ class SymbolFeed {
     this.forceEmit = true;
     if (tabVisible) {
       scheduleEmit();
-      post("tape", this.symbol, { replace: true, trades: this.trades.slice(0, MAX_TAPE_SNAPSHOT) });
+      post(
+        "tape",
+        this.symbol,
+        { replace: true, trades: this.trades.slice(0, MAX_TAPE_SNAPSHOT) },
+        null,
+        { sourceKind: "cached-trades" },
+      );
     }
   }
 
@@ -564,7 +616,7 @@ class SymbolFeed {
           replace: false,
           resume: true,
           trades: resumeTrades,
-        });
+        }, null, { sourceKind: "cached-trades" });
         if (!tradeOpen && !this.tradeReconnectTimer) {
           this.connectTrades(this.generation);
         }
@@ -726,7 +778,10 @@ class SymbolFeed {
         },
         worker: true,
       },
-    }, processStartedAt);
+    }, processStartedAt, {
+      sourceEventTimeMs: this.lastDepthEventTime,
+      sourceKind: this.lastDepthEventTime ? "live-depth" : "snapshot-depth",
+    });
     this.lastEmitAt = now;
     this.dirty = false;
     this.forceEmit = false;
@@ -773,6 +828,12 @@ class SymbolFeed {
     if (bridgeIndex < 0) {
       const firstU = Number(applicable[0]?.U);
       if (Number.isFinite(firstU) && firstU > snapshotId + 1) {
+        diagnose(this.symbol, "depth.snapshot.bridge", {
+          state: "gap",
+          generation: this.generation,
+          snapshotId,
+          firstBufferedUpdateId: firstU,
+        });
         this.pendingSnapshot = null;
         clearTimeout(this.snapshotTimer);
         this.snapshotTimer = setTimeout(() => this.loadSnapshot(this.generation), 250);
@@ -792,6 +853,15 @@ class SymbolFeed {
     this.pendingSnapshot = null;
     this.depthReady = true;
     this.syncing = false;
+    diagnose(this.symbol, "depth.live", {
+      state: "ready",
+      generation: this.generation,
+      mode: this.mode,
+      snapshotId,
+      bufferedEvents: applicable.length - bridgeIndex,
+      bids: this.bids.size,
+      asks: this.asks.size,
+    });
     this.publishLiveStatus();
     this.markDirty(true);
     return true;
@@ -802,21 +872,54 @@ class SymbolFeed {
     this.snapshotLoading = true;
     const hosts = ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"];
     let snapshot = null;
+    let winner = null;
+    diagnose(this.symbol, "depth.snapshot", {
+      state: "scheduled",
+      generation,
+      hosts: hosts.length,
+    });
     try {
-      snapshot = await Promise.any(hosts.map(async (host) => {
-        const data = await fetchJson(`https://${host}/fapi/v1/depth?symbol=${encodeURIComponent(this.symbol)}&limit=1000`);
-        if (!Array.isArray(data?.bids) || !Array.isArray(data?.asks) || !Number.isFinite(Number(data?.lastUpdateId))) {
-          throw new Error("invalid snapshot");
-        }
-        return data;
-      }));
+      winner = await self.InPulsOrderBookNetwork.firstSuccessful(
+        hosts,
+        async (host, { signal }) => {
+          const data = await fetchJson(
+            `https://${host}/fapi/v1/depth?symbol=${encodeURIComponent(this.symbol)}&limit=1000`,
+            SNAPSHOT_TIMEOUT_MS,
+            signal,
+          );
+          if (!Array.isArray(data?.bids) || !Array.isArray(data?.asks) || !Number.isFinite(Number(data?.lastUpdateId))) {
+            throw new Error("invalid snapshot");
+          }
+          return data;
+        },
+        {
+          onAttempt: (event) => diagnose(this.symbol, "depth.snapshot.host", {
+            ...event,
+            host: event.target,
+            target: undefined,
+            generation,
+          }),
+        },
+      );
+      snapshot = winner.value;
     } catch {}
     this.snapshotLoading = false;
     if (generation !== this.generation || this.mode !== "deep") return;
     if (!snapshot) {
+      diagnose(this.symbol, "depth.snapshot", {
+        state: "failed",
+        generation,
+      });
       this.activatePartial(generation);
       return;
     }
+    diagnose(this.symbol, "depth.snapshot", {
+      state: "succeeded",
+      generation,
+      host: winner.target,
+      durationMs: winner.durationMs,
+      snapshotId: Number(snapshot.lastUpdateId),
+    });
     this.pendingSnapshot = snapshot;
     this.installSnapshot();
   }
@@ -834,6 +937,11 @@ class SymbolFeed {
       preserveLastFrame ? "stale" : "loading",
       preserveLastFrame ? "СИНХРОНИЗАЦИЯ · последний кадр" : "Резервный Worker-стакан",
     );
+    diagnose(this.symbol, "depth.fallback", {
+      state: "activated",
+      generation,
+      mode: "partial",
+    });
     try { this.socket?.close(); } catch {}
     this.socket = null;
     this.reconnectTimer = setTimeout(() => this.connectDepth(generation), 0);
@@ -877,23 +985,58 @@ class SymbolFeed {
     clearTimeout(this.firstDepthTimer);
     const transports = depthTransports(this.symbol, this.mode);
     const transport = transports[this.transportIndex % transports.length];
+    const transportIndex = this.transportIndex % transports.length;
+    diagnose(this.symbol, "depth.ws.create", {
+      state: "started",
+      generation,
+      mode: this.mode,
+      transport: transportIndex,
+      url: transport.url,
+    });
     let socket;
     try { socket = new WebSocket(transport.url); }
-    catch {
+    catch (error) {
+      diagnose(this.symbol, "depth.ws.create", {
+        state: "failed",
+        generation,
+        mode: this.mode,
+        transport: transportIndex,
+        errorKind: self.InPulsOrderBookNetwork.errorKind(error),
+        message: String(error?.message ?? error ?? "WebSocket creation failed").slice(0, 180),
+      });
       this.transportIndex += 1;
       const delay = reconnectDelay(this.depthReconnectAttempt++);
+      diagnose(this.symbol, "depth.ws.retry", {
+        state: "scheduled",
+        generation,
+        delayMs: delay,
+        nextTransport: this.transportIndex % transports.length,
+      });
       this.reconnectTimer = setTimeout(() => this.connectDepth(generation), delay);
       return;
     }
     this.socket = socket;
     this.firstDepthTimer = setTimeout(() => {
       if (generation === this.generation && socket === this.socket) {
+        diagnose(this.symbol, "depth.ws.first-message", {
+          state: "timeout",
+          generation,
+          mode: this.mode,
+          transport: transportIndex,
+          durationMs: 8_000,
+        });
         try { socket.close(); } catch {}
       }
     }, 8_000);
 
     socket.addEventListener("open", () => {
       if (generation !== this.generation || socket !== this.socket) return;
+      diagnose(this.symbol, "depth.ws.open", {
+        state: "succeeded",
+        generation,
+        mode: this.mode,
+        transport: transportIndex,
+      });
       if (transport.subscribe) {
         socket.send(JSON.stringify({
           method: "SUBSCRIBE",
@@ -918,7 +1061,18 @@ class SymbolFeed {
       const bids = update?.b ?? update?.bids;
       const asks = update?.a ?? update?.asks;
       if (!Array.isArray(bids) || !Array.isArray(asks)) return;
+      const receivedFirstDepth = this.lastDepthAt === 0;
       this.lastDepthAt = Date.now();
+      const sourceEventTime = Number(update?.E);
+      if (Number.isFinite(sourceEventTime)) this.lastDepthEventTime = sourceEventTime;
+      if (receivedFirstDepth) {
+        diagnose(this.symbol, "depth.ws.first-message", {
+          state: "received",
+          generation,
+          mode: this.mode,
+          transport: this.transportIndex,
+        });
+      }
       clearTimeout(this.firstDepthTimer);
       this.transportIndex = 0;
       this.depthReconnectAttempt = 0;
@@ -945,11 +1099,20 @@ class SymbolFeed {
       this.applyDepth(update);
     });
 
-    socket.addEventListener("close", () => {
+    socket.addEventListener("close", (event) => {
       if (generation !== this.generation || socket !== this.socket) return;
       clearTimeout(this.firstDepthTimer);
       this.socket = null;
       this.transportIndex += 1;
+      diagnose(this.symbol, "depth.ws.close", {
+        state: "closed",
+        generation,
+        mode: this.mode,
+        transport: transportIndex,
+        code: Number(event?.code) || null,
+        clean: Boolean(event?.wasClean),
+        reason: String(event?.reason ?? "").slice(0, 120),
+      });
       const preserveLastFrame = this.depthReady || this.syncing;
       this.syncing = preserveLastFrame;
       this.resetBook();
@@ -958,11 +1121,24 @@ class SymbolFeed {
         preserveLastFrame ? "СИНХРОНИЗАЦИЯ · последний кадр" : "RECONNECT · WORKER",
       );
       const delay = reconnectDelay(this.depthReconnectAttempt++);
+      diagnose(this.symbol, "depth.ws.retry", {
+        state: "scheduled",
+        generation,
+        delayMs: delay,
+        nextTransport: this.transportIndex % transports.length,
+      });
       this.reconnectTimer = setTimeout(() => this.connectDepth(generation), delay);
     });
 
-    socket.addEventListener("error", () => {
+    socket.addEventListener("error", (event) => {
       if (generation === this.generation && socket === this.socket) {
+        diagnose(this.symbol, "depth.ws.error", {
+          state: "failed",
+          generation,
+          mode: this.mode,
+          transport: transportIndex,
+          message: String(event?.message ?? "WebSocket error").slice(0, 180),
+        });
         try { socket.close(); } catch {}
       }
     });
@@ -977,11 +1153,33 @@ class SymbolFeed {
     const streams = tradeStreams(this.symbol);
     const transports = tradeTransports(streams);
     const transport = transports[this.tradeTransportIndex % transports.length];
+    const transportIndex = this.tradeTransportIndex % transports.length;
+    diagnose(this.symbol, "tape.ws.create", {
+      state: "started",
+      generation,
+      transport: transportIndex,
+      transportName: transport.name,
+      url: transport.url,
+    });
     let socket;
     try { socket = new WebSocket(transport.url); }
-    catch {
+    catch (error) {
+      diagnose(this.symbol, "tape.ws.create", {
+        state: "failed",
+        generation,
+        transport: transportIndex,
+        transportName: transport.name,
+        errorKind: self.InPulsOrderBookNetwork.errorKind(error),
+        message: String(error?.message ?? error ?? "WebSocket creation failed").slice(0, 180),
+      });
       this.tradeTransportIndex += 1;
       const delay = reconnectDelay(this.tradeReconnectAttempt++);
+      diagnose(this.symbol, "tape.ws.retry", {
+        state: "scheduled",
+        generation,
+        delayMs: delay,
+        nextTransport: this.tradeTransportIndex % transports.length,
+      });
       this.tradeReconnectTimer = setTimeout(() => this.connectTrades(generation), delay);
       return;
     }
@@ -990,11 +1188,24 @@ class SymbolFeed {
     let receivedTrade = false;
     this.tradeFirstMessageTimer = setTimeout(() => {
       if (generation !== this.generation || socket !== this.tradeSocket || receivedTrade) return;
+      diagnose(this.symbol, "tape.ws.first-message", {
+        state: "timeout",
+        generation,
+        transport: transportIndex,
+        transportName: transport.name,
+        durationMs: TRADE_FIRST_MESSAGE_TIMEOUT_MS,
+      });
       try { socket.close(); } catch {}
     }, TRADE_FIRST_MESSAGE_TIMEOUT_MS);
 
     socket.addEventListener("open", () => {
       if (generation !== this.generation || socket !== this.tradeSocket) return;
+      diagnose(this.symbol, "tape.ws.open", {
+        state: "succeeded",
+        generation,
+        transport: transportIndex,
+        transportName: transport.name,
+      });
       this.tapeGuard.connect();
       if (transport.subscribe) {
         socket.send(JSON.stringify({
@@ -1021,6 +1232,7 @@ class SymbolFeed {
       const receivedAt = Date.now();
       const trade = normalizeTrade(update, source, receivedAt);
       if (!trade) return;
+      const firstTradeMessage = !receivedTrade;
       receivedTrade = true;
       clearTimeout(this.tradeFirstMessageTimer);
       this.tradeFirstMessageTimer = 0;
@@ -1030,6 +1242,15 @@ class SymbolFeed {
       this.tradeReconnectAttempt = 0;
       this.tradeLive = true;
       this.tradeConnected = true;
+      if (firstTradeMessage) {
+        diagnose(this.symbol, "tape.ws.first-message", {
+          state: "received",
+          generation,
+          transport: transportIndex,
+          transportName: transport.name,
+          source,
+        });
+      }
 
       const decision = this.tapeGuard.ingest(trade, this.lastTradeAt);
       this.publishLiveStatus();
@@ -1038,7 +1259,7 @@ class SymbolFeed {
       this.scheduleTradeSave();
     });
 
-    socket.addEventListener("close", () => {
+    socket.addEventListener("close", (event) => {
       if (generation !== this.generation || socket !== this.tradeSocket) return;
       clearTimeout(this.tradeFirstMessageTimer);
       this.tradeFirstMessageTimer = 0;
@@ -1046,13 +1267,35 @@ class SymbolFeed {
       this.tradeConnected = false;
       this.tapeGuard.disconnect("socket-close");
       this.tradeTransportIndex += 1;
+      diagnose(this.symbol, "tape.ws.close", {
+        state: "closed",
+        generation,
+        transport: transportIndex,
+        transportName: transport.name,
+        code: Number(event?.code) || null,
+        clean: Boolean(event?.wasClean),
+        reason: String(event?.reason ?? "").slice(0, 120),
+      });
       if (this.tradeLive && this.depthReady) this.publishLiveStatus("reconnect");
       const delay = reconnectDelay(this.tradeReconnectAttempt++);
+      diagnose(this.symbol, "tape.ws.retry", {
+        state: "scheduled",
+        generation,
+        delayMs: delay,
+        nextTransport: this.tradeTransportIndex % transports.length,
+      });
       this.tradeReconnectTimer = setTimeout(() => this.connectTrades(generation), delay);
     });
 
-    socket.addEventListener("error", () => {
+    socket.addEventListener("error", (event) => {
       if (generation === this.generation && socket === this.tradeSocket) {
+        diagnose(this.symbol, "tape.ws.error", {
+          state: "failed",
+          generation,
+          transport: transportIndex,
+          transportName: transport.name,
+          message: String(event?.message ?? "WebSocket error").slice(0, 180),
+        });
         try { socket.close(); } catch {}
       }
     });
@@ -1063,16 +1306,57 @@ class SymbolFeed {
     const requestId = ++this.tradeBootstrapRequest;
     const hosts = ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"];
     let rows = null;
+    let winner = null;
+    diagnose(this.symbol, "tape.bootstrap", {
+      state: "scheduled",
+      generation,
+      requestId,
+      resume,
+      hosts: hosts.length,
+    });
     try {
-      rows = await Promise.any(hosts.map((host) => fetchJson(
-        `https://${host}/fapi/v1/aggTrades?symbol=${encodeURIComponent(this.symbol)}&limit=${TRADE_BOOTSTRAP_LIMIT}`,
-      )));
+      winner = await self.InPulsOrderBookNetwork.firstSuccessful(
+        hosts,
+        (host, { signal }) => fetchJson(
+          `https://${host}/fapi/v1/aggTrades?symbol=${encodeURIComponent(this.symbol)}&limit=${TRADE_BOOTSTRAP_LIMIT}`,
+          SNAPSHOT_TIMEOUT_MS,
+          signal,
+        ),
+        {
+          onAttempt: (event) => diagnose(this.symbol, "tape.bootstrap.host", {
+            ...event,
+            host: event.target,
+            target: undefined,
+            generation,
+            requestId,
+            resume,
+          }),
+        },
+      );
+      rows = winner.value;
     } catch {}
     if (
       generation !== this.generation
       || requestId !== this.tradeBootstrapRequest
-      || !Array.isArray(rows)
     ) return;
+    if (!Array.isArray(rows)) {
+      diagnose(this.symbol, "tape.bootstrap", {
+        state: "failed",
+        generation,
+        requestId,
+        resume,
+      });
+      return;
+    }
+    diagnose(this.symbol, "tape.bootstrap", {
+      state: "succeeded",
+      generation,
+      requestId,
+      resume,
+      host: winner.target,
+      durationMs: winner.durationMs,
+      rows: rows.length,
+    });
 
     const coveredRanges = resume ? mergeTradeCoverage(this.trades) : null;
     const addedTrades = [];
@@ -1098,7 +1382,7 @@ class SymbolFeed {
         replace: !resume,
         resume,
         trades,
-      });
+      }, null, { sourceKind: "bootstrap-trades" });
     }
   }
 
@@ -1140,7 +1424,19 @@ class SymbolFeed {
       return;
     }
     const trades = this.tapeBatch.splice(0, MAX_TAPE_BATCH_PER_POST);
-    if (trades.length) post("tape", this.symbol, { replace: false, trades });
+    if (trades.length) {
+      const sourceEventTimeMs = trades.reduce(
+        (latest, trade) => Math.max(latest, Number(trade?.eventTime) || 0),
+        0,
+      );
+      post(
+        "tape",
+        this.symbol,
+        { replace: false, trades },
+        null,
+        { sourceEventTimeMs, sourceKind: "live-trade" },
+      );
+    }
     if (this.tapeBatch.length) {
       this.tapeTimer = setTimeout(() => this.flushTapeBatch(), TAPE_FLUSH_MS);
     }
@@ -1158,7 +1454,15 @@ class SymbolFeed {
     const saved = await tradeStore.get(this.symbol);
     if (generation !== this.generation || !saved.length) return;
     for (const trade of saved) this.insertTrade(trade, false);
-    if (tabVisible) post("tape", this.symbol, { replace: true, trades: this.trades.slice(0, MAX_TAPE_SNAPSHOT) });
+    if (tabVisible) {
+      post(
+        "tape",
+        this.symbol,
+        { replace: true, trades: this.trades.slice(0, MAX_TAPE_SNAPSHOT) },
+        null,
+        { sourceKind: "cached-trades" },
+      );
+    }
   }
 }
 

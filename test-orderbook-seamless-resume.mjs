@@ -20,7 +20,7 @@ test("last rendered book remains visible while strict resync happens", () => {
   assert.match(worker, /const preserveLastFrame = this\.depthReady \|\|/);
   assert.match(worker, /this\.syncing = preserveLastFrame/);
   assert.match(worker, /this\.setStatus\("stale", "СИНХРОНИЗАЦИЯ · последний кадр"\)/);
-  assert.match(worker, /this\.syncing = false;\n\s*this\.publishLiveStatus\(\)/);
+  assert.match(worker, /this\.syncing = false;[\s\S]*diagnose\(this\.symbol, "depth\.live"[\s\S]*this\.publishLiveStatus\(\)/);
   assert.match(worker, /syncing: this\.syncing/);
 });
 
@@ -92,10 +92,10 @@ test("current generation replaces an obsolete bootstrap request", () => {
 });
 
 test("cache versions keep seamless resume while shipping Resume v2", () => {
-  assert.match(orderbook, /orderbook-worker\.js\?v=26-28-resume-v2/);
-  assert.match(serviceWorker, /inpuls-26-28-resume-v2/);
-  assert.match(serviceWorker, /orderbook\.js\?v=26-28-resume-v2/);
-  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-28-resume-v2/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-28-resume-v2/);
+  assert.match(orderbook, /orderbook-worker\.js\?v=obs-pr1-1/);
+  assert.match(serviceWorker, /inpuls-26-28-resume-v2-obs-pr1-1/);
+  assert.match(serviceWorker, /orderbook\.js\?v=obs-pr1-1/);
+  assert.match(serviceWorker, /orderbook-worker\.js\?v=obs-pr1-1/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=obs-pr1-1/);
   assert.doesNotMatch(serviceWorker, /v26-22-background-restart/);
 });
