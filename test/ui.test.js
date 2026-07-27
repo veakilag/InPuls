@@ -9,8 +9,8 @@ test("browser entry points keep user version v23 and identify the current releas
     source("index.html"), source("app.js"), source("sw.js"), source("refresh.html"), source("VERSION.txt"),
   ]);
   for (const text of [html, app, worker, refresh, version]) assert.doesNotMatch(text, /(?:v|build=|\?v=)22\b/);
-  assert.match(html, /inpuls-build" content="26-30-render-scheduler-v1"/);
-  assert.match(worker, /inpuls-26-30-render-scheduler-v1/);
+  assert.match(html, /inpuls-build" content="26-31-raw-stability-lab-v1"/);
+  assert.match(worker, /inpuls-26-31-raw-stability-lab-v1/);
   assert.match(html, /SCREENER <small>v23<\/small>/);
   assert.match(version, /^InPuls v23/m);
 });

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#070b0d" />
+    <meta name="description" content="InPuls RAW Stability Lab — длительная проверка Binance Futures @trade против @aggTrade" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <title>InPuls — RAW Stability Lab</title>
+    <style>
+      :root { color-scheme: dark; --bg:#070b0d; --panel:#10171a; --panel2:#151e22; --line:#26363b; --soft:#1a282d; --text:#dce7e7; --muted:#84969a; --green:#39dba2; --red:#ff6f77; --yellow:#f3c969; --blue:#67b7e8; --violet:#a88be3; }
+      * { box-sizing: border-box; }
+      html, body { margin:0; min-height:100%; background:var(--bg); color:var(--text); font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+      body { padding:18px; }
+      body::before { content:""; position:fixed; inset:0; pointer-events:none; background:radial-gradient(circle at 12% 0%,rgba(57,219,162,.08),transparent 32%),radial-gradient(circle at 92% 10%,rgba(168,139,227,.08),transparent 34%); }
+      a { color:inherit; }
+      button,input,select { font:inherit; }
+      button { cursor:pointer; }
+      .shell { position:relative; width:min(1650px,100%); margin:0 auto; }
+      .topbar { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; margin-bottom:14px; }
+      .brand { display:flex; gap:12px; align-items:center; text-decoration:none; white-space:nowrap; }
+      .brand-mark { width:32px; height:32px; display:grid; place-items:center; border:1px solid rgba(57,219,162,.35); border-radius:9px; color:var(--green); }
+      .brand-mark::before { content:"⌁"; font-size:25px; transform:rotate(-7deg); }
+      .brand strong { display:block; letter-spacing:.15em; font-size:15px; }
+      .brand span span { display:block; margin-top:3px; color:var(--muted); font-size:10px; letter-spacing:.12em; }
+      .intro { max-width:1050px; }
+      h1 { margin:0 0 6px; font-size:clamp(22px,3vw,34px); letter-spacing:-.025em; }
+      .intro p { margin:0; color:var(--muted); line-height:1.5; font-size:13px; }
+      .warning { color:var(--yellow); }
+      .controls { display:grid; grid-template-columns:minmax(120px,.55fr) minmax(280px,1.5fr) minmax(165px,.7fr) auto auto auto auto; gap:9px; align-items:end; padding:12px; background:rgba(16,23,26,.94); border:1px solid var(--line); border-radius:12px; }
+      label { display:grid; gap:5px; color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.06em; }
+      input,select { width:100%; min-height:38px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:#0a1114; color:var(--text); outline:none; }
+      input:focus,select:focus { border-color:rgba(57,219,162,.7); box-shadow:0 0 0 3px rgba(57,219,162,.08); }
+      .button { min-height:38px; padding:8px 13px; border:1px solid var(--line); border-radius:8px; background:var(--panel2); color:var(--text); white-space:nowrap; }
+      .button:hover { border-color:#456068; }
+      .button-primary { background:rgba(57,219,162,.14); border-color:rgba(57,219,162,.5); color:#baffea; }
+      .button-danger { background:rgba(255,111,119,.08); border-color:rgba(255,111,119,.35); }
+      .button-raw { background:rgba(168,139,227,.1); border-color:rgba(168,139,227,.38); color:#dbcafc; }
+      .button:disabled { opacity:.4; cursor:not-allowed; }
+      .runbar { display:grid; grid-template-columns:1fr auto auto auto; gap:10px; align-items:center; margin:10px 0; color:var(--muted); font-size:12px; }
+      .progress { height:5px; overflow:hidden; border-radius:99px; background:#10191c; border:1px solid var(--soft); }
+      .progress i { display:block; width:0; height:100%; background:linear-gradient(90deg,var(--green),var(--blue),var(--violet)); transition:width .3s linear; }
+      .status-pill { display:inline-flex; align-items:center; gap:6px; }
+      .status-pill::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--muted); }
+      .status-pill[data-state="live"]::before { background:var(--green); box-shadow:0 0 0 3px rgba(57,219,162,.12); }
+      .status-pill[data-state="error"]::before { background:var(--red); }
+      .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+      .card { min-width:0; background:rgba(16,23,26,.92); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+      .card>header { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:45px; padding:10px 12px; border-bottom:1px solid var(--soft); background:rgba(21,30,34,.7); }
+      .card h2 { margin:0; font-size:14px; }
+      .transport { max-width:60%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:10px; }
+      .source { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+      .metric { min-height:76px; padding:11px; border-right:1px solid var(--soft); }
+      .metric:last-child { border-right:0; }
+      .metric span { display:block; margin-bottom:8px; color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.055em; }
+      .metric strong { display:block; font-size:17px; font-variant-numeric:tabular-nums; }
+      .metric small { display:block; margin-top:4px; color:var(--muted); font-size:10px; }
+      .raw-tag { color:var(--violet); }
+      .agg-tag { color:var(--blue); }
+      .assessment { grid-column:1/-1; display:grid; grid-template-columns:minmax(240px,.75fr) 2fr; }
+      .verdict { display:grid; align-content:center; gap:7px; padding:18px; border-right:1px solid var(--soft); }
+      .verdict strong { font-size:20px; }
+      .verdict p { margin:0; color:var(--muted); font-size:12px; line-height:1.5; }
+      .verdict[data-tone="positive"] strong { color:var(--green); }
+      .verdict[data-tone="negative"] strong { color:var(--red); }
+      .criteria { padding:14px 18px; color:var(--muted); font-size:12px; line-height:1.55; }
+      .criteria b { color:var(--text); }
+      .wide { grid-column:1/-1; }
+      .table-wrap { overflow:auto; max-height:390px; }
+      table { width:100%; border-collapse:collapse; font-size:11px; font-variant-numeric:tabular-nums; }
+      th,td { padding:8px 10px; border-bottom:1px solid var(--soft); text-align:right; white-space:nowrap; }
+      th { position:sticky; top:0; z-index:1; color:var(--muted); background:#10171a; font-size:9px; text-transform:uppercase; letter-spacing:.05em; }
+      th:first-child,td:first-child,th:nth-child(2),td:nth-child(2) { text-align:left; }
+      tr:last-child td { border-bottom:0; }
+      .positive { color:var(--green); }
+      .negative { color:var(--red); }
+      .empty { padding:24px!important; color:var(--muted); text-align:center!important; }
+      .footnote { margin:10px 2px 0; color:var(--muted); font-size:10px; line-height:1.5; }
+      @media (max-width:1100px) { .controls { grid-template-columns:repeat(2,minmax(0,1fr)); } .grid { grid-template-columns:1fr; } .assessment,.wide { grid-column:auto; } .assessment { grid-template-columns:1fr; } .verdict { border-right:0; border-bottom:1px solid var(--soft); } }
+      @media (max-width:650px) { body { padding:10px; } .topbar { display:grid; } .controls { grid-template-columns:1fr; } .runbar { grid-template-columns:1fr auto; } .source { grid-template-columns:1fr; } .metric { border-right:0; border-bottom:1px solid var(--soft); } }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <a class="brand" href="./"><span class="brand-mark"></span><span><strong>INPULS</strong><span>RAW STABILITY LAB</span></span></a>
+        <div class="intro">
+          <h1>Длительная проверка RAW</h1>
+          <p>Изолированно сравнивает скрытый <span class="raw-tag">@trade</span> через <code>/public</code> и официальный <span class="agg-tag">@aggTrade</span> через <code>/market</code> на одинаковом наборе 1 / 2 / 4 монет. <span class="warning">Production TAPE эта страница не переключает.</span></p>
+        </div>
+      </header>
+
+      <section class="controls">
+        <label>Нагрузка<select id="symbol-count"><option value="1">1 символ</option><option value="2">2 символа</option><option value="4" selected>4 символа</option></select></label>
+        <label>Символы<input id="symbols" value="BTCUSDT, ETHUSDT, SOLUSDT, XRPUSDT" autocomplete="off" spellcheck="false" /></label>
+        <label>Длительность<select id="duration"><option value="300">5 минут · диагностика</option><option value="900">15 минут</option><option value="1800">30 минут</option><option value="3600" selected>1 час</option><option value="14400">4 часа</option><option value="28800">8 часов</option></select></label>
+        <button id="start" class="button button-primary" type="button">Запустить</button>
+        <button id="stop" class="button button-danger" type="button" disabled>Остановить</button>
+        <button id="restart-raw" class="button button-raw" type="button" disabled>Разорвать RAW</button>
+        <button id="download" class="button" type="button" disabled>Скачать JSON</button>
+      </section>
+
+      <div class="runbar">
+        <div class="progress" aria-label="Ход теста"><i id="progress"></i></div>
+        <span id="run-time">00:00:00 / 01:00:00</span>
+        <span id="phase" class="status-pill" data-state="idle">Готов</span>
+        <span id="visibility">видимо 00:00:00 · фон 00:00:00</span>
+      </div>
+
+      <main class="grid">
+        <article class="card">
+          <header><h2 class="raw-tag">@trade · экспериментальный RAW</h2><span id="route-raw" class="transport">public · combined query</span></header>
+          <div class="source">
+            <div class="metric"><span>Состояние</span><strong id="raw-status">Ожидание · 0/0</strong><small>живые символы / выбранные</small></div>
+            <div class="metric"><span>Reconnect</span><strong id="raw-reconnects">0 план · 0 аварий</strong><small>межсегментные ID не считаются gap</small></div>
+            <div class="metric"><span>Recovery</span><strong id="raw-recovery">—</strong><small>до первого валидного события</small></div>
+          </div>
+        </article>
+
+        <article class="card">
+          <header><h2 class="agg-tag">@aggTrade · контрольный baseline</h2><span id="route-agg" class="transport">market · combined query</span></header>
+          <div class="source">
+            <div class="metric"><span>Состояние</span><strong id="agg-status">Ожидание · 0/0</strong><small>живые символы / выбранные</small></div>
+            <div class="metric"><span>Reconnect</span><strong id="agg-reconnects">0 план · 0 аварий</strong><small>контроль маршрута /market</small></div>
+            <div class="metric"><span>Recovery</span><strong id="agg-recovery">—</strong><small>до первого валидного события</small></div>
+          </div>
+        </article>
+
+        <article class="card assessment">
+          <div id="verdict" class="verdict" data-tone="neutral"><strong>Прогон не завершён</strong><p>Результат нельзя использовать для решения по production-источнику.</p></div>
+          <div class="criteria"><b>Что считается:</b> RAW gaps, duplicates и out-of-order только внутри непрерывного WebSocket-сегмента; source-only stalls — когда второй поток продолжает идти; полное покрытие каждого диапазона <code>agg [f…l]</code>; P50/P95 преимущества первого RAW; расхождение объёма; planned/unplanned reconnect и recovery. Возврат из фона всегда запускает чистый новый сегмент.</div>
+        </article>
+
+        <article class="card wide">
+          <header><h2>Качество по символам</h2><span class="transport">положительный lead = RAW раньше</span></header>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Символ</th><th>RAW msg</th><th>AGG msg</th><th>RAW gap</th><th>dup</th><th>OOO</th><th>stalls</th><th>groups</th><th>coverage</th><th>RAW раньше</th><th>lead P50 / P95</th><th>Δ volume P99</th></tr></thead>
+              <tbody id="symbol-body"><tr><td colspan="12" class="empty">Запусти лабораторию</td></tr></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="card wide">
+          <header><h2>Журнал соединений</h2><span class="transport">последние 80 событий · полный журнал в JSON</span></header>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Время</th><th>Событие</th><th>Источник</th><th>Символ</th><th>Деталь</th></tr></thead>
+              <tbody id="event-body"><tr><td colspan="5" class="empty">Событий пока нет</td></tr></tbody>
+            </table>
+          </div>
+        </article>
+      </main>
+
+      <p class="footnote">Рекомендуемая матрица: 1 символ видимо → 2 символа с ручным RAW reconnect → 4 символа минимум 1 час с уходом вкладки в фон. Один чистый файл не является основанием для production-переключения.</p>
+    </div>
+    <script type="module" src="./raw-stability-lab.js?v=1"></script>
+  </body>
+</html>

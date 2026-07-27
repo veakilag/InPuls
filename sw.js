@@ -1,8 +1,8 @@
-const CACHE = "inpuls-26-30-render-scheduler-v1";
-const BUILD = "26-30-render-scheduler-v1";
+const CACHE = "inpuls-26-31-raw-stability-lab-v1";
+const BUILD = "26-31-raw-stability-lab-v1";
 
 const FORCED = new Map([
-  ["/app.js", "./app.js?v=26-30-render-scheduler-v1"],
+  ["/app.js", "./app.js?v=26-31-raw-stability-lab-v1"],
   ["/orderbook.js", "./orderbook.js?v=render-scheduler-v1"],
   ["/render-scheduler.js", "./render-scheduler.js?v=render-scheduler-v1"],
   ["/orderbook-worker.js", "./orderbook-worker.js?v=worker-bp-v1"],
@@ -18,7 +18,7 @@ const SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=23",
-  "./app.js?v=26-30-render-scheduler-v1",
+  "./app.js?v=26-31-raw-stability-lab-v1",
   "./chart.js?v=23",
   "./engine.js?v=23",
   "./orderbook.js?v=render-scheduler-v1",
@@ -31,6 +31,10 @@ const SHELL = [
   "./orderbook-tape-latency.js?v=worker-bp-v1",
   "./orderbook-flow-workspace.js?v=render-scheduler-v1",
   "./observability.js?v=render-scheduler-v1",
+  "./raw-stability-lab.html",
+  "./raw-stability-lab.js?v=1",
+  "./raw-stability-core.js?v=1",
+  "./trade-latency-core.js?v=2.1",
   "./assets/inpuls-world-map-v17.png",
   "./manifest.webmanifest",
   "./icon.svg",
