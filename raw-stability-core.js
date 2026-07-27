@@ -1,7 +1,97 @@
 import { percentile, summarize } from "./trade-latency-core.js?v=2.1";
 
-export const RAW_STABILITY_SCHEMA_VERSION = 1;
+export const RAW_STABILITY_SCHEMA_VERSION = 2;
 export const RAW_STABILITY_MIN_VISIBLE_MS = 15 * 60 * 1_000;
+
+const DIAGNOSTIC_FIELDS = ["e", "E", "T", "s", "ps", "st", "t", "a", "f", "l", "p", "q", "nq", "m"];
+
+export function diagnoseTradePayload(event, source, receiveAt, expectedSymbol = null) {
+  const raw = source === "trade";
+  const object = event && typeof event === "object" && !Array.isArray(event) ? event : {};
+  const symbol = String(object.s ?? "").toUpperCase();
+  const price = Number(object.p);
+  const quantity = Number(object.q);
+  const eventTime = Number(object.E ?? object.T);
+  const tradeTime = Number(object.T ?? object.E);
+  const received = Number(receiveAt);
+  const id = raw ? Number(object.t) : Number(object.a);
+  const firstTradeId = raw ? id : Number(object.f);
+  const lastTradeId = raw ? id : Number(object.l);
+  const expected = expectedSymbol ? String(expectedSymbol).toUpperCase() : null;
+
+  let reason = null;
+  if (event !== object) reason = "payload-not-object";
+  else if (!symbol) reason = "missing-symbol";
+  else if (expected && symbol !== expected) reason = "symbol-mismatch";
+  else if (!Number.isFinite(price)) reason = "invalid-price";
+  else if (!Number.isFinite(quantity)) reason = "invalid-quantity";
+  else if (price <= 0) reason = "non-positive-price";
+  else if (quantity <= 0) reason = "non-positive-quantity";
+  else if (!Number.isFinite(eventTime) || eventTime <= 0) reason = "invalid-event-time";
+  else if (!Number.isFinite(tradeTime) || tradeTime <= 0) reason = "invalid-trade-time";
+  else if (!Number.isFinite(received)) reason = "invalid-receive-time";
+  else if (!Number.isInteger(id) || id < 0) reason = "invalid-event-id";
+  else if (!Number.isInteger(firstTradeId) || firstTradeId < 0) reason = "invalid-first-trade-id";
+  else if (!Number.isInteger(lastTradeId) || lastTradeId < firstTradeId) reason = "invalid-last-trade-id";
+
+  const sequenceSample = Number.isInteger(id)
+    && id >= 0
+    && Number.isInteger(firstTradeId)
+    && Number.isInteger(lastTradeId)
+    && firstTradeId >= 0
+    && lastTradeId >= firstTradeId
+    ? { id, firstTradeId, lastTradeId }
+    : null;
+
+  return {
+    valid: reason === null,
+    reason,
+    symbol: symbol || "UNKNOWN",
+    sequenceSample,
+  };
+}
+
+export function sanitizeTradePayload(event) {
+  const object = event && typeof event === "object" && !Array.isArray(event) ? event : {};
+  const fields = {};
+  for (const key of DIAGNOSTIC_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(object, key)) continue;
+    const value = object[key];
+    fields[key] = value === null || ["string", "number", "boolean"].includes(typeof value)
+      ? value
+      : `[${Array.isArray(value) ? "array" : typeof value}]`;
+  }
+  return {
+    keys: Object.keys(object).sort(),
+    fields,
+  };
+}
+
+export function advanceSourceStallCandidate(candidate, receiveAt, thresholdMs = 3_000, continuityMs = 2_000) {
+  const at = Number(receiveAt);
+  if (!Number.isFinite(at)) return { candidate: candidate ?? null, confirmedNow: false };
+  const continuity = Math.max(0, Number(continuityMs) || 0);
+  if (!candidate || at - Number(candidate.lastEvidenceAt) > continuity) {
+    return {
+      candidate: {
+        startedAt: at,
+        lastEvidenceAt: at,
+        confirmed: false,
+        reason: "source-only",
+      },
+      confirmedNow: false,
+    };
+  }
+
+  const next = {
+    ...candidate,
+    lastEvidenceAt: at,
+  };
+  const threshold = Math.max(0, Number(thresholdMs) || 0);
+  const confirmedNow = !next.confirmed && at - Number(next.startedAt) >= threshold;
+  if (confirmedNow) next.confirmed = true;
+  return { candidate: next, confirmedNow };
+}
 
 export function normalizeSymbols(value, limit = 4) {
   const maximum = Math.max(1, Math.floor(Number(limit) || 4));
@@ -93,7 +183,7 @@ export function buildStabilityAssessment({
   for (const source of ["trade", "aggTrade"]) {
     const label = source === "trade" ? "RAW" : "AGG";
     const connection = connections?.[source] ?? {};
-    if ((Number(connection.invalidEvents) || 0) > 0) blockers.push(`${label}: некорректный payload`);
+    if ((Number(connection.invalidEvents) || 0) > 0) blockers.push(`${label}: отклонённый payload`);
     if ((Number(connection.unplannedReconnects) || 0) > 0) blockers.push(`${label}: аварийный reconnect`);
     if ((Number(connection.openFailures) || 0) > 0) blockers.push(`${label}: endpoint/open failure`);
     if (connection.recoveryPending) blockers.push(`${label}: recovery не завершён`);
@@ -107,7 +197,7 @@ export function buildStabilityAssessment({
     const matches = item?.matching ?? {};
     if ((Number(raw.messages) || 0) <= 0) blockers.push(`${symbol}: нет @trade`);
     if ((Number(aggregate.messages) || 0) <= 0) blockers.push(`${symbol}: нет @aggTrade`);
-    if ((Number(raw.invalidEvents) || 0) > 0) blockers.push(`${symbol}: некорректные RAW-события`);
+    if ((Number(raw.invalidEvents) || 0) > 0) blockers.push(`${symbol}: отклонённые RAW-события`);
     if ((Number(raw.gaps) || 0) > 0) blockers.push(`${symbol}: RAW gap внутри сегмента`);
     if ((Number(raw.duplicates) || 0) > 0) blockers.push(`${symbol}: RAW duplicates`);
     if ((Number(raw.outOfOrder) || 0) > 0) blockers.push(`${symbol}: RAW out-of-order`);
@@ -144,6 +234,7 @@ export function summarizeMatching(state) {
   return {
     total,
     complete,
+    abandoned: Math.max(0, Number(state?.abandoned) || 0),
     fullCoverageRatio: total > 0 ? complete / total : 0,
     rawEarlierRatio: firstLead.seen > 0 ? (Number(state?.rawEarlier) || 0) / firstLead.seen : null,
     firstLead,
