@@ -3,8 +3,9 @@ import {
   buildReadableTapeLayout,
   selectReadableAggLabels,
 } from "./orderbook-tape-layout.js?v=26-25-tape-v2-1";
-import "./orderbook-flow-workspace.js?v=26-28-resume-v2";
-import { observability } from "./observability.js?v=obs-pr1";
+import "./orderbook-network.js?v=obs-pr1-1";
+import "./orderbook-flow-workspace.js?v=obs-pr1-1";
+import { observability } from "./observability.js?v=obs-pr1-1";
 
 export function applyDepthUpdates(levels, updates) {
   for (const [priceValue, quantityValue] of updates ?? []) {
@@ -606,11 +607,19 @@ function marketTransports(streams) {
   ];
 }
 
-async function fetchJsonWithTimeout(fetchImpl, url, timeoutMs = SNAPSHOT_TIMEOUT_MS) {
+async function fetchJsonWithTimeout(
+  fetchImpl,
+  url,
+  timeoutMs = SNAPSHOT_TIMEOUT_MS,
+  externalSignal = null,
+) {
   let timer = null;
   let controller = null;
+  const abortFromExternal = () => controller?.abort();
   try {
     controller = typeof AbortController === "function" ? new AbortController() : null;
+    if (externalSignal?.aborted) abortFromExternal();
+    else externalSignal?.addEventListener?.("abort", abortFromExternal, { once: true });
     const timeout = new Promise((_, reject) => {
       timer = setTimeout(() => {
         controller?.abort();
@@ -627,6 +636,7 @@ async function fetchJsonWithTimeout(fetchImpl, url, timeoutMs = SNAPSHOT_TIMEOUT
     return await Promise.race([request, timeout]);
   } finally {
     clearTimeout(timer);
+    externalSignal?.removeEventListener?.("abort", abortFromExternal);
   }
 }
 
@@ -717,6 +727,15 @@ class LegacyOrderBookFeed {
     this.resyncCount = 0;
   }
 
+  #diagnose(phase, details = {}) {
+    observability.event("connection", phase, {
+      symbol: this.symbol,
+      runtime: "legacy",
+      generation: this.generation,
+      ...details,
+    });
+  }
+
   select(symbol) {
     if (!symbol?.endsWith("USDT")) return;
     if (this.symbol && this.trades.length) {
@@ -746,6 +765,7 @@ class LegacyOrderBookFeed {
     this.tradeSocket = null;
 
     const generation = ++this.generation;
+    this.#diagnose("legacy.feed.start", { state: "started" });
     this.onStatus({ state: "loading", text: "Подключение" });
     this.#connect(generation);
     this.#connectTrades(generation);
@@ -935,31 +955,54 @@ class LegacyOrderBookFeed {
 
     this.snapshotLoading = true;
     const hosts = ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"];
-    const attempts = hosts.map(async (host) => {
-      const candidate = await fetchJsonWithTimeout(
-        this.fetchImpl,
-        `https://${host}/fapi/v1/depth?symbol=${encodeURIComponent(this.symbol)}&limit=1000`,
-      );
-      if (
-        !Array.isArray(candidate?.bids)
-        || !Array.isArray(candidate?.asks)
-        || !Number.isFinite(Number(candidate?.lastUpdateId))
-      ) throw new Error("invalid snapshot");
-      return candidate;
+    this.#diagnose("legacy.depth.snapshot", {
+      state: "scheduled",
+      hosts: hosts.length,
     });
-
     let snapshot = null;
+    let winner = null;
     try {
-      snapshot = await Promise.any(attempts);
+      winner = await globalThis.InPulsOrderBookNetwork.firstSuccessful(
+        hosts,
+        async (host, { signal }) => {
+          const candidate = await fetchJsonWithTimeout(
+            this.fetchImpl,
+            `https://${host}/fapi/v1/depth?symbol=${encodeURIComponent(this.symbol)}&limit=1000`,
+            SNAPSHOT_TIMEOUT_MS,
+            signal,
+          );
+          if (
+            !Array.isArray(candidate?.bids)
+            || !Array.isArray(candidate?.asks)
+            || !Number.isFinite(Number(candidate?.lastUpdateId))
+          ) throw new Error("invalid snapshot");
+          return candidate;
+        },
+        {
+          onAttempt: (event) => this.#diagnose("legacy.depth.snapshot.host", {
+            ...event,
+            host: event.target,
+            target: undefined,
+          }),
+        },
+      );
+      snapshot = winner.value;
     } catch {}
     this.snapshotLoading = false;
 
     if (generation !== this.generation || this.mode !== "deep") return;
     if (!snapshot) {
+      this.#diagnose("legacy.depth.snapshot", { state: "failed" });
       this.#activatePartial(generation);
       return;
     }
 
+    this.#diagnose("legacy.depth.snapshot", {
+      state: "succeeded",
+      host: winner.target,
+      durationMs: winner.durationMs,
+      snapshotId: Number(snapshot.lastUpdateId),
+    });
     this.pendingSnapshot = snapshot;
     this.#tryInstallSnapshot();
   }
@@ -1172,7 +1215,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-28-resume-v2", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=obs-pr1-1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1200,6 +1243,7 @@ class OrderBookWorkerManager {
     this.resumeProbeTimer = 0;
     this.resumeProbeToken = 0;
     this.prioritySymbols = [];
+    this.workerStartedAt = 0;
     this.#start();
     this.#startHealthWatch();
   }
@@ -1235,10 +1279,15 @@ class OrderBookWorkerManager {
       return;
     }
     try {
+      this.workerStartedAt = performance.now();
+      observability.event("connection", "worker.create", {
+        state: "started",
+        restartCount: this.restartCount,
+      });
       // Worker не использует import/export, поэтому classic-режим надёжнее
       // module Worker в Chromium/Yandex при работе через Service Worker.
       this.worker = new Worker(ORDERBOOK_WORKER_URL, {
-        name: "inpuls-orderbook-worker-26-28-resume-v2",
+        name: "inpuls-orderbook-worker-obs-pr1-1",
       });
       this.startupTimer = setTimeout(() => {
         if (this.workerReady) return;
@@ -1247,6 +1296,10 @@ class OrderBookWorkerManager {
       }, 4_000);
       this.worker.addEventListener("message", (event) => this.#onMessage(event.data));
       this.worker.addEventListener("error", (event) => {
+        observability.event("connection", "worker.error", {
+          state: "failed",
+          message: String(event?.message || event || "Worker error").slice(0, 180),
+        });
         console.error("InPuls orderbook Worker error", event?.message || event);
         this.#restart(event?.message || "Ошибка Worker");
       });
@@ -1284,7 +1337,11 @@ class OrderBookWorkerManager {
         };
         document.addEventListener("visibilitychange", this.visibilityHandler);
       }
-    } catch {
+    } catch (error) {
+      observability.event("connection", "worker.create", {
+        state: "failed",
+        message: String(error?.message ?? error ?? "Worker creation failed").slice(0, 180),
+      });
       this.#fail();
     }
   }
@@ -1316,6 +1373,11 @@ class OrderBookWorkerManager {
 
   #restart(reason = "Перезапуск Worker") {
     if (this.failed || this.restarting) return;
+    observability.event("connection", "worker.restart", {
+      state: "started",
+      reason,
+      restartCount: this.restartCount + 1,
+    });
     this.restarting = true;
     this.restartCount += 1;
     this.needsResubscribe = true;
@@ -1407,6 +1469,10 @@ class OrderBookWorkerManager {
     if (message.type === "ready") {
       this.workerReady = true;
       this.restartCount = 0;
+      observability.event("connection", "worker.ready", {
+        state: "ready",
+        durationMs: this.workerStartedAt ? performance.now() - this.workerStartedAt : null,
+      });
       clearTimeout(this.startupTimer);
       this.startupTimer = 0;
       const visible = typeof document === "undefined" || !document.hidden;
@@ -1476,6 +1542,10 @@ class OrderBookWorkerManager {
 
   #fail() {
     if (this.failed) return;
+    observability.event("connection", "worker.fallback", {
+      state: "activated",
+      reason: "worker-unavailable",
+    });
     this.failed = true;
     clearTimeout(this.startupTimer);
     this.startupTimer = 0;
@@ -2841,14 +2911,29 @@ function roundedRectPath(context, x, y, width, height, radius) {
 
 function drawTapeCard(card) {
   const drawStartedAt = observability.enabled ? performance.now() : 0;
+  const initialSymbol = cardSymbol(card);
+  const skip = (reason, tags = null) => observability.skipRender("tape", reason, {
+    symbol: initialSymbol || null,
+    ...(tags ?? {}),
+  });
   const state = ensureTapeUi(card);
   const flow = card.querySelector(".trade-flow");
   const canvas = state?.canvas;
   const context = state?.context;
-  if (!state || !flow || !canvas || !context || tapeDocumentHidden) return;
+  if (!state || !flow || !canvas || !context) {
+    skip("missing-dom");
+    return;
+  }
+  if (tapeDocumentHidden) {
+    skip("document-hidden");
+    return;
+  }
 
   const rect = flow.getBoundingClientRect();
-  if (rect.width <= 2 || rect.height <= 2) return;
+  if (rect.width <= 2 || rect.height <= 2) {
+    skip("zero-size");
+    return;
+  }
   const dprLimit = rect.width >= 900 ? 1.1 : 1.4;
   const dpr = Math.max(1, Math.min(dprLimit, globalThis.devicePixelRatio || 1));
   const pixelWidth = Math.max(1, Math.round(rect.width * dpr));
@@ -2865,14 +2950,16 @@ function drawTapeCard(card) {
     state.hasFrame = false;
     setTapeRangeSummary(state, 0, 0);
     setTapeState(state, "");
+    skip("layer-hidden");
     return;
   }
 
-  const symbol = cardSymbol(card);
+  const symbol = initialSymbol;
   if (!symbol) {
     context.clearRect(0, 0, rect.width, rect.height);
     state.hasFrame = false;
     setTapeState(state, "Выберите монету");
+    skip("missing-symbol");
     return;
   }
 
@@ -2885,18 +2972,21 @@ function drawTapeCard(card) {
       live ? "Поток подключён · ждём сделку" : "Подключаю поток сделок…",
       live ? "neutral" : "attention",
     );
+    skip(live ? "waiting-trade" : "stream-not-live");
     return;
   }
 
   const frozen = tapeRecoveryFrozen(symbol);
   if (frozen && state.hasFrame) {
     setTapeState(state, "ПОСЛЕДНИЙ КАДР · ждём свежий поток", "attention");
+    skip("recovery-frozen");
     return;
   }
 
   const rows = visibleBookRows(card, flow);
   if (!rows.length) {
     setTapeState(state, "Жду ценовые строки стакана…", "attention");
+    skip("missing-ladder-rows");
     return;
   }
 
@@ -2914,6 +3004,7 @@ function drawTapeCard(card) {
     state.hasFrame = false;
     setTapeRangeSummary(state, 0, 0);
     setTapeState(state, `Нет сделок в текущем окне${staleTradeSuffix(symbol)}`);
+    skip("no-trades-in-window", { stored: stored.length });
     return;
   }
 
@@ -2928,6 +3019,7 @@ function drawTapeCard(card) {
 
   if (!state.tapeVisible) {
     setTapeState(state, "");
+    skip("layer-hidden");
     return;
   }
 
@@ -2943,6 +3035,7 @@ function drawTapeCard(card) {
 
   if (!candidates.length) {
     setTapeState(state, "Нет сделок по текущему фильтру");
+    skip("filter-empty", { recent: recent.length });
     return;
   }
 
@@ -2951,6 +3044,7 @@ function drawTapeCard(card) {
 
   if (!items.length) {
     setTapeState(state, "");
+    skip("no-visible-items", { candidates: candidates.length });
     return;
   }
 
@@ -3083,13 +3177,23 @@ function drawTapeCard(card) {
 }
 
 function drawAllTapes() {
-  if (tapeDocumentHidden) return;
+  if (tapeDocumentHidden) {
+    observability.skipRender("tape", "document-hidden");
+    return;
+  }
 
   const cards = tapeDrawAllRequested
     ? [...document.querySelectorAll(".orderbook-card")]
     : [...dirtyTapeCards].filter((card) => card?.isConnected);
 
+  const drawStartedAt = observability.enabled ? performance.now() : 0;
   for (const card of cards) drawTapeCard(card);
+  if (observability.enabled) {
+    observability.record("tape.draw-all", performance.now() - drawStartedAt, {
+      cards: cards.length,
+      mode: tapeDrawAllRequested ? "all" : "dirty",
+    });
+  }
 
   dirtyTapeCards.clear();
   tapeDrawAllRequested = false;

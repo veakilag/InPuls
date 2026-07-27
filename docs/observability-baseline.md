@@ -1,5 +1,7 @@
 # PR 1 — Observability baseline
 
+> PR 1.1 corrects cross-context timing, connection-startup visibility and capture completeness. See [observability-correctness.md](./observability-correctness.md) before interpreting new captures.
+
 ## Scope
 
 This PR makes the audited bottlenecks measurable without changing their algorithms, scheduling, data sources, book limits, recovery semantics or rendering ownership.
@@ -30,13 +32,13 @@ __INPULS_OBS__.download()
 
 | Metric | Unit | Meaning |
 |---|---:|---|
-| `exchange-to-main` | ms | Exchange event timestamp to Worker message receipt on the main thread |
+| `source-to-main` | ms | Live exchange event timestamp to Worker message receipt on the main thread |
 | `worker.process` | ms | Diagnostic envelope and payload-size calculation in the Worker |
 | `worker.observer-overhead` | ms | Time spent creating diagnostic metadata; includes sampled size calculation |
-| `worker.post-to-main` | ms | Worker `postMessage` to main-thread message handler |
+| `worker.post-to-main` | ms | Worker epoch send timestamp to main-thread epoch receipt timestamp |
 | `worker.payload-bytes` | bytes | JSON-encoded message size before diagnostic metadata |
 | `main-to-render` | ms | Latest Worker message receipt to completed TAPE/footprint render |
-| `exchange-to-render` | ms | Exchange event timestamp to completed TAPE/footprint render |
+| `source-to-render` | ms | Live exchange event timestamp to completed ladder/TAPE/footprint render |
 | `app.render` | ms | Existing full one-second application render |
 | `footprint.draw-all` | ms | Existing global footprint draw pass |
 | `footprint.render-card` | ms | Existing render cost for one footprint card |
@@ -46,7 +48,7 @@ __INPULS_OBS__.download()
 | `frames.*` | ms/count | rAF frame intervals and intervals over 50 ms |
 | `memory.*` | bytes | Chromium non-standard heap snapshot when available |
 
-Every distribution reports sample count, p50, p95, p99 and maximum. Samples are capped at 2,000 per metric to bound diagnostic memory.
+Every distribution reports sample count, p50, p95, p99 and maximum. Samples are capped at 12,000 per metric to retain the beginning of multi-minute captures while bounding opt-in diagnostic memory.
 
 ## Diagnostic overhead
 

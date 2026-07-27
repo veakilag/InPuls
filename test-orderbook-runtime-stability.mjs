@@ -12,11 +12,11 @@ const sw = readFileSync(new URL("./sw.js", import.meta.url), "utf8");
 const reset = readFileSync(new URL("./reset-v26.html", import.meta.url), "utf8");
 
 test("normal reload keeps one consistent runtime build", () => {
-  assert.match(index, /app\.js\?v=26-28-resume-v2/);
-  assert.match(app, /orderbook\.js\?v=26-28-resume-v2/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-28-resume-v2/);
-  assert.match(orderbook, /orderbook-worker\.js\?v=26-28-resume-v2/);
-  assert.match(sw, /inpuls-26-28-resume-v2/);
+  assert.match(index, /app\.js\?v=26-28-resume-v2-obs-pr1-1/);
+  assert.match(app, /orderbook\.js\?v=obs-pr1-1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=obs-pr1-1/);
+  assert.match(orderbook, /orderbook-worker\.js\?v=obs-pr1-1/);
+  assert.match(sw, /inpuls-26-28-resume-v2-obs-pr1-1/);
   assert.match(reset, /Resume v2/);
   assert.doesNotMatch(app, /getRegistrations\(\).*unregister/s);
 });

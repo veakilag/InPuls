@@ -5,8 +5,8 @@ import {
   formatCompactUsd,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { adaptiveBookScaleIndex, aggregateFootprintClusters, aggregateTradePath, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, inferPriceTick, maximumBookScaleIndex, OrderBookFeed, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "./orderbook.js?v=26-28-resume-v2";
-import { observability } from "./observability.js?v=obs-pr1";
+import { adaptiveBookScaleIndex, aggregateFootprintClusters, aggregateTradePath, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, inferPriceTick, maximumBookScaleIndex, OrderBookFeed, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "./orderbook.js?v=obs-pr1-1";
+import { observability } from "./observability.js?v=obs-pr1-1";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -602,10 +602,17 @@ async function warmupRadarHistory() {
 
 function render() {
   const renderStartedAt = observability.enabled ? performance.now() : 0;
+  let phaseStartedAt = renderStartedAt;
   const now = Date.now();
   const metrics = getMetrics(now);
   state.lastMetrics = metrics;
   updateAlerts(metrics, now);
+  if (observability.enabled) {
+    observability.record("app.render.metrics", performance.now() - phaseStartedAt, {
+      symbols: metrics.length,
+    });
+    phaseStartedAt = performance.now();
+  }
 
   const filtered = metrics.filter((item) => {
     const queryMatch = !state.search || item.symbol.toLowerCase().includes(state.search);
@@ -618,9 +625,21 @@ function render() {
 
   const fragment = document.createDocumentFragment();
   for (const item of filtered) fragment.append(createRow(item));
+  if (observability.enabled) {
+    observability.record("app.render.rows", performance.now() - phaseStartedAt, {
+      rows: filtered.length,
+    });
+    phaseStartedAt = performance.now();
+  }
   els.tableBody.replaceChildren(fragment);
   els.empty.hidden = filtered.length > 0;
   els.tableWrap.classList.toggle("is-empty", filtered.length === 0);
+  if (observability.enabled) {
+    observability.record("app.render.dom", performance.now() - phaseStartedAt, {
+      rows: filtered.length,
+    });
+    phaseStartedAt = performance.now();
+  }
 
   renderSummary(metrics, now);
   renderInPlay(metrics);
@@ -628,7 +647,13 @@ function render() {
   updateExtraChartMetrics(metrics);
   updateChartHeader(metrics);
   if (state.selectedSymbol) renderDetail(state.selectedSymbol);
-  if (observability.enabled) observability.record("app.render", performance.now() - renderStartedAt);
+  if (observability.enabled) {
+    observability.record("app.render.secondary", performance.now() - phaseStartedAt);
+    observability.record("app.render", performance.now() - renderStartedAt, {
+      symbols: metrics.length,
+      rows: filtered.length,
+    });
+  }
 }
 
 function renderInPlay(metrics) {
@@ -1628,14 +1653,24 @@ function mountOrderBook(model) {
 }
 
 function renderOrderBook(panel, data) {
+  const renderStartedAt = observability.enabled ? performance.now() : 0;
+  let phaseStartedAt = renderStartedAt;
+  const symbol = String(data?.symbol ?? panel?.model?.symbol ?? "").toUpperCase();
   const body = panel.element.querySelector(".orderbook-rows");
   const flow = panel.element.querySelector(".trade-flow");
+  if (!body || !flow) {
+    observability.skipRender("ladder", "missing-dom", { symbol: symbol || null });
+    return;
+  }
   let rowCount = Math.max(5, Math.floor(body.getBoundingClientRect().height / (12 * state.fontScale / 100)));
   if (rowCount % 2 === 0) rowCount -= 1;
   const bestBid = data.bids[0]?.[0];
   const bestAsk = data.asks[0]?.[0];
   const middle = Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? (bestBid + bestAsk) / 2 : null;
-  if (!Number.isFinite(middle)) return;
+  if (!Number.isFinite(middle)) {
+    observability.skipRender("ladder", "missing-middle", { symbol: symbol || null });
+    return;
+  }
   panel.baseTick = panel.baseTick ?? inferPriceTick(data.bids, data.asks, middle);
   if (panel.model.bookAutoFit !== false && !panel.depthFitted && data.bids.length + data.asks.length >= 100) {
     panel.model.bookScaleIndex = depthCoverageScaleIndex(panel.baseTick, data.bids, data.asks, middle, rowCount);
@@ -1674,9 +1709,35 @@ function renderOrderBook(panel, data) {
   const autoAnomaly = Math.max(median * 4, upper, 1);
   const anomaly = panel.model.highlightMode === "manual" ? Math.max(0, Number(panel.model.highlightMinQuote) || 0) : autoAnomaly;
   const maxSize = Math.max(...values, 1);
+  if (observability.enabled) {
+    observability.record("orderbook.compute", performance.now() - phaseStartedAt, {
+      symbol,
+      rows: rows.length,
+      levels: data.bids.length + data.asks.length,
+    });
+    phaseStartedAt = performance.now();
+  }
   body.innerHTML = rows.map((row) => bookLadderRow(row, middle, maxSize, anomaly)).join("");
   panel.element.querySelector("[data-book-scale]").textContent = `${effectiveScaleIndex > userScaleIndex ? "AUTO " : ""}${bookScaleLabel(effectiveScaleIndex)}`;
+  if (observability.enabled) {
+    observability.record("orderbook.ladder-dom", performance.now() - phaseStartedAt, {
+      symbol,
+      rows: rows.length,
+    });
+    observability.rendered(symbol, "ladder");
+    phaseStartedAt = performance.now();
+  }
   renderTradeFlow(panel, data.trades ?? [], flow);
+  if (observability.enabled) {
+    observability.record("orderbook.legacy-flow", performance.now() - phaseStartedAt, {
+      symbol,
+      trades: data.trades?.length ?? 0,
+    });
+    observability.record("orderbook.render-card", performance.now() - renderStartedAt, {
+      symbol,
+      rows: rows.length,
+    });
+  }
 }
 
 function bookLadderRow(row, middle, maxSize, anomalyThreshold) {
@@ -2616,7 +2677,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-28-resume-v2";
+const INPULS_RUNTIME_BUILD = "26-28-resume-v2-obs-pr1-1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

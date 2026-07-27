@@ -1,4 +1,4 @@
-import { observability } from "./observability.js?v=obs-pr1";
+import { observability } from "./observability.js?v=obs-pr1-1";
 
 export const FLOW_WORKSPACE = Object.freeze({
   historyMs: 15_000,
@@ -473,21 +473,37 @@ function ensureCard(card) {
 function renderCard(card, state) {
   const renderStartedAt = observability.enabled ? performance.now() : 0;
   const symbol = cardSymbol(card);
-  if (!symbol || !state.context) return;
+  const skip = (reason, tags = null) => observability.skipRender("footprint", reason, {
+    symbol: symbol || null,
+    ...(tags ?? {}),
+  });
+  if (!symbol || !state.context) {
+    skip(!symbol ? "missing-symbol" : "missing-context");
+    return;
+  }
   if (state.lastSymbol !== symbol) {
     state.lastSymbol = symbol;
     state.hasFrame = false;
   }
   const frozen = flowRecoveryFrozen(symbol);
-  if (frozen && state.hasFrame) return;
+  if (frozen && state.hasFrame) {
+    skip("recovery-frozen");
+    return;
+  }
   const trades = tradesBySymbol.get(symbol) ?? [];
   const paneRect = state.pane.getBoundingClientRect();
   const width = Math.max(1, paneRect.width);
   const height = Math.max(1, paneRect.height - 23);
-  if (width <= 2 || height <= 2) return;
+  if (width <= 2 || height <= 2) {
+    skip("zero-size");
+    return;
+  }
 
   const rows = visibleRows(card, state.pane);
-  if (!rows.length) return;
+  if (!rows.length) {
+    skip("missing-ladder-rows");
+    return;
+  }
 
   const latestTime = trades[0]?.time || Date.now();
   const window = flowWindow(latestTime);
