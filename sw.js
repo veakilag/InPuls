@@ -7,6 +7,7 @@ const FORCED = new Map([
   ["/orderbook-worker.js", "./orderbook-worker.js?v=26-28-resume-v2"],
   ["/orderbook-tape-latency.js", "./orderbook-tape-latency.js?v=26-28-resume-v2"],
   ["/orderbook-flow-workspace.js", "./orderbook-flow-workspace.js?v=26-28-resume-v2"],
+  ["/observability.js", "./observability.js?v=obs-pr1"],
 ]);
 
 const SHELL = [
@@ -21,6 +22,7 @@ const SHELL = [
   "./orderbook-tape-layout.js?v=26-25-tape-v2-1",
   "./orderbook-tape-latency.js?v=26-28-resume-v2",
   "./orderbook-flow-workspace.js?v=26-28-resume-v2",
+  "./observability.js?v=obs-pr1",
   "./assets/inpuls-world-map-v17.png",
   "./manifest.webmanifest",
   "./icon.svg",
