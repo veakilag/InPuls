@@ -1,4 +1,4 @@
-import { observability } from "./observability.js?v=worker-bp-v1";
+import { observability } from "./observability.js?v=render-scheduler-v1";
 
 export const FLOW_WORKSPACE = Object.freeze({
   historyMs: 15_000,
@@ -36,24 +36,55 @@ function flowTradeKey(trade) {
   return `${String(trade.id)}:${trade.time}:${trade.price}:${trade.quantity}`;
 }
 
-export function mergeFlowTrades(current, incoming, limit = FLOW_WORKSPACE.maximumTrades, replace = false) {
-  const safeLimit = Math.max(1, Math.floor(Number(limit) || FLOW_WORKSPACE.maximumTrades));
-  const source = replace ? [] : (current ?? []);
-  const combined = [
-    ...(incoming ?? []).map(normalizeFlowTrade).filter(Boolean),
-    ...source.map(normalizeFlowTrade).filter(Boolean),
-  ].sort((left, right) => right.time - left.time || String(right.id).localeCompare(String(left.id)));
+function compareFlowTrades(left, right) {
+  return right.time - left.time || String(right.id).localeCompare(String(left.id));
+}
 
+function mergeSortedFlowTrades(current, incoming, limit) {
   const seen = new Set();
   const result = [];
-  for (const trade of combined) {
+  let currentIndex = 0;
+  let incomingIndex = 0;
+
+  while (
+    result.length < limit
+    && (currentIndex < current.length || incomingIndex < incoming.length)
+  ) {
+    const currentTrade = current[currentIndex];
+    const incomingTrade = incoming[incomingIndex];
+    const takeIncoming = currentTrade === undefined
+      || (incomingTrade !== undefined && compareFlowTrades(incomingTrade, currentTrade) <= 0);
+    const trade = takeIncoming ? incomingTrade : currentTrade;
+    if (takeIncoming) incomingIndex += 1;
+    else currentIndex += 1;
+    if (!trade) continue;
     const key = flowTradeKey(trade);
     if (seen.has(key)) continue;
     seen.add(key);
     result.push(trade);
-    if (result.length >= safeLimit) break;
   }
   return result;
+}
+
+export function mergeFlowTrades(current, incoming, limit = FLOW_WORKSPACE.maximumTrades, replace = false) {
+  const safeLimit = Math.max(1, Math.floor(Number(limit) || FLOW_WORKSPACE.maximumTrades));
+  const normalizedIncoming = (incoming ?? [])
+    .map(normalizeFlowTrade)
+    .filter(Boolean)
+    .sort(compareFlowTrades);
+  const normalizedCurrent = replace
+    ? []
+    : (current ?? []).map(normalizeFlowTrade).filter(Boolean).sort(compareFlowTrades);
+  return mergeSortedFlowTrades(normalizedCurrent, normalizedIncoming, safeLimit);
+}
+
+function mergeLiveFlowTrades(current, incoming, limit = FLOW_WORKSPACE.maximumTrades, replace = false) {
+  const safeLimit = Math.max(1, Math.floor(Number(limit) || FLOW_WORKSPACE.maximumTrades));
+  const normalizedIncoming = (incoming ?? [])
+    .map(normalizeFlowTrade)
+    .filter(Boolean)
+    .sort(compareFlowTrades);
+  return mergeSortedFlowTrades(replace ? [] : (current ?? []), normalizedIncoming, safeLimit);
 }
 
 export function flowWindow(endTime, durationMs = FLOW_WORKSPACE.historyMs) {
@@ -144,7 +175,12 @@ export function visibleFlowCount(trades, startTime, endTime) {
 const tradesBySymbol = new Map();
 const statusBySymbol = new Map();
 const cardStates = new WeakMap();
+const dirtyCards = new Set();
 let drawFrame = 0;
+let drawAllRequested = true;
+let flowDocumentHidden = typeof document !== "undefined" ? document.hidden : false;
+const FLOW_DRAW_BUDGET_MS = 8;
+const FLOW_DRAW_MAX_CARDS = 2;
 
 function cardSymbol(card) {
   const text = String(
@@ -331,22 +367,52 @@ function injectStyles() {
   document.head.append(style);
 }
 
-function requestDraw() {
-  if (drawFrame) return;
-  drawFrame = requestAnimationFrame(() => {
-    const drawStartedAt = observability.enabled ? performance.now() : 0;
-    let cardCount = 0;
-    drawFrame = 0;
-    document.querySelectorAll(".orderbook-card").forEach((card) => {
-      cardCount += 1;
-      const state = ensureCard(card);
-      if (state) renderCard(card, state);
-    });
-    if (observability.enabled) {
-      observability.record("footprint.draw-all", performance.now() - drawStartedAt, { cardCount });
-      observability.record("footprint.cards-per-draw", cardCount);
+function runDrawFrame() {
+  drawFrame = 0;
+  if (flowDocumentHidden) return;
+  if (drawAllRequested) {
+    document.querySelectorAll(".orderbook-card").forEach((card) => dirtyCards.add(card));
+    drawAllRequested = false;
+  }
+
+  const drawStartedAt = performance.now();
+  let cardCount = 0;
+  let disconnected = 0;
+  for (const card of dirtyCards) {
+    dirtyCards.delete(card);
+    if (!card?.isConnected) {
+      disconnected += 1;
+      continue;
     }
-  });
+    const state = ensureCard(card);
+    if (state) {
+      renderCard(card, state);
+      cardCount += 1;
+    }
+    if (
+      cardCount >= FLOW_DRAW_MAX_CARDS
+      || performance.now() - drawStartedAt >= FLOW_DRAW_BUDGET_MS
+    ) break;
+  }
+
+  if (observability.enabled) {
+    observability.record("footprint.draw-all", performance.now() - drawStartedAt, {
+      cardCount,
+      remaining: dirtyCards.size,
+      yielded: dirtyCards.size > 0,
+      disconnected,
+    });
+    observability.record("footprint.cards-per-draw", cardCount);
+    if (dirtyCards.size) observability.increment("footprint.scheduler-yield");
+  }
+  if (dirtyCards.size) drawFrame = requestAnimationFrame(runDrawFrame);
+}
+
+function requestDraw(card = null) {
+  if (card?.isConnected) dirtyCards.add(card);
+  else drawAllRequested = true;
+  if (flowDocumentHidden || drawFrame) return;
+  drawFrame = requestAnimationFrame(runDrawFrame);
 }
 
 function bindSplitter(card, splitter, side) {
@@ -376,7 +442,7 @@ function bindSplitter(card, splitter, side) {
           `${clamp(bookWidth + delta, FLOW_WORKSPACE.minimumBookPx, stageRect.width * .48)}px`,
         );
       }
-      requestDraw();
+      requestDraw(card);
     };
     const stop = () => {
       document.removeEventListener("pointermove", move, true);
@@ -452,14 +518,14 @@ function ensureCard(card) {
     event.currentTarget.classList.toggle("is-active", state.visible);
     event.currentTarget.setAttribute("aria-pressed", String(state.visible));
     canvas.style.display = state.visible ? "" : "none";
-    requestDraw();
+    requestDraw(card);
   });
 
   bindSplitter(card, splitClusters, "clusters");
   bindSplitter(card, splitTape, "tape");
 
   const bookRows = card.querySelector(".orderbook-rows");
-  const observer = new MutationObserver(requestDraw);
+  const observer = new MutationObserver(() => requestDraw(card));
   if (bookRows) {
     observer.observe(bookRows, {
       childList: true,
@@ -509,7 +575,13 @@ function renderCard(card, state) {
   const latestTime = trades[0]?.time || Date.now();
   const window = flowWindow(latestTime);
   const bucketMs = footprintBucketMs(width, window.duration);
-  const columns = buildFootprintColumns(trades, {
+  const recent = [];
+  for (const trade of trades) {
+    if (trade.time > window.endTime) continue;
+    if (trade.time < window.startTime) break;
+    recent.push(trade);
+  }
+  const columns = buildFootprintColumns(recent, {
     ...window,
     bucketMs,
     priceStep: rowStep(rows),
@@ -564,7 +636,7 @@ function renderCard(card, state) {
     state.context.stroke();
   }
 
-  const visibleCount = visibleFlowCount(trades, window.startTime, window.endTime);
+  const visibleCount = recent.length;
   const countText = `${visibleCount} trades`;
   if (state.count.textContent !== countText) state.count.textContent = countText;
   if (state.flowCount.textContent !== countText) state.flowCount.textContent = countText;
@@ -573,7 +645,7 @@ function renderCard(card, state) {
     observability.rendered(symbol, "footprint");
     observability.record("footprint.render-card", performance.now() - renderStartedAt, {
       symbol,
-      trades: trades.length,
+      trades: recent.length,
       columns: columns.length,
       rows: rows.length,
     });
@@ -588,14 +660,16 @@ function acceptTape(event) {
   const current = tradesBySymbol.get(symbol) ?? [];
   tradesBySymbol.set(
     symbol,
-    mergeFlowTrades(
+    mergeLiveFlowTrades(
       current,
       incoming,
       FLOW_WORKSPACE.maximumTrades,
       Boolean(detail?.replace),
     ),
   );
-  requestDraw();
+  document.querySelectorAll(".orderbook-card").forEach((card) => {
+    if (cardSymbol(card) === symbol) requestDraw(card);
+  });
 }
 
 function acceptBookStatus(event) {
@@ -603,7 +677,9 @@ function acceptBookStatus(event) {
   const status = event?.detail?.status;
   if (!symbol.endsWith("USDT") || !status) return;
   statusBySymbol.set(symbol, status);
-  requestDraw();
+  document.querySelectorAll(".orderbook-card").forEach((card) => {
+    if (cardSymbol(card) === symbol) requestDraw(card);
+  });
 }
 
 function install() {
@@ -617,17 +693,32 @@ function install() {
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
         if (!(node instanceof Element)) continue;
-        if (node.matches(".orderbook-card")) ensureCard(node);
-        node.querySelectorAll?.(".orderbook-card").forEach(ensureCard);
+        if (node.matches(".orderbook-card")) {
+          ensureCard(node);
+          requestDraw(node);
+        }
+        node.querySelectorAll?.(".orderbook-card").forEach((card) => {
+          ensureCard(card);
+          requestDraw(card);
+        });
       }
     }
-    requestDraw();
   });
   observer.observe(document.body, { childList: true, subtree: true });
 
   window.addEventListener("resize", requestDraw, { passive: true });
   window.addEventListener("orientationchange", requestDraw, { passive: true });
   document.addEventListener("scroll", requestDraw, true);
+  document.addEventListener("visibilitychange", () => {
+    flowDocumentHidden = document.hidden;
+    if (flowDocumentHidden) {
+      if (drawFrame) cancelAnimationFrame(drawFrame);
+      drawFrame = 0;
+      drawAllRequested = true;
+      return;
+    }
+    requestDraw();
+  });
   requestDraw();
 }
 

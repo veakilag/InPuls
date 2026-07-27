@@ -4,13 +4,14 @@ import { readFile } from "node:fs/promises";
 
 const source = (name) => readFile(new URL(`../${name}`, import.meta.url), "utf8");
 
-test("all browser entry points identify the build as v23", async () => {
+test("browser entry points keep user version v23 and identify the current release build", async () => {
   const [html, app, worker, refresh, version] = await Promise.all([
     source("index.html"), source("app.js"), source("sw.js"), source("refresh.html"), source("VERSION.txt"),
   ]);
   for (const text of [html, app, worker, refresh, version]) assert.doesNotMatch(text, /(?:v|build=|\?v=)22\b/);
-  assert.match(html, /inpuls-build" content="23"/);
-  assert.match(worker, /inpuls-v23/);
+  assert.match(html, /inpuls-build" content="26-30-render-scheduler-v1"/);
+  assert.match(worker, /inpuls-26-30-render-scheduler-v1/);
+  assert.match(html, /SCREENER <small>v23<\/small>/);
   assert.match(version, /^InPuls v23/m);
 });
 

@@ -60,7 +60,8 @@ test("main-thread render diagnostics cover computation, ladder DOM and skipped T
 
 test("new diagnostic runtime files are in the Service Worker release", () => {
   assert.match(serviceWorker, /orderbook-network\.js\?v=obs-pr1-1/);
-  assert.match(serviceWorker, /observability\.js\?v=worker-bp-v1/);
+  assert.match(serviceWorker, /observability\.js\?v=render-scheduler-v1/);
   assert.match(serviceWorker, /orderbook-worker-buffers\.js\?v=worker-bp-v1/);
-  assert.match(serviceWorker, /inpuls-26-29-worker-bp-v1/);
+  assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
+  assert.match(serviceWorker, /inpuls-26-30-render-scheduler-v1/);
 });
