@@ -5,8 +5,9 @@ import {
   formatCompactUsd,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { adaptiveBookScaleIndex, aggregateFootprintClusters, aggregateTradePath, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, inferPriceTick, maximumBookScaleIndex, OrderBookFeed, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "./orderbook.js?v=worker-bp-v1";
-import { observability } from "./observability.js?v=worker-bp-v1";
+import { adaptiveBookScaleIndex, aggregateFootprintClusters, aggregateTradePath, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, inferPriceTick, maximumBookScaleIndex, OrderBookFeed, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "./orderbook.js?v=render-scheduler-v1";
+import { observability } from "./observability.js?v=render-scheduler-v1";
+import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -289,6 +290,37 @@ const radarHistoryLoaded = new Set();
 const radarHistoryLoading = new Set();
 const extraCharts = new Map();
 const orderBookPanels = new Map();
+const orderBookRenderScheduler = new LatestFrameScheduler({
+  budgetMs: 8,
+  maxPerFrame: 2,
+  render(panel, metadata) {
+    if (!panel?.latest || !panel.element?.isConnected) {
+      observability.skipRender("ladder", "scheduler-stale-panel", {
+        symbol: panel?.model?.symbol ?? null,
+      });
+      return;
+    }
+    observability.record("orderbook.scheduler-wait", metadata.waitMs, {
+      symbol: panel.model.symbol,
+      urgent: Boolean(metadata.urgent),
+    });
+    renderOrderBook(panel, panel.latest);
+  },
+  onFrame(metrics) {
+    observability.record("orderbook.scheduler-frame", metrics.durationMs, {
+      processed: metrics.processed,
+      pending: metrics.pending,
+      yielded: metrics.yielded,
+    });
+    if (metrics.coalesced) observability.increment("orderbook.scheduler-coalesced", metrics.coalesced);
+    if (metrics.yielded) observability.increment("orderbook.scheduler-yield");
+  },
+});
+
+function scheduleOrderBookRender(panel, urgent = false) {
+  orderBookRenderScheduler.schedule(panel, { urgent });
+}
+
 let panelPickerType = "chart";
 let activeChartTheme = null;
 const priceChart = new CandlestickChart(els.priceChart, els.chartTooltip, {
@@ -1414,15 +1446,11 @@ function mountOrderBook(model) {
     <div class="panel-drop-shield"><strong>СМЕНИТЬ НА ЭТУ МОНЕТУ</strong></div>
     <button class="panel-resizer panel-resizer-nw" type="button" aria-label="Изменить размер стакана из левого верхнего угла"></button>`;
   els.marketFocus.insertBefore(article, els.addChartTile);
-  const panel = { model, element: article, feed: null, latest: null, frame: null, centerFrame: null, viewCenter: null, priceStep: null, baseTick: null, autoCentering: false, autoScaleIndex: null, autoScaleUntil: 0, calmSince: 0, priceTrail: [], manualScrollAnchorPrice: null, manualScrollUntil: 0, selectedTradePathKey: null, tradeOffsetMs: 0, tradePriceDomain: null, tradeDomainKey: null, depthFitted: false };
-  const draw = () => {
-    panel.frame = null;
-    if (panel.latest) renderOrderBook(panel, panel.latest);
-  };
+  const panel = { model, element: article, feed: null, latest: null, centerFrame: null, viewCenter: null, priceStep: null, baseTick: null, autoCentering: false, autoScaleIndex: null, autoScaleUntil: 0, calmSince: 0, priceTrail: [], manualScrollAnchorPrice: null, manualScrollUntil: 0, selectedTradePathKey: null, tradeOffsetMs: 0, tradePriceDomain: null, tradeDomainKey: null, depthFitted: false };
   panel.feed = new OrderBookFeed({
     onData(data) {
       panel.latest = data;
-      if (!panel.frame) panel.frame = requestAnimationFrame(draw);
+      scheduleOrderBookRender(panel);
     },
     onStatus({ state: status, text }) {
       const label = article.querySelector(".book-status");
@@ -1493,7 +1521,7 @@ function mountOrderBook(model) {
     if (model.bookCentered) panel.viewCenter = null;
     syncCenterButton();
     persistWorkspace();
-    if (panel.latest) renderOrderBook(panel, panel.latest);
+    if (panel.latest) scheduleOrderBookRender(panel, true);
   });
   const manualHighlightButton = article.querySelector("[data-book-highlight-manual]");
   const autoHighlightButton = article.querySelector("[data-book-highlight-auto]");
@@ -1514,7 +1542,7 @@ function mountOrderBook(model) {
     highlightPopover.hidden = !highlightPopover.hidden;
     syncHighlightControls();
     persistWorkspace();
-    if (panel.latest) renderOrderBook(panel, panel.latest);
+    if (panel.latest) scheduleOrderBookRender(panel, true);
   });
   autoHighlightButton.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -1522,20 +1550,20 @@ function mountOrderBook(model) {
     highlightPopover.hidden = true;
     syncHighlightControls();
     persistWorkspace();
-    if (panel.latest) renderOrderBook(panel, panel.latest);
+    if (panel.latest) scheduleOrderBookRender(panel, true);
   });
   highlightInput.addEventListener("input", () => {
     model.highlightMode = "manual";
     model.highlightMinQuote = Math.max(0, Number(highlightInput.value) || 0);
     syncHighlightControls();
-    if (panel.latest) renderOrderBook(panel, panel.latest);
+    if (panel.latest) scheduleOrderBookRender(panel, true);
   });
   highlightInput.addEventListener("change", persistWorkspace);
   syncHighlightControls();
   const tradeMinInput = article.querySelector("[data-trade-min]");
   tradeMinInput.addEventListener("input", () => {
     model.tradeMinQuote = Math.max(0, Number(tradeMinInput.value) || 0);
-    if (panel.latest) renderOrderBook(panel, panel.latest);
+    if (panel.latest) scheduleOrderBookRender(panel, true);
   });
   tradeMinInput.addEventListener("change", persistWorkspace);
   const clusterButton = article.querySelector("[data-book-clusters]");
@@ -1544,7 +1572,7 @@ function mountOrderBook(model) {
     clusterButton.classList.toggle("is-active", model.clustersVisible);
     clusterButton.setAttribute("aria-pressed", String(model.clustersVisible));
     persistWorkspace();
-    if (panel.latest) renderOrderBook(panel, panel.latest);
+    if (panel.latest) scheduleOrderBookRender(panel, true);
   });
   const tradeFlow = article.querySelector(".trade-flow");
   tradeFlow.addEventListener("click", (event) => {
@@ -1552,7 +1580,7 @@ function mountOrderBook(model) {
     if (!node) return;
     event.stopPropagation();
     panel.selectedTradePathKey = panel.selectedTradePathKey === node.dataset.tradePathKey ? null : node.dataset.tradePathKey;
-    if (panel.latest) renderOrderBook(panel, panel.latest);
+    if (panel.latest) scheduleOrderBookRender(panel, true);
   });
   const tradeWindowButton = article.querySelector("[data-trade-window]");
   const tradeLiveButton = article.querySelector("[data-trade-live]");
@@ -1563,7 +1591,7 @@ function mountOrderBook(model) {
     panel.tradePriceDomain = null;
     panel.tradeDomainKey = null;
     persistWorkspace();
-    if (panel.latest) renderOrderBook(panel, panel.latest);
+    if (panel.latest) scheduleOrderBookRender(panel, true);
   };
   tradeWindowButton.addEventListener("click", () => {
     const index = Math.max(0, tradeWindows.indexOf(Number(model.tradeWindowMs)));
@@ -1573,7 +1601,7 @@ function mountOrderBook(model) {
     panel.tradeOffsetMs = 0;
     panel.tradePriceDomain = null;
     tradeLiveButton.classList.add("is-active");
-    if (panel.latest) renderOrderBook(panel, panel.latest);
+    if (panel.latest) scheduleOrderBookRender(panel, true);
   });
   tradeFlow.addEventListener("wheel", (event) => {
     if (event.target.closest(".trade-flow-detail")) return;
@@ -1594,7 +1622,7 @@ function mountOrderBook(model) {
       panel.tradeOffsetMs = Math.max(0, startOffset + ((moveEvent.clientX - startX) / width) * Number(model.tradeWindowMs));
       tradeLiveButton.classList.toggle("is-active", panel.tradeOffsetMs < 100);
       panel.tradePriceDomain = null;
-      if (panel.latest) renderOrderBook(panel, panel.latest);
+      if (panel.latest) scheduleOrderBookRender(panel, true);
     };
     const stop = () => {
       tradeFlow.removeEventListener("pointermove", move);
@@ -1614,7 +1642,7 @@ function mountOrderBook(model) {
       const rect = stage.getBoundingClientRect();
       model.tapePercent = Math.max(24, Math.min(72, ((moveEvent.clientX - rect.left) / Math.max(1, rect.width)) * 100));
       stage.style.setProperty("--tape-percent", `${model.tapePercent}%`);
-      if (panel.latest) renderOrderBook(panel, panel.latest);
+      if (panel.latest) scheduleOrderBookRender(panel, true);
     };
     const stop = () => {
       persistWorkspace();
@@ -1644,7 +1672,7 @@ function mountOrderBook(model) {
       panel.manualScrollUntil = Date.now() + 650;
       panel.viewCenter -= Math.sign(event.deltaY) * panel.priceStep * 3;
     } else return;
-    if (panel.latest) renderOrderBook(panel, panel.latest);
+    if (panel.latest) scheduleOrderBookRender(panel, true);
   }, { passive: false });
   syncCenterButton();
   panel.feed.select(model.symbol);
@@ -1725,12 +1753,18 @@ function renderOrderBook(panel, data) {
     observability.rendered(symbol, "ladder");
     phaseStartedAt = performance.now();
   }
-  renderTradeFlow(panel, data.trades ?? [], flow);
+  if (flow.dataset.inpulsTapeRenderer !== "canvas") {
+    renderTradeFlow(panel, data.trades ?? [], flow);
+    if (observability.enabled) {
+      observability.record("orderbook.legacy-flow", performance.now() - phaseStartedAt, {
+        symbol,
+        trades: data.trades?.length ?? 0,
+      });
+    }
+  } else if (observability.enabled) {
+    observability.increment("orderbook.legacy-flow-skipped");
+  }
   if (observability.enabled) {
-    observability.record("orderbook.legacy-flow", performance.now() - phaseStartedAt, {
-      symbol,
-      trades: data.trades?.length ?? 0,
-    });
     observability.record("orderbook.render-card", performance.now() - renderStartedAt, {
       symbol,
       rows: rows.length,
@@ -1889,8 +1923,8 @@ function formatBookQuantity(value) {
 function removeOrderBook(id) {
   const panel = orderBookPanels.get(id);
   if (!panel) return;
+  orderBookRenderScheduler.remove(panel);
   panel.feed.destroy();
-  if (panel.frame) cancelAnimationFrame(panel.frame);
   if (panel.centerFrame) cancelAnimationFrame(panel.centerFrame);
   panel.element.remove();
   orderBookPanels.delete(id);
@@ -2675,7 +2709,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-29-worker-bp-v1";
+const INPULS_RUNTIME_BUILD = "26-30-render-scheduler-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

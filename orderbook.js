@@ -4,7 +4,7 @@ import {
   selectReadableAggLabels,
 } from "./orderbook-tape-layout.js?v=26-25-tape-v2-1";
 import "./orderbook-network.js?v=obs-pr1-1";
-import "./orderbook-flow-workspace.js?v=worker-bp-v1";
+import "./orderbook-flow-workspace.js?v=render-scheduler-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
 
 export function applyDepthUpdates(levels, updates) {
@@ -1654,19 +1654,21 @@ const bookStatusBySymbol = new Map();
 const tapePendingBySymbol = new Map();
 const liquidityTimersBySymbol = new Map();
 const liquidityLastDrawBySymbol = new Map();
+const tapeRecentRateBySymbol = new Map();
 const tapeCardStates = new WeakMap();
 let tapeDrawFrame = 0;
 let tapeDrawTimer = 0;
 let tapeLastDrawAt = 0;
 let tapeNeedsDraw = true;
 let tapeDocumentHidden = typeof document !== "undefined" ? document.hidden : false;
-let tapeRecentRate = 0;
 let tapeStateTimer = 0;
 let tapeIngestFrame = 0;
 
 const TAPE_INGEST_PER_FRAME = 220;
 const TAPE_RESUME_MAX_PENDING = 500;
 const TAPE_LIVE_MAX_PENDING = 900;
+const TAPE_DRAW_BUDGET_MS = 8;
+const TAPE_DRAW_MAX_CARDS = 2;
 const LIQUIDITY_REFRESH_MS = 420;
 
 const BOOK_SPLIT_STORAGE_KEY = "inpuls-orderbook-split-v3";
@@ -2344,6 +2346,7 @@ function ensureTapeUi(card) {
   const flow = card.querySelector(".trade-flow");
   const toolbar = card.querySelector(".trade-tape-toolbar");
   if (!flow || !toolbar) return null;
+  flow.dataset.inpulsTapeRenderer = "canvas";
 
   let state = tapeCardStates.get(card);
   if (!state) {
@@ -2911,7 +2914,7 @@ function roundedRectPath(context, x, y, width, height, radius) {
 
 
 function drawTapeCard(card) {
-  const drawStartedAt = observability.enabled ? performance.now() : 0;
+  const drawStartedAt = performance.now();
   const initialSymbol = cardSymbol(card);
   const skip = (reason, tags = null) => observability.skipRender("tape", reason, {
     symbol: initialSymbol || null,
@@ -2991,15 +2994,17 @@ function drawTapeCard(card) {
     return;
   }
 
-  const latestTime = stored.reduce(
-    (latest, trade) => Math.max(latest, Number(trade?.time) || 0),
-    0,
-  ) || Date.now();
+  const latestTime = Number(tapeMetaBySymbol.get(symbol)?.lastTradeTime)
+    || Number(stored[0]?.time)
+    || Date.now();
   const endTime = resolveTapeWindowEnd(latestTime, frozen);
   const window = buildContinuousTapeWindow(rect.width, latestTime, endTime);
-  const recent = stored.filter(
-    (trade) => trade.time >= window.startTime && trade.time <= window.endTime,
-  );
+  const recent = [];
+  for (const trade of stored) {
+    if (trade.time > window.endTime) continue;
+    if (trade.time < window.startTime) break;
+    recent.push(trade);
+  }
   if (!recent.length) {
     context.clearRect(0, 0, rect.width, rect.height);
     state.hasFrame = false;
@@ -3183,22 +3188,37 @@ function drawAllTapes() {
     return;
   }
 
-  const cards = tapeDrawAllRequested
-    ? [...document.querySelectorAll(".orderbook-card")]
-    : [...dirtyTapeCards].filter((card) => card?.isConnected);
-
-  const drawStartedAt = observability.enabled ? performance.now() : 0;
-  for (const card of cards) drawTapeCard(card);
-  if (observability.enabled) {
-    observability.record("tape.draw-all", performance.now() - drawStartedAt, {
-      cards: cards.length,
-      mode: tapeDrawAllRequested ? "all" : "dirty",
-    });
+  if (tapeDrawAllRequested) {
+    document.querySelectorAll(".orderbook-card").forEach((card) => dirtyTapeCards.add(card));
+    tapeDrawAllRequested = false;
   }
 
-  dirtyTapeCards.clear();
-  tapeDrawAllRequested = false;
-  tapeNeedsDraw = false;
+  const drawStartedAt = performance.now();
+  let rendered = 0;
+  let disconnected = 0;
+  for (const card of dirtyTapeCards) {
+    dirtyTapeCards.delete(card);
+    if (!card?.isConnected) {
+      disconnected += 1;
+      continue;
+    }
+    drawTapeCard(card);
+    rendered += 1;
+    if (
+      rendered >= TAPE_DRAW_MAX_CARDS
+      || performance.now() - drawStartedAt >= TAPE_DRAW_BUDGET_MS
+    ) break;
+  }
+  tapeNeedsDraw = dirtyTapeCards.size > 0;
+  if (observability.enabled) {
+    observability.record("tape.draw-all", performance.now() - drawStartedAt, {
+      cards: rendered,
+      remaining: dirtyTapeCards.size,
+      yielded: tapeNeedsDraw,
+      disconnected,
+    });
+    if (tapeNeedsDraw) observability.increment("tape.scheduler-yield");
+  }
 }
 
 function cancelTapeDraw() {
@@ -3211,10 +3231,26 @@ function cancelTapeDraw() {
 function targetTapeFrameMs() {
   const count = Math.max(1, document.querySelectorAll(".orderbook-card").length);
   const base = count >= 6 ? 84 : count >= 3 ? 66 : 50;
-  if (tapeRecentRate > 1_200) return Math.max(base, 90);
-  if (tapeRecentRate > 600) return Math.max(base, 72);
-  if (tapeRecentRate > 250) return Math.max(base, 58);
+  const symbols = new Set(
+    [...document.querySelectorAll(".orderbook-card")]
+      .map((card) => cardSymbol(card))
+      .filter(Boolean),
+  );
+  const recentRate = [...symbols]
+    .reduce((total, symbol) => total + (tapeRecentRateBySymbol.get(symbol) || 0), 0);
+  if (recentRate > 1_200) return Math.max(base, 90);
+  if (recentRate > 600) return Math.max(base, 72);
+  if (recentRate > 250) return Math.max(base, 58);
   return base;
+}
+
+function runTapeDrawFrame() {
+  tapeDrawFrame = 0;
+  tapeLastDrawAt = performance.now();
+  if (tapeNeedsDraw) drawAllTapes();
+  if (tapeNeedsDraw && !tapeDocumentHidden) {
+    tapeDrawFrame = requestAnimationFrame(runTapeDrawFrame);
+  }
 }
 
 function scheduleTapeDraw(force = false, card = null) {
@@ -3225,8 +3261,9 @@ function scheduleTapeDraw(force = false, card = null) {
   if (tapeDocumentHidden) return;
 
   if (force) {
-    cancelTapeDraw();
     tapeLastDrawAt = 0;
+    if (tapeDrawTimer) clearTimeout(tapeDrawTimer);
+    tapeDrawTimer = 0;
   }
   if (tapeDrawFrame || tapeDrawTimer) return;
 
@@ -3240,11 +3277,7 @@ function scheduleTapeDraw(force = false, card = null) {
     return;
   }
 
-  tapeDrawFrame = requestAnimationFrame(() => {
-    tapeDrawFrame = 0;
-    tapeLastDrawAt = performance.now();
-    if (tapeNeedsDraw) drawAllTapes();
-  });
+  tapeDrawFrame = requestAnimationFrame(runTapeDrawFrame);
 }
 
 function normalizeTapeTrade(trade) {
@@ -3344,17 +3377,24 @@ function scheduleTapeIngest() {
 
 function drainTapeIngest() {
   tapeIngestFrame = 0;
+  const frameStartedAt = performance.now();
   let budget = TAPE_INGEST_PER_FRAME;
   const cardCount = Math.max(1, document.querySelectorAll(".orderbook-card").length);
   if (cardCount >= 6) budget = 120;
   else if (cardCount >= 3) budget = 170;
+  const pendingEntries = [...tapePendingBySymbol.entries()];
+  const liveShare = Math.max(1, Math.floor(budget / Math.max(1, pendingEntries.length)));
+  let processedSymbols = 0;
+  let processedTrades = 0;
 
-  for (const [symbol, pending] of tapePendingBySymbol) {
+  for (const [symbol, pending] of pendingEntries) {
     if (budget <= 0) break;
     const take = pending.resume
       ? Math.min(TAPE_RESUME_MAX_PENDING, pending.trades.length)
-      : Math.min(budget, pending.trades.length);
+      : Math.min(budget, liveShare, pending.trades.length);
     const chunk = pending.trades.splice(0, take);
+    processedSymbols += 1;
+    processedTrades += chunk.length;
     const current = tapeTradesBySymbol.get(symbol) ?? [];
     tapeTradesBySymbol.set(
       symbol,
@@ -3376,10 +3416,10 @@ function drainTapeIngest() {
       lastTradeTime: latestTime,
       packets: (Number(previousMeta.packets) || 0) + 1,
     });
-    tapeRecentRate = stored.reduce(
+    tapeRecentRateBySymbol.set(symbol, stored.reduce(
       (count, trade) => count + (trade.time >= latestTime - 1_000 ? 1 : 0),
       0,
-    );
+    ));
 
     const cards = [...document.querySelectorAll(".orderbook-card")]
       .filter((card) => cardSymbol(card) === symbol && flowLayerVisible(card));
@@ -3388,6 +3428,13 @@ function drainTapeIngest() {
     if (!pending.trades.length) tapePendingBySymbol.delete(symbol);
   }
 
+  if (observability.enabled) {
+    observability.record("tape.ingest-frame", performance.now() - frameStartedAt, {
+      symbols: processedSymbols,
+      trades: processedTrades,
+      pendingSymbols: tapePendingBySymbol.size,
+    });
+  }
   if (tapePendingBySymbol.size) scheduleTapeIngest();
 }
 
