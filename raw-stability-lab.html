@@ -128,15 +128,15 @@
 
         <article class="card assessment">
           <div id="verdict" class="verdict" data-tone="neutral"><strong>Прогон не завершён</strong><p>Результат нельзя использовать для решения по production-источнику.</p></div>
-          <div class="criteria"><b>Что считается:</b> RAW gaps, duplicates и out-of-order только внутри непрерывного WebSocket-сегмента; source-only stalls — когда второй поток продолжает идти; полное покрытие каждого диапазона <code>agg [f…l]</code>; P50/P95 преимущества первого RAW; расхождение объёма; planned/unplanned reconnect и recovery. Возврат из фона всегда запускает чистый новый сегмент.</div>
+          <div class="criteria"><b>Что считается:</b> RAW gaps, duplicates и out-of-order только внутри непрерывного WebSocket-сегмента; <code>p=0/q=0</code> учитываются как sequence-маркеры, но не как исполненные сделки; source-only stalls — когда второй поток продолжает идти; полное покрытие каждого диапазона <code>agg [f…l]</code>; P50/P95 преимущества первого RAW; расхождение объёма; planned/unplanned reconnect и recovery. Возврат из фона всегда запускает чистый новый сегмент.</div>
         </article>
 
         <article class="card wide">
           <header><h2>Качество по символам</h2><span class="transport">положительный lead = RAW раньше</span></header>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Символ</th><th>RAW msg</th><th>AGG msg</th><th>RAW gap</th><th>dup</th><th>OOO</th><th>stalls</th><th>groups</th><th>coverage</th><th>RAW раньше</th><th>lead P50 / P95</th><th>Δ volume P99</th></tr></thead>
-              <tbody id="symbol-body"><tr><td colspan="12" class="empty">Запусти лабораторию</td></tr></tbody>
+              <thead><tr><th>Символ</th><th>RAW trades</th><th>markers</th><th>AGG msg</th><th>RAW gap</th><th>dup</th><th>OOO</th><th>stalls</th><th>groups</th><th>coverage</th><th>RAW раньше</th><th>lead P50 / P95</th><th>Δ volume P99</th></tr></thead>
+              <tbody id="symbol-body"><tr><td colspan="13" class="empty">Запусти лабораторию</td></tr></tbody>
             </table>
           </div>
         </article>
@@ -154,6 +154,6 @@
 
       <p class="footnote">Рекомендуемая матрица: 1 символ видимо → 2 символа с ручным RAW reconnect → 4 символа минимум 1 час с уходом вкладки в фон. Один чистый файл не является основанием для production-переключения.</p>
     </div>
-    <script type="module" src="./raw-stability-lab.js?v=2"></script>
+    <script type="module" src="./raw-stability-lab.js?v=3"></script>
   </body>
 </html>

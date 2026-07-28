@@ -1,4 +1,4 @@
-# RAW stability lab v2
+# RAW stability lab v3
 
 ## Purpose
 
@@ -19,6 +19,7 @@ Per source and symbol:
 
 - valid event count and quote notional;
 - exact trade-ID continuity inside each uninterrupted WebSocket segment, separated from payloads that arrived but were rejected by validation;
+- zero-price/zero-quantity RAW sequence markers, counted separately from executed trades and quote volume;
 - rejection reasons and bounded, public-market-only payload shape samples;
 - duplicates, overlaps and out-of-order events;
 - source-only stalls confirmed only after one feed continues producing events while the paired feed remains silent for three seconds;
@@ -42,6 +43,8 @@ A sequence anchor is reset whenever that source opens a new WebSocket segment. A
 Pending cross-source matches are discarded at a segment boundary. They are counted as abandoned and never mixed into the next segment.
 
 An event with a usable trade ID can fail price, quantity or timestamp validation without proving a transport gap. The rejected ID advances the sequence anchor and is counted separately. Only IDs that were not observed at all remain transport-gap candidates.
+
+An observed RAW event with both `p=0` and `q=0` is treated as a sequence marker rather than an executed trade. Its ID advances continuity and may complete an aggregate `[f, l]` range, while its zero quantity contributes nothing to executed-trade totals or quote volume. This interpretation is empirical because Binance does not document the `@trade` stream.
 
 After both feeds become live, matching waits five seconds before collecting lead samples. This prevents route startup and clean background recovery from contaminating steady-state latency.
 

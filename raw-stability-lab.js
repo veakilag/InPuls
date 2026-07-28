@@ -4,6 +4,7 @@ import {
   advanceSourceStallCandidate,
   buildStabilityAssessment,
   diagnoseTradePayload,
+  normalizeSequenceMarker,
   normalizeSymbols,
   reconnectDelay,
   reservoirPush,
@@ -11,7 +12,7 @@ import {
   sequenceDelta,
   summarizeMatching,
   summarizeReservoir,
-} from "./raw-stability-core.js?v=2";
+} from "./raw-stability-core.js?v=3";
 import {
   matchAggregateToRaw,
   normalizeTradeEvent,
@@ -25,6 +26,7 @@ const RAW_ID_LIMIT = 50_000;
 const SEEN_ID_LIMIT = 50_000;
 const EVENT_LOG_LIMIT = 2_000;
 const INVALID_SAMPLE_LIMIT = 100;
+const SEQUENCE_MARKER_SAMPLE_LIMIT = 20;
 const MATCH_WAIT_MS = 2_500;
 const MATCH_GUARD_MS = 5_000;
 const FIRST_MESSAGE_TIMEOUT_MS = 15_000;
@@ -69,6 +71,7 @@ function createStreamSymbolState() {
   return {
     messages: 0,
     quote: 0,
+    sequenceMarkers: 0,
     invalidEvents: 0,
     invalidReasons: new Map(),
     rejectedSequenceIds: 0,
@@ -135,8 +138,9 @@ function createConnectionState(source) {
     firstMessageTimer: 0,
     reconnectTimer: 0,
     lastAnyEventAt: 0,
-    validMessages: 0,
+    segmentEvents: 0,
     liveSymbols: new Set(),
+    sequenceMarkers: 0,
     invalidEvents: 0,
     invalidReasons: new Map(),
     pendingClose: null,
@@ -169,6 +173,7 @@ function createRuntime() {
     eventLog: [],
     droppedEvents: 0,
     invalidSamples: [],
+    sequenceMarkerSamples: [],
     symbolStates: new Map(),
     connections: {
       aggTrade: createConnectionState("aggTrade"),
@@ -317,7 +322,7 @@ function connectSource(source, reason = "initial") {
   connection.statusText = "CONNECTING";
   connection.transport = endpoint.name;
   connection.liveSymbols.clear();
-  connection.validMessages = 0;
+  connection.segmentEvents = 0;
   connection.lastAnyEventAt = 0;
   beginSourceSegment(source, connection.segmentId);
   const serial = connection.serial;
@@ -335,7 +340,7 @@ function connectSource(source, reason = "initial") {
   connection.socket = socket;
 
   connection.firstMessageTimer = setTimeout(() => {
-    if (connection.socket !== socket || connection.validMessages > 0 || runtime.phase !== "running") return;
+    if (connection.socket !== socket || connection.segmentEvents > 0 || runtime.phase !== "running") return;
     connection.pendingClose = { reason: "first-message-timeout", planned: false, requestedAt: nowEpoch() };
     try { socket.close(4002, "first-message-timeout"); } catch {}
   }, FIRST_MESSAGE_TIMEOUT_MS);
@@ -354,34 +359,32 @@ function connectSource(source, reason = "initial") {
     const payloadSource = sourceFromTradePayload(payload);
     if (payloadSource !== source) return;
     const receiveAt = nowEpoch();
-    const sample = normalizeTradeEvent(payload.data, source, receiveAt);
-    if (!sample || !runtime.symbolStates.has(sample.symbol)) {
-      const initialDiagnosis = diagnoseTradePayload(payload.data, source, receiveAt);
-      const diagnosis = initialDiagnosis.valid
-        ? { ...initialDiagnosis, valid: false, reason: "unexpected-symbol" }
-        : initialDiagnosis;
+    const initialDiagnosis = diagnoseTradePayload(payload.data, source, receiveAt);
+    const state = runtime.symbolStates.get(initialDiagnosis.symbol);
+    const diagnosis = !state && initialDiagnosis.valid
+      ? { ...initialDiagnosis, valid: false, sequenceMarker: false, reason: "unexpected-symbol" }
+      : initialDiagnosis;
+    if (!diagnosis.valid) {
       recordInvalidPayload(source, payload.data, receiveAt, diagnosis);
       return;
     }
 
-    if (connection.validMessages === 0) {
-      clearTimeout(connection.firstMessageTimer);
-      connection.firstMessageTimer = 0;
-      connection.liveSegments += 1;
-      connection.reconnectAttempt = 0;
-      connection.status = "live";
-      connection.statusText = "LIVE";
-      if (connection.recoveryPendingAt) {
-        const recoveryMs = receiveAt - connection.recoveryPendingAt;
-        reservoirPush(connection.recovery, recoveryMs);
-        logEvent("source-recovered", { source, reason: connection.recoveryReason, recoveryMs, segmentId: connection.segmentId });
-        connection.recoveryPendingAt = 0;
-        connection.recoveryReason = null;
-      }
+    if (diagnosis.sequenceMarker) {
+      acceptConnectionEvent(source, diagnosis.symbol, receiveAt);
+      recordSequenceMarker(payload.data, receiveAt, diagnosis);
+      return;
     }
-    connection.validMessages += 1;
-    connection.lastAnyEventAt = receiveAt;
-    connection.liveSymbols.add(sample.symbol);
+
+    const sample = normalizeTradeEvent(payload.data, source, receiveAt);
+    if (!sample) {
+      recordInvalidPayload(source, payload.data, receiveAt, {
+        ...diagnosis,
+        valid: false,
+        reason: "normalization-mismatch",
+      });
+      return;
+    }
+    acceptConnectionEvent(source, sample.symbol, receiveAt);
     onSample(sample);
   });
 
@@ -414,7 +417,7 @@ function connectSource(source, reason = "initial") {
       segmentId: connection.segmentId,
     });
 
-    if (connection.validMessages === 0 && connection.endpointIndex + 1 < endpoints.length) {
+    if (connection.segmentEvents === 0 && connection.endpointIndex + 1 < endpoints.length) {
       connection.endpointIndex += 1;
       connection.openFailures += 1;
       scheduleReconnect(source, "endpoint-fallback", planned, 250);
@@ -473,6 +476,86 @@ function recordSeen(stream, id) {
   return true;
 }
 
+function acceptConnectionEvent(source, symbol, receiveAt) {
+  const connection = runtime.connections[source];
+  if (connection.segmentEvents === 0) {
+    clearTimeout(connection.firstMessageTimer);
+    connection.firstMessageTimer = 0;
+    connection.liveSegments += 1;
+    connection.reconnectAttempt = 0;
+    connection.status = "live";
+    connection.statusText = "LIVE";
+    if (connection.recoveryPendingAt) {
+      const recoveryMs = receiveAt - connection.recoveryPendingAt;
+      reservoirPush(connection.recovery, recoveryMs);
+      logEvent("source-recovered", { source, reason: connection.recoveryReason, recoveryMs, segmentId: connection.segmentId });
+      connection.recoveryPendingAt = 0;
+      connection.recoveryReason = null;
+    }
+  }
+  connection.segmentEvents += 1;
+  connection.lastAnyEventAt = receiveAt;
+  connection.liveSymbols.add(symbol);
+}
+
+function recordStreamActivity(state, source, receiveAt) {
+  const stream = state.streams[source];
+  stream.lastEventAt = receiveAt;
+  finishStall(state, source, receiveAt, "source-returned", true);
+  maybeStartCounterpartStall(state, source, receiveAt);
+  if (!state.readySources.has(source)) {
+    state.readySources.add(source);
+    if (state.readySources.size === SOURCES.length) state.pairReadyAt = receiveAt;
+  }
+}
+
+function rememberRawId(state, sample) {
+  state.rawById.set(sample.id, sample);
+  state.rawOrder.push(sample.id);
+  if (state.rawOrder.length > RAW_ID_LIMIT) {
+    const overflow = state.rawOrder.length - RAW_ID_LIMIT;
+    for (const id of state.rawOrder.splice(0, overflow)) state.rawById.delete(id);
+  }
+  retryPendingMatches(state, sample.id);
+}
+
+function recordSequenceMarker(event, receiveAt, diagnosis) {
+  const source = "trade";
+  const state = runtime.symbolStates.get(diagnosis.symbol);
+  if (!state || !diagnosis.sequenceSample) return;
+  const stream = state.streams[source];
+  const connection = runtime.connections[source];
+  if (stream.segmentId !== connection.segmentId) beginSourceSegment(source, connection.segmentId);
+
+  connection.sequenceMarkers += 1;
+  stream.sequenceMarkers += 1;
+  if (!recordSeen(stream, diagnosis.sequenceSample.id)) return;
+  const delta = sequenceDelta(source, stream.lastSequence, diagnosis.sequenceSample);
+  if (!delta.valid) return;
+
+  stream.lastSequence = delta.nextLast;
+  stream.gaps += delta.gapCount;
+  if (delta.outOfOrder) stream.outOfOrder += 1;
+  if (delta.overlap && !delta.outOfOrder) stream.overlap += 1;
+  recordStreamActivity(state, source, receiveAt);
+
+  const marker = normalizeSequenceMarker(event, source, receiveAt, diagnosis.symbol);
+  if (!marker) return;
+  rememberRawId(state, marker);
+
+  if (stream.sequenceMarkers === 1) {
+    logEvent("sequence-marker-observed", { source, symbol: diagnosis.symbol });
+  }
+  if (runtime.sequenceMarkerSamples.length < SEQUENCE_MARKER_SAMPLE_LIMIT) {
+    runtime.sequenceMarkerSamples.push({
+      at: receiveAt,
+      source,
+      symbol: diagnosis.symbol,
+      payload: sanitizeTradePayload(event),
+    });
+  }
+}
+
 function onSample(sample) {
   const state = runtime.symbolStates.get(sample.symbol);
   const stream = state.streams[sample.source];
@@ -491,24 +574,10 @@ function onSample(sample) {
   if (delta.overlap && !delta.outOfOrder) stream.overlap += 1;
   stream.messages += 1;
   stream.quote += sample.quote;
-  stream.lastEventAt = sample.receiveAt;
-
-  finishStall(state, sample.source, sample.receiveAt, "source-returned", true);
-  maybeStartCounterpartStall(state, sample.source, sample.receiveAt);
-
-  if (!state.readySources.has(sample.source)) {
-    state.readySources.add(sample.source);
-    if (state.readySources.size === SOURCES.length) state.pairReadyAt = sample.receiveAt;
-  }
+  recordStreamActivity(state, sample.source, sample.receiveAt);
 
   if (sample.source === "trade") {
-    state.rawById.set(sample.id, sample);
-    state.rawOrder.push(sample.id);
-    if (state.rawOrder.length > RAW_ID_LIMIT) {
-      const overflow = state.rawOrder.length - RAW_ID_LIMIT;
-      for (const id of state.rawOrder.splice(0, overflow)) state.rawById.delete(id);
-    }
-    retryPendingMatches(state, sample.id);
+    rememberRawId(state, sample);
     return;
   }
 
@@ -724,6 +793,7 @@ function connectionSummary(source) {
     plannedReconnects: connection.plannedReconnects,
     unplannedReconnects: connection.unplannedReconnects,
     openFailures: connection.openFailures,
+    sequenceMarkers: connection.sequenceMarkers,
     invalidEvents: connection.invalidEvents,
     invalidReasons: reasonsSummary(connection.invalidReasons),
     recoveryPending: Boolean(connection.recoveryPendingAt),
@@ -736,6 +806,7 @@ function streamSummary(stream) {
   return {
     messages: stream.messages,
     quote: stream.quote,
+    sequenceMarkers: stream.sequenceMarkers,
     invalidEvents: stream.invalidEvents,
     invalidReasons: reasonsSummary(stream.invalidReasons),
     rejectedSequenceIds: stream.rejectedSequenceIds,
@@ -777,7 +848,7 @@ function buildSnapshot() {
   });
   return {
     schemaVersion: RAW_STABILITY_SCHEMA_VERSION,
-    labVersion: "raw-stability-v2",
+    labVersion: "raw-stability-v3",
     generatedAt: new Date(at).toISOString(),
     config: {
       symbols: runtime.symbols,
@@ -812,9 +883,11 @@ function buildSnapshot() {
     events: runtime.eventLog,
     droppedEvents: runtime.droppedEvents,
     invalidSamples: runtime.invalidSamples,
+    sequenceMarkerSamples: runtime.sequenceMarkerSamples,
     limitations: [
       "Browser background throttling is part of the observation and is separated from visible time.",
       "@trade is undocumented in the current Binance USDⓈ-M routed stream table.",
+      "RAW p=0/q=0 events are treated as empirically observed sequence markers: their IDs participate in continuity and aggregate-range coverage, but they are excluded from executed-trade counts and quote volume.",
       "A clean run does not promote RAW by itself; the 1 / 2 / 4-symbol campaign and background/reconnect scenarios must all pass.",
       "Production TAPE remains @aggTrade in this PR.",
     ],
@@ -872,7 +945,7 @@ function updateConnectionUI(source) {
 function updateSymbolTable() {
   const states = [...runtime.symbolStates.values()];
   if (!states.length) {
-    els.symbolBody.innerHTML = '<tr><td colspan="12" class="empty">Запусти лабораторию</td></tr>';
+    els.symbolBody.innerHTML = '<tr><td colspan="13" class="empty">Запусти лабораторию</td></tr>';
     return;
   }
   els.symbolBody.innerHTML = states.map((state) => {
@@ -882,6 +955,7 @@ function updateSymbolTable() {
     return `<tr>
       <td><strong>${state.symbol}</strong></td>
       <td>${raw.messages.toLocaleString("ru-RU")}</td>
+      <td>${raw.sequenceMarkers.toLocaleString("ru-RU")}</td>
       <td>${aggregate.messages.toLocaleString("ru-RU")}</td>
       <td class="${raw.gaps ? "negative" : "positive"}">${raw.gaps}</td>
       <td class="${raw.duplicates ? "negative" : ""}">${raw.duplicates}</td>

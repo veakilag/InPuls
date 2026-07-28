@@ -93,7 +93,7 @@ test("current generation replaces an obsolete bootstrap request", () => {
 
 test("cache versions keep seamless resume while shipping Resume v2", () => {
   assert.match(orderbook, /orderbook-worker\.js\?v=worker-bp-v1/);
-  assert.match(serviceWorker, /inpuls-26-33-orderbook-contracts-v1/);
+  assert.match(serviceWorker, /inpuls-26-34-raw-sequence-markers-v1/);
   assert.match(serviceWorker, /orderbook\.js\?v=orderbook-contracts-v1/);
   assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
   assert.match(serviceWorker, /orderbook-worker\.js\?v=worker-bp-v1/);
