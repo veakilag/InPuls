@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adaptiveBookScaleIndex, aggregateDepthBands, aggregateFootprintClusters, aggregateTradeClusters, aggregateTradePath, applyDepthUpdates, BOOK_DEPTH_PERCENT_PRESETS, bookDepthLabel, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, depthView, inferPriceTick, maximumBookScaleIndex, normalizeBookDepthPercent, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForDepthPercent, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "../orderbook.js";
+import { adaptiveBookScaleIndex, aggregateDepthBands, aggregateFootprintClusters, aggregateTradeClusters, aggregateTradePath, applyDepthUpdates, BOOK_DEPTH_PERCENT_PRESETS, BOOK_SCALE_MULTIPLIERS, bookDepthLabel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, depthCoverageScaleIndex, depthView, inferPriceTick, maximumBookScaleIndex, normalizeBookDepthPercent, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForDepthPercent, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "../orderbook.js";
 
 test("depth updates add, replace and remove price levels", () => {
   const levels = new Map([[100, 2], [99, 4]]);
@@ -45,6 +45,15 @@ test("price ladder keeps the market row visible and fills both sides", () => {
   assert.equal(rows.filter((row) => row.isMarket).length, 1);
   assert.ok(rows.some((row) => row.bidQuote > 0));
   assert.ok(rows.some((row) => row.askQuote > 0));
+  assert.deepEqual([...BOOK_SCALE_MULTIPLIERS], [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]);
+});
+
+test("price ladder cannot be scrolled below zero", () => {
+  const center = clampDepthViewCenter(-100, .5, 7);
+  const rows = buildDepthLadder([], [], 1, -100, .5, 7);
+  assert.equal(center, 1.5);
+  assert.equal(rows.at(-1).price, 0);
+  assert.ok(rows.every((row) => row.price >= 0));
 });
 
 test("percent depth gives BTC and alt books the same visible range", () => {

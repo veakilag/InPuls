@@ -129,13 +129,8 @@ export function buildReadableTapeLayout(items, window, width) {
         leftEdge,
         rightEdge,
       );
-      const yOffset = density >= 24
-        ? [-0.8, 0, 0.8][index % 3]
-        : density >= 10
-          ? [-0.45, 0.45][index % 2]
-          : 0;
       const { sequenceIndex, ...rest } = item;
-      laidOut.push({ ...rest, x, density, yOffset });
+      laidOut.push({ ...rest, x, density, yOffset: 0 });
     });
   });
 

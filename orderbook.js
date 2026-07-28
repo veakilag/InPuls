@@ -2,7 +2,7 @@ import {
   adaptiveRawDiameter,
   buildReadableTapeLayout,
   selectReadableAggLabels,
-} from "./orderbook-tape-layout.js?v=26-25-tape-v2-1";
+} from "./orderbook-tape-layout.js?v=stable-tape-v3";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
 import "./orderbook-flow-workspace.js?v=deep-book-tape-clusters-v2";
@@ -315,9 +315,10 @@ function closestRowIndex(rows, targetPrice) {
 export function buildDepthLadder(bids, asks, marketPrice, viewCenter, priceStep, rowCount) {
   const count = Math.max(3, Math.floor(Number(rowCount) || 3));
   const market = Number(marketPrice);
-  const center = Number.isFinite(Number(viewCenter)) ? Number(viewCenter) : market;
   const step = Math.max(Number.EPSILON, Number(priceStep) || .01);
-  if (!Number.isFinite(market) || !Number.isFinite(center)) return [];
+  const requestedCenter = Number.isFinite(Number(viewCenter)) ? Number(viewCenter) : market;
+  if (!Number.isFinite(market) || !Number.isFinite(requestedCenter)) return [];
+  const center = clampDepthViewCenter(requestedCenter, step, count);
 
   const askBuckets = new Map(
     aggregateDepthByStep(asks, "ask", step).map((row) => [
@@ -378,6 +379,17 @@ export function buildDepthLadder(bids, asks, marketPrice, viewCenter, priceStep,
       isHalfRound,
     };
   });
+}
+
+export function clampDepthViewCenter(viewCenter, priceStep, rowCount) {
+  const step = Math.max(Number.EPSILON, Number(priceStep) || .01);
+  const count = Math.max(3, Math.floor(Number(rowCount) || 3));
+  const center = Number(viewCenter);
+  if (!Number.isFinite(center)) return step * Math.floor(count / 2);
+  const half = Math.floor(count / 2);
+  const minimumAnchorIndex = Math.max(0, count - 1 - half);
+  const anchorIndex = Math.max(minimumAnchorIndex, Math.round(center / step));
+  return Number((anchorIndex * step).toPrecision(15));
 }
 
 export function aggregateTradeClusters(trades, minimumQuote = 0, priceStep = .01, limit = 40) {
@@ -1643,7 +1655,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-38-deep-book-tape-clusters-v2";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-39-stable-book-tape-v3";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const TAPE_MAX_STORED = 4_000;
@@ -1981,7 +1993,10 @@ function installOrderBookStyles() {
       white-space: nowrap;
     }
     .orderbook-card .book-ladder-row .book-size::before {
+      right: calc(var(--book-size-label-space, 0px) + 2px) !important;
+      left: auto !important;
       width: max(var(--size), 3px) !important;
+      max-width: calc(100% - var(--book-size-label-space, 0px) - 2px) !important;
       min-width: 3px !important;
       opacity: .78 !important;
     }

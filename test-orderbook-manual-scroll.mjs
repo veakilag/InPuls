@@ -12,8 +12,8 @@ test("manual orderbook scroll remains authoritative", () => {
   );
   assert.match(
     appSource,
-    /panel\.viewCenter -= Math\.sign\(event\.deltaY\) \* panel\.priceStep \* 3;/,
-    "normal wheel must move the saved view center",
+    /panel\.viewCenter = clampDepthViewCenter\(/,
+    "normal wheel must move and clamp the saved view center",
   );
   assert.match(
     appSource,
@@ -38,16 +38,17 @@ test("manual orderbook scroll remains authoritative", () => {
   );
 });
 
-test("Ctrl+wheel changes the comparable percent depth preset", () => {
+test("Ctrl+wheel changes a fixed 1/2/5 price-step multiplier", () => {
   assert.match(
     appSource,
-    /if \(event\.ctrlKey \|\| event\.metaKey\) \{[\s\S]*?BOOK_DEPTH_PERCENT_PRESETS/,
-    "Ctrl+wheel comparable-depth control must remain present",
+    /if \(event\.ctrlKey \|\| event\.metaKey\) \{[\s\S]*?maximumBookScaleIndex\(\)/,
+    "Ctrl+wheel fixed-step control must remain present",
   );
   assert.match(
     appSource,
-    /model\.bookDepthPercent = BOOK_DEPTH_PERCENT_PRESETS\[nextIndex\];/,
-    "the selected percent depth must be persisted",
+    /model\.bookScaleIndex = nextIndex;/,
+    "the selected fixed price step must be persisted",
   );
-  assert.doesNotMatch(appSource, /model\.bookScaleIndex = Math\.max\(/);
+  assert.match(appSource, /panel\.priceStep = priceStepForScale\(panel\.baseTick, scaleIndex\);/);
+  assert.doesNotMatch(appSource, /priceStepForDepthPercent/);
 });
