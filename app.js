@@ -2709,7 +2709,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-33-orderbook-contracts-v1";
+const INPULS_RUNTIME_BUILD = "26-34-raw-sequence-markers-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

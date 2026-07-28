@@ -6,6 +6,7 @@ import {
   advanceSourceStallCandidate,
   buildStabilityAssessment,
   diagnoseTradePayload,
+  normalizeSequenceMarker,
   normalizeSymbols,
   reconnectDelay,
   reservoirPush,
@@ -13,6 +14,7 @@ import {
   sequenceDelta,
   summarizeMatching,
 } from "./raw-stability-core.js";
+import { matchAggregateToRaw } from "./trade-latency-core.js";
 
 test("symbol lists are normalized, deduplicated and capped", () => {
   assert.deepEqual(
@@ -59,6 +61,73 @@ test("rejected trade payloads keep a usable sequence identity and an exact reaso
 
   const next = sequenceDelta("trade", diagnosis.sequenceSample.id, { id: 102 });
   assert.equal(next.gapCount, 0);
+});
+
+test("zero-price zero-quantity RAW events are accepted only as sequence markers", () => {
+  const marker = {
+    e: "trade",
+    E: 100,
+    T: 99,
+    s: "BTCUSDT",
+    st: 1,
+    t: 101,
+    p: "0",
+    q: "0",
+    m: false,
+  };
+  const diagnosis = diagnoseTradePayload(marker, "trade", 120, "BTCUSDT");
+  assert.equal(diagnosis.valid, true);
+  assert.equal(diagnosis.reason, null);
+  assert.equal(diagnosis.sequenceMarker, true);
+  assert.deepEqual(diagnosis.sequenceSample, {
+    id: 101,
+    firstTradeId: 101,
+    lastTradeId: 101,
+  });
+  assert.deepEqual(normalizeSequenceMarker(marker, "trade", 120, "BTCUSDT"), {
+    source: "trade",
+    symbol: "BTCUSDT",
+    id: 101,
+    firstTradeId: 101,
+    lastTradeId: 101,
+    price: 0,
+    quantity: 0,
+    quote: 0,
+    eventTime: 100,
+    tradeTime: 99,
+    receiveAt: 120,
+    maker: false,
+    side: null,
+    renderAt: null,
+    sequenceMarker: true,
+  });
+
+  const normalTrade = diagnoseTradePayload({ ...marker, t: 102, p: "10", q: "2" }, "trade", 121, "BTCUSDT");
+  assert.equal(normalTrade.valid, true);
+  assert.equal(normalTrade.sequenceMarker, false);
+  assert.equal(normalizeSequenceMarker({ ...marker, t: 102, p: "10", q: "2" }, "trade", 121, "BTCUSDT"), null);
+
+  const zeroQuantityTrade = diagnoseTradePayload({ ...marker, t: 103, p: "10" }, "trade", 122, "BTCUSDT");
+  assert.equal(zeroQuantityTrade.valid, false);
+  assert.equal(zeroQuantityTrade.reason, "non-positive-quantity");
+});
+
+test("sequence markers complete aggregate ID coverage without adding executed volume", () => {
+  const rawById = new Map([
+    [100, { id: 100, quantity: 1, receiveAt: 90 }],
+    [101, { id: 101, quantity: 0, receiveAt: 91, sequenceMarker: true }],
+    [102, { id: 102, quantity: 2, receiveAt: 92 }],
+  ]);
+  const match = matchAggregateToRaw({
+    firstTradeId: 100,
+    lastTradeId: 102,
+    quantity: 3,
+    receiveAt: 100,
+  }, rawById);
+  assert.equal(match.coverage, 1);
+  assert.equal(match.availableCount, 3);
+  assert.equal(match.rawQuantity, 3);
+  assert.equal(match.volumeDifferencePercent, 0);
 });
 
 test("invalid payload diagnostics are bounded to public market fields", () => {
@@ -246,12 +315,14 @@ test("browser lab keeps RAW isolated from production and uses routed multi-strea
   assert.match(html, /Production TAPE эта страница не переключает/);
   assert.match(source, /MATCH_GUARD_MS = 5_000/);
   assert.match(source, /sequenceObserved/);
+  assert.match(source, /sequenceMarkers/);
+  assert.match(source, /sequenceMarkerSamples/);
   assert.match(source, /invalidSamples/);
-  assert.match(html, /raw-stability-lab\.js\?v=2/);
+  assert.match(html, /raw-stability-lab\.js\?v=3/);
   assert.match(worker, /return \[`\$\{name\}@aggTrade`\];/);
   assert.doesNotMatch(worker, /return \[`\$\{name\}@trade`\];/);
-  assert.match(serviceWorker, /inpuls-26-33-orderbook-contracts-v1/);
+  assert.match(serviceWorker, /inpuls-26-34-raw-sequence-markers-v1/);
   assert.match(serviceWorker, /raw-stability-lab\.html/);
-  assert.match(serviceWorker, /raw-stability-lab\.js\?v=2/);
-  assert.match(serviceWorker, /raw-stability-core\.js\?v=2/);
+  assert.match(serviceWorker, /raw-stability-lab\.js\?v=3/);
+  assert.match(serviceWorker, /raw-stability-core\.js\?v=3/);
 });

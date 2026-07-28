@@ -1,6 +1,6 @@
 import { percentile, summarize } from "./trade-latency-core.js?v=2.1";
 
-export const RAW_STABILITY_SCHEMA_VERSION = 2;
+export const RAW_STABILITY_SCHEMA_VERSION = 3;
 export const RAW_STABILITY_MIN_VISIBLE_MS = 15 * 60 * 1_000;
 
 const DIAGNOSTIC_FIELDS = ["e", "E", "T", "s", "ps", "st", "t", "a", "f", "l", "p", "q", "nq", "m"];
@@ -18,6 +18,7 @@ export function diagnoseTradePayload(event, source, receiveAt, expectedSymbol = 
   const firstTradeId = raw ? id : Number(object.f);
   const lastTradeId = raw ? id : Number(object.l);
   const expected = expectedSymbol ? String(expectedSymbol).toUpperCase() : null;
+  const sequenceMarker = raw && price === 0 && quantity === 0;
 
   let reason = null;
   if (event !== object) reason = "payload-not-object";
@@ -25,14 +26,14 @@ export function diagnoseTradePayload(event, source, receiveAt, expectedSymbol = 
   else if (expected && symbol !== expected) reason = "symbol-mismatch";
   else if (!Number.isFinite(price)) reason = "invalid-price";
   else if (!Number.isFinite(quantity)) reason = "invalid-quantity";
-  else if (price <= 0) reason = "non-positive-price";
-  else if (quantity <= 0) reason = "non-positive-quantity";
   else if (!Number.isFinite(eventTime) || eventTime <= 0) reason = "invalid-event-time";
   else if (!Number.isFinite(tradeTime) || tradeTime <= 0) reason = "invalid-trade-time";
   else if (!Number.isFinite(received)) reason = "invalid-receive-time";
   else if (!Number.isInteger(id) || id < 0) reason = "invalid-event-id";
   else if (!Number.isInteger(firstTradeId) || firstTradeId < 0) reason = "invalid-first-trade-id";
   else if (!Number.isInteger(lastTradeId) || lastTradeId < firstTradeId) reason = "invalid-last-trade-id";
+  else if (!sequenceMarker && price <= 0) reason = "non-positive-price";
+  else if (!sequenceMarker && quantity <= 0) reason = "non-positive-quantity";
 
   const sequenceSample = Number.isInteger(id)
     && id >= 0
@@ -47,6 +48,7 @@ export function diagnoseTradePayload(event, source, receiveAt, expectedSymbol = 
     valid: reason === null,
     reason,
     symbol: symbol || "UNKNOWN",
+    sequenceMarker: reason === null && sequenceMarker,
     sequenceSample,
   };
 }
@@ -64,6 +66,26 @@ export function sanitizeTradePayload(event) {
   return {
     keys: Object.keys(object).sort(),
     fields,
+  };
+}
+
+export function normalizeSequenceMarker(event, source, receiveAt, expectedSymbol = null) {
+  const diagnosis = diagnoseTradePayload(event, source, receiveAt, expectedSymbol);
+  if (!diagnosis.valid || !diagnosis.sequenceMarker || !diagnosis.sequenceSample) return null;
+  return {
+    source: "trade",
+    symbol: diagnosis.symbol,
+    ...diagnosis.sequenceSample,
+    price: 0,
+    quantity: 0,
+    quote: 0,
+    eventTime: Number(event?.E ?? event?.T),
+    tradeTime: Number(event?.T ?? event?.E),
+    receiveAt: Number(receiveAt),
+    maker: Boolean(event?.m),
+    side: null,
+    renderAt: null,
+    sequenceMarker: true,
   };
 }
 
