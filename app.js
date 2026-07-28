@@ -7,7 +7,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=stable-book-tape-v3";
+import { aggregateFootprintClusters, aggregateTradePath, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=26-41-book-visuals-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 
@@ -1753,7 +1753,15 @@ function renderOrderBook(panel, data) {
   const upper = values.length ? values[Math.floor(values.length * .9)] : Infinity;
   const autoAnomaly = Math.max(median * 4, upper, 1);
   const anomaly = panel.model.highlightMode === "manual" ? Math.max(0, Number(panel.model.highlightMinQuote) || 0) : autoAnomaly;
-  const maxSize = Math.max(...values, 1);
+  // Keep the visual size scale stable while the user scrolls. The Worker sends
+  // the maximum real level from the whole known local book; projected depth is
+  // used only as a Legacy fallback.
+  const maxSize = maximumDepthQuote(
+    data.bids,
+    data.asks,
+    panel.priceStep,
+    data.sizeScaleMaxQuote,
+  );
   if (observability.enabled) {
     observability.record("orderbook.compute", performance.now() - phaseStartedAt, {
       symbol,
@@ -2869,7 +2877,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-40-security-v1";
+const INPULS_RUNTIME_BUILD = "26-41-book-visuals-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

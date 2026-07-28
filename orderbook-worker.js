@@ -88,6 +88,17 @@ function reconnectDelay(attempt = 0) {
   return exponential + jitter;
 }
 
+function maximumBookLevelQuote(bids, asks) {
+  let maximum = 1;
+  for (const levels of [bids, asks]) {
+    for (const [priceValue, quantityValue] of levels ?? []) {
+      const quote = Number(priceValue) * Number(quantityValue);
+      if (Number.isFinite(quote) && quote > maximum) maximum = quote;
+    }
+  }
+  return maximum;
+}
+
 function parsePayload(raw) {
   let payload;
   try { payload = JSON.parse(raw); } catch { return null; }
@@ -743,9 +754,12 @@ class SymbolFeed {
 
   sortedDepth() {
     if (this.cachedSorted) return this.cachedSorted;
-    const bids = [...this.bids.entries()].sort((a, b) => b[0] - a[0]).slice(0, MAX_EMITTED_LEVELS_PER_SIDE);
-    const asks = [...this.asks.entries()].sort((a, b) => a[0] - b[0]).slice(0, MAX_EMITTED_LEVELS_PER_SIDE);
-    this.cachedSorted = { bids, asks };
+    const rawBids = [...this.bids.entries()];
+    const rawAsks = [...this.asks.entries()];
+    const bids = rawBids.sort((a, b) => b[0] - a[0]).slice(0, MAX_EMITTED_LEVELS_PER_SIDE);
+    const asks = rawAsks.sort((a, b) => a[0] - b[0]).slice(0, MAX_EMITTED_LEVELS_PER_SIDE);
+    const sizeScaleMaxQuote = maximumBookLevelQuote(rawBids, rawAsks);
+    this.cachedSorted = { bids, asks, sizeScaleMaxQuote };
     return this.cachedSorted;
   }
 
@@ -787,6 +801,7 @@ class SymbolFeed {
           askPercent: Number.isFinite(highestAsk) ? Math.max(0, ((highestAsk - middle) / middle) * 100) : 0,
         },
         bookLevels: { bids: this.bids.size, asks: this.asks.size },
+        sizeScaleMaxQuote: fullView.sizeScaleMaxQuote,
         resyncCount: this.resyncCount,
         orderBookEvents: this.bookEvents.summary(),
         densityLifecycle: this.densityLifecycle.summary(now),

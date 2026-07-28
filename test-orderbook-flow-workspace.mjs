@@ -127,10 +127,10 @@ test("Flow Workspace redraw observer cannot trigger itself", () => {
   assert.match(source, /data-footprint-timeframe="60000"/);
   assert.match(source, /data-footprint-timeframe="300000"/);
   assert.doesNotMatch(source, /<span>Δ<\/span>/);
-  assert.match(
-    source,
-    /if \(state\.count\.textContent !== countText\) state\.count\.textContent = countText/,
-  );
+  assert.doesNotMatch(source, /PARTIAL ·/);
+  assert.doesNotMatch(source, /content: "TAPE"/);
+  assert.match(source, /FLOW_LAYER_VISIBILITY_EVENT/);
+  assert.match(source, /skip\("layer-hidden"\)/);
   assert.match(
     source,
     /if \(state\.flowCount\.textContent !== flowCountText\)/,

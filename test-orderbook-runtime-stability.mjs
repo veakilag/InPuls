@@ -12,12 +12,12 @@ const sw = readFileSync(new URL("./sw.js", import.meta.url), "utf8");
 const reset = readFileSync(new URL("./reset-v26.html", import.meta.url), "utf8");
 
 test("normal reload keeps one consistent runtime build", () => {
-  assert.match(index, /app\.js\?v=26-40-security-v1/);
-  assert.match(app, /orderbook\.js\?v=stable-book-tape-v3/);
+  assert.match(index, /app\.js\?v=26-41-book-visuals-v1/);
+  assert.match(app, /orderbook\.js\?v=26-41-book-visuals-v1/);
   assert.match(app, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=deep-book-tape-clusters-v2/);
-  assert.match(orderbook, /orderbook-worker\.js\?v=deep-book-tape-clusters-v2/);
-  assert.match(sw, /inpuls-26-40-security-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-41-book-visuals-v1/);
+  assert.match(orderbook, /orderbook-worker\.js\?v=26-41-book-visuals-v1/);
+  assert.match(sw, /inpuls-26-41-book-visuals-v1/);
   assert.match(reset, /Resume v2/);
   assert.doesNotMatch(app, /getRegistrations\(\).*unregister/s);
 });
@@ -43,9 +43,12 @@ test("workspace order is footprint then Tape then book", () => {
   assert.doesNotMatch(flow, /<span>Δ<\/span>/);
 });
 
-test("Tape no longer renders a second cluster overlay", () => {
-  assert.doesNotMatch(orderbook, /data-inpuls-clusters-visible/);
-  assert.doesNotMatch(orderbook, /if \(state\.clustersVisible\)/);
+test("Tape and footprint visibility controls stay independent", () => {
+  assert.match(orderbook, /data-inpuls-tape-visible/);
+  assert.match(orderbook, /data-inpuls-clusters-visible/);
+  assert.match(orderbook, /clustersVisible: localStorage\.getItem\(CLUSTERS_VISIBLE_KEY\) !== "0"/);
+  assert.match(orderbook, /is-tape-hidden/);
+  assert.match(orderbook, /is-clusters-hidden/);
 });
 
 test("RX uses calibrated Binance server time", () => {

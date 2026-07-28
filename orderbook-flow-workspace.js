@@ -12,6 +12,7 @@ export const FLOW_WORKSPACE = Object.freeze({
 
 export const FOOTPRINT_TIMEFRAMES = Object.freeze([60_000, 5 * 60_000]);
 const FOOTPRINT_TIMEFRAME_KEY = "inpuls-footprint-timeframe-v1";
+const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
 const FOOTPRINT_MINUTE_MS = 60_000;
 const FOOTPRINT_RETAIN_MINUTES = 30;
 const FOOTPRINT_MIN_COLUMN_PX = 82;
@@ -440,6 +441,25 @@ function injectStyles() {
       grid-template-areas: "clusters split-a tape split-b book" !important;
       min-width: 0;
     }
+    .orderbook-card.is-clusters-hidden .orderbook-stage.inpuls-flow-workspace {
+      grid-template-columns:
+        0
+        0
+        minmax(${FLOW_WORKSPACE.minimumTapePx}px, 1fr)
+        7px
+        minmax(${FLOW_WORKSPACE.minimumBookPx}px, var(--flow-book-width, 22%)) !important;
+    }
+    .orderbook-card.is-tape-hidden .orderbook-stage.inpuls-flow-workspace {
+      grid-template-columns:
+        minmax(${FLOW_WORKSPACE.minimumPanePx}px, var(--flow-cluster-width, 24%))
+        7px
+        0
+        0
+        minmax(${FLOW_WORKSPACE.minimumBookPx}px, 1fr) !important;
+    }
+    .orderbook-card.is-clusters-hidden.is-tape-hidden .orderbook-stage.inpuls-flow-workspace {
+      grid-template-columns: 0 0 0 0 minmax(0, 1fr) !important;
+    }
     .orderbook-card .inpuls-footprint-pane {
       grid-area: clusters;
       position: relative;
@@ -512,10 +532,11 @@ function injectStyles() {
     .orderbook-card .inpuls-flow-splitter[data-flow-split="tape"] { grid-area: split-b; }
     .orderbook-card .book-splitter { display: none !important; }
     .orderbook-card [data-book-clusters] { display: none !important; }
-    .orderbook-card .trade-tape-toolbar::before {
-      content: "TAPE";
-      color: #8fa5af;
-      font: 800 8px/1 Inter, system-ui, sans-serif;
+    .orderbook-card.is-clusters-hidden .inpuls-footprint-pane,
+    .orderbook-card.is-clusters-hidden .inpuls-flow-splitter[data-flow-split="clusters"],
+    .orderbook-card.is-tape-hidden .orderbook-tape,
+    .orderbook-card.is-tape-hidden .inpuls-flow-splitter[data-flow-split="tape"] {
+      display: none !important;
     }
     .orderbook-card .inpuls-flow-count {
       flex: 0 0 auto;
@@ -634,10 +655,8 @@ function ensureCard(card) {
   pane.setAttribute("aria-label", "Footprint-кластеры исполненных сделок");
   pane.innerHTML = `
     <div class="inpuls-footprint-toolbar">
-      <span>КЛАСТЕРЫ</span>
       <button type="button" data-footprint-timeframe="60000" class="is-active" aria-pressed="true">1М</button>
       <button type="button" data-footprint-timeframe="300000" aria-pressed="false">5М</button>
-      <strong data-footprint-count>PARTIAL · 0</strong>
     </div>
     <canvas class="inpuls-footprint-canvas"></canvas>
   `;
@@ -670,7 +689,6 @@ function ensureCard(card) {
     pane,
     canvas,
     context: canvas.getContext("2d"),
-    count: pane.querySelector("[data-footprint-count]"),
     flowCount,
     visible: true,
     timeframeMs: FOOTPRINT_TIMEFRAMES.includes(
@@ -724,6 +742,11 @@ function renderCard(card, state) {
   });
   if (!symbol || !state.context) {
     skip(!symbol ? "missing-symbol" : "missing-context");
+    return;
+  }
+  state.visible = !card.classList.contains("is-clusters-hidden");
+  if (!state.visible) {
+    skip("layer-hidden");
     return;
   }
   if (state.lastSymbol !== symbol) {
@@ -882,10 +905,7 @@ function renderCard(card, state) {
     });
   }
 
-  const currentInterval = intervals.at(-1);
   const totalCount = intervals.reduce((sum, interval) => sum + interval.count, 0);
-  const countText = `${currentInterval?.partial ? "PARTIAL" : "FULL"} · ${currentInterval?.count ?? 0}`;
-  if (state.count.textContent !== countText) state.count.textContent = countText;
   const flowCountText = `${totalCount} trades`;
   if (state.flowCount.textContent !== flowCountText) {
     state.flowCount.textContent = flowCountText;
@@ -944,6 +964,11 @@ function install() {
   injectStyles();
   globalThis.addEventListener("inpuls:tape-data", acceptTape);
   globalThis.addEventListener("inpuls:book-status", acceptBookStatus);
+  globalThis.addEventListener(FLOW_LAYER_VISIBILITY_EVENT, (event) => {
+    const card = event?.detail?.card;
+    if (!(card instanceof Element) || !card.matches(".orderbook-card")) return;
+    requestDraw(card);
+  });
   document.querySelectorAll(".orderbook-card").forEach(ensureCard);
 
   const observer = new MutationObserver((mutations) => {

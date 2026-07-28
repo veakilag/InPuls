@@ -9,8 +9,8 @@ test("browser entry points keep user version v23 and identify the current releas
     source("index.html"), source("app.js"), source("sw.js"), source("refresh.html"), source("VERSION.txt"),
   ]);
   for (const text of [html, app, worker, refresh, version]) assert.doesNotMatch(text, /(?:v|build=|\?v=)22\b/);
-  assert.match(html, /inpuls-build" content="26-40-security-v1"/);
-  assert.match(worker, /inpuls-26-40-security-v1/);
+  assert.match(html, /inpuls-build" content="26-41-book-visuals-v1"/);
+  assert.match(worker, /inpuls-26-41-book-visuals-v1/);
   assert.match(html, /SCREENER <small>v23<\/small>/);
   assert.match(version, /^InPuls v23/m);
 });
@@ -37,6 +37,7 @@ test("v23 DOM exposes fixed price steps, live Tape and footprint controls", asyn
   assert.match(app, /function formatBookPrice\(value, baseTick\)/);
   assert.match(app, /minimumFractionDigits: fractionDigits/);
   assert.match(app, /--book-size-label-space/);
+  assert.match(app, /maximumDepthQuote\([\s\S]*data\.sizeScaleMaxQuote/);
   assert.doesNotMatch(app, /priceStepForDepthPercent/);
 });
 
@@ -74,8 +75,8 @@ test("browser entry points carry a restrictive CSP and reset scripts stay extern
   }
   assert.doesNotMatch(pages[3], /<script>(?:.|\n)*getRegistrations/);
   assert.doesNotMatch(pages[4], /<script>(?:.|\n)*getRegistrations/);
-  assert.match(pages[3], /refresh\.js\?v=26-40-security-v1/);
-  assert.match(pages[4], /reset\.js\?v=26-40-security-v1/);
+  assert.match(pages[3], /refresh\.js\?v=26-41-book-visuals-v1/);
+  assert.match(pages[4], /reset\.js\?v=26-41-book-visuals-v1/);
 });
 
 test("Service Worker installs atomically and validates cached response types", async () => {

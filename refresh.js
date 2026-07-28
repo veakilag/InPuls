@@ -1,6 +1,6 @@
 import { clearInPulsRuntime } from "./pwa-reset.js";
 
-const BUILD = "26-40-security-v1";
+const BUILD = "26-41-book-visuals-v1";
 const button = document.getElementById("refresh");
 const status = document.getElementById("status");
 

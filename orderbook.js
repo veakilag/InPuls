@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v3";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=deep-book-tape-clusters-v2";
+import "./orderbook-flow-workspace.js?v=26-41-book-visuals-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-lifecycle-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -27,6 +27,17 @@ export function depthView(bids, asks, limit = 24) {
     bids: [...bids.entries()].sort((left, right) => right[0] - left[0]).slice(0, safeLimit),
     asks: [...asks.entries()].sort((left, right) => left[0] - right[0]).slice(0, safeLimit),
   };
+}
+
+function maximumBookLevelQuote(bids, asks) {
+  let maximum = 1;
+  for (const levels of [bids, asks]) {
+    for (const [priceValue, quantityValue] of levels ?? []) {
+      const quote = Number(priceValue) * Number(quantityValue);
+      if (Number.isFinite(quote) && quote > maximum) maximum = quote;
+    }
+  }
+  return maximum;
 }
 
 export function partialDepthView(event, limit = 20) {
@@ -381,6 +392,16 @@ export function buildDepthLadder(bids, asks, marketPrice, viewCenter, priceStep,
   });
 }
 
+export function maximumDepthQuote(bids, asks, priceStep, fullBookMaximum = null) {
+  const stableMaximum = Number(fullBookMaximum);
+  if (Number.isFinite(stableMaximum) && stableMaximum > 0) return stableMaximum;
+  const values = [
+    ...aggregateDepthByStep(bids, "bid", priceStep),
+    ...aggregateDepthByStep(asks, "ask", priceStep),
+  ];
+  return Math.max(1, ...values.map((row) => Number(row.quote) || 0));
+}
+
 export function clampDepthViewCenter(viewCenter, priceStep, rowCount) {
   const step = Math.max(Number.EPSILON, Number(priceStep) || .01);
   const count = Math.max(3, Math.floor(Number(rowCount) || 3));
@@ -731,6 +752,7 @@ class LegacyOrderBookFeed {
     this.depthReady = false;
     this.snapshotLoading = false;
     this.cachedDepth = null;
+    this.cachedSizeScaleMaxQuote = 1;
     this.resyncCount = 0;
     this.bookEvents = new globalThis.InPulsOrderBookEvents.DepthEventJournal();
     this.densityLifecycle = new globalThis.InPulsOrderBookDensity.DensityLifecycleTracker();
@@ -792,6 +814,7 @@ class LegacyOrderBookFeed {
     this.depthReady = false;
     this.snapshotLoading = false;
     this.cachedDepth = null;
+    this.cachedSizeScaleMaxQuote = 1;
     const bookEpoch = this.bookEvents.reset(reason);
     this.densityLifecycle.reset({ bookEpoch, reason });
   }
@@ -854,6 +877,7 @@ class LegacyOrderBookFeed {
   #emit(eventTime = Date.now(), refreshDepth = false) {
     if (refreshDepth || !this.cachedDepth) {
       this.cachedDepth = depthView(this.bids, this.asks, MAX_EMITTED_LEVELS_PER_SIDE);
+      this.cachedSizeScaleMaxQuote = maximumBookLevelQuote(this.bids, this.asks);
     }
     const fullView = this.cachedDepth;
     const view = globalThis.InPulsOrderBookDepthProjection.compactDepthView(fullView, {
@@ -877,6 +901,7 @@ class LegacyOrderBookFeed {
       depthReady: this.depthReady,
       coverage: depthCoverage(fullView.bids, fullView.asks),
       bookLevels: { bids: this.bids.size, asks: this.asks.size },
+      sizeScaleMaxQuote: this.cachedSizeScaleMaxQuote,
       resyncCount: this.resyncCount,
       orderBookEvents: this.bookEvents.summary(),
       densityLifecycle: this.densityLifecycle.summary(densityNow),
@@ -1241,7 +1266,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=deep-book-tape-clusters-v2", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-41-book-visuals-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1655,9 +1680,10 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-39-stable-book-tape-v3";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-41-book-visuals-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
+const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
 const TAPE_MAX_STORED = 4_000;
 const TAPE_MAX_RAW_VISIBLE = TAPE_MAX_STORED;
 const TAPE_MAX_AGG_VISIBLE = 900;
@@ -1912,7 +1938,7 @@ function installOrderBookStyles() {
       background: rgba(66, 225, 173, .09);
     }
     .orderbook-card .orderbook-heading [data-book-ticker] {
-      max-width: min(42%, 210px);
+      max-width: min(38%, 210px);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -1979,9 +2005,13 @@ function installOrderBookStyles() {
     }
     .orderbook-card .book-ladder-row .book-size {
       min-width: 0;
-      padding-right: 4px;
-      justify-content: flex-end;
-      text-align: right;
+      z-index: 0;
+      padding: 0 2px;
+      justify-content: flex-start;
+      color: #050708 !important;
+      text-align: left;
+      text-shadow: none !important;
+      font-weight: 850 !important;
     }
     .orderbook-card .book-ladder-row strong {
       width: 100% !important;
@@ -1993,39 +2023,53 @@ function installOrderBookStyles() {
       white-space: nowrap;
     }
     .orderbook-card .book-ladder-row .book-size::before {
-      right: calc(var(--book-size-label-space, 0px) + 2px) !important;
-      left: auto !important;
-      width: max(var(--size), 3px) !important;
-      max-width: calc(100% - var(--book-size-label-space, 0px) - 2px) !important;
-      min-width: 3px !important;
-      opacity: .78 !important;
+      right: auto !important;
+      left: 0 !important;
+      width: max(var(--size), var(--book-size-label-space, 0px)) !important;
+      max-width: 100% !important;
+      min-width: 0 !important;
+      opacity: .86 !important;
+      transform-origin: left center !important;
     }
     .orderbook-card .book-ladder-row .book-size {
-      overflow: visible !important;
+      overflow: hidden !important;
       isolation: isolate;
     }
+    .orderbook-card .book-ladder-row.is-bid .book-size::before {
+      background: var(--green) !important;
+    }
+    .orderbook-card .book-ladder-row.is-ask .book-size::before {
+      background: var(--red) !important;
+    }
     .orderbook-card .book-ladder-row.is-price-half:not(.is-market) {
-      background: rgba(151, 166, 177, .035);
+      background: rgba(151, 166, 177, .065);
     }
     .orderbook-card .book-ladder-row.is-price-half:not(.is-market) strong {
-      color: color-mix(in srgb, currentColor 88%, #dce8ed);
-      font-weight: 760;
+      border-left: 1px solid rgba(190, 204, 214, .28);
+      color: #c9d5da;
+      font-weight: 800;
     }
     .orderbook-card .book-ladder-row.is-price-round:not(.is-market) {
-      background: rgba(166, 181, 192, .075);
-      box-shadow: inset 0 1px rgba(190, 204, 214, .09),
-                  inset 0 -1px rgba(190, 204, 214, .06);
+      background: color-mix(in srgb, var(--accent) 11%, rgba(166, 181, 192, .11));
+      box-shadow: inset 0 1px rgba(218, 229, 235, .16),
+                  inset 0 -1px rgba(218, 229, 235, .11);
     }
     .orderbook-card .book-ladder-row.is-price-round:not(.is-market) strong {
-      color: #e6eef2;
-      font-weight: 900;
+      border-left: 2px solid color-mix(in srgb, var(--accent) 76%, #fff);
+      color: #f5fafc;
+      font-weight: 950;
+      letter-spacing: .015em;
     }
-    .orderbook-card .book-ladder-row.is-anomaly .book-size,
     .orderbook-card .book-ladder-row.is-anomaly strong,
-    .orderbook-card .book-ladder-row.is-market .book-size,
     .orderbook-card .book-ladder-row.is-market strong {
       color: #f6fbfd !important;
       text-shadow: 0 1px 2px rgba(0, 0, 0, .92);
+      font-weight: 900 !important;
+    }
+    .orderbook-card .book-ladder-row.is-anomaly .book-size,
+    .orderbook-card .book-ladder-row.is-market .book-size {
+      color: #050708 !important;
+      text-shadow: none !important;
       font-weight: 900 !important;
     }
     .orderbook-card .book-ladder-row.is-anomaly .book-size::before {
@@ -2047,11 +2091,11 @@ function installOrderBookStyles() {
       border-color: color-mix(in srgb, var(--accent) 62%, var(--line));
       background: color-mix(in srgb, var(--accent) 11%, transparent);
     }
-    .orderbook-card.is-flow-hidden .orderbook-stage {
+    .orderbook-card.is-flow-hidden .orderbook-stage:not(.inpuls-flow-workspace) {
       grid-template-columns: 0 0 minmax(0, 1fr) !important;
     }
-    .orderbook-card.is-flow-hidden .orderbook-tape,
-    .orderbook-card.is-flow-hidden .book-splitter {
+    .orderbook-card.is-flow-hidden .orderbook-stage:not(.inpuls-flow-workspace) .orderbook-tape,
+    .orderbook-card.is-flow-hidden .orderbook-stage:not(.inpuls-flow-workspace) .book-splitter {
       display: none !important;
     }
     .orderbook-card .inpuls-layer-dock {
@@ -2060,6 +2104,9 @@ function installOrderBookStyles() {
       align-items: center;
       gap: 2px;
       min-width: 0;
+    }
+    .orderbook-card .orderbook-heading > .inpuls-layer-dock {
+      margin-left: 1px;
     }
     .orderbook-card .inpuls-liquidity-meter {
       position: absolute;
@@ -2374,9 +2421,24 @@ function syncTapeModeButton(button, state) {
 
 function syncLayerButtons(card, state) {
   const tapeButton = state.layerControls?.querySelector("[data-inpuls-tape-visible]");
+  const clustersButton = state.layerControls?.querySelector("[data-inpuls-clusters-visible]");
   tapeButton?.classList.toggle("is-active", state.tapeVisible);
   tapeButton?.setAttribute("aria-pressed", String(state.tapeVisible));
-  card.classList.toggle("is-flow-hidden", !state.tapeVisible);
+  clustersButton?.classList.toggle("is-active", state.clustersVisible);
+  clustersButton?.setAttribute("aria-pressed", String(state.clustersVisible));
+  card.classList.toggle("is-tape-hidden", !state.tapeVisible);
+  card.classList.toggle("is-clusters-hidden", !state.clustersVisible);
+  card.classList.toggle("is-flow-hidden", !state.tapeVisible && !state.clustersVisible);
+}
+
+function notifyFlowLayerVisibility(card, state) {
+  globalThis.dispatchEvent?.(new CustomEvent(FLOW_LAYER_VISIBILITY_EVENT, {
+    detail: {
+      card,
+      tapeVisible: state.tapeVisible,
+      clustersVisible: state.clustersVisible,
+    },
+  }));
 }
 
 function ensureTapeUi(card) {
@@ -2398,7 +2460,7 @@ function ensureTapeUi(card) {
       mode: localStorage.getItem(TAPE_MODE_KEY) === "agg" ? "agg" : "raw",
       minQuote: savedMinimum === null ? 0 : Math.max(0, Number(savedMinimum) || 0),
       tapeVisible: localStorage.getItem(TAPE_VISIBLE_KEY) !== "0",
-      clustersVisible: false,
+      clustersVisible: localStorage.getItem(CLUSTERS_VISIBLE_KEY) !== "0",
       controls: null,
       layerControls: null,
       liquidity: null,
@@ -2481,20 +2543,30 @@ function ensureTapeUi(card) {
     syncTapeModeButton(state.controls.querySelector("[data-inpuls-tape-mode]"), state);
   }
 
-  const paneActions = card.querySelector(".inpuls-book-pane-actions");
-  if (paneActions && (!state.layerControls?.isConnected || state.layerControls.parentElement !== paneActions)) {
+  const heading = card.querySelector(".orderbook-heading");
+  const ticker = heading?.querySelector("[data-book-ticker]");
+  if (heading && ticker && (!state.layerControls?.isConnected || state.layerControls.parentElement !== heading)) {
     state.layerControls?.remove();
     const layerControls = document.createElement("div");
     layerControls.className = "inpuls-layer-dock";
     layerControls.innerHTML = `
-      <button data-inpuls-tape-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть ленту">TAPE</button>`;
-    paneActions.prepend(layerControls);
+      <button data-inpuls-tape-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть ленту">ЛЕНТА</button>
+      <button data-inpuls-clusters-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть footprint-кластеры">КЛАСТЕРЫ</button>`;
+    ticker.after(layerControls);
     state.layerControls = layerControls;
 
     layerControls.querySelector("[data-inpuls-tape-visible]").addEventListener("click", () => {
       state.tapeVisible = !state.tapeVisible;
       localStorage.setItem(TAPE_VISIBLE_KEY, state.tapeVisible ? "1" : "0");
       syncLayerButtons(card, state);
+      notifyFlowLayerVisibility(card, state);
+      scheduleTapeDraw(true, card);
+    });
+    layerControls.querySelector("[data-inpuls-clusters-visible]").addEventListener("click", () => {
+      state.clustersVisible = !state.clustersVisible;
+      localStorage.setItem(CLUSTERS_VISIBLE_KEY, state.clustersVisible ? "1" : "0");
+      syncLayerButtons(card, state);
+      notifyFlowLayerVisibility(card, state);
       scheduleTapeDraw(true, card);
     });
   }
