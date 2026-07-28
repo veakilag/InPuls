@@ -17,23 +17,30 @@ test("renderer uses readable layout and removes RAW labels", () => {
   assert.match(orderbook, /adaptiveRawDiameter/);
   assert.match(orderbook, /selectReadableAggLabels/);
   assert.match(orderbook, /drawTapeTimeline\(context, rect, window\)/);
-  assert.match(orderbook, /context\.fillText\("NOW",/);
+  assert.match(orderbook, /const plotRight = safeWidth;/);
+  assert.doesNotMatch(orderbook, /fillText\("NOW"/);
+  assert.doesNotMatch(orderbook, /TAPE_NOW_GUTTER_PX/);
   assert.doesNotMatch(orderbook, /rawLabelThreshold/);
   assert.doesNotMatch(orderbook, /item\.quote >= rawLabelThreshold/);
   assert.match(orderbook, /const showLabel = aggLabels\.has\(item\.key\)/);
 });
 
 test("Flow Workspace cache and reset page point to the new runtime", () => {
-  assert.match(orderbook, /inpuls-orderbook-runtime-26-28-resume-v2/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=render-scheduler-v1/);
-  assert.match(serviceWorker, /inpuls-26-36-density-lifecycle-v1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=density-lifecycle-v1/);
+  assert.match(orderbook, /inpuls-orderbook-runtime-26-37-multi-dom-live-tape-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=multi-dom-live-tape-v1/);
+  assert.match(serviceWorker, /inpuls-26-37-multi-dom-live-tape-v1/);
+  assert.match(serviceWorker, /orderbook\.js\?v=multi-dom-live-tape-v1/);
   assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(serviceWorker, /orderbook-worker\.js\?v=density-lifecycle-v1/);
+  assert.match(serviceWorker, /orderbook-worker\.js\?v=multi-dom-live-tape-v1/);
   assert.match(serviceWorker, /orderbook-tape-layout\.js\?v=26-25-tape-v2-1/);
   assert.match(serviceWorker, /orderbook-tape-latency\.js\?v=worker-bp-v1/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=render-scheduler-v1/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=multi-dom-live-tape-v1/);
   assert.match(resetPage, /Resume v2/);
-  assert.match(resetPage, /sw\.js\?v=26-36-density-lifecycle-v1/);
-  assert.match(resetPage, /build=26-36-density-lifecycle-v1/);
+  assert.match(resetPage, /sw\.js\?v=26-37-multi-dom-live-tape-v1/);
+  assert.match(resetPage, /build=26-37-multi-dom-live-tape-v1/);
+});
+
+test("production TAPE accepts only live packets and starts from an empty frame", () => {
+  assert.match(orderbook, /if \(!detail\?\.replace && !detail\?\.live\) return;/);
+  assert.match(orderbook, /const incoming = detail\?\.live && Array\.isArray\(detail\?\.trades\)/);
 });

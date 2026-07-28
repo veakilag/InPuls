@@ -9,7 +9,7 @@ import {
 } from './orderbook-tape-layout.js';
 
 function windowFor(width, duration=12000) {
-  return { startTime: 1000, duration, endTime: 1000+duration, plotRight: width-16 };
+  return { startTime: 1000, duration, endTime: 1000+duration, plotRight: width };
 }
 
 test('sparse trades stay on real time', () => {

@@ -2,11 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import {
+  FOOTPRINT_TIMEFRAMES,
   FLOW_WORKSPACE,
   buildFootprintColumns,
+  createFootprintAccumulator,
   flowWindow,
+  footprintIntervalSnapshot,
   footprintBucketMs,
   footprintTone,
+  ingestFootprintTrades,
   mergeFlowTrades,
   normalizeFlowTrade,
   visibleFlowCount,
@@ -54,6 +58,37 @@ test("footprint tone reports buy and sell dominance", () => {
   assert.equal(footprintTone({ buyQuote: 50, sellQuote: 50 }), 0);
 });
 
+test("1M and 5M clusters use aligned live intervals without delta", () => {
+  const accumulator = createFootprintAccumulator();
+  ingestFootprintTrades(accumulator, [
+    { id: 1, price: 100, quantity: 1, quote: 100, time: 61_000, side: "buy" },
+    { id: 2, price: 100, quantity: 2, quote: 200, time: 62_000, side: "sell" },
+    { id: 3, price: 101, quantity: 1, quote: 101, time: 121_000, side: "buy" },
+  ]);
+
+  const oneMinute = footprintIntervalSnapshot(accumulator, 60_000, 62_500);
+  assert.equal(oneMinute.startTime, 60_000);
+  assert.equal(oneMinute.endTime, 120_000);
+  assert.equal(oneMinute.partial, true);
+  assert.equal(oneMinute.count, 2);
+  assert.equal(oneMinute.cells[0].buyQuote, 100);
+  assert.equal(oneMinute.cells[0].sellQuote, 200);
+
+  const fiveMinutes = footprintIntervalSnapshot(accumulator, 300_000, 122_000);
+  assert.equal(fiveMinutes.count, 3);
+  assert.equal(fiveMinutes.cells.length, 2);
+  assert.deepEqual([...FOOTPRINT_TIMEFRAMES], [60_000, 300_000]);
+});
+
+test("a live reset clears both cluster timeframes", () => {
+  const accumulator = ingestFootprintTrades(createFootprintAccumulator(), [
+    { id: 1, price: 100, quantity: 1, quote: 100, time: 61_000, side: "buy" },
+  ]);
+  ingestFootprintTrades(accumulator, [], { replace: true });
+  assert.equal(footprintIntervalSnapshot(accumulator, 60_000, 62_000).count, 0);
+  assert.equal(footprintIntervalSnapshot(accumulator, 300_000, 62_000).count, 0);
+});
+
 test("Flow Workspace redraw observer cannot trigger itself", () => {
   const source = readFileSync(
     new URL("./orderbook-flow-workspace.js", import.meta.url),
@@ -61,12 +96,19 @@ test("Flow Workspace redraw observer cannot trigger itself", () => {
   );
   assert.match(source, /observer\.observe\(bookRows,/);
   assert.doesNotMatch(source, /observer\.observe\(card,/);
+  assert.doesNotMatch(
+    source.match(/observer\.observe\(bookRows,[\s\S]*?\}\);/)?.[0] ?? "",
+    /characterData/,
+  );
+  assert.match(source, /data-footprint-timeframe="60000"/);
+  assert.match(source, /data-footprint-timeframe="300000"/);
+  assert.doesNotMatch(source, /<span>Δ<\/span>/);
   assert.match(
     source,
     /if \(state\.count\.textContent !== countText\) state\.count\.textContent = countText/,
   );
   assert.match(
     source,
-    /if \(state\.flowCount\.textContent !== countText\) state\.flowCount\.textContent = countText/,
+    /if \(state\.flowCount\.textContent !== flowCountText\)/,
   );
 });

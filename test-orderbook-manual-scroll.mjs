@@ -38,15 +38,16 @@ test("manual orderbook scroll remains authoritative", () => {
   );
 });
 
-test("Ctrl+wheel still changes only the selected price step", () => {
+test("Ctrl+wheel changes the comparable percent depth preset", () => {
   assert.match(
     appSource,
-    /if \(event\.ctrlKey \|\| event\.metaKey\) \{[\s\S]*?model\.bookScaleIndex = Math\.max\(/,
-    "Ctrl+wheel price-step control must remain present",
+    /if \(event\.ctrlKey \|\| event\.metaKey\) \{[\s\S]*?BOOK_DEPTH_PERCENT_PRESETS/,
+    "Ctrl+wheel comparable-depth control must remain present",
   );
   assert.match(
     appSource,
-    /panel\.autoScaleIndex = model\.bookScaleIndex;/,
-    "selected price step must remain the active scale",
+    /model\.bookDepthPercent = BOOK_DEPTH_PERCENT_PRESETS\[nextIndex\];/,
+    "the selected percent depth must be persisted",
   );
+  assert.doesNotMatch(appSource, /model\.bookScaleIndex = Math\.max\(/);
 });

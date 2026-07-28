@@ -1,7 +1,7 @@
 import { observability } from "./observability.js?v=render-scheduler-v1";
 
 export const FLOW_WORKSPACE = Object.freeze({
-  historyMs: 15_000,
+  historyMs: 5 * 60_000,
   minimumBucketMs: 250,
   maximumColumns: 28,
   maximumTrades: 6_000,
@@ -9,6 +9,11 @@ export const FLOW_WORKSPACE = Object.freeze({
   minimumTapePx: 160,
   minimumBookPx: 104,
 });
+
+export const FOOTPRINT_TIMEFRAMES = Object.freeze([60_000, 5 * 60_000]);
+const FOOTPRINT_TIMEFRAME_KEY = "inpuls-footprint-timeframe-v1";
+const FOOTPRINT_MINUTE_MS = 60_000;
+const FOOTPRINT_RETAIN_MINUTES = 6;
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
@@ -172,7 +177,120 @@ export function visibleFlowCount(trades, startTime, endTime) {
   return count;
 }
 
-const tradesBySymbol = new Map();
+export function footprintIntervalStart(time, timeframeMs = FOOTPRINT_TIMEFRAMES[0]) {
+  const at = Number(time) || Date.now();
+  const timeframe = FOOTPRINT_TIMEFRAMES.includes(Number(timeframeMs))
+    ? Number(timeframeMs)
+    : FOOTPRINT_TIMEFRAMES[0];
+  return Math.floor(at / timeframe) * timeframe;
+}
+
+export function createFootprintAccumulator() {
+  return { minutes: new Map() };
+}
+
+function minuteBucket(accumulator, startTime) {
+  const bucket = accumulator.minutes.get(startTime) ?? {
+    startTime,
+    endTime: startTime + FOOTPRINT_MINUTE_MS,
+    count: 0,
+    quote: 0,
+    cells: new Map(),
+  };
+  accumulator.minutes.set(startTime, bucket);
+  return bucket;
+}
+
+function pruneFootprintAccumulator(accumulator, referenceTime = Date.now()) {
+  const currentMinute = footprintIntervalStart(referenceTime, FOOTPRINT_MINUTE_MS);
+  const minimum = currentMinute - (FOOTPRINT_RETAIN_MINUTES - 1) * FOOTPRINT_MINUTE_MS;
+  for (const startTime of accumulator.minutes.keys()) {
+    if (startTime < minimum || startTime > currentMinute) {
+      accumulator.minutes.delete(startTime);
+    }
+  }
+}
+
+export function ingestFootprintTrades(accumulator, incoming, { replace = false } = {}) {
+  const target = accumulator?.minutes instanceof Map
+    ? accumulator
+    : createFootprintAccumulator();
+  if (replace) target.minutes.clear();
+  let latestTime = 0;
+
+  for (const rawTrade of incoming ?? []) {
+    const trade = normalizeFlowTrade(rawTrade);
+    if (!trade) continue;
+    latestTime = Math.max(latestTime, trade.time);
+    const startTime = footprintIntervalStart(trade.time, FOOTPRINT_MINUTE_MS);
+    const bucket = minuteBucket(target, startTime);
+    const priceKey = Number(trade.price).toPrecision(15);
+    const cell = bucket.cells.get(priceKey) ?? {
+      price: trade.price,
+      buyQuote: 0,
+      sellQuote: 0,
+      quote: 0,
+      count: 0,
+    };
+    cell[trade.side === "sell" ? "sellQuote" : "buyQuote"] += trade.quote;
+    cell.quote += trade.quote;
+    cell.count += 1;
+    bucket.cells.set(priceKey, cell);
+    bucket.quote += trade.quote;
+    bucket.count += 1;
+  }
+
+  pruneFootprintAccumulator(target, latestTime || Date.now());
+  return target;
+}
+
+export function footprintIntervalSnapshot(
+  accumulator,
+  timeframeMs = FOOTPRINT_TIMEFRAMES[0],
+  now = Date.now(),
+) {
+  const timeframe = FOOTPRINT_TIMEFRAMES.includes(Number(timeframeMs))
+    ? Number(timeframeMs)
+    : FOOTPRINT_TIMEFRAMES[0];
+  const startTime = footprintIntervalStart(now, timeframe);
+  const endTime = startTime + timeframe;
+  const cells = new Map();
+  let count = 0;
+  let quote = 0;
+
+  for (const bucket of accumulator?.minutes?.values?.() ?? []) {
+    if (bucket.startTime < startTime || bucket.startTime >= endTime) continue;
+    count += bucket.count;
+    quote += bucket.quote;
+    for (const source of bucket.cells.values()) {
+      const priceKey = Number(source.price).toPrecision(15);
+      const cell = cells.get(priceKey) ?? {
+        price: source.price,
+        buyQuote: 0,
+        sellQuote: 0,
+        quote: 0,
+        count: 0,
+      };
+      cell.buyQuote += source.buyQuote;
+      cell.sellQuote += source.sellQuote;
+      cell.quote += source.quote;
+      cell.count += source.count;
+      cells.set(priceKey, cell);
+    }
+  }
+
+  return {
+    timeframe,
+    startTime,
+    endTime,
+    partial: Number(now) < endTime,
+    count,
+    quote,
+    cells: [...cells.values()].sort((left, right) => right.price - left.price),
+  };
+}
+
+const footprintBySymbol = new Map();
 const statusBySymbol = new Map();
 const cardStates = new WeakMap();
 const dirtyCards = new Set();
@@ -470,9 +588,9 @@ function ensureCard(card) {
   pane.innerHTML = `
     <div class="inpuls-footprint-toolbar">
       <span>КЛАСТЕРЫ</span>
-      <button type="button" data-footprint-toggle class="is-active" aria-pressed="true">КЛ</button>
-      <span>Δ</span>
-      <strong data-footprint-count>0 trades</strong>
+      <button type="button" data-footprint-timeframe="60000" class="is-active" aria-pressed="true">1М</button>
+      <button type="button" data-footprint-timeframe="300000" aria-pressed="false">5М</button>
+      <strong data-footprint-count>PARTIAL · 0</strong>
     </div>
     <canvas class="inpuls-footprint-canvas"></canvas>
   `;
@@ -508,18 +626,33 @@ function ensureCard(card) {
     count: pane.querySelector("[data-footprint-count]"),
     flowCount,
     visible: true,
+    timeframeMs: FOOTPRINT_TIMEFRAMES.includes(
+      Number(localStorage.getItem(FOOTPRINT_TIMEFRAME_KEY)),
+    )
+      ? Number(localStorage.getItem(FOOTPRINT_TIMEFRAME_KEY))
+      : FOOTPRINT_TIMEFRAMES[0],
     hasFrame: false,
     lastSymbol: null,
   };
   cardStates.set(card, state);
 
-  pane.querySelector("[data-footprint-toggle]").addEventListener("click", (event) => {
-    state.visible = !state.visible;
-    event.currentTarget.classList.toggle("is-active", state.visible);
-    event.currentTarget.setAttribute("aria-pressed", String(state.visible));
-    canvas.style.display = state.visible ? "" : "none";
-    requestDraw(card);
+  const syncTimeframes = () => {
+    pane.querySelectorAll("[data-footprint-timeframe]").forEach((button) => {
+      const active = Number(button.dataset.footprintTimeframe) === state.timeframeMs;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+  };
+  pane.querySelectorAll("[data-footprint-timeframe]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.timeframeMs = Number(button.dataset.footprintTimeframe);
+      localStorage.setItem(FOOTPRINT_TIMEFRAME_KEY, String(state.timeframeMs));
+      syncTimeframes();
+      state.hasFrame = false;
+      requestDraw(card);
+    });
   });
+  syncTimeframes();
 
   bindSplitter(card, splitClusters, "clusters");
   bindSplitter(card, splitTape, "tape");
@@ -529,8 +662,6 @@ function ensureCard(card) {
   if (bookRows) {
     observer.observe(bookRows, {
       childList: true,
-      subtree: true,
-      characterData: true,
     });
   }
   state.observer = observer;
@@ -557,7 +688,6 @@ function renderCard(card, state) {
     skip("recovery-frozen");
     return;
   }
-  const trades = tradesBySymbol.get(symbol) ?? [];
   const paneRect = state.pane.getBoundingClientRect();
   const width = Math.max(1, paneRect.width);
   const height = Math.max(1, paneRect.height - 23);
@@ -572,20 +702,26 @@ function renderCard(card, state) {
     return;
   }
 
-  const latestTime = trades[0]?.time || Date.now();
-  const window = flowWindow(latestTime);
-  const bucketMs = footprintBucketMs(width, window.duration);
-  const recent = [];
-  for (const trade of trades) {
-    if (trade.time > window.endTime) continue;
-    if (trade.time < window.startTime) break;
-    recent.push(trade);
+  const accumulator = footprintBySymbol.get(symbol) ?? createFootprintAccumulator();
+  const interval = footprintIntervalSnapshot(accumulator, state.timeframeMs, Date.now());
+  const clustersByRow = new Map();
+  for (const source of interval.cells) {
+    const row = nearestRow(rows, source.price);
+    if (!row) continue;
+    const cluster = clustersByRow.get(row.index) ?? {
+      row,
+      buyQuote: 0,
+      sellQuote: 0,
+      quote: 0,
+      count: 0,
+    };
+    cluster.buyQuote += source.buyQuote;
+    cluster.sellQuote += source.sellQuote;
+    cluster.quote += source.quote;
+    cluster.count += source.count;
+    clustersByRow.set(row.index, cluster);
   }
-  const columns = buildFootprintColumns(recent, {
-    ...window,
-    bucketMs,
-    priceStep: rowStep(rows),
-  });
+  const clusters = [...clustersByRow.values()];
 
   const dpr = Math.max(1, Math.min(1.5, globalThis.devicePixelRatio || 1));
   const pixelWidth = Math.max(1, Math.round(width * dpr));
@@ -597,57 +733,68 @@ function renderCard(card, state) {
   state.context.setTransform(dpr, 0, 0, dpr, 0, 0);
   state.context.clearRect(0, 0, width, height);
 
-  const maximum = Math.max(1, ...columns.flatMap((column) => column.cells.map((cell) => cell.quote)));
-  const columnCount = Math.max(1, Math.ceil(window.duration / bucketMs));
-  const columnWidth = width / columnCount;
-  const labelThreshold = maximum * .42;
+  const maximum = Math.max(1, ...clusters.map((cluster) => cluster.quote));
+  const centerX = width / 2;
+  const maximumSideWidth = Math.max(10, width / 2 - 3);
 
   state.context.font = "800 7px Inter, system-ui, sans-serif";
-  state.context.textAlign = "center";
   state.context.textBaseline = "middle";
 
   if (state.visible) {
-    for (const column of columns) {
-      const x = column.timeIndex * columnWidth;
-      for (const cell of column.cells) {
-        const row = nearestRow(rows, cell.price);
-        if (!row) continue;
-        const tone = footprintTone(cell);
-        const alpha = clamp(.12 + Math.sqrt(cell.quote / maximum) * .65, .12, .78);
-        const cellHeight = Math.max(2, Math.min(row.height * .84, 13));
-        const cellWidth = Math.max(1, columnWidth - 1);
-        state.context.fillStyle = tone >= 0
-          ? `rgba(39, 192, 137, ${alpha})`
-          : `rgba(225, 73, 91, ${alpha})`;
-        state.context.fillRect(x + .5, row.y - cellHeight / 2, cellWidth, cellHeight);
-
-        if (cell.quote >= labelThreshold && cellWidth >= 22 && cellHeight >= 8) {
-          state.context.fillStyle = "rgba(237, 245, 242, .95)";
-          state.context.fillText(formatUsd(cell.quote), x + columnWidth / 2, row.y);
-        }
+    for (const cluster of clusters) {
+      const sellWidth = Math.sqrt(cluster.sellQuote / maximum) * maximumSideWidth;
+      const buyWidth = Math.sqrt(cluster.buyQuote / maximum) * maximumSideWidth;
+      const cellHeight = Math.max(2, Math.min(cluster.row.height * .84, 13));
+      if (sellWidth > 0) {
+        state.context.fillStyle = "rgba(225, 73, 91, .42)";
+        state.context.fillRect(
+          centerX - sellWidth,
+          cluster.row.y - cellHeight / 2,
+          sellWidth,
+          cellHeight,
+        );
       }
+      if (buyWidth > 0) {
+        state.context.fillStyle = "rgba(39, 192, 137, .42)";
+        state.context.fillRect(
+          centerX,
+          cluster.row.y - cellHeight / 2,
+          buyWidth,
+          cellHeight,
+        );
+      }
+
+      state.context.textAlign = "right";
+      state.context.fillStyle = "rgba(255, 128, 142, .98)";
+      state.context.fillText(formatUsd(cluster.sellQuote), centerX - 3, cluster.row.y);
+      state.context.textAlign = "left";
+      state.context.fillStyle = "rgba(93, 225, 181, .98)";
+      state.context.fillText(formatUsd(cluster.buyQuote), centerX + 3, cluster.row.y);
     }
 
-    state.context.strokeStyle = "rgba(103, 224, 183, .38)";
+    state.context.strokeStyle = "rgba(133, 151, 160, .28)";
     state.context.lineWidth = .7;
     state.context.beginPath();
-    state.context.moveTo(width - .5, 0);
-    state.context.lineTo(width - .5, height);
+    state.context.moveTo(centerX, 0);
+    state.context.lineTo(centerX, height);
     state.context.stroke();
   }
 
-  const visibleCount = recent.length;
-  const countText = `${visibleCount} trades`;
+  const countText = `${interval.partial ? "PARTIAL" : "FULL"} · ${interval.count}`;
   if (state.count.textContent !== countText) state.count.textContent = countText;
-  if (state.flowCount.textContent !== countText) state.flowCount.textContent = countText;
+  const flowCountText = `${interval.count} trades`;
+  if (state.flowCount.textContent !== flowCountText) {
+    state.flowCount.textContent = flowCountText;
+  }
   state.hasFrame = true;
   if (observability.enabled) {
     observability.rendered(symbol, "footprint");
     observability.record("footprint.render-card", performance.now() - renderStartedAt, {
       symbol,
-      trades: recent.length,
-      columns: columns.length,
-      rows: rows.length,
+      trades: interval.count,
+      timeframeMs: interval.timeframe,
+      rows: clusters.length,
+      ladderRows: rows.length,
     });
   }
 }
@@ -656,19 +803,24 @@ function acceptTape(event) {
   const detail = event?.detail;
   const symbol = String(detail?.symbol ?? "").toUpperCase();
   if (!symbol.endsWith("USDT")) return;
-  const incoming = Array.isArray(detail?.trades) ? detail.trades : [];
-  const current = tradesBySymbol.get(symbol) ?? [];
-  tradesBySymbol.set(
+  if (!detail?.replace && !detail?.live) return;
+  const incoming = detail?.live && Array.isArray(detail?.trades) ? detail.trades : [];
+  const accumulator = footprintBySymbol.get(symbol) ?? createFootprintAccumulator();
+  footprintBySymbol.set(
     symbol,
-    mergeLiveFlowTrades(
-      current,
+    ingestFootprintTrades(
+      accumulator,
       incoming,
-      FLOW_WORKSPACE.maximumTrades,
-      Boolean(detail?.replace),
+      { replace: Boolean(detail?.replace) },
     ),
   );
   document.querySelectorAll(".orderbook-card").forEach((card) => {
-    if (cardSymbol(card) === symbol) requestDraw(card);
+    if (cardSymbol(card) !== symbol) return;
+    if (detail?.replace) {
+      const state = cardStates.get(card);
+      if (state) state.hasFrame = false;
+    }
+    requestDraw(card);
   });
 }
 

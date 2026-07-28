@@ -12,7 +12,7 @@ test("Worker REST startup uses staggered cancellable host fallback", () => {
   assert.match(worker, /InPulsOrderBookNetwork\.firstSuccessful/);
   assert.doesNotMatch(worker, /Promise\.any/);
   assert.match(worker, /depth\.snapshot\.host/);
-  assert.match(worker, /tape\.bootstrap\.host/);
+  assert.doesNotMatch(worker, /tape\.bootstrap\.host|\/fapi\/v1\/aggTrades/);
   assert.match(worker, /network-or-cors|errorKind/);
 });
 
@@ -63,5 +63,5 @@ test("new diagnostic runtime files are in the Service Worker release", () => {
   assert.match(serviceWorker, /observability\.js\?v=render-scheduler-v1/);
   assert.match(serviceWorker, /orderbook-worker-buffers\.js\?v=worker-bp-v1/);
   assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(serviceWorker, /inpuls-26-36-density-lifecycle-v1/);
+  assert.match(serviceWorker, /inpuls-26-37-multi-dom-live-tape-v1/);
 });

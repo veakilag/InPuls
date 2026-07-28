@@ -4,7 +4,7 @@ import {
   selectReadableAggLabels,
 } from "./orderbook-tape-layout.js?v=26-25-tape-v2-1";
 import "./orderbook-network.js?v=obs-pr1-1";
-import "./orderbook-flow-workspace.js?v=render-scheduler-v1";
+import "./orderbook-flow-workspace.js?v=multi-dom-live-tape-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-lifecycle-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -80,6 +80,7 @@ export function aggregateDepthBands(levels, middlePrice, rangePercent, rowCount,
 }
 
 export const BOOK_SCALE_MULTIPLIERS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
+export const BOOK_DEPTH_PERCENT_PRESETS = [.25, .5, 1, 2, 5];
 
 export function inferPriceTick(bids, asks, middlePrice) {
   const prices = [...(bids ?? []), ...(asks ?? [])]
@@ -127,6 +128,41 @@ export function bookScaleLabel(scaleIndex = 3) {
 
 export function maximumBookScaleIndex() {
   return BOOK_SCALE_MULTIPLIERS.length - 1;
+}
+
+export function normalizeBookDepthPercent(value = 1) {
+  const requested = Number(value);
+  if (!Number.isFinite(requested)) return 1;
+  return BOOK_DEPTH_PERCENT_PRESETS.reduce(
+    (nearest, candidate) => (
+      Math.abs(candidate - requested) < Math.abs(nearest - requested)
+        ? candidate
+        : nearest
+    ),
+    BOOK_DEPTH_PERCENT_PRESETS[0],
+  );
+}
+
+export function bookDepthLabel(value = 1) {
+  return `±${normalizeBookDepthPercent(value).toLocaleString("ru-RU", {
+    maximumFractionDigits: 2,
+  })}%`;
+}
+
+export function priceStepForDepthPercent(
+  baseTick,
+  middlePrice,
+  rowCount,
+  depthPercent = 1,
+) {
+  const tick = Math.max(Number.EPSILON, Number(baseTick) || .01);
+  const middle = Math.abs(Number(middlePrice));
+  const halfRows = Math.max(2, Math.floor((Number(rowCount) || 5) / 2));
+  const percent = normalizeBookDepthPercent(depthPercent);
+  if (!Number.isFinite(middle) || middle <= 0) return tick;
+  const requestedStep = middle * (percent / 100) / halfRows;
+  const tickMultiple = Math.max(1, Math.round(requestedStep / tick));
+  return Number((tickMultiple * tick).toPrecision(15));
 }
 
 export function adaptiveBookScaleIndex(baseTick, currentIndex) {
@@ -647,54 +683,6 @@ async function fetchJsonWithTimeout(
   }
 }
 
-class TradeHistoryStore {
-  constructor() {
-    this.dbPromise = null;
-  }
-
-  #open() {
-    if (!globalThis.indexedDB) return Promise.resolve(null);
-    if (this.dbPromise) return this.dbPromise;
-    this.dbPromise = new Promise((resolve) => {
-      const request = indexedDB.open("inpuls-market-trades-v1", 1);
-      request.onupgradeneeded = () => {
-        if (!request.result.objectStoreNames.contains("symbols")) {
-          request.result.createObjectStore("symbols", { keyPath: "symbol" });
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => resolve(null);
-    });
-    return this.dbPromise;
-  }
-
-  async get(symbol) {
-    const db = await this.#open();
-    if (!db) return [];
-    return new Promise((resolve) => {
-      const request = db.transaction("symbols", "readonly").objectStore("symbols").get(symbol);
-      request.onsuccess = () => resolve(Array.isArray(request.result?.trades) ? request.result.trades : []);
-      request.onerror = () => resolve([]);
-    });
-  }
-
-  async set(symbol, trades) {
-    const db = await this.#open();
-    if (!db) return;
-    await new Promise((resolve) => {
-      const transaction = db.transaction("symbols", "readwrite");
-      transaction.objectStore("symbols").put({
-        symbol,
-        trades: trades.slice(0, MAX_TRADE_HISTORY),
-        updatedAt: Date.now(),
-      });
-      transaction.oncomplete = transaction.onerror = transaction.onabort = () => resolve();
-    });
-  }
-}
-
-const tradeHistoryStore = new TradeHistoryStore();
-
 class LegacyOrderBookFeed {
   constructor({ onData, onStatus, WebSocketImpl = globalThis.WebSocket, fetchImpl = globalThis.fetch } = {}) {
     this.onData = onData ?? (() => {});
@@ -714,7 +702,6 @@ class LegacyOrderBookFeed {
     this.tradeReconnectTimer = null;
     this.firstDepthTimer = null;
     this.snapshotTimer = null;
-    this.tradeHistoryTimer = null;
     this.tradeDispatchTimer = null;
     this.tradeDispatchBatch = [];
 
@@ -747,10 +734,6 @@ class LegacyOrderBookFeed {
 
   select(symbol) {
     if (!symbol?.endsWith("USDT")) return;
-    if (this.symbol && this.trades.length) {
-      tradeHistoryStore.set(this.symbol, this.trades).catch(() => {});
-    }
-
     this.symbol = symbol;
     this.bookEvents.setSymbol(symbol);
     this.densityLifecycle.setSymbol(symbol);
@@ -769,11 +752,10 @@ class LegacyOrderBookFeed {
     clearTimeout(this.tradeReconnectTimer);
     clearTimeout(this.firstDepthTimer);
     clearTimeout(this.snapshotTimer);
-    clearTimeout(this.tradeHistoryTimer);
     clearTimeout(this.tradeDispatchTimer);
     this.tradeDispatchTimer = null;
     this.tradeDispatchBatch = [];
-    this.#dispatchTapeData({ replace: true, trades: [] });
+    this.#dispatchTapeData({ replace: true, liveOnly: true, trades: [] });
     try { this.socket?.close(); } catch {}
     try { this.tradeSocket?.close(); } catch {}
     this.socket = null;
@@ -784,7 +766,6 @@ class LegacyOrderBookFeed {
     this.onStatus({ state: "loading", text: "Подключение" });
     this.#connect(generation);
     this.#connectTrades(generation);
-    this.#loadTradeHistory(symbol, generation);
   }
 
   #resetBook(reason = "reset") {
@@ -802,25 +783,11 @@ class LegacyOrderBookFeed {
     this.densityLifecycle.reset({ bookEpoch, reason });
   }
 
-  async #loadTradeHistory(symbol, generation) {
-    const saved = await tradeHistoryStore.get(symbol);
-    if (generation !== this.generation || symbol !== this.symbol || !saved.length) return;
-    for (const trade of saved) this.#insertTrade(trade, false);
-    this.#publishTradeSnapshot();
-  }
-
   #dispatchTapeData(payload) {
     if (typeof globalThis.dispatchEvent !== "function" || typeof globalThis.CustomEvent !== "function") return;
     globalThis.dispatchEvent(new CustomEvent("inpuls:tape-data", {
       detail: { symbol: this.symbol, ...payload },
     }));
-  }
-
-  #publishTradeSnapshot() {
-    this.#dispatchTapeData({
-      replace: true,
-      trades: this.trades.slice(0, 5_000),
-    });
   }
 
   #queueTradeDispatch(trade) {
@@ -830,18 +797,15 @@ class LegacyOrderBookFeed {
     this.tradeDispatchTimer = setTimeout(() => {
       this.tradeDispatchTimer = null;
       const trades = this.tradeDispatchBatch.splice(0);
-      if (trades.length) this.#dispatchTapeData({ replace: false, trades });
-    }, 16);
-  }
-
-  #scheduleTradeHistorySave() {
-    clearTimeout(this.tradeHistoryTimer);
-    const symbol = this.symbol;
-    this.tradeHistoryTimer = setTimeout(() => {
-      if (symbol === this.symbol) {
-        tradeHistoryStore.set(symbol, this.trades).catch(() => {});
+      if (trades.length) {
+        this.#dispatchTapeData({
+          replace: false,
+          live: true,
+          liveOnly: true,
+          trades,
+        });
       }
-    }, 4_000);
+    }, 16);
   }
 
   #insertTrade(trade, newestFirst = true) {
@@ -1129,7 +1093,6 @@ class LegacyOrderBookFeed {
       if (isTrade) {
         const trade = normalizeMarketTrade(update);
         if (this.#insertTrade(trade, true)) {
-          this.#scheduleTradeHistorySave();
           this.#queueTradeDispatch(trade);
         }
         return;
@@ -1226,7 +1189,6 @@ class LegacyOrderBookFeed {
       const trade = normalizeMarketTrade(update);
       if (!this.#insertTrade(trade, true)) return;
       this.tradeTransportIndex = 0;
-      this.#scheduleTradeHistorySave();
       this.#queueTradeDispatch(trade);
     });
 
@@ -1244,15 +1206,11 @@ class LegacyOrderBookFeed {
   }
 
   destroy() {
-    if (this.symbol && this.trades.length) {
-      tradeHistoryStore.set(this.symbol, this.trades).catch(() => {});
-    }
     this.generation += 1;
     clearTimeout(this.reconnectTimer);
     clearTimeout(this.tradeReconnectTimer);
     clearTimeout(this.firstDepthTimer);
     clearTimeout(this.snapshotTimer);
-    clearTimeout(this.tradeHistoryTimer);
     clearTimeout(this.tradeDispatchTimer);
     this.tradeDispatchTimer = null;
     this.tradeDispatchBatch = [];
@@ -1264,7 +1222,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=density-lifecycle-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=multi-dom-live-tape-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1583,6 +1541,8 @@ class OrderBookWorkerManager {
           symbol,
           replace: Boolean(message.replace),
           resume: Boolean(message.resume),
+          live: Boolean(message.live),
+          liveOnly: Boolean(message.liveOnly),
           trades: Array.isArray(message.trades) ? message.trades : [],
         },
       }));
@@ -1676,7 +1636,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-28-resume-v2";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-37-multi-dom-live-tape-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const TAPE_MAX_STORED = 4_000;
@@ -1686,7 +1646,6 @@ const TAPE_SECOND_MS = 1_000;
 const TAPE_MIN_SECOND_WIDTH = 22;
 const TAPE_MIN_SECONDS = 12;
 const TAPE_MAX_SECONDS = 45;
-const TAPE_NOW_GUTTER_PX = 16;
 const TAPE_TIMELINE_MIN_LABEL_GAP_PX = 42;
 const TAPE_AGG_LABEL_QUANTILE = .95;
 const TAPE_STALE_NOTICE_MS = 60_000;
@@ -2519,7 +2478,7 @@ function ensureTapeUi(card) {
         decorateRuntimeBookRows(card);
         scheduleTapeDraw(false, card);
       });
-      state.rowObserver.observe(rows, { childList: true, subtree: true, characterData: true });
+      state.rowObserver.observe(rows, { childList: true });
     }
   }
 
@@ -2776,7 +2735,7 @@ function buildContinuousTapeWindow(width, latestTime, requestedEndTime = null) {
   const endTime = Number.isFinite(requested)
     ? Math.max(latest + 1, requested)
     : Math.max(latest + 1, Date.now());
-  const plotRight = Math.max(2, safeWidth - TAPE_NOW_GUTTER_PX);
+  const plotRight = safeWidth;
   return {
     duration,
     startTime: endTime - duration,
@@ -2836,15 +2795,6 @@ function drawTapeTimeline(context, rect, window) {
     context.fillText(formatTapeClock(time), x, rect.height - 5);
   }
 
-  context.strokeStyle = "rgba(93, 225, 181, .36)";
-  context.beginPath();
-  context.moveTo(right, 0);
-  context.lineTo(right, rect.height);
-  context.stroke();
-  context.textAlign = "right";
-  context.textBaseline = "top";
-  context.fillStyle = "rgba(93, 225, 181, .82)";
-  context.fillText("NOW", right - 2, 2);
   context.restore();
 }
 
@@ -3492,10 +3442,18 @@ function acceptTapeData(event) {
   const detail = event?.detail;
   const symbol = String(detail?.symbol ?? "").toUpperCase();
   if (!symbol.endsWith("USDT")) return;
-  const incoming = Array.isArray(detail?.trades)
+  if (!detail?.replace && !detail?.live) return;
+  const incoming = detail?.live && Array.isArray(detail?.trades)
     ? detail.trades.map(normalizeTapeTrade).filter(Boolean)
     : [];
   if (!detail?.replace && !incoming.length) return;
+  if (detail?.replace) {
+    document.querySelectorAll(".orderbook-card").forEach((card) => {
+      if (cardSymbol(card) !== symbol) return;
+      const state = tapeCardStates.get(card);
+      if (state) state.hasFrame = false;
+    });
+  }
 
   const pending = tapePendingBySymbol.get(symbol) ?? {
     trades: [],

@@ -17,6 +17,8 @@ test("all orderbook panels share one latest-only frame scheduler", () => {
   assert.match(app, /orderBookRenderScheduler\.remove\(panel\)/);
   assert.match(app, /orderbook\.scheduler-coalesced/);
   assert.match(app, /orderbook\.scheduler-yield/);
+  assert.match(app, /patchBookLadderRows\(body, rows, middle, maxSize, anomaly\)/);
+  assert.doesNotMatch(app, /body\.innerHTML = rows\.map/);
 });
 
 test("canvas runtime disables the hidden legacy DOM footprint", () => {
@@ -45,8 +47,9 @@ test("footprint renders only dirty cards under the same frame budget", () => {
   assert.match(footprint, /const FLOW_DRAW_BUDGET_MS = 8/);
   assert.match(footprint, /const FLOW_DRAW_MAX_CARDS = 2/);
   assert.match(footprint, /dirtyCards\.delete\(card\)/);
-  assert.match(footprint, /if \(cardSymbol\(card\) === symbol\) requestDraw\(card\)/);
-  assert.match(footprint, /mergeLiveFlowTrades\(/);
+  assert.match(footprint, /if \(cardSymbol\(card\) !== symbol\) return;/);
+  assert.match(footprint, /ingestFootprintTrades\(/);
+  assert.match(footprint, /footprintIntervalSnapshot\(/);
   assert.match(footprint, /footprint\.scheduler-yield/);
   assert.doesNotMatch(
     footprint,
@@ -62,5 +65,5 @@ test("render optimization leaves strict depth sequencing untouched", () => {
   assert.match(applyBlock, /this\.lastUpdateId = Number\(event\.u\)/);
   assert.doesNotMatch(applyBlock, /LatestFrameScheduler|TAPE_DRAW_BUDGET/);
   assert.match(serviceWorker, /render-scheduler\.js/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=render-scheduler-v1/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=multi-dom-live-tape-v1/);
 });
