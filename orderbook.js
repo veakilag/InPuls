@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v3";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-41-book-visuals-v1";
+import "./orderbook-flow-workspace.js?v=26-42-orderbook-scroll-theme-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-lifecycle-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -140,6 +140,20 @@ export function bookScaleLabel(scaleIndex = 3) {
 
 export function maximumBookScaleIndex() {
   return BOOK_SCALE_MULTIPLIERS.length - 1;
+}
+
+export function bookScaleIndexForWheel(currentIndex, deltaY) {
+  const current = Math.max(
+    0,
+    Math.min(maximumBookScaleIndex(), Math.round(Number(currentIndex) || 0)),
+  );
+  const wheel = Number(deltaY);
+  if (!Number.isFinite(wheel) || wheel === 0) return current;
+  // Колесо вперёд (deltaY < 0) укрупняет шаг, назад — уменьшает.
+  return Math.max(
+    0,
+    Math.min(maximumBookScaleIndex(), current + (wheel < 0 ? 1 : -1)),
+  );
 }
 
 export function normalizeBookDepthPercent(value = 1) {
@@ -1266,7 +1280,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-41-book-visuals-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-42-orderbook-scroll-theme-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1680,7 +1694,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-41-book-visuals-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-42-orderbook-scroll-theme-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -2016,7 +2030,9 @@ function installOrderBookStyles() {
     .orderbook-card .book-ladder-row strong {
       width: 100% !important;
       min-width: 0 !important;
-      padding: 0 1px 0 3px !important;
+      overflow: hidden !important;
+      padding: 0 1px 0 5px !important;
+      border-left: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
       justify-self: stretch !important;
       justify-content: flex-start !important;
       text-align: left !important;
@@ -2093,6 +2109,9 @@ function installOrderBookStyles() {
     }
     .orderbook-card.is-flow-hidden .orderbook-stage:not(.inpuls-flow-workspace) {
       grid-template-columns: 0 0 minmax(0, 1fr) !important;
+    }
+    .orderbook-card.is-flow-hidden .orderbook-ladder {
+      min-width: 0 !important;
     }
     .orderbook-card.is-flow-hidden .orderbook-stage:not(.inpuls-flow-workspace) .orderbook-tape,
     .orderbook-card.is-flow-hidden .orderbook-stage:not(.inpuls-flow-workspace) .book-splitter {

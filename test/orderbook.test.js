@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adaptiveBookScaleIndex, aggregateDepthBands, aggregateFootprintClusters, aggregateTradeClusters, aggregateTradePath, applyDepthUpdates, BOOK_DEPTH_PERCENT_PRESETS, BOOK_SCALE_MULTIPLIERS, bookDepthLabel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, depthCoverageScaleIndex, depthView, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, normalizeBookDepthPercent, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForDepthPercent, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "../orderbook.js";
+import { adaptiveBookScaleIndex, aggregateDepthBands, aggregateFootprintClusters, aggregateTradeClusters, aggregateTradePath, applyDepthUpdates, BOOK_DEPTH_PERCENT_PRESETS, BOOK_SCALE_MULTIPLIERS, bookDepthLabel, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, depthCoverageScaleIndex, depthView, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, normalizeBookDepthPercent, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForDepthPercent, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "../orderbook.js";
 
 test("depth updates add, replace and remove price levels", () => {
   const levels = new Map([[100, 2], [99, 4]]);
@@ -46,6 +46,14 @@ test("price ladder keeps the market row visible and fills both sides", () => {
   assert.ok(rows.some((row) => row.bidQuote > 0));
   assert.ok(rows.some((row) => row.askQuote > 0));
   assert.deepEqual([...BOOK_SCALE_MULTIPLIERS], [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]);
+});
+
+test("orderbook wheel uses the trader-facing step direction", () => {
+  assert.equal(bookScaleIndexForWheel(0, -1), 1);
+  assert.equal(bookScaleIndexForWheel(4, -120), 5);
+  assert.equal(bookScaleIndexForWheel(5, 120), 4);
+  assert.equal(bookScaleIndexForWheel(0, 120), 0);
+  assert.equal(bookScaleIndexForWheel(maximumBookScaleIndex(), -120), maximumBookScaleIndex());
 });
 
 test("price ladder cannot be scrolled below zero", () => {

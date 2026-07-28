@@ -7,7 +7,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=26-41-book-visuals-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=26-42-orderbook-scroll-theme-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 
@@ -368,25 +368,26 @@ function mixColor(left, right, amount) {
 function applyComfort(rawValue) {
   const value = Math.max(0, Math.min(100, Number(rawValue) || 0));
   const amount = value / 100;
-  const accent = amount <= .5
-    ? mixColor("#39dba2", "#35cbd4", amount * 2)
-    : mixColor("#35cbd4", "#9567c5", (amount - .5) * 2);
+  const turquoise = "#42d9b1";
+  const cyan = "#42d9cf";
+  const blue = "#65b7ff";
+  const violet = "#aa86ff";
+  const red = "#ff7181";
   const palette = {
-    bg: mixColor("#0a0f11", "#050507", amount),
-    panel: mixColor("#11181b", "#0a0a0e", amount),
-    panel2: mixColor("#172024", "#111018", amount),
-    line: mixColor("#2b3a3d", accent, .22 + amount * .08),
-    text: mixColor("#dce4e5", "#cac8d2", amount),
-    muted: mixColor("#89979a", "#777581", amount),
-    chart: mixColor("#080d0f", "#060608", amount),
-    bull: mixColor("#e0e5e4", "#cbc9d0", amount),
-    bear: mixColor("#111719", "#0b0a0d", amount),
-    bearStroke: mixColor("#829093", "#706d77", amount),
-    grid: mixColor("#526063", accent, .17 + amount * .05),
-    crosshair: mixColor("#9ba6a7", "#898591", amount),
-    crosshairFill: mixColor("#293538", accent, .38),
-    crosshairText: mixColor("#f0f4f3", "#e3dfe8", amount),
-    accent,
+    bg: mixColor("#24272c", "#080a0d", amount),
+    panel: mixColor("#2d3137", "#111419", amount),
+    panel2: mixColor("#383d44", "#181c22", amount),
+    line: mixColor("#656d76", "#303740", amount),
+    text: mixColor("#f7f9fa", "#e2e7eb", amount),
+    muted: mixColor("#c0c6cc", "#87919b", amount),
+    chart: mixColor("#1f2227", "#090b0e", amount),
+    bull: turquoise,
+    bear: mixColor("#454b52", "#1b1f25", amount),
+    bearStroke: red,
+    grid: mixColor("#727981", "#3a424b", amount),
+    crosshair: mixColor("#e0e4e7", "#9aa4ad", amount),
+    crosshairFill: mixColor("#505861", "#252b32", amount),
+    crosshairText: "#f7f9fa",
   };
   const root = document.documentElement;
   root.style.setProperty("--bg", palette.bg);
@@ -397,11 +398,19 @@ function applyComfort(rawValue) {
   root.style.setProperty("--text", palette.text);
   root.style.setProperty("--muted", palette.muted);
   root.style.setProperty("--chart-bg", palette.chart);
-  root.style.setProperty("--accent", palette.accent);
-  root.style.setProperty("--violet", palette.accent);
-  root.style.setProperty("--green", "#39dba2");
-  root.style.setProperty("--blue", "#7198b4");
+  root.style.setProperty("--accent", cyan);
+  root.style.setProperty("--cyan", cyan);
+  root.style.setProperty("--violet", violet);
+  root.style.setProperty("--green", turquoise);
+  root.style.setProperty("--blue", blue);
+  root.style.setProperty("--red", red);
   root.style.setProperty("--theme-level", String(amount));
+  root.style.setProperty("--comfort-position", `${value}%`);
+  const moonProgress = Math.max(0, Math.min(1, (amount - .2) / .7));
+  root.style.setProperty("--comfort-sun-opacity", String(1 - moonProgress));
+  root.style.setProperty("--comfort-moon-opacity", String(moonProgress));
+  root.style.setProperty("--comfort-sun-rotate", `${moonProgress * 38}deg`);
+  root.style.setProperty("--comfort-moon-rotate", `${(1 - moonProgress) * -24}deg`);
   root.style.colorScheme = "dark";
   root.dataset.comfort = String(Math.round(value));
   const themeMeta = document.querySelector('meta[name="theme-color"]');
@@ -417,7 +426,7 @@ function applyComfort(rawValue) {
     crosshair: palette.crosshair,
     crosshairFill: palette.crosshairFill,
     crosshairText: palette.crosshairText,
-    session: palette.accent,
+    session: violet,
   };
   priceChart.setTheme(activeChartTheme);
   for (const panel of extraCharts.values()) panel.chart.setTheme(activeChartTheme);
@@ -1125,6 +1134,14 @@ function applyWorkspaceLayout() {
   });
 }
 
+function minimumPanelGridSize(model, element) {
+  if (model.type === "scanner") return { w: 5, h: 2 };
+  if (model.type === "orderbook" && element?.classList.contains("is-flow-hidden")) {
+    return { w: 2, h: 2 };
+  }
+  return { w: 3, h: 2 };
+}
+
 function bindGridResizer(handle, model, chart, direction = "se") {
   if (!handle) return;
   handle.addEventListener("pointerdown", (event) => {
@@ -1141,7 +1158,7 @@ function bindGridResizer(handle, model, chart, direction = "se") {
     const startLeft = model.x;
     const startTop = model.y;
     const move = (moveEvent) => {
-      const minimum = model.type === "scanner" ? { w: 5, h: 2 } : { w: 3, h: 2 };
+      const minimum = minimumPanelGridSize(model, handle.closest("[data-panel]"));
       const dx = Math.round((moveEvent.clientX - startX) / columnUnit);
       const dy = Math.round((moveEvent.clientY - startY) / rowHeight);
       const candidate = { ...model };
@@ -1457,7 +1474,7 @@ function mountOrderBook(model) {
         <div class="book-pane-title"><span>САЙЗ</span><span data-book-scale>${bookScaleLabel(model.bookScaleIndex)}</span><span>ЦЕНА</span></div>
         <div class="orderbook-rows"><div class="orderbook-empty">Загружаю глубину Binance…</div></div>
       </section>
-      <span class="book-wheel-hint">Ctrl + колесо · масштаб цены</span>
+      <span class="book-wheel-hint">Колесо · глубина · Ctrl + колесо — шаг</span>
       <button class="panel-resizer" type="button" aria-label="Изменить размер стакана"></button>
     </div>
     <div class="panel-drop-shield"><strong>СМЕНИТЬ НА ЭТУ МОНЕТУ</strong></div>
@@ -1620,14 +1637,6 @@ function mountOrderBook(model) {
     tradeLiveButton.classList.add("is-active");
     if (panel.latest) scheduleOrderBookRender(panel, true);
   });
-  tradeFlow.addEventListener("wheel", (event) => {
-    if (event.target.closest(".trade-flow-detail")) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const index = Math.max(0, tradeWindows.indexOf(Number(model.tradeWindowMs)));
-    const nextIndex = Math.max(0, Math.min(tradeWindows.length - 1, index + (event.deltaY > 0 ? 1 : -1)));
-    setTradeWindow(tradeWindows[nextIndex]);
-  }, { passive: false });
   tradeFlow.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || event.target.closest("button,input,.trade-flow-detail")) return;
     event.preventDefault();
@@ -1671,29 +1680,24 @@ function mountOrderBook(model) {
     splitter.addEventListener("pointerup", stop);
     splitter.addEventListener("pointercancel", stop);
   });
-  stage.addEventListener("wheel", (event) => {
-    if (event.target.closest("input, .trade-flow-detail")) return;
+  article.addEventListener("wheel", (event) => {
+    if (!Number.isFinite(event.deltaY) || event.deltaY === 0) return;
+    if (!Number.isFinite(panel.priceStep)) return;
     event.preventDefault();
+    event.stopPropagation();
     if (event.ctrlKey || event.metaKey) {
-      const currentIndex = Math.max(
-        0,
-        Math.min(
-          maximumBookScaleIndex(),
-          Math.round(Number(model.bookScaleIndex) || 0),
-        ),
-      );
-      const nextIndex = Math.max(
-        0,
-        Math.min(
-          maximumBookScaleIndex(),
-          currentIndex + (event.deltaY > 0 ? 1 : -1),
-        ),
-      );
-      model.bookScaleIndex = nextIndex;
+      model.bookScaleIndex = bookScaleIndexForWheel(model.bookScaleIndex, event.deltaY);
       panel.autoCentering = false;
       if (model.bookCentered !== false) panel.viewCenter = null;
       persistWorkspace();
-    } else if (model.bookCentered === false && Number.isFinite(panel.viewCenter) && Number.isFinite(panel.priceStep)) {
+    } else {
+      if (model.bookCentered !== false) {
+        model.bookCentered = false;
+        panel.viewCenter = Number.isFinite(panel.viewCenter) ? panel.viewCenter : panel.lastMiddle;
+        syncCenterButton();
+        persistWorkspace();
+      }
+      if (!Number.isFinite(panel.viewCenter)) return;
       panel.autoCentering = false;
       panel.manualScrollAnchorPrice = panel.lastMiddle;
       panel.manualScrollUntil = Date.now() + 650;
@@ -1706,9 +1710,9 @@ function mountOrderBook(model) {
         panel.priceStep,
         visibleRows,
       );
-    } else return;
+    }
     if (panel.latest) scheduleOrderBookRender(panel, true);
-  }, { passive: false });
+  }, { capture: true, passive: false });
   syncCenterButton();
   panel.feed.select(model.symbol);
 }
@@ -2877,7 +2881,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-41-book-visuals-v1";
+const INPULS_RUNTIME_BUILD = "26-42-orderbook-scroll-theme-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
