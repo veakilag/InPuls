@@ -50,11 +50,11 @@ test("every resume starts a clean live-only Tape without REST history", () => {
 });
 
 test("cache versions keep seamless resume while shipping Resume v2", () => {
-  assert.match(orderbook, /orderbook-worker\.js\?v=deep-book-tape-clusters-v2/);
-  assert.match(serviceWorker, /inpuls-26-40-security-v1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=stable-book-tape-v3/);
+  assert.match(orderbook, /orderbook-worker\.js\?v=26-41-book-visuals-v1/);
+  assert.match(serviceWorker, /inpuls-26-41-book-visuals-v1/);
+  assert.match(serviceWorker, /orderbook\.js\?v=26-41-book-visuals-v1/);
   assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(serviceWorker, /orderbook-worker\.js\?v=deep-book-tape-clusters-v2/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=deep-book-tape-clusters-v2/);
+  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-41-book-visuals-v1/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-41-book-visuals-v1/);
   assert.doesNotMatch(serviceWorker, /v26-22-background-restart/);
 });

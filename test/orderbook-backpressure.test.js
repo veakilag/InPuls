@@ -62,6 +62,11 @@ test("Worker reports flow rates, processing cost, queue pressure and source fres
   assert.match(runtime, /tape\.main-dropped/);
 });
 
+test("Worker publishes one full-book size scale without expanding UI depth", () => {
+  assert.match(worker, /function maximumBookLevelQuote\(bids, asks\)/);
+  assert.match(worker, /sizeScaleMaxQuote: fullView\.sizeScaleMaxQuote/);
+});
+
 test("multi-book depth keeps distant liquidity through compact projection", () => {
   assert.match(worker, /orderbook-depth-projection\.js\?v=deep-book-v1/);
   assert.match(worker, /InPulsOrderBookDepthProjection\.compactDepthView\(fullView/);
