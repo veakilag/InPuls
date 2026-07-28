@@ -1,12 +1,13 @@
-const CACHE = "inpuls-26-35-orderbook-events-core-v1";
-const BUILD = "26-35-orderbook-events-core-v1";
+const CACHE = "inpuls-26-36-density-lifecycle-v1";
+const BUILD = "26-36-density-lifecycle-v1";
 
 const FORCED = new Map([
-  ["/app.js", "./app.js?v=26-35-orderbook-events-core-v1"],
-  ["/orderbook.js", "./orderbook.js?v=orderbook-events-core-v1"],
+  ["/app.js", "./app.js?v=26-36-density-lifecycle-v1"],
+  ["/orderbook.js", "./orderbook.js?v=density-lifecycle-v1"],
   ["/orderbook-events.js", "./orderbook-events.js?v=orderbook-events-core-v1"],
+  ["/orderbook-density.js", "./orderbook-density.js?v=density-lifecycle-v1"],
   ["/render-scheduler.js", "./render-scheduler.js?v=render-scheduler-v1"],
-  ["/orderbook-worker.js", "./orderbook-worker.js?v=orderbook-events-core-v1"],
+  ["/orderbook-worker.js", "./orderbook-worker.js?v=density-lifecycle-v1"],
   ["/orderbook-worker-buffers.js", "./orderbook-worker-buffers.js?v=worker-bp-v1"],
   ["/orderbook-tape-guard.js", "./orderbook-tape-guard.js?v=worker-bp-v1"],
   ["/orderbook-network.js", "./orderbook-network.js?v=obs-pr1-1"],
@@ -19,13 +20,14 @@ const SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=23",
-  "./app.js?v=26-35-orderbook-events-core-v1",
+  "./app.js?v=26-36-density-lifecycle-v1",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=orderbook-events-core-v1",
+  "./orderbook.js?v=density-lifecycle-v1",
   "./orderbook-events.js?v=orderbook-events-core-v1",
+  "./orderbook-density.js?v=density-lifecycle-v1",
   "./render-scheduler.js?v=render-scheduler-v1",
-  "./orderbook-worker.js?v=orderbook-events-core-v1",
+  "./orderbook-worker.js?v=density-lifecycle-v1",
   "./orderbook-worker-buffers.js?v=worker-bp-v1",
   "./orderbook-tape-guard.js?v=worker-bp-v1",
   "./orderbook-network.js?v=obs-pr1-1",

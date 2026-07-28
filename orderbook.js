@@ -6,6 +6,7 @@ import {
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-flow-workspace.js?v=render-scheduler-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
+import "./orderbook-density.js?v=density-lifecycle-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
 
 export function applyDepthUpdates(levels, updates) {
@@ -732,6 +733,7 @@ class LegacyOrderBookFeed {
     this.cachedDepth = null;
     this.resyncCount = 0;
     this.bookEvents = new globalThis.InPulsOrderBookEvents.DepthEventJournal();
+    this.densityLifecycle = new globalThis.InPulsOrderBookDensity.DensityLifecycleTracker();
   }
 
   #diagnose(phase, details = {}) {
@@ -751,11 +753,15 @@ class LegacyOrderBookFeed {
 
     this.symbol = symbol;
     this.bookEvents.setSymbol(symbol);
+    this.densityLifecycle.setSymbol(symbol);
     this.mode = typeof this.fetchImpl === "function" ? "deep" : "partial";
     this.transportIndex = 0;
     this.tradeTransportIndex = 0;
     this.#resetBook("symbol-change");
-    if (this.mode === "partial") this.bookEvents.markUnavailable("partial-depth");
+    if (this.mode === "partial") {
+      this.bookEvents.markUnavailable("partial-depth");
+      this.densityLifecycle.markUnavailable("partial-depth");
+    }
     this.trades = [];
     this.tradeIds.clear();
 
@@ -792,7 +798,8 @@ class LegacyOrderBookFeed {
     this.depthReady = false;
     this.snapshotLoading = false;
     this.cachedDepth = null;
-    this.bookEvents.reset(reason);
+    const bookEpoch = this.bookEvents.reset(reason);
+    this.densityLifecycle.reset({ bookEpoch, reason });
   }
 
   async #loadTradeHistory(symbol, generation) {
@@ -873,6 +880,12 @@ class LegacyOrderBookFeed {
     }
     const view = this.cachedDepth;
     if (!view.bids.length || !view.asks.length) return;
+    const densityNow = Date.now();
+    this.densityLifecycle.refresh({
+      bids: view.bids,
+      asks: view.asks,
+      now: densityNow,
+    });
     this.onData({
       symbol: this.symbol,
       ...view,
@@ -884,6 +897,7 @@ class LegacyOrderBookFeed {
       bookLevels: { bids: this.bids.size, asks: this.asks.size },
       resyncCount: this.resyncCount,
       orderBookEvents: this.bookEvents.summary(),
+      densityLifecycle: this.densityLifecycle.summary(densityNow),
     });
   }
 
@@ -905,13 +919,14 @@ class LegacyOrderBookFeed {
       this.#resync("Разрыв последовательности");
       return false;
     }
-    this.bookEvents.applyDiff({
+    const bookEvents = this.bookEvents.applyDiff({
       bids: this.bids,
       asks: this.asks,
       event: update,
       continuity: this.depthReady ? "live" : "recovered",
       receivedAt: Number(update?.__receivedAt) || Date.now(),
     });
+    this.densityLifecycle.ingest(bookEvents);
     this.lastUpdateId = Number(update.u);
     this.#trimBook();
     return true;
@@ -946,11 +961,18 @@ class LegacyOrderBookFeed {
 
     this.bids = new Map();
     this.asks = new Map();
+    const snapshotReceivedAt = Date.now();
     const baseline = this.bookEvents.seedSnapshot({
       bids: this.bids,
       asks: this.asks,
       snapshot,
-      receivedAt: Date.now(),
+      receivedAt: snapshotReceivedAt,
+    });
+    this.densityLifecycle.seedSnapshot({
+      bids: this.bids,
+      asks: this.asks,
+      bookEpoch: this.bookEvents.bookEpoch,
+      receivedAt: snapshotReceivedAt,
     });
     this.lastUpdateId = baseline.snapshotId;
 
@@ -963,6 +985,7 @@ class LegacyOrderBookFeed {
     this.depthReady = true;
     this.cachedDepth = null;
     this.bookEvents.markReady();
+    this.densityLifecycle.markReady();
     this.#emit(Date.now(), true);
     this.onStatus({ state: "online", text: "LIVE 100ms · FULL" });
     return true;
@@ -1036,6 +1059,7 @@ class LegacyOrderBookFeed {
     this.transportIndex = 0;
     this.#resetBook("partial-fallback");
     this.bookEvents.markUnavailable("partial-depth");
+    this.densityLifecycle.markUnavailable("partial-depth");
     clearTimeout(this.firstDepthTimer);
     clearTimeout(this.snapshotTimer);
     this.onStatus({ state: "loading", text: "Резервный live-стакан" });
@@ -1240,7 +1264,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=orderbook-events-core-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=density-lifecycle-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1312,7 +1336,7 @@ class OrderBookWorkerManager {
       // Worker не использует import/export, поэтому classic-режим надёжнее
       // module Worker в Chromium/Yandex при работе через Service Worker.
       this.worker = new Worker(ORDERBOOK_WORKER_URL, {
-        name: "inpuls-orderbook-events-core-v1",
+        name: "inpuls-density-lifecycle-v1",
       });
       this.startupTimer = setTimeout(() => {
         if (this.workerReady) return;

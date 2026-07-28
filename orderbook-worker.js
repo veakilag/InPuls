@@ -3,6 +3,7 @@ importScripts("./orderbook-tape-latency.js?v=worker-bp-v1");
 importScripts("./orderbook-network.js?v=obs-pr1-1");
 importScripts("./orderbook-worker-buffers.js?v=worker-bp-v1");
 importScripts("./orderbook-events.js?v=orderbook-events-core-v1");
+importScripts("./orderbook-density.js?v=density-lifecycle-v1");
 
 const MAX_BOOK_LEVELS_PER_SIDE = 20_000;
 const MAX_EMITTED_LEVELS_PER_SIDE = 4_000;
@@ -394,6 +395,7 @@ class SymbolFeed {
     this.lastEmitAt = 0;
     this.cachedSorted = null;
     this.bookEvents = new self.InPulsOrderBookEvents.DepthEventJournal({ symbol });
+    this.densityLifecycle = new self.InPulsOrderBookDensity.DensityLifecycleTracker({ symbol });
     this.statusKey = "";
     this.trades = new self.InPulsOrderBookBuffers.RecentRingBuffer(MAX_TRADE_HISTORY);
     this.tradeIds = new Set();
@@ -555,7 +557,8 @@ class SymbolFeed {
     this.lastDepthAt = 0;
     this.lastDepthEventTime = 0;
     this.lastDepthSourceLagMs = null;
-    this.bookEvents.reset(reason);
+    const bookEpoch = this.bookEvents.reset(reason);
+    this.densityLifecycle.reset({ bookEpoch, reason });
   }
 
   setStatus(state, text) {
@@ -872,6 +875,11 @@ class SymbolFeed {
     const middle = (bestBid + bestAsk) / 2;
     const lowestBid = Number(view.bids.at(-1)?.[0]);
     const highestAsk = Number(view.asks.at(-1)?.[0]);
+    this.densityLifecycle.refresh({
+      bids: fullView.bids,
+      asks: fullView.asks,
+      now,
+    });
     post("data", this.symbol, {
       data: {
         symbol: this.symbol,
@@ -890,6 +898,7 @@ class SymbolFeed {
         bookLevels: { bids: this.bids.size, asks: this.asks.size },
         resyncCount: this.resyncCount,
         orderBookEvents: this.bookEvents.summary(),
+        densityLifecycle: this.densityLifecycle.summary(now),
         health: {
           mode: this.mode,
           depthAgeMs: this.lastDepthAt ? Math.max(0, now - this.lastDepthAt) : null,
@@ -930,13 +939,14 @@ class SymbolFeed {
       this.resync("Разрыв последовательности");
       return false;
     }
-    this.bookEvents.applyDiff({
+    const bookEvents = this.bookEvents.applyDiff({
       bids: this.bids,
       asks: this.asks,
       event,
       continuity: this.depthReady ? "live" : "recovered",
       receivedAt: Number(event?.__receivedAt) || Date.now(),
     });
+    this.densityLifecycle.ingest(bookEvents);
     this.lastUpdateId = Number(event.u);
     this.cachedSorted = null;
     this.trimBook();
@@ -977,11 +987,18 @@ class SymbolFeed {
     }
     this.bids = new Map();
     this.asks = new Map();
+    const snapshotReceivedAt = Date.now();
     const baseline = this.bookEvents.seedSnapshot({
       bids: this.bids,
       asks: this.asks,
       snapshot,
-      receivedAt: Date.now(),
+      receivedAt: snapshotReceivedAt,
+    });
+    this.densityLifecycle.seedSnapshot({
+      bids: this.bids,
+      asks: this.asks,
+      bookEpoch: this.bookEvents.bookEpoch,
+      receivedAt: snapshotReceivedAt,
     });
     this.lastUpdateId = baseline.snapshotId;
     this.cachedSorted = null;
@@ -993,6 +1010,7 @@ class SymbolFeed {
     this.depthReady = true;
     this.syncing = false;
     this.bookEvents.markReady();
+    this.densityLifecycle.markReady();
     diagnose(this.symbol, "depth.live", {
       state: "ready",
       generation: this.generation,
@@ -1073,6 +1091,7 @@ class SymbolFeed {
     this.syncing = preserveLastFrame;
     this.resetBook("partial-fallback");
     this.bookEvents.markUnavailable("partial-depth");
+    this.densityLifecycle.markUnavailable("partial-depth");
     clearTimeout(this.firstDepthTimer);
     clearTimeout(this.snapshotTimer);
     this.setStatus(

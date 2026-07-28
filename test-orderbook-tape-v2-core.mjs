@@ -26,14 +26,14 @@ test("renderer uses readable layout and removes RAW labels", () => {
 test("Flow Workspace cache and reset page point to the new runtime", () => {
   assert.match(orderbook, /inpuls-orderbook-runtime-26-28-resume-v2/);
   assert.match(orderbook, /orderbook-flow-workspace\.js\?v=render-scheduler-v1/);
-  assert.match(serviceWorker, /inpuls-26-35-orderbook-events-core-v1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=orderbook-events-core-v1/);
+  assert.match(serviceWorker, /inpuls-26-36-density-lifecycle-v1/);
+  assert.match(serviceWorker, /orderbook\.js\?v=density-lifecycle-v1/);
   assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(serviceWorker, /orderbook-worker\.js\?v=orderbook-events-core-v1/);
+  assert.match(serviceWorker, /orderbook-worker\.js\?v=density-lifecycle-v1/);
   assert.match(serviceWorker, /orderbook-tape-layout\.js\?v=26-25-tape-v2-1/);
   assert.match(serviceWorker, /orderbook-tape-latency\.js\?v=worker-bp-v1/);
   assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=render-scheduler-v1/);
   assert.match(resetPage, /Resume v2/);
-  assert.match(resetPage, /sw\.js\?v=26-35-orderbook-events-core-v1/);
-  assert.match(resetPage, /build=26-35-orderbook-events-core-v1/);
+  assert.match(resetPage, /sw\.js\?v=26-36-density-lifecycle-v1/);
+  assert.match(resetPage, /build=26-36-density-lifecycle-v1/);
 });
