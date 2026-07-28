@@ -1,8 +1,8 @@
-const CACHE = "inpuls-26-39-stable-book-tape-v3";
-const BUILD = "26-39-stable-book-tape-v3";
+const CACHE = "inpuls-26-40-security-v1";
+const BUILD = "26-40-security-v1";
 
 const FORCED = new Map([
-  ["/app.js", "./app.js?v=26-39-stable-book-tape-v3"],
+  ["/app.js", "./app.js?v=26-40-security-v1"],
   ["/orderbook.js", "./orderbook.js?v=stable-book-tape-v3"],
   ["/orderbook-events.js", "./orderbook-events.js?v=orderbook-events-core-v1"],
   ["/orderbook-density.js", "./orderbook-density.js?v=density-lifecycle-v1"],
@@ -21,7 +21,7 @@ const SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=23",
-  "./app.js?v=26-39-stable-book-tape-v3",
+  "./app.js?v=26-40-security-v1",
   "./chart.js?v=23",
   "./engine.js?v=23",
   "./orderbook.js?v=stable-book-tape-v3",
@@ -37,6 +37,11 @@ const SHELL = [
   "./orderbook-tape-latency.js?v=worker-bp-v1",
   "./orderbook-flow-workspace.js?v=deep-book-tape-clusters-v2",
   "./observability.js?v=render-scheduler-v1",
+  "./pwa-reset.js",
+  "./refresh.html",
+  "./refresh.js?v=26-40-security-v1",
+  "./reset-v26.html",
+  "./reset.js?v=26-40-security-v1",
   "./raw-stability-lab.html",
   "./raw-stability-lab.js?v=3",
   "./raw-stability-core.js?v=3",
@@ -46,13 +51,45 @@ const SHELL = [
   "./icon.svg",
 ];
 
+function expectedContentTypes(request) {
+  const url = new URL(typeof request === "string" ? request : request.url, self.registration.scope);
+  if (url.pathname.endsWith(".js")) return ["text/javascript", "application/javascript"];
+  if (url.pathname.endsWith(".css")) return ["text/css"];
+  if (url.pathname.endsWith(".svg")) return ["image/svg+xml"];
+  if (url.pathname.endsWith(".png")) return ["image/png"];
+  if (url.pathname.endsWith(".webmanifest")) return ["application/manifest+json"];
+  if (url.pathname.endsWith(".html") || url.pathname.endsWith("/")) return ["text/html"];
+  return [];
+}
+
+function isCacheableResponse(request, response) {
+  if (!response?.ok || response.type === "opaque") return false;
+  const requestUrl = new URL(typeof request === "string" ? request : request.url, self.registration.scope);
+  const responseUrl = new URL(response.url || requestUrl.href);
+  if (requestUrl.origin !== self.location.origin || responseUrl.origin !== self.location.origin) return false;
+  const expected = expectedContentTypes(request);
+  if (!expected.length) return false;
+  const contentType = (response.headers.get("content-type") || "").toLowerCase();
+  return expected.some((type) => contentType.includes(type));
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) =>
-      Promise.allSettled(SHELL.map((url) => cache.add(url))),
-    ),
+    (async () => {
+      try {
+        const cache = await caches.open(CACHE);
+        await cache.addAll(SHELL);
+        const responses = await Promise.all(SHELL.map((url) => cache.match(url)));
+        if (!responses.every((response, index) => isCacheableResponse(SHELL[index], response))) {
+          throw new TypeError("InPuls app shell failed content-type validation");
+        }
+        await self.skipWaiting();
+      } catch (error) {
+        await caches.delete(CACHE);
+        throw error;
+      }
+    })(),
   );
-  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
@@ -70,6 +107,13 @@ async function fetchFresh(request) {
   return fetch(request, { cache: "no-store" });
 }
 
+async function cacheFreshResponse(request, response) {
+  if (!isCacheableResponse(request, response)) return false;
+  const cache = await caches.open(CACHE);
+  await cache.put(request, response.clone());
+  return true;
+}
+
 function forcedUrlFor(url) {
   for (const [suffix, forced] of FORCED) {
     if (url.pathname.endsWith(suffix)) return new URL(forced, self.registration.scope);
@@ -84,17 +128,26 @@ self.addEventListener("fetch", (event) => {
 
   const forcedUrl = forcedUrlFor(url);
   if (forcedUrl) {
-    event.respondWith(fetchFresh(forcedUrl).catch(() => caches.match(forcedUrl)));
+    event.respondWith(
+      fetchFresh(forcedUrl)
+        .then(async (response) => {
+          if (!await cacheFreshResponse(forcedUrl, response)) {
+            throw new TypeError("Invalid runtime response");
+          }
+          return response;
+        })
+        .catch(() => caches.match(forcedUrl)),
+    );
     return;
   }
 
   if (event.request.mode === "navigate") {
     event.respondWith(
       fetchFresh(event.request)
-        .then((response) => {
-          if (response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put("./index.html", copy));
+        .then(async (response) => {
+          if (isCacheableResponse(event.request, response)) {
+            const cache = await caches.open(CACHE);
+            await cache.put("./index.html", response.clone());
           }
           return response;
         })
@@ -105,11 +158,8 @@ self.addEventListener("fetch", (event) => {
 
   event.respondWith(
     fetchFresh(event.request)
-      .then((response) => {
-        if (response.ok) {
-          const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put(event.request, copy));
-        }
+      .then(async (response) => {
+        await cacheFreshResponse(event.request, response);
         return response;
       })
       .catch(() => caches.match(event.request)),

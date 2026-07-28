@@ -14,8 +14,19 @@ export const DEFAULT_SETTINGS = Object.freeze({
 });
 
 const HISTORY_MS = 6 * 60_000;
+const USDT_PERPETUAL_SYMBOL_PATTERN = /^[A-Z0-9]{1,20}USDT$/;
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+export function isUsdtPerpetualSymbol(value) {
+  return typeof value === "string" && USDT_PERPETUAL_SYMBOL_PATTERN.test(value);
+}
+
+export function normalizeUsdtPerpetualSymbol(value) {
+  if (typeof value !== "string") return null;
+  const symbol = value.trim().toUpperCase();
+  return isUsdtPerpetualSymbol(symbol) ? symbol : null;
+}
 
 export function percentChange(current, previous) {
   if (!Number.isFinite(current) || !Number.isFinite(previous) || previous === 0) return null;
@@ -427,8 +438,7 @@ export function scoreMetrics(metrics, signals, settings = DEFAULT_SETTINGS) {
 }
 
 export function filterUsdtPerpetualTicker(ticker) {
-  if (!ticker || typeof ticker.s !== "string") return false;
-  if (!ticker.s.endsWith("USDT")) return false;
+  if (!ticker || !isUsdtPerpetualSymbol(ticker.s)) return false;
   if (ticker.st !== undefined && Number(ticker.st) !== 1) return false;
-  return !ticker.s.includes("_");
+  return true;
 }

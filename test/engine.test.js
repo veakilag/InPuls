@@ -5,6 +5,8 @@ import {
   SymbolState,
   classifySignals,
   filterUsdtPerpetualTicker,
+  isUsdtPerpetualSymbol,
+  normalizeUsdtPerpetualSymbol,
   percentChange,
 } from "../engine.js";
 
@@ -18,6 +20,17 @@ test("ticker filter keeps UM USDT pairs", () => {
   assert.equal(filterUsdtPerpetualTicker({ s: "BTCUSDT", st: 1 }), true);
   assert.equal(filterUsdtPerpetualTicker({ s: "BTCUSD", st: 2 }), false);
   assert.equal(filterUsdtPerpetualTicker({ s: "BTCUSDT_260925", st: 1 }), false);
+  assert.equal(filterUsdtPerpetualTicker({ s: 'BTCUSDT"><img src=x onerror=alert(1)>', st: 1 }), false);
+  assert.equal(filterUsdtPerpetualTicker({ s: "btcusdt", st: 1 }), false);
+});
+
+test("symbol validation canonicalizes user input and rejects markup", () => {
+  assert.equal(isUsdtPerpetualSymbol("1000SHIBUSDT"), true);
+  assert.equal(isUsdtPerpetualSymbol("BTCUSDT_260925"), false);
+  assert.equal(normalizeUsdtPerpetualSymbol("  btcusdt  "), "BTCUSDT");
+  assert.equal(normalizeUsdtPerpetualSymbol("BTC/USDT"), null);
+  assert.equal(normalizeUsdtPerpetualSymbol('BTCUSDT"><script>'), null);
+  assert.equal(normalizeUsdtPerpetualSymbol("A".repeat(21) + "USDT"), null);
 });
 
 test("SymbolState calculates 15 second move", () => {

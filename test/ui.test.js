@@ -9,8 +9,8 @@ test("browser entry points keep user version v23 and identify the current releas
     source("index.html"), source("app.js"), source("sw.js"), source("refresh.html"), source("VERSION.txt"),
   ]);
   for (const text of [html, app, worker, refresh, version]) assert.doesNotMatch(text, /(?:v|build=|\?v=)22\b/);
-  assert.match(html, /inpuls-build" content="26-39-stable-book-tape-v3"/);
-  assert.match(worker, /inpuls-26-39-stable-book-tape-v3/);
+  assert.match(html, /inpuls-build" content="26-40-security-v1"/);
+  assert.match(worker, /inpuls-26-40-security-v1/);
   assert.match(html, /SCREENER <small>v23<\/small>/);
   assert.match(version, /^InPuls v23/m);
 });
@@ -45,6 +45,46 @@ test("INPLAY exposes and applies the NATR 5 filter", async () => {
   assert.match(html, /id="inplay-min-natr5"/);
   assert.match(app, /state\.inplay\.minNatr5/);
   assert.match(app, /item\.natr5m/);
+});
+
+test("market symbols are validated before subscriptions and detail rendering avoids dynamic HTML", async () => {
+  const [app, engine] = await Promise.all([source("app.js"), source("engine.js")]);
+  assert.match(engine, /USDT_PERPETUAL_SYMBOL_PATTERN/);
+  assert.match(app, /this\.trackedAggTrades\.has\(data\.s\)/);
+  assert.match(app, /normalizeUsdtPerpetualSymbol\(event\.dataTransfer\.getData/);
+  assert.doesNotMatch(app, /detailContent\.innerHTML/);
+  assert.match(app, /detailContent\.replaceChildren\(content\)/);
+  assert.match(app, /link\.rel = "noopener noreferrer"/);
+});
+
+test("browser entry points carry a restrictive CSP and reset scripts stay external", async () => {
+  const names = [
+    "index.html",
+    "raw-stability-lab.html",
+    "trade-latency-lab.html",
+    "refresh.html",
+    "reset-v26.html",
+  ];
+  const pages = await Promise.all(names.map(source));
+  for (const page of pages) {
+    assert.match(page, /http-equiv="Content-Security-Policy"/);
+    assert.match(page, /object-src 'none'/);
+    assert.match(page, /script-src 'self'/);
+    assert.match(page, /name="referrer" content="no-referrer"/);
+  }
+  assert.doesNotMatch(pages[3], /<script>(?:.|\n)*getRegistrations/);
+  assert.doesNotMatch(pages[4], /<script>(?:.|\n)*getRegistrations/);
+  assert.match(pages[3], /refresh\.js\?v=26-40-security-v1/);
+  assert.match(pages[4], /reset\.js\?v=26-40-security-v1/);
+});
+
+test("Service Worker installs atomically and validates cached response types", async () => {
+  const worker = await source("sw.js");
+  assert.match(worker, /cache\.addAll\(SHELL\)/);
+  assert.match(worker, /isCacheableResponse/);
+  assert.match(worker, /content-type/);
+  assert.match(worker, /await caches\.delete\(CACHE\)/);
+  assert.doesNotMatch(worker, /Promise\.allSettled\(SHELL/);
 });
 
 test("chart pointer work is coalesced through animation frames and first-anchor snapping is available", async () => {

@@ -1,0 +1,24 @@
+# Dependencies and test output
+node_modules/
+coverage/
+*.log
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+.npmrc
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Local databases, dumps and editor state
+*.db
+*.dump
+*.sqlite
+*.sqlite3
+*.local
+.DS_Store
+.idea/
+.vscode/

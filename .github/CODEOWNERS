@@ -1,0 +1,9 @@
+# Security-sensitive and release files require review from the repository owner.
+* @veakilag
+
+/.github/ @veakilag
+/app.js @veakilag
+/engine.js @veakilag
+/server.js @veakilag
+/sw.js @veakilag
+/pwa-reset.js @veakilag

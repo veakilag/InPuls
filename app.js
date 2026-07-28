@@ -3,6 +3,8 @@ import {
   SymbolState,
   filterUsdtPerpetualTicker,
   formatCompactUsd,
+  isUsdtPerpetualSymbol,
+  normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
 import { aggregateFootprintClusters, aggregateTradePath, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=stable-book-tape-v3";
@@ -34,9 +36,15 @@ const DEFAULT_INPLAY = Object.freeze({ minV24: 100, minNatr1: null, minNatr5: nu
 const EMPTY_RADAR_FILTERS = Object.freeze([]);
 const CHART_INTERVALS = Object.freeze(["1s", "5s", "15s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "12h", "1d", "3d", "1w", "1M"]);
 const DEFAULT_FAVORITE_TIMEFRAMES = Object.freeze(["1m", "5m", "15m"]);
+const SIGNAL_TYPES = new Set(["cascade", "knife", "breakout", "impulse", "compression"]);
 
 function intervalLabel(interval) {
   return String(interval).replace("1M", "1мес").replace("s", "с").replace("m", "м").replace("h", "ч").replace("d", "д").replace("w", "н");
+}
+
+function normalizeSymbolList(value) {
+  const list = Array.isArray(value) ? value : [];
+  return [...new Set(list.map(normalizeUsdtPerpetualSymbol).filter(Boolean))];
 }
 
 function normalizeInPlay(value) {
@@ -51,16 +59,17 @@ const DEFAULT_WORKSPACE = {
 };
 
 const savedChart = loadJson(STORAGE_KEYS.chart, { interval: "1m", range: "1h" });
+const savedSelectedSymbol = normalizeUsdtPerpetualSymbol(localStorage.getItem(STORAGE_KEYS.selectedSymbol)) || "BTCUSDT";
 
 const state = {
   symbols: new Map(),
   settings: loadJson(STORAGE_KEYS.settings, DEFAULT_SETTINGS),
-  favorites: new Set(loadJson(STORAGE_KEYS.favorites, [])),
+  favorites: new Set(normalizeSymbolList(loadJson(STORAGE_KEYS.favorites, []))),
   soundEnabled: loadJson(STORAGE_KEYS.sound, false),
   filter: "all",
   search: "",
   selectedSymbol: null,
-  selectedChartSymbol: localStorage.getItem(STORAGE_KEYS.selectedSymbol) || "BTCUSDT",
+  selectedChartSymbol: savedSelectedSymbol,
   chartInterval: savedChart.interval ?? "1m",
   chartRange: savedChart.range ?? "1h",
   chartCandles: [],
@@ -81,7 +90,7 @@ const state = {
   radarFilters: loadJson(STORAGE_KEYS.radarFilters, EMPTY_RADAR_FILTERS),
   inplay: normalizeInPlay(loadJson(STORAGE_KEYS.inplay, DEFAULT_INPLAY)),
   favoriteTimeframes: [...new Set(loadJson(STORAGE_KEYS.favoriteTimeframes, DEFAULT_FAVORITE_TIMEFRAMES).filter((interval) => CHART_INTERVALS.includes(interval)))].sort((left, right) => CHART_INTERVALS.indexOf(left) - CHART_INTERVALS.indexOf(right)),
-  inplayOrder: loadJson(STORAGE_KEYS.inplayOrder, []).filter((symbol) => typeof symbol === "string" && symbol.endsWith("USDT")),
+  inplayOrder: normalizeSymbolList(loadJson(STORAGE_KEYS.inplayOrder, [])),
 };
 
 const els = {
@@ -229,7 +238,7 @@ class BinanceFeed {
   }
 
   updateAggTradeSubscriptions(symbols) {
-    const next = new Set(symbols);
+    const next = new Set(normalizeSymbolList(symbols));
     const subscribe = [...next].filter((symbol) => !this.trackedAggTrades.has(symbol));
     const unsubscribe = [...this.trackedAggTrades].filter((symbol) => !next.has(symbol));
     this.trackedAggTrades = next;
@@ -246,31 +255,31 @@ class BinanceFeed {
   #handle(data) {
     if (Array.isArray(data)) {
       for (const ticker of data) {
-        if (ticker?.e === "markPriceUpdate" && ticker.s?.endsWith("USDT")) {
-          getSymbol(ticker.s, Number(ticker.E) || Date.now()).updateFunding(ticker);
+        if (ticker?.e === "markPriceUpdate" && isUsdtPerpetualSymbol(ticker.s)) {
+          getSymbol(ticker.s, Number(ticker.E) || Date.now())?.updateFunding(ticker);
           continue;
         }
         if (!filterUsdtPerpetualTicker(ticker)) continue;
-        getSymbol(ticker.s, Number(ticker.E) || Date.now()).updateTicker(ticker);
+        getSymbol(ticker.s, Number(ticker.E) || Date.now())?.updateTicker(ticker);
       }
       scheduleRender();
       return;
     }
     if (!data || typeof data !== "object") return;
-    if (data.e === "bookTicker" && data.s?.endsWith("USDT")) {
-      getSymbol(data.s, Number(data.E) || Date.now()).updateBookTicker(data);
+    if (data.e === "bookTicker" && isUsdtPerpetualSymbol(data.s) && this.trackedAggTrades.has(data.s)) {
+      getSymbol(data.s, Number(data.E) || Date.now())?.updateBookTicker(data);
       scheduleRender();
       return;
     }
-    if (data.e === "aggTrade" && filterUsdtPerpetualTicker(data)) {
-      getSymbol(data.s).updateTrade(data);
+    if (data.e === "aggTrade" && filterUsdtPerpetualTicker(data) && this.trackedAggTrades.has(data.s)) {
+      getSymbol(data.s)?.updateTrade(data);
       scheduleRender();
       return;
     }
     if (data.e === "forceOrder") {
       const symbol = data.o?.s;
-      if (symbol?.endsWith("USDT") && (data.st === undefined || Number(data.st) === 1)) {
-        getSymbol(symbol).updateLiquidation(data);
+      if (isUsdtPerpetualSymbol(symbol) && (data.st === undefined || Number(data.st) === 1)) {
+        getSymbol(symbol)?.updateLiquidation(data);
         scheduleRender();
       }
     }
@@ -587,8 +596,10 @@ function selectRange(range) {
 }
 
 function getSymbol(symbol, now) {
-  if (!state.symbols.has(symbol)) state.symbols.set(symbol, new SymbolState(symbol, now));
-  return state.symbols.get(symbol);
+  const normalized = normalizeUsdtPerpetualSymbol(symbol);
+  if (!normalized) return null;
+  if (!state.symbols.has(normalized)) state.symbols.set(normalized, new SymbolState(normalized, now));
+  return state.symbols.get(normalized);
 }
 
 function getMetrics(now = Date.now()) {
@@ -620,7 +631,7 @@ async function warmupRadarHistory() {
       const response = await fetch(`https://fapi.binance.com/fapi/v1/klines?${query}`, { cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const rows = await response.json();
-      getSymbol(symbol).hydrateMinuteCandles(rows.map(parseRestKline));
+      getSymbol(symbol)?.hydrateMinuteCandles(rows.map(parseRestKline));
       radarHistoryLoaded.add(symbol);
     } catch {
       // Retry later without blocking the live market feed.
@@ -977,11 +988,12 @@ function normalizeWorkspace() {
   };
   const sourceExtras = Array.isArray(raw.extras) ? raw.extras : [];
   for (const source of sourceExtras) {
-    if (!source?.id || !source?.symbol?.endsWith("USDT")) continue;
+    const symbol = normalizeUsdtPerpetualSymbol(source?.symbol);
+    if (!source?.id || !symbol) continue;
     const type = source.type === "orderbook" ? "orderbook" : "chart";
-    const fallback = { id: String(source.id), type, symbol: source.symbol, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, bookScaleIndex: source.bookScaleIndex ?? 3, bookCentered: source.bookCentered !== false, tapePercent: source.tapePercent ?? 48, tradeMinQuote: source.tradeMinQuote ?? 0, tradeWindowMs: source.tradeWindowMs ?? 60_000, clustersVisible: Boolean(source.clustersVisible), highlightMode: source.highlightMode === "manual" ? "manual" : "auto", highlightMinQuote: source.highlightMinQuote ?? 100000, x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
+    const fallback = { id: String(source.id), type, symbol, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, bookScaleIndex: source.bookScaleIndex ?? 3, bookCentered: source.bookCentered !== false, tapePercent: source.tapePercent ?? 48, tradeMinQuote: source.tradeMinQuote ?? 0, tradeWindowMs: source.tradeWindowMs ?? 60_000, clustersVisible: Boolean(source.clustersVisible), highlightMode: source.highlightMode === "manual" ? "manual" : "auto", highlightMinQuote: source.highlightMinQuote ?? 100000, x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
     const item = clampPanel(source, fallback, { w: 3, h: 2 });
-    item.symbol = source.symbol;
+    item.symbol = symbol;
     item.interval = source.interval || state.chartInterval;
     item.volumeVisible = source.volumeVisible ?? state.volumeVisible;
     item.sessionsVisible = source.sessionsVisible ?? state.sessionsVisible;
@@ -1329,8 +1341,8 @@ function mountExtraChart(model) {
     if (event.dataTransfer.types.includes("text/inpuls-symbol")) event.preventDefault();
   });
   article.addEventListener("drop", (event) => {
-    const symbol = event.dataTransfer.getData("text/inpuls-symbol");
-    if (!symbol?.endsWith("USDT")) return;
+    const symbol = normalizeUsdtPerpetualSymbol(event.dataTransfer.getData("text/inpuls-symbol"));
+    if (!symbol) return;
     event.preventDefault();
     model.symbol = symbol;
     article.querySelector("h2").textContent = `${symbol.replace("USDT", "")}/USDT`;
@@ -1341,13 +1353,14 @@ function mountExtraChart(model) {
 }
 
 function createExtraPanel(symbol, type = "chart") {
-  if (!symbol?.endsWith("USDT")) return false;
+  const normalizedSymbol = normalizeUsdtPerpetualSymbol(symbol);
+  if (!normalizedSymbol) return false;
   const slot = findFreeSlot(type === "orderbook" ? 6 : 8, 6) ?? findFreeSlot(4, 3) ?? findFreeSlot(3, 2);
   if (!slot) return false;
   const model = {
     id: `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     type,
-    symbol,
+    symbol: normalizedSymbol,
     interval: state.chartInterval,
     volumeVisible: state.volumeVisible,
     sessionsVisible: state.sessionsVisible,
@@ -1484,8 +1497,8 @@ function mountOrderBook(model) {
     article.classList.add("is-symbol-drop-target");
   }, true);
   article.addEventListener("drop", (event) => {
-    const symbol = event.dataTransfer.getData("text/inpuls-symbol");
-    if (!symbol?.endsWith("USDT")) return;
+    const symbol = normalizeUsdtPerpetualSymbol(event.dataTransfer.getData("text/inpuls-symbol"));
+    if (!symbol) return;
     event.preventDefault();
     event.stopPropagation();
     clearDropState();
@@ -2038,15 +2051,16 @@ function updateChartHeader(metrics = state.lastMetrics) {
 }
 
 function selectChartSymbol(symbol, scrollToChart = false) {
-  if (!symbol?.endsWith("USDT")) return;
-  const changed = symbol !== state.selectedChartSymbol;
-  state.selectedChartSymbol = symbol;
-  localStorage.setItem(STORAGE_KEYS.selectedSymbol, symbol);
+  const normalizedSymbol = normalizeUsdtPerpetualSymbol(symbol);
+  if (!normalizedSymbol) return;
+  const changed = normalizedSymbol !== state.selectedChartSymbol;
+  state.selectedChartSymbol = normalizedSymbol;
+  localStorage.setItem(STORAGE_KEYS.selectedSymbol, normalizedSymbol);
   updateChartHeader();
   renderTopList(state.lastMetrics);
-  els.tableBody.querySelectorAll("tr").forEach((row) => row.classList.toggle("is-selected", row.dataset.symbol === symbol));
-  if (changed || !state.chartCandles.length) klineFeed.select(symbol, state.chartInterval, state.chartRange);
-  if (changed) loadChartStats(symbol);
+  els.tableBody.querySelectorAll("tr").forEach((row) => row.classList.toggle("is-selected", row.dataset.symbol === normalizedSymbol));
+  if (changed || !state.chartCandles.length) klineFeed.select(normalizedSymbol, state.chartInterval, state.chartRange);
+  if (changed) loadChartStats(normalizedSymbol);
   if (scrollToChart) els.marketFocus.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -2055,9 +2069,14 @@ async function loadChartStats(symbol) {
   state.chartStats = { fundingRate: null, nextFundingTime: null, natr1m: null, natr5m: null, correlation: null };
   renderChartMetrics();
   try {
-    const klineQuery = (pair, interval) => `https://fapi.binance.com/fapi/v1/klines?symbol=${pair}&interval=${interval}&limit=120`;
+    const marketUrl = (pathname, parameters) => {
+      const url = new URL(pathname, "https://fapi.binance.com");
+      url.search = new URLSearchParams(parameters).toString();
+      return url;
+    };
+    const klineQuery = (pair, interval) => marketUrl("/fapi/v1/klines", { symbol: pair, interval, limit: "120" });
     const [premiumResponse, minuteResponse, fiveMinuteResponse, bitcoinResponse] = await Promise.all([
-      fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`, { cache: "no-store" }),
+      fetch(marketUrl("/fapi/v1/premiumIndex", { symbol }), { cache: "no-store" }),
       fetch(klineQuery(symbol, "1m"), { cache: "no-store" }),
       fetch(klineQuery(symbol, "5m"), { cache: "no-store" }),
       symbol === "BTCUSDT" ? Promise.resolve(null) : fetch(klineQuery("BTCUSDT", "1m"), { cache: "no-store" }),
@@ -2068,10 +2087,10 @@ async function loadChartStats(symbol) {
     ]);
     const minuteCandles = minuteRows.map(parseRestKline);
     const fiveMinuteCandles = fiveMinuteRows.map(parseRestKline);
-    getSymbol(symbol).hydrateMinuteCandles(minuteCandles);
+    getSymbol(symbol)?.hydrateMinuteCandles(minuteCandles);
     radarHistoryLoaded.add(symbol);
     if (bitcoinRows) {
-      getSymbol("BTCUSDT").hydrateMinuteCandles(bitcoinRows.map(parseRestKline));
+      getSymbol("BTCUSDT")?.hydrateMinuteCandles(bitcoinRows.map(parseRestKline));
       radarHistoryLoaded.add("BTCUSDT");
     }
     if (state.selectedChartSymbol !== requestedSymbol) return;
@@ -2118,38 +2137,95 @@ function updateAlerts(metrics, now) {
 function renderDetail(symbol) {
   const item = state.lastMetrics.find((candidate) => candidate.symbol === symbol);
   if (!item) return;
-  const chart = sparklineSvg(item.sparkline, item.change1m >= 0);
   const flow = item.trades.buyShare === null ? "Нет данных" : `${Math.round(item.trades.buyShare)}% покупок / ${Math.round(100 - item.trades.buyShare)}% продаж`;
-  const signals = item.signals.length
-    ? item.signals.map((signal) => `<li><span class="signal-badge signal-${signal.type}">${signal.label}</span><span>${escapeHtml(signal.reason)}</span></li>`).join("")
-    : "<li><span>Условия сигналов пока не выполнены</span></li>";
-
-  els.detailContent.innerHTML = `
+  const template = document.createElement("template");
+  template.innerHTML = `
     <div class="detail-heading">
-      <div><span class="eyebrow">Binance Futures</span><h2>${item.symbol}</h2></div>
-      <div class="detail-price">${formatPrice(item.price)} <span class="${toneClass(item.change1m)}">${formatChange(item.change1m)}</span></div>
+      <div><span class="eyebrow">Binance Futures</span><h2 data-detail-symbol></h2></div>
+      <div class="detail-price"><span data-detail-price></span> <span data-detail-change></span></div>
     </div>
-    <div class="detail-chart">${chart}</div>
-    <div class="detail-grid">
-      <div><span>15 секунд</span><strong class="${toneClass(item.change15s)}">${formatChange(item.change15s)}</strong></div>
-      <div><span>1 минута</span><strong class="${toneClass(item.change1m)}">${formatChange(item.change1m)}</strong></div>
-      <div><span>5 минут</span><strong class="${toneClass(item.change5m)}">${formatChange(item.change5m)}</strong></div>
-      <div><span>Оборот/мин</span><strong>${formatCompactUsd(item.turnoverPerMinute)}</strong></div>
-      <div><span>Ускорение</span><strong>${item.volumeBoost === null ? "Разогрев" : `×${item.volumeBoost.toFixed(1)}`}</strong></div>
-      <div><span>Сделок/сек</span><strong>${item.trades.tps > 0 ? Math.round(item.trades.tps) : "—"}</strong></div>
-      <div><span>Агрессия</span><strong>${flow}</strong></div>
-      <div><span>Ликвидации 60с</span><strong>${formatCompactUsd(item.liquidation.total)}</strong></div>
-    </div>
-    <div class="detail-signals"><h3>Почему монета здесь</h3><ul>${signals}</ul></div>
-    <div class="detail-actions">
-      <a class="button button-primary" href="https://www.tradingview.com/chart/?symbol=BINANCE:${item.symbol}.P" target="_blank" rel="noopener">TradingView</a>
-      <a class="button" href="https://www.binance.com/en/futures/${item.symbol}" target="_blank" rel="noopener">Binance</a>
-    </div>
+    <div class="detail-chart" data-detail-chart></div>
+    <div class="detail-grid" data-detail-grid></div>
+    <div class="detail-signals"><h3>Почему монета здесь</h3><ul data-detail-signals></ul></div>
+    <div class="detail-actions" data-detail-actions></div>
   `;
+  const content = template.content;
+  content.querySelector("[data-detail-symbol]").textContent = item.symbol;
+  content.querySelector("[data-detail-price]").textContent = formatPrice(item.price);
+  const change = content.querySelector("[data-detail-change]");
+  change.className = toneClass(item.change1m);
+  change.textContent = formatChange(item.change1m);
+  content.querySelector("[data-detail-chart]").append(createSparkline(item.sparkline, item.change1m >= 0));
+
+  const grid = content.querySelector("[data-detail-grid]");
+  [
+    ["15 секунд", formatChange(item.change15s), toneClass(item.change15s)],
+    ["1 минута", formatChange(item.change1m), toneClass(item.change1m)],
+    ["5 минут", formatChange(item.change5m), toneClass(item.change5m)],
+    ["Оборот/мин", formatCompactUsd(item.turnoverPerMinute)],
+    ["Ускорение", item.volumeBoost === null ? "Разогрев" : `×${item.volumeBoost.toFixed(1)}`],
+    ["Сделок/сек", item.trades.tps > 0 ? String(Math.round(item.trades.tps)) : "—"],
+    ["Агрессия", flow],
+    ["Ликвидации 60с", formatCompactUsd(item.liquidation.total)],
+  ].forEach(([label, value, tone]) => {
+    const cell = document.createElement("div");
+    const title = document.createElement("span");
+    const strong = document.createElement("strong");
+    title.textContent = label;
+    strong.textContent = value;
+    if (tone) strong.className = tone;
+    cell.append(title, strong);
+    grid.append(cell);
+  });
+
+  const signals = content.querySelector("[data-detail-signals]");
+  if (!item.signals.length) {
+    const row = document.createElement("li");
+    const text = document.createElement("span");
+    text.textContent = "Условия сигналов пока не выполнены";
+    row.append(text);
+    signals.append(row);
+  } else {
+    item.signals.forEach((signal) => {
+      const row = document.createElement("li");
+      const badge = document.createElement("span");
+      const reason = document.createElement("span");
+      const signalType = SIGNAL_TYPES.has(signal.type) ? signal.type : "unknown";
+      badge.className = `signal-badge signal-${signalType}`;
+      badge.textContent = String(signal.label || "СИГНАЛ");
+      reason.textContent = String(signal.reason || "");
+      row.append(badge, reason);
+      signals.append(row);
+    });
+  }
+
+  const actions = content.querySelector("[data-detail-actions]");
+  const tradingViewUrl = new URL("https://www.tradingview.com/chart/");
+  tradingViewUrl.search = new URLSearchParams({ symbol: `BINANCE:${item.symbol}.P` }).toString();
+  const binanceUrl = new URL(`/en/futures/${encodeURIComponent(item.symbol)}`, "https://www.binance.com");
+  [
+    ["TradingView", tradingViewUrl, "button button-primary"],
+    ["Binance", binanceUrl, "button"],
+  ].forEach(([label, url, className]) => {
+    const link = document.createElement("a");
+    link.className = className;
+    link.href = url.href;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = label;
+    actions.append(link);
+  });
+
+  els.detailContent.replaceChildren(content);
 }
 
-function sparklineSvg(values, positive) {
-  if (!values || values.length < 2) return '<div class="chart-placeholder">График появится после накопления данных</div>';
+function createSparkline(values, positive) {
+  if (!values || values.length < 2) {
+    const placeholder = document.createElement("div");
+    placeholder.className = "chart-placeholder";
+    placeholder.textContent = "График появится после накопления данных";
+    return placeholder;
+  }
   const width = 560;
   const height = 150;
   const min = Math.min(...values);
@@ -2161,7 +2237,18 @@ function sparklineSvg(values, positive) {
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(" ");
   const color = positive ? "#50e3a4" : "#ff6b7a";
-  return `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="Движение цены"><polyline points="${points}" fill="none" stroke="${color}" stroke-width="3" vector-effect="non-scaling-stroke"/></svg>`;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("aria-label", "Движение цены");
+  const line = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+  line.setAttribute("points", points);
+  line.setAttribute("fill", "none");
+  line.setAttribute("stroke", color);
+  line.setAttribute("stroke-width", "3");
+  line.setAttribute("vector-effect", "non-scaling-stroke");
+  svg.append(line);
+  return svg;
 }
 
 function openDetail(symbol) {
@@ -2594,8 +2681,8 @@ function bindEvents() {
     if (event.dataTransfer.types.includes("text/inpuls-symbol")) event.preventDefault();
   });
   primaryChartPanel.addEventListener("drop", (event) => {
-    const symbol = event.dataTransfer.getData("text/inpuls-symbol");
-    if (!symbol?.endsWith("USDT")) return;
+    const symbol = normalizeUsdtPerpetualSymbol(event.dataTransfer.getData("text/inpuls-symbol"));
+    if (!symbol) return;
     event.preventDefault();
     selectChartSymbol(symbol);
   });
@@ -2782,7 +2869,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-39-stable-book-tape-v3";
+const INPULS_RUNTIME_BUILD = "26-40-security-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
