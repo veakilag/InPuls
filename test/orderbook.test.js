@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adaptiveBookScaleIndex, aggregateDepthBands, aggregateFootprintClusters, aggregateTradeClusters, aggregateTradePath, applyDepthUpdates, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, depthView, inferPriceTick, maximumBookScaleIndex, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "../orderbook.js";
+import { adaptiveBookScaleIndex, aggregateDepthBands, aggregateFootprintClusters, aggregateTradeClusters, aggregateTradePath, applyDepthUpdates, bookDepthLabel, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, depthView, inferPriceTick, maximumBookScaleIndex, normalizeBookDepthPercent, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForDepthPercent, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "../orderbook.js";
 
 test("depth updates add, replace and remove price levels", () => {
   const levels = new Map([[100, 2], [99, 4]]);
@@ -45,6 +45,20 @@ test("price ladder keeps the market row visible and fills both sides", () => {
   assert.equal(rows.filter((row) => row.isMarket).length, 1);
   assert.ok(rows.some((row) => row.bidQuote > 0));
   assert.ok(rows.some((row) => row.askQuote > 0));
+});
+
+test("percent depth gives BTC and alt books the same visible range", () => {
+  const rows = 77;
+  const btcStep = priceStepForDepthPercent(.1, 120_000, rows, 1);
+  const altStep = priceStepForDepthPercent(.00001, .3, rows, 1);
+  const halfRows = Math.floor(rows / 2);
+  const btcPercent = btcStep * halfRows / 120_000 * 100;
+  const altPercent = altStep * halfRows / .3 * 100;
+  assert.ok(Math.abs(btcPercent - 1) < .01);
+  assert.ok(Math.abs(altPercent - 1) < .02);
+  assert.equal(priceStepForDepthPercent(.0001, .3, rows, 1), .0001);
+  assert.equal(bookDepthLabel(1), "±1%");
+  assert.equal(normalizeBookDepthPercent(.8), 1);
 });
 
 test("trade clusters respect the minimum quote filter", () => {

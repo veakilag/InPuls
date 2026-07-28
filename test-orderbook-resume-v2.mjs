@@ -30,6 +30,7 @@ test("healthy sockets resume without REST backfill", () => {
     /if \(!this\.backgroundPaused && socketOpen && depthFresh\) \{([\s\S]*?)\n      \}/,
   )?.[1] ?? "";
   assert.doesNotMatch(fastPath, /loadRecentTrades/);
+  assert.match(fastPath, /replace: true,[\s\S]*liveOnly: true,[\s\S]*trades: \[\]/);
 });
 
 test("long background keeps a frozen Tape frame", () => {
@@ -75,13 +76,13 @@ test("a delayed feed retries independently", () => {
 });
 
 test("Resume v2 ships one consistent runtime", () => {
-  assert.match(index, /app\.js\?v=26-36-density-lifecycle-v1/);
-  assert.match(app, /orderbook\.js\?v=density-lifecycle-v1/);
+  assert.match(index, /app\.js\?v=26-37-multi-dom-live-tape-v1/);
+  assert.match(app, /orderbook\.js\?v=multi-dom-live-tape-v1/);
   assert.match(app, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(orderbook, /orderbook-worker\.js\?v=density-lifecycle-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=render-scheduler-v1/);
+  assert.match(orderbook, /orderbook-worker\.js\?v=multi-dom-live-tape-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=multi-dom-live-tape-v1/);
   assert.match(worker, /orderbook-tape-latency\.js\?v=worker-bp-v1/);
-  assert.match(sw, /inpuls-26-36-density-lifecycle-v1/);
+  assert.match(sw, /inpuls-26-37-multi-dom-live-tape-v1/);
   assert.match(reset, /Resume v2/);
 });
 

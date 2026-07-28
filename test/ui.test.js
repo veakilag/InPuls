@@ -9,13 +9,13 @@ test("browser entry points keep user version v23 and identify the current releas
     source("index.html"), source("app.js"), source("sw.js"), source("refresh.html"), source("VERSION.txt"),
   ]);
   for (const text of [html, app, worker, refresh, version]) assert.doesNotMatch(text, /(?:v|build=|\?v=)22\b/);
-  assert.match(html, /inpuls-build" content="26-36-density-lifecycle-v1"/);
-  assert.match(worker, /inpuls-26-36-density-lifecycle-v1/);
+  assert.match(html, /inpuls-build" content="26-37-multi-dom-live-tape-v1"/);
+  assert.match(worker, /inpuls-26-37-multi-dom-live-tape-v1/);
   assert.match(html, /SCREENER <small>v23<\/small>/);
   assert.match(version, /^InPuls v23/m);
 });
 
-test("v23 DOM exposes adaptive depth, time-price history and footprint controls", async () => {
+test("v23 DOM exposes comparable depth, live Tape and footprint controls", async () => {
   const app = await source("app.js");
   assert.match(app, /data-book-center/);
   assert.match(app, /data-trade-min/);
@@ -24,14 +24,16 @@ test("v23 DOM exposes adaptive depth, time-price history and footprint controls"
   assert.match(app, /data-book-highlight-auto/);
   assert.match(app, /aggregateTradePath/);
   assert.match(app, /aggregateFootprintClusters/);
-  assert.match(app, /depthCoverageScaleIndex/);
+  assert.match(app, /BOOK_DEPTH_PERCENT_PRESETS/);
+  assert.match(app, /priceStepForDepthPercent/);
+  assert.match(app, /bookDepthLabel/);
   assert.match(app, /data-trade-window/);
   assert.match(app, /trade-flow-grid/);
   assert.match(app, /inplayOrder/);
   assert.match(app, /manualScrollAnchorPrice/);
   assert.match(app, /book-splitter/);
   assert.match(app, /event\.ctrlKey \|\| event\.metaKey/);
-  assert.doesNotMatch(app, /data-book-depth/);
+  assert.doesNotMatch(app, /bookScaleIndex/);
 });
 
 test("INPLAY exposes and applies the NATR 5 filter", async () => {

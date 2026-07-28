@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import vm from "node:vm";
 
 const orderbook = readFileSync(new URL("./orderbook.js", import.meta.url), "utf8");
 const worker = readFileSync(new URL("./orderbook-worker.js", import.meta.url), "utf8");
@@ -31,72 +30,31 @@ test("resume prioritizes the last selected symbol and staggers other feeds", () 
   assert.match(worker, /active\.forEach\(\(feed, index\) => feed\.resume\(index \* RESUME_STAGGER_MS, epoch\)\)/);
 });
 
-test("long recovery backfills trades while fast resume avoids REST", () => {
-  assert.match(
-    worker,
-    /restartAfterBackground\(force = false\)[\s\S]*loadRecentTrades\(generation, \{ resume: true \}\)/,
-  );
+test("every resume starts a clean live-only Tape without REST history", () => {
   const resumeStart = worker.indexOf("  resume(");
   const resumeEnd = worker.indexOf("\n  restartAfterBackground(", resumeStart);
   const resumeBlock = worker.slice(resumeStart, resumeEnd);
+  const restartStart = resumeEnd;
+  const restartEnd = worker.indexOf("\n  resetFlowWindow(", restartStart);
+  const restartBlock = worker.slice(restartStart, restartEnd);
+  const startStart = worker.indexOf("  start() {");
+  const startEnd = worker.indexOf("\n  stopSockets(", startStart);
+  const startBlock = worker.slice(startStart, startEnd);
+
+  for (const block of [startBlock, resumeBlock, restartBlock]) {
+    assert.match(block, /replace: true,[\s\S]*liveOnly: true,[\s\S]*trades: \[\]/);
+  }
+  assert.doesNotMatch(worker, /\/fapi\/v1\/aggTrades/);
   assert.doesNotMatch(resumeBlock, /loadRecentTrades/);
-  assert.match(worker, /async loadRecentTrades\(generation, \{ resume = false \} = \{\}\)/);
-  assert.match(worker, /replace: !resume/);
-  assert.match(worker, /resume,\n\s*trades,/);
-});
-
-test("resume overlap filtering stays off the live trade hot path", () => {
-  assert.match(worker, /const coveredRanges = resume \? mergeTradeCoverage\(this\.tradeSnapshot\(\)\) : null/);
-  assert.match(worker, /tradeCoverageOverlaps\(coveredRanges, trade\.firstTradeId, trade\.lastTradeId\)/);
-  assert.match(worker, /addTradeCoverage\(coveredRanges, trade\.firstTradeId, trade\.lastTradeId\)/);
-  assert.doesNotMatch(worker, /return this\.trades\.some/);
-  assert.doesNotMatch(worker, /this\.tradeRangeOverlaps/);
-
-  const insertStart = worker.indexOf("  insertTrade(");
-  const insertEnd = worker.indexOf("\n  queueTape(", insertStart);
-  assert.ok(insertStart >= 0 && insertEnd > insertStart);
-  const insertBlock = worker.slice(insertStart, insertEnd);
-  assert.doesNotMatch(insertBlock, /mergeTradeCoverage|tradeCoverageOverlaps|addTradeCoverage|this\.trades\.some/);
-});
-
-test("resume coverage helpers merge and query trade ID intervals", () => {
-  const helperStart = worker.indexOf("function mergeTradeCoverage");
-  const helperEnd = worker.indexOf("async function fetchJson", helperStart);
-  assert.ok(helperStart >= 0 && helperEnd > helperStart);
-
-  const context = {};
-  vm.runInNewContext(
-    `${worker.slice(helperStart, helperEnd)}
-globalThis.coverageApi = { mergeTradeCoverage, tradeCoverageOverlaps, addTradeCoverage };`,
-    context,
-  );
-
-  const ranges = context.coverageApi.mergeTradeCoverage([
-    { firstTradeId: 10, lastTradeId: 12 },
-    { firstTradeId: 13, lastTradeId: 15 },
-    { firstTradeId: 20, lastTradeId: 22 },
-    { id: 999 },
-  ]);
-  assert.deepEqual(JSON.parse(JSON.stringify(ranges)), [[10, 15], [20, 22]]);
-  assert.equal(context.coverageApi.tradeCoverageOverlaps(ranges, 12, 14), true);
-  assert.equal(context.coverageApi.tradeCoverageOverlaps(ranges, 16, 19), false);
-  context.coverageApi.addTradeCoverage(ranges, 16, 21);
-  assert.deepEqual(JSON.parse(JSON.stringify(ranges)), [[10, 22]]);
-});
-
-test("current generation replaces an obsolete bootstrap request", () => {
-  assert.doesNotMatch(worker, /tradeBootstrapLoading/);
-  assert.match(worker, /this\.tradeBootstrapRequest = 0/);
-  assert.match(worker, /const requestId = \+\+this\.tradeBootstrapRequest/);
-  assert.match(worker, /requestId !== this\.tradeBootstrapRequest/);
+  assert.doesNotMatch(worker, /indexedDB|TradeStore|cached-trades|bootstrap-trades/);
 });
 
 test("cache versions keep seamless resume while shipping Resume v2", () => {
-  assert.match(orderbook, /orderbook-worker\.js\?v=density-lifecycle-v1/);
-  assert.match(serviceWorker, /inpuls-26-36-density-lifecycle-v1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=density-lifecycle-v1/);
+  assert.match(orderbook, /orderbook-worker\.js\?v=multi-dom-live-tape-v1/);
+  assert.match(serviceWorker, /inpuls-26-37-multi-dom-live-tape-v1/);
+  assert.match(serviceWorker, /orderbook\.js\?v=multi-dom-live-tape-v1/);
   assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(serviceWorker, /orderbook-worker\.js\?v=density-lifecycle-v1/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=render-scheduler-v1/);
+  assert.match(serviceWorker, /orderbook-worker\.js\?v=multi-dom-live-tape-v1/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=multi-dom-live-tape-v1/);
   assert.doesNotMatch(serviceWorker, /v26-22-background-restart/);
 });

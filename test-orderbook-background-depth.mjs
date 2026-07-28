@@ -16,7 +16,8 @@ test("files keep correct identities", () => {
 });
 
 test("background return reuses Worker with guarded staggered recovery", () => {
-  assert.match(worker, /MAX_RESUME_TAPE_SNAPSHOT = 80/);
+  assert.doesNotMatch(worker, /MAX_RESUME_TAPE_SNAPSHOT/);
+  assert.match(worker, /liveOnly: true,\s+trades: \[\]/);
   assert.match(worker, /MAX_EMITTED_LEVELS_PER_SIDE = 4_000/);
   assert.doesNotMatch(runtime, /ORDERBOOK_BACKGROUND_HARD_RESTART_MS/);
   assert.match(runtime, /ORDERBOOK_RESUME_PROBE_MS = 3_500/);

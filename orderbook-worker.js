@@ -9,21 +9,16 @@ const MAX_BOOK_LEVELS_PER_SIDE = 20_000;
 const MAX_EMITTED_LEVELS_PER_SIDE = 4_000;
 const MAX_BUFFERED_DEPTH_EVENTS = 4_000;
 const MAX_TRADE_HISTORY = 12_000;
-const MAX_PERSISTED_TRADE_HISTORY = 5_000;
-const MAX_TAPE_SNAPSHOT = 1_200;
-const MAX_RESUME_TAPE_SNAPSHOT = 80;
 const MAX_RESUME_LEVELS_PER_SIDE = 700;
 const RESUME_STAGGER_MS = 180;
 const BACKGROUND_GRACE_MS = 2_000;
 const RECOVERY_TIMEOUT_MS = 8_000;
 const RESUME_STALE_MS = 3_500;
-const RESUME_TAPE_WINDOW_MS = 75_000;
 const DEPTH_STALE_NOTICE_MS = 3_000;
 const ACTIVE_STALE_MS = 9_000;
 const SNAPSHOT_TIMEOUT_MS = 2_800;
 const IDLE_CLOSE_MS = 10_000;
 const TRADE_FIRST_MESSAGE_TIMEOUT_MS = 8_000;
-const TRADE_BOOTSTRAP_LIMIT = 120;
 const MAX_TAPE_BATCH_PER_POST = 500;
 const MAX_PENDING_TAPE_TRADES = 800;
 const TAPE_FLUSH_MS = 25;
@@ -157,58 +152,6 @@ function sequenceDecision(lastUpdateId, event, firstEvent = false) {
   return "apply";
 }
 
-function mergeTradeCoverage(trades) {
-  const ranges = [];
-  for (const trade of trades ?? []) {
-    const first = Number(trade?.firstTradeId);
-    const last = Number(trade?.lastTradeId);
-    if (!Number.isInteger(first) || !Number.isInteger(last) || first < 0 || last < first) continue;
-    ranges.push([first, last]);
-  }
-  ranges.sort((left, right) => left[0] - right[0] || left[1] - right[1]);
-
-  const merged = [];
-  for (const [first, last] of ranges) {
-    const previous = merged.at(-1);
-    if (!previous || first > previous[1] + 1) merged.push([first, last]);
-    else previous[1] = Math.max(previous[1], last);
-  }
-  return merged;
-}
-
-function tradeCoverageOverlaps(ranges, firstTradeId, lastTradeId) {
-  const first = Number(firstTradeId);
-  const last = Number(lastTradeId);
-  if (!Number.isInteger(first) || !Number.isInteger(last) || first < 0 || last < first) return false;
-
-  let low = 0;
-  let high = (ranges?.length ?? 0) - 1;
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-    const range = ranges[middle];
-    if (last < range[0]) high = middle - 1;
-    else if (first > range[1]) low = middle + 1;
-    else return true;
-  }
-  return false;
-}
-
-function addTradeCoverage(ranges, firstTradeId, lastTradeId) {
-  let first = Number(firstTradeId);
-  let last = Number(lastTradeId);
-  if (!Number.isInteger(first) || !Number.isInteger(last) || first < 0 || last < first) return ranges;
-
-  let index = 0;
-  while (index < ranges.length && ranges[index][1] + 1 < first) index += 1;
-  while (index < ranges.length && ranges[index][0] <= last + 1) {
-    first = Math.min(first, ranges[index][0]);
-    last = Math.max(last, ranges[index][1]);
-    ranges.splice(index, 1);
-  }
-  ranges.splice(index, 0, [first, last]);
-  return ranges;
-}
-
 async function fetchJson(url, timeoutMs = SNAPSHOT_TIMEOUT_MS, externalSignal = null) {
   const controller = typeof AbortController === "function" ? new AbortController() : null;
   let timer;
@@ -293,49 +236,6 @@ async function syncServerClock(force = false) {
   return serverClockSyncPromise;
 }
 
-class TradeStore {
-  constructor() { this.dbPromise = null; }
-  open() {
-    if (!self.indexedDB) return Promise.resolve(null);
-    if (this.dbPromise) return this.dbPromise;
-    this.dbPromise = new Promise((resolve) => {
-      const request = indexedDB.open("inpuls-market-trades-v3", 1);
-      request.onupgradeneeded = () => {
-        if (!request.result.objectStoreNames.contains("symbols")) {
-          request.result.createObjectStore("symbols", { keyPath: "symbol" });
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => resolve(null);
-    });
-    return this.dbPromise;
-  }
-  async get(symbol) {
-    const db = await this.open();
-    if (!db) return [];
-    return new Promise((resolve) => {
-      const request = db.transaction("symbols", "readonly").objectStore("symbols").get(symbol);
-      request.onsuccess = () => resolve(Array.isArray(request.result?.trades) ? request.result.trades : []);
-      request.onerror = () => resolve([]);
-    });
-  }
-  async set(symbol, trades) {
-    const db = await this.open();
-    if (!db) return;
-    await new Promise((resolve) => {
-      const transaction = db.transaction("symbols", "readwrite");
-      transaction.objectStore("symbols").put({
-        symbol,
-        trades: trades.slice(0, MAX_PERSISTED_TRADE_HISTORY),
-        updatedAt: Date.now(),
-      });
-      transaction.oncomplete = transaction.onerror = transaction.onabort = () => resolve();
-    });
-  }
-}
-
-const tradeStore = new TradeStore();
-
 function depthTransports(symbol, mode) {
   const stream = `${symbol.toLowerCase()}@${mode === "partial" ? "depth20" : "depth"}@100ms`;
   return [
@@ -375,7 +275,6 @@ class SymbolFeed {
     this.tradeFirstMessageTimer = 0;
     this.firstDepthTimer = 0;
     this.snapshotTimer = 0;
-    this.tradeSaveTimer = 0;
     this.mode = "deep";
     this.transportIndex = 0;
     this.tradeTransportIndex = 0;
@@ -412,7 +311,6 @@ class SymbolFeed {
     this.lastMessageAt = 0;
     this.lastRestartAt = 0;
     this.syncing = false;
-    this.tradeBootstrapRequest = 0;
     this.tradeLive = false;
     this.tradeConnected = false;
     this.depthReconnectAttempt = 0;
@@ -508,10 +406,13 @@ class SymbolFeed {
       generation,
       subscribers: this.subscribers,
     });
+    post("tape", this.symbol, {
+      replace: true,
+      liveOnly: true,
+      trades: [],
+    });
     this.connectDepth(generation);
     this.connectTrades(generation);
-    this.loadTradeHistory(generation);
-    this.loadRecentTrades(generation);
   }
 
   stopSockets() {
@@ -535,11 +436,9 @@ class SymbolFeed {
     });
     this.generation += 1;
     this.stopSockets();
-    clearTimeout(this.tradeSaveTimer);
     clearTimeout(this.tapeTimer);
     clearTimeout(this.resumeTimer);
     this.tapeBatch.clear();
-    if (this.trades.length) tradeStore.set(this.symbol, this.tradeSnapshot()).catch(() => {});
   }
 
   resetBook(reason = "reset") {
@@ -603,16 +502,7 @@ class SymbolFeed {
 
   refresh() {
     this.forceEmit = true;
-    if (tabVisible) {
-      scheduleEmit();
-      post(
-        "tape",
-        this.symbol,
-        { replace: true, trades: this.tradeSnapshot(MAX_TAPE_SNAPSHOT) },
-        null,
-        { sourceKind: "cached-trades" },
-      );
-    }
+    if (tabVisible) scheduleEmit();
   }
 
   pauseForBackground() {
@@ -621,7 +511,6 @@ class SymbolFeed {
     const preserveLastFrame = this.depthReady || (this.bids.size > 0 && this.asks.size > 0);
     this.syncing = preserveLastFrame;
     this.generation += 1;
-    this.tradeBootstrapRequest += 1;
     this.stopSockets();
     this.tradeConnected = false;
     this.tradeLive = false;
@@ -649,15 +538,11 @@ class SymbolFeed {
       const depthFresh = this.lastDepthAt > 0 && now - this.lastDepthAt <= RESUME_STALE_MS;
 
       if (!this.backgroundPaused && socketOpen && depthFresh) {
-        const resumeTrades = this.trades
-          .toArray()
-          .filter((trade) => Number(trade?.time) >= now - RESUME_TAPE_WINDOW_MS)
-          .slice(0, MAX_RESUME_TAPE_SNAPSHOT);
         post("tape", this.symbol, {
-          replace: false,
-          resume: true,
-          trades: resumeTrades,
-        }, null, { sourceKind: "cached-trades" });
+          replace: true,
+          liveOnly: true,
+          trades: [],
+        }, null, { sourceKind: "live-reset" });
         if (!tradeOpen && !this.tradeReconnectTimer) {
           this.connectTrades(this.generation);
         }
@@ -700,9 +585,13 @@ class SymbolFeed {
       preserveLastFrame ? "СИНХРОНИЗАЦИЯ · последний кадр" : "Восстановление Worker",
     );
     const generation = this.generation;
+    post("tape", this.symbol, {
+      replace: true,
+      liveOnly: true,
+      trades: [],
+    }, null, { sourceKind: "live-reset" });
     this.connectDepth(generation);
     this.connectTrades(generation);
-    this.loadRecentTrades(generation, { resume: true });
   }
 
   resetFlowWindow(now = Date.now()) {
@@ -1433,7 +1322,6 @@ class SymbolFeed {
         this.publishLiveStatus();
         if (!decision.emit || !this.insertTrade(trade, true)) return;
         this.queueTape(trade);
-        this.scheduleTradeSave();
       } finally {
         this.recordFlow("trade", processStartedAt);
       }
@@ -1479,93 +1367,6 @@ class SymbolFeed {
         try { socket.close(); } catch {}
       }
     });
-  }
-
-  async loadRecentTrades(generation, { resume = false } = {}) {
-    if (generation !== this.generation) return;
-    const requestId = ++this.tradeBootstrapRequest;
-    const hosts = ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"];
-    let rows = null;
-    let winner = null;
-    diagnose(this.symbol, "tape.bootstrap", {
-      state: "scheduled",
-      generation,
-      requestId,
-      resume,
-      hosts: hosts.length,
-    });
-    try {
-      winner = await self.InPulsOrderBookNetwork.firstSuccessful(
-        hosts,
-        (host, { signal }) => fetchJson(
-          `https://${host}/fapi/v1/aggTrades?symbol=${encodeURIComponent(this.symbol)}&limit=${TRADE_BOOTSTRAP_LIMIT}`,
-          SNAPSHOT_TIMEOUT_MS,
-          signal,
-        ),
-        {
-          onAttempt: (event) => diagnose(this.symbol, "tape.bootstrap.host", {
-            ...event,
-            host: event.target,
-            target: undefined,
-            generation,
-            requestId,
-            resume,
-          }),
-        },
-      );
-      rows = winner.value;
-    } catch {}
-    if (
-      generation !== this.generation
-      || requestId !== this.tradeBootstrapRequest
-    ) return;
-    if (!Array.isArray(rows)) {
-      diagnose(this.symbol, "tape.bootstrap", {
-        state: "failed",
-        generation,
-        requestId,
-        resume,
-      });
-      return;
-    }
-    diagnose(this.symbol, "tape.bootstrap", {
-      state: "succeeded",
-      generation,
-      requestId,
-      resume,
-      host: winner.target,
-      durationMs: winner.durationMs,
-      rows: rows.length,
-    });
-
-    const coveredRanges = resume ? mergeTradeCoverage(this.tradeSnapshot()) : null;
-    const addedTrades = [];
-    for (const row of rows) {
-      const trade = normalizeTrade(row, "agg");
-      if (
-        resume
-        && trade
-        && tradeCoverageOverlaps(coveredRanges, trade.firstTradeId, trade.lastTradeId)
-      ) continue;
-      if (this.insertTrade(trade, true)) {
-        addedTrades.push(trade);
-        if (resume) addTradeCoverage(coveredRanges, trade.firstTradeId, trade.lastTradeId);
-      }
-    }
-    if (!addedTrades.length) return;
-    this.trades.replace(
-      this.tradeSnapshot().sort((left, right) => Number(right.time) - Number(left.time)),
-    );
-    if (tabVisible) {
-      const trades = resume
-        ? addedTrades.sort((left, right) => Number(left.time) - Number(right.time)).slice(-MAX_RESUME_TAPE_SNAPSHOT)
-        : this.tradeSnapshot(MAX_TAPE_SNAPSHOT);
-      post("tape", this.symbol, {
-        replace: !resume,
-        resume,
-        trades,
-      }, null, { sourceKind: "bootstrap-trades" });
-    }
   }
 
   insertTrade(trade, newestFirst = true) {
@@ -1616,6 +1417,8 @@ class SymbolFeed {
         this.symbol,
         {
           replace: false,
+          live: true,
+          liveOnly: true,
           trades,
           backpressure: {
             dropped: latest.dropped,
@@ -1628,28 +1431,6 @@ class SymbolFeed {
     }
   }
 
-  scheduleTradeSave() {
-    clearTimeout(this.tradeSaveTimer);
-    this.tradeSaveTimer = setTimeout(
-      () => tradeStore.set(this.symbol, this.tradeSnapshot()).catch(() => {}),
-      12_000,
-    );
-  }
-
-  async loadTradeHistory(generation) {
-    const saved = await tradeStore.get(this.symbol);
-    if (generation !== this.generation || !saved.length) return;
-    for (const trade of saved) this.insertTrade(trade, false);
-    if (tabVisible) {
-      post(
-        "tape",
-        this.symbol,
-        { replace: true, trades: this.tradeSnapshot(MAX_TAPE_SNAPSHOT) },
-        null,
-        { sourceKind: "cached-trades" },
-      );
-    }
-  }
 }
 
 function scheduleEmit() {

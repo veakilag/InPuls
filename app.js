@@ -5,7 +5,7 @@ import {
   formatCompactUsd,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { adaptiveBookScaleIndex, aggregateFootprintClusters, aggregateTradePath, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, inferPriceTick, maximumBookScaleIndex, OrderBookFeed, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "./orderbook.js?v=density-lifecycle-v1";
+import { BOOK_DEPTH_PERCENT_PRESETS, aggregateFootprintClusters, aggregateTradePath, bookDepthLabel, buildDepthLadder, inferPriceTick, normalizeBookDepthPercent, OrderBookFeed, priceStepForDepthPercent, tradeTimeWindow } from "./orderbook.js?v=multi-dom-live-tape-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 
@@ -979,14 +979,13 @@ function normalizeWorkspace() {
   for (const source of sourceExtras) {
     if (!source?.id || !source?.symbol?.endsWith("USDT")) continue;
     const type = source.type === "orderbook" ? "orderbook" : "chart";
-    const fallback = { id: String(source.id), type, symbol: source.symbol, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, bookScaleIndex: source.bookScaleIndex ?? 3, bookAutoFit: source.bookAutoFit !== false, bookCentered: source.bookCentered !== false, tapePercent: source.tapePercent ?? 48, tradeMinQuote: source.tradeMinQuote ?? 0, tradeWindowMs: source.tradeWindowMs ?? 60_000, clustersVisible: Boolean(source.clustersVisible), highlightMode: source.highlightMode === "manual" ? "manual" : "auto", highlightMinQuote: source.highlightMinQuote ?? 100000, x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
+    const fallback = { id: String(source.id), type, symbol: source.symbol, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, bookDepthPercent: source.bookDepthPercent ?? 1, bookCentered: source.bookCentered !== false, tapePercent: source.tapePercent ?? 48, tradeMinQuote: source.tradeMinQuote ?? 0, tradeWindowMs: source.tradeWindowMs ?? 60_000, clustersVisible: Boolean(source.clustersVisible), highlightMode: source.highlightMode === "manual" ? "manual" : "auto", highlightMinQuote: source.highlightMinQuote ?? 100000, x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
     const item = clampPanel(source, fallback, { w: 3, h: 2 });
     item.symbol = source.symbol;
     item.interval = source.interval || state.chartInterval;
     item.volumeVisible = source.volumeVisible ?? state.volumeVisible;
     item.sessionsVisible = source.sessionsVisible ?? state.sessionsVisible;
-    item.bookScaleIndex = Math.max(0, Math.min(maximumBookScaleIndex(), Number.isFinite(Number(source.bookScaleIndex)) ? Math.round(Number(source.bookScaleIndex)) : 3));
-    item.bookAutoFit = source.bookAutoFit !== false;
+    item.bookDepthPercent = normalizeBookDepthPercent(source.bookDepthPercent ?? 1);
     item.bookCentered = source.bookCentered !== false;
     item.tapePercent = Math.max(24, Math.min(72, Number(source.tapePercent) || 48));
     item.tradeMinQuote = Math.max(0, Number(source.tradeMinQuote) || 0);
@@ -1346,8 +1345,7 @@ function createExtraPanel(symbol, type = "chart") {
     interval: state.chartInterval,
     volumeVisible: state.volumeVisible,
     sessionsVisible: state.sessionsVisible,
-    bookScaleIndex: 3,
-    bookAutoFit: true,
+    bookDepthPercent: 1,
     bookCentered: true,
     tapePercent: 48,
     tradeMinQuote: 0,
@@ -1437,7 +1435,7 @@ function mountOrderBook(model) {
       </section>
       <button class="book-splitter" type="button" aria-label="Изменить ширину ленты сделок" title="Потяни влево или вправо"></button>
       <section class="orderbook-ladder" aria-label="Стакан заявок">
-        <div class="book-pane-title"><span>САЙЗ</span><span data-book-scale>${bookScaleLabel(model.bookScaleIndex)}</span><span>ЦЕНА</span></div>
+        <div class="book-pane-title"><span>САЙЗ</span><span data-book-scale>${bookDepthLabel(model.bookDepthPercent)}</span><span>ЦЕНА</span></div>
         <div class="orderbook-rows"><div class="orderbook-empty">Загружаю глубину Binance…</div></div>
       </section>
       <span class="book-wheel-hint">Ctrl + колесо · масштаб цены</span>
@@ -1658,11 +1656,16 @@ function mountOrderBook(model) {
     if (event.target.closest("input, .trade-flow-detail")) return;
     event.preventDefault();
     if (event.ctrlKey || event.metaKey) {
-      model.bookScaleIndex = Math.max(0, Math.min(maximumBookScaleIndex(), (Number(model.bookScaleIndex) || 0) + (event.deltaY > 0 ? 1 : -1)));
-      model.bookAutoFit = false;
-      panel.autoScaleIndex = model.bookScaleIndex;
-      panel.autoScaleUntil = 0;
-      panel.priceTrail = [];
+      const current = normalizeBookDepthPercent(model.bookDepthPercent);
+      const currentIndex = Math.max(0, BOOK_DEPTH_PERCENT_PRESETS.indexOf(current));
+      const nextIndex = Math.max(
+        0,
+        Math.min(
+          BOOK_DEPTH_PERCENT_PRESETS.length - 1,
+          currentIndex + (event.deltaY > 0 ? 1 : -1),
+        ),
+      );
+      model.bookDepthPercent = BOOK_DEPTH_PERCENT_PRESETS[nextIndex];
       panel.autoCentering = false;
       if (model.bookCentered !== false) panel.viewCenter = null;
       persistWorkspace();
@@ -1698,33 +1701,15 @@ function renderOrderBook(panel, data) {
     return;
   }
   panel.baseTick = panel.baseTick ?? inferPriceTick(data.bids, data.asks, middle);
-  if (panel.model.bookAutoFit !== false && !panel.depthFitted && data.bids.length + data.asks.length >= 100) {
-    panel.model.bookScaleIndex = depthCoverageScaleIndex(panel.baseTick, data.bids, data.asks, middle, rowCount);
-    panel.model.bookAutoFit = false;
-    panel.depthFitted = true;
-    persistWorkspace();
-  }
   panel.lastMiddle = middle;
-  const now = Number(data.eventTime) || Date.now();
-  const lastTrailPoint = panel.priceTrail.at(-1);
-  if (!lastTrailPoint || now - lastTrailPoint.time >= 80 || lastTrailPoint.price !== middle) panel.priceTrail.push({ time: now, price: middle });
-  panel.priceTrail = panel.priceTrail.filter((point) => now - point.time <= 5_000).slice(-120);
-  const trailPrices = panel.priceTrail.map((point) => point.price);
-  const recentMovement = trailPrices.length > 1 ? Math.max(...trailPrices) - Math.min(...trailPrices) : 0;
-  const userScaleIndex = Math.max(0, Math.min(maximumBookScaleIndex(), Number(panel.model.bookScaleIndex) || 0));
-  const userStep = priceStepForScale(panel.baseTick, userScaleIndex);
-  const userHalfSpan = userStep * Math.max(2, Math.floor(rowCount / 2));
-  if (recentMovement >= userHalfSpan * .68) {
-    panel.autoScaleIndex = adaptiveBookScaleIndex(panel.baseTick, userScaleIndex, recentMovement * 1.22, rowCount);
-    panel.autoScaleUntil = now + 1_200;
-    panel.calmSince = 0;
-  } else if (now > panel.autoScaleUntil && Number(panel.autoScaleIndex) > userScaleIndex) {
-    panel.calmSince ||= now;
-    panel.autoScaleIndex = recoverBookScaleIndex(userScaleIndex, panel.autoScaleIndex);
-    panel.autoScaleUntil = now + 320;
-  }
-  const effectiveScaleIndex = Math.max(userScaleIndex, Number(panel.autoScaleIndex) || 0);
-  panel.priceStep = priceStepForScale(panel.baseTick, effectiveScaleIndex);
+  const depthPercent = normalizeBookDepthPercent(panel.model.bookDepthPercent);
+  panel.model.bookDepthPercent = depthPercent;
+  panel.priceStep = priceStepForDepthPercent(
+    panel.baseTick,
+    middle,
+    rowCount,
+    depthPercent,
+  );
   if (panel.model.bookCentered !== false || !Number.isFinite(panel.viewCenter)) panel.viewCenter = middle;
   // Manual scroll is authoritative: market movement must never recenter the DOM.
   panel.autoCentering = false;
@@ -1743,8 +1728,10 @@ function renderOrderBook(panel, data) {
     });
     phaseStartedAt = performance.now();
   }
-  body.innerHTML = rows.map((row) => bookLadderRow(row, middle, maxSize, anomaly)).join("");
-  panel.element.querySelector("[data-book-scale]").textContent = `${effectiveScaleIndex > userScaleIndex ? "AUTO " : ""}${bookScaleLabel(effectiveScaleIndex)}`;
+  patchBookLadderRows(body, rows, middle, maxSize, anomaly);
+  const scale = panel.element.querySelector("[data-book-scale]");
+  scale.textContent = bookDepthLabel(depthPercent);
+  scale.title = `Сопоставимая глубина ${bookDepthLabel(depthPercent)} · шаг цены ${formatPrice(panel.priceStep)}`;
   if (observability.enabled) {
     observability.record("orderbook.ladder-dom", performance.now() - phaseStartedAt, {
       symbol,
@@ -1772,11 +1759,60 @@ function renderOrderBook(panel, data) {
   }
 }
 
-function bookLadderRow(row, middle, maxSize, anomalyThreshold) {
-  const side = row.askQuote > row.bidQuote ? "ask" : row.bidQuote > row.askQuote ? "bid" : row.price >= middle ? "ask" : "bid";
-  const size = Math.min(100, (row.quote / maxSize) * 100).toFixed(1);
-  const anomalous = row.quote >= anomalyThreshold && row.quote > 0;
-  return `<div class="book-ladder-row is-${side}${anomalous ? " is-anomaly" : ""}${row.isMarket ? " is-market" : ""}" style="--size:${size}%"><span class="book-size">${row.quote > 0 ? formatCompactUsd(row.quote) : ""}</span><strong>${formatPrice(row.isMarket ? middle : row.price)}</strong></div>`;
+function createBookLadderRowElement() {
+  const row = document.createElement("div");
+  row.className = "book-ladder-row";
+  const size = document.createElement("span");
+  size.className = "book-size";
+  const price = document.createElement("strong");
+  row.append(size, price);
+  return row;
+}
+
+function patchBookLadderRows(body, rows, middle, maxSize, anomalyThreshold) {
+  let elements = [...body.children];
+  if (
+    elements.length !== rows.length
+    || elements.some((element) => !element.classList.contains("book-ladder-row"))
+  ) {
+    elements = rows.map(createBookLadderRowElement);
+    body.replaceChildren(...elements);
+  }
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const source = rows[index];
+    const element = elements[index];
+    const side = source.askQuote > source.bidQuote
+      ? "ask"
+      : source.bidQuote > source.askQuote
+        ? "bid"
+        : source.price >= middle
+          ? "ask"
+          : "bid";
+    const anomalous = source.quote >= anomalyThreshold && source.quote > 0;
+    const className = [
+      "book-ladder-row",
+      `is-${side}`,
+      anomalous ? "is-anomaly" : "",
+      source.isMarket ? "is-market" : "",
+      source.isRound ? "is-price-round" : "",
+      source.isHalfRound ? "is-price-half" : "",
+    ].filter(Boolean).join(" ");
+    if (element.className !== className) element.className = className;
+
+    const size = `${Math.min(100, (source.quote / maxSize) * 100).toFixed(1)}%`;
+    if (element.style.getPropertyValue("--size") !== size) {
+      element.style.setProperty("--size", size);
+    }
+    const sizeText = source.quote > 0 ? formatCompactUsd(source.quote) : "";
+    const priceText = formatPrice(source.isMarket ? middle : source.price);
+    if (element.firstElementChild.textContent !== sizeText) {
+      element.firstElementChild.textContent = sizeText;
+    }
+    if (element.lastElementChild.textContent !== priceText) {
+      element.lastElementChild.textContent = priceText;
+    }
+  }
 }
 
 function renderTradeFlow(panel, trades, flow) {
@@ -2709,7 +2745,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-36-density-lifecycle-v1";
+const INPULS_RUNTIME_BUILD = "26-37-multi-dom-live-tape-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
