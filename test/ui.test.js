@@ -9,8 +9,8 @@ test("browser entry points keep user version v23 and identify the current releas
     source("index.html"), source("app.js"), source("sw.js"), source("refresh.html"), source("VERSION.txt"),
   ]);
   for (const text of [html, app, worker, refresh, version]) assert.doesNotMatch(text, /(?:v|build=|\?v=)22\b/);
-  assert.match(html, /inpuls-build" content="26-41-book-visuals-v1"/);
-  assert.match(worker, /inpuls-26-41-book-visuals-v1/);
+  assert.match(html, /inpuls-build" content="26-42-orderbook-scroll-theme-v1"/);
+  assert.match(worker, /inpuls-26-42-orderbook-scroll-theme-v1/);
   assert.match(html, /SCREENER <small>v23<\/small>/);
   assert.match(version, /^InPuls v23/m);
 });
@@ -75,8 +75,8 @@ test("browser entry points carry a restrictive CSP and reset scripts stay extern
   }
   assert.doesNotMatch(pages[3], /<script>(?:.|\n)*getRegistrations/);
   assert.doesNotMatch(pages[4], /<script>(?:.|\n)*getRegistrations/);
-  assert.match(pages[3], /refresh\.js\?v=26-41-book-visuals-v1/);
-  assert.match(pages[4], /reset\.js\?v=26-41-book-visuals-v1/);
+  assert.match(pages[3], /refresh\.js\?v=26-42-orderbook-scroll-theme-v1/);
+  assert.match(pages[4], /reset\.js\?v=26-42-orderbook-scroll-theme-v1/);
 });
 
 test("Service Worker installs atomically and validates cached response types", async () => {
@@ -98,8 +98,33 @@ test("chart pointer work is coalesced through animation frames and first-anchor 
 });
 
 test("small panels keep compact menus and smaller resize corners", async () => {
-  const css = await source("styles.css");
+  const [app, css] = await Promise.all([source("app.js"), source("styles.css")]);
   assert.match(css, /\.chart-resizer, \.panel-resizer \{ width: 12px; height: 12px; \}/);
   assert.match(css, /\.chart-toolbox\.opens-sideways/);
   assert.match(css, /@container \(max-width: 360px\)/);
+  assert.match(css, /@container \(max-width: 210px\)/);
+  assert.match(app, /model\.type === "orderbook" && element\?\.classList\.contains\("is-flow-hidden"\)/);
+  assert.match(app, /return \{ w: 2, h: 2 \};/);
+});
+
+test("brightness control keeps fixed accents and morphs from sun to moon", async () => {
+  const [html, app, css] = await Promise.all([
+    source("index.html"), source("app.js"), source("styles.css"),
+  ]);
+  assert.doesNotMatch(html, /СУМЕРКИ|НОЧЬ/);
+  assert.match(html, /class="comfort-sun"/);
+  assert.match(html, /class="comfort-moon"/);
+  assert.match(app, /root\.style\.setProperty\("--comfort-position"/);
+  assert.match(app, /root\.style\.setProperty\("--comfort-moon-opacity"/);
+  assert.match(app, /const turquoise = "#42d9b1"/);
+  assert.match(app, /const blue = "#65b7ff"/);
+  assert.match(app, /const violet = "#aa86ff"/);
+  assert.match(css, /linear-gradient\(90deg,#c8cdd2 0%,#737b84 46%,#242930 100%\)/);
+});
+
+test("orderbook price text is separated from the size boundary", async () => {
+  const orderbook = await source("orderbook.js");
+  assert.match(orderbook, /padding: 0 1px 0 5px !important;/);
+  assert.match(orderbook, /border-left: 1px solid color-mix\(in srgb, var\(--line\) 72%, transparent\);/);
+  assert.match(orderbook, /\.book-ladder-row \.book-size \{[\s\S]*overflow: hidden !important;/);
 });

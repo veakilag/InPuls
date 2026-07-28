@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; manifest-src 'self'; worker-src 'self'; connect-src 'self' https://fapi.binance.com https://fapi1.binance.com https://fapi2.binance.com wss://fstream.binance.com" />
     <meta name="referrer" content="no-referrer" />
-    <meta name="theme-color" content="#090c11" />
+    <meta name="theme-color" content="#101216" />
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="26-41-book-visuals-v1" />
-    <link rel="stylesheet" href="./styles.css?v=23" />
+    <meta name="inpuls-build" content="26-42-orderbook-scroll-theme-v1" />
+    <link rel="stylesheet" href="./styles.css?v=26-42-orderbook-scroll-theme-v1" />
     <title>InPuls — в ритме рынка</title>
   </head>
   <body>
@@ -25,8 +25,14 @@
         <div id="inplay-coins" class="inplay-coins"><span class="inplay-loading">Собираю активные монеты…</span></div>
       </div>
       <div class="topbar-actions">
-        <label class="comfort-control" title="Комфорт для глаз: сумерки → тёплая ночь">
-          <span>СУМЕРКИ</span><input id="comfort-slider" type="range" min="0" max="100" value="55" aria-label="Яркость и теплота ночной темы" /><span>НОЧЬ</span>
+        <label class="comfort-control" title="Яркость интерфейса">
+          <span class="comfort-track" aria-hidden="true">
+            <span class="comfort-thumb-icon">
+              <svg class="comfort-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4"/></svg>
+              <svg class="comfort-moon" viewBox="0 0 24 24"><path d="M19.4 15.2A8 8 0 0 1 8.8 4.6 8.1 8.1 0 1 0 19.4 15.2Z"/></svg>
+            </span>
+          </span>
+          <input id="comfort-slider" type="range" min="0" max="100" value="55" aria-label="Яркость интерфейса: слева светлее, справа темнее" />
         </label>
         <button id="timezone-open" class="timezone-control" type="button" title="Выбрать город и часовой пояс">
           <span>TIME</span><strong id="timezone-city">Москва</strong>
@@ -296,6 +302,6 @@
     </dialog>
 
     <div id="alert-toast" class="alert-toast" role="status" aria-live="assertive" hidden></div>
-    <script type="module" src="./app.js?v=26-41-book-visuals-v1"></script>
+    <script type="module" src="./app.js?v=26-42-orderbook-scroll-theme-v1"></script>
   </body>
 </html>
