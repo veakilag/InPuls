@@ -1,9 +1,9 @@
-const CACHE = "inpuls-26-38-deep-book-tape-clusters-v2";
-const BUILD = "26-38-deep-book-tape-clusters-v2";
+const CACHE = "inpuls-26-39-stable-book-tape-v3";
+const BUILD = "26-39-stable-book-tape-v3";
 
 const FORCED = new Map([
-  ["/app.js", "./app.js?v=26-38-deep-book-tape-clusters-v2"],
-  ["/orderbook.js", "./orderbook.js?v=deep-book-tape-clusters-v2"],
+  ["/app.js", "./app.js?v=26-39-stable-book-tape-v3"],
+  ["/orderbook.js", "./orderbook.js?v=stable-book-tape-v3"],
   ["/orderbook-events.js", "./orderbook-events.js?v=orderbook-events-core-v1"],
   ["/orderbook-density.js", "./orderbook-density.js?v=density-lifecycle-v1"],
   ["/render-scheduler.js", "./render-scheduler.js?v=render-scheduler-v1"],
@@ -21,10 +21,10 @@ const SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=23",
-  "./app.js?v=26-38-deep-book-tape-clusters-v2",
+  "./app.js?v=26-39-stable-book-tape-v3",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=deep-book-tape-clusters-v2",
+  "./orderbook.js?v=stable-book-tape-v3",
   "./orderbook-events.js?v=orderbook-events-core-v1",
   "./orderbook-density.js?v=density-lifecycle-v1",
   "./render-scheduler.js?v=render-scheduler-v1",
@@ -33,7 +33,7 @@ const SHELL = [
   "./orderbook-depth-projection.js?v=deep-book-v1",
   "./orderbook-tape-guard.js?v=worker-bp-v1",
   "./orderbook-network.js?v=obs-pr1-1",
-  "./orderbook-tape-layout.js?v=26-25-tape-v2-1",
+  "./orderbook-tape-layout.js?v=stable-tape-v3",
   "./orderbook-tape-latency.js?v=worker-bp-v1",
   "./orderbook-flow-workspace.js?v=deep-book-tape-clusters-v2",
   "./observability.js?v=render-scheduler-v1",

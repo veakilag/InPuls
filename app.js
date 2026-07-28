@@ -5,7 +5,7 @@ import {
   formatCompactUsd,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { BOOK_DEPTH_PERCENT_PRESETS, aggregateFootprintClusters, aggregateTradePath, bookDepthLabel, buildDepthLadder, inferPriceTick, normalizeBookDepthPercent, OrderBookFeed, priceStepForDepthPercent, tradeTimeWindow } from "./orderbook.js?v=deep-book-tape-clusters-v2";
+import { aggregateFootprintClusters, aggregateTradePath, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=stable-book-tape-v3";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 
@@ -979,13 +979,19 @@ function normalizeWorkspace() {
   for (const source of sourceExtras) {
     if (!source?.id || !source?.symbol?.endsWith("USDT")) continue;
     const type = source.type === "orderbook" ? "orderbook" : "chart";
-    const fallback = { id: String(source.id), type, symbol: source.symbol, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, bookDepthPercent: source.bookDepthPercent ?? 1, bookCentered: source.bookCentered !== false, tapePercent: source.tapePercent ?? 48, tradeMinQuote: source.tradeMinQuote ?? 0, tradeWindowMs: source.tradeWindowMs ?? 60_000, clustersVisible: Boolean(source.clustersVisible), highlightMode: source.highlightMode === "manual" ? "manual" : "auto", highlightMinQuote: source.highlightMinQuote ?? 100000, x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
+    const fallback = { id: String(source.id), type, symbol: source.symbol, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, bookScaleIndex: source.bookScaleIndex ?? 3, bookCentered: source.bookCentered !== false, tapePercent: source.tapePercent ?? 48, tradeMinQuote: source.tradeMinQuote ?? 0, tradeWindowMs: source.tradeWindowMs ?? 60_000, clustersVisible: Boolean(source.clustersVisible), highlightMode: source.highlightMode === "manual" ? "manual" : "auto", highlightMinQuote: source.highlightMinQuote ?? 100000, x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
     const item = clampPanel(source, fallback, { w: 3, h: 2 });
     item.symbol = source.symbol;
     item.interval = source.interval || state.chartInterval;
     item.volumeVisible = source.volumeVisible ?? state.volumeVisible;
     item.sessionsVisible = source.sessionsVisible ?? state.sessionsVisible;
-    item.bookDepthPercent = normalizeBookDepthPercent(source.bookDepthPercent ?? 1);
+    item.bookScaleIndex = Math.max(0, Math.min(
+      maximumBookScaleIndex(),
+      Number.isFinite(Number(source.bookScaleIndex))
+        ? Math.round(Number(source.bookScaleIndex))
+        : 3,
+    ));
+    delete item.bookDepthPercent;
     item.bookCentered = source.bookCentered !== false;
     item.tapePercent = Math.max(24, Math.min(72, Number(source.tapePercent) || 48));
     item.tradeMinQuote = Math.max(0, Number(source.tradeMinQuote) || 0);
@@ -1345,7 +1351,7 @@ function createExtraPanel(symbol, type = "chart") {
     interval: state.chartInterval,
     volumeVisible: state.volumeVisible,
     sessionsVisible: state.sessionsVisible,
-    bookDepthPercent: 1,
+    bookScaleIndex: 3,
     bookCentered: true,
     tapePercent: 48,
     tradeMinQuote: 0,
@@ -1435,7 +1441,7 @@ function mountOrderBook(model) {
       </section>
       <button class="book-splitter" type="button" aria-label="Изменить ширину ленты сделок" title="Потяни влево или вправо"></button>
       <section class="orderbook-ladder" aria-label="Стакан заявок">
-        <div class="book-pane-title"><span>САЙЗ</span><span data-book-scale>${bookDepthLabel(model.bookDepthPercent)}</span><span>ЦЕНА</span></div>
+        <div class="book-pane-title"><span>САЙЗ</span><span data-book-scale>${bookScaleLabel(model.bookScaleIndex)}</span><span>ЦЕНА</span></div>
         <div class="orderbook-rows"><div class="orderbook-empty">Загружаю глубину Binance…</div></div>
       </section>
       <span class="book-wheel-hint">Ctrl + колесо · масштаб цены</span>
@@ -1656,16 +1662,21 @@ function mountOrderBook(model) {
     if (event.target.closest("input, .trade-flow-detail")) return;
     event.preventDefault();
     if (event.ctrlKey || event.metaKey) {
-      const current = normalizeBookDepthPercent(model.bookDepthPercent);
-      const currentIndex = Math.max(0, BOOK_DEPTH_PERCENT_PRESETS.indexOf(current));
+      const currentIndex = Math.max(
+        0,
+        Math.min(
+          maximumBookScaleIndex(),
+          Math.round(Number(model.bookScaleIndex) || 0),
+        ),
+      );
       const nextIndex = Math.max(
         0,
         Math.min(
-          BOOK_DEPTH_PERCENT_PRESETS.length - 1,
+          maximumBookScaleIndex(),
           currentIndex + (event.deltaY > 0 ? 1 : -1),
         ),
       );
-      model.bookDepthPercent = BOOK_DEPTH_PERCENT_PRESETS[nextIndex];
+      model.bookScaleIndex = nextIndex;
       panel.autoCentering = false;
       if (model.bookCentered !== false) panel.viewCenter = null;
       persistWorkspace();
@@ -1673,7 +1684,15 @@ function mountOrderBook(model) {
       panel.autoCentering = false;
       panel.manualScrollAnchorPrice = panel.lastMiddle;
       panel.manualScrollUntil = Date.now() + 650;
-      panel.viewCenter -= Math.sign(event.deltaY) * panel.priceStep * 3;
+      const visibleRows = Math.max(
+        3,
+        article.querySelectorAll(".orderbook-rows .book-ladder-row").length,
+      );
+      panel.viewCenter = clampDepthViewCenter(
+        panel.viewCenter - Math.sign(event.deltaY) * panel.priceStep * 3,
+        panel.priceStep,
+        visibleRows,
+      );
     } else return;
     if (panel.latest) scheduleOrderBookRender(panel, true);
   }, { passive: false });
@@ -1702,15 +1721,17 @@ function renderOrderBook(panel, data) {
   }
   panel.baseTick = panel.baseTick ?? inferPriceTick(data.bids, data.asks, middle);
   panel.lastMiddle = middle;
-  const depthPercent = normalizeBookDepthPercent(panel.model.bookDepthPercent);
-  panel.model.bookDepthPercent = depthPercent;
-  panel.priceStep = priceStepForDepthPercent(
-    panel.baseTick,
-    middle,
-    rowCount,
-    depthPercent,
+  const scaleIndex = Math.max(
+    0,
+    Math.min(
+      maximumBookScaleIndex(),
+      Math.round(Number(panel.model.bookScaleIndex) || 0),
+    ),
   );
+  panel.model.bookScaleIndex = scaleIndex;
+  panel.priceStep = priceStepForScale(panel.baseTick, scaleIndex);
   if (panel.model.bookCentered !== false || !Number.isFinite(panel.viewCenter)) panel.viewCenter = middle;
+  panel.viewCenter = clampDepthViewCenter(panel.viewCenter, panel.priceStep, rowCount);
   // Manual scroll is authoritative: market movement must never recenter the DOM.
   panel.autoCentering = false;
   const rows = buildDepthLadder(data.bids, data.asks, middle, panel.viewCenter, panel.priceStep, rowCount);
@@ -1728,10 +1749,10 @@ function renderOrderBook(panel, data) {
     });
     phaseStartedAt = performance.now();
   }
-  patchBookLadderRows(body, rows, middle, maxSize, anomaly);
+  patchBookLadderRows(body, rows, middle, maxSize, anomaly, panel.baseTick);
   const scale = panel.element.querySelector("[data-book-scale]");
-  scale.textContent = bookDepthLabel(depthPercent);
-  scale.title = `Сопоставимая глубина ${bookDepthLabel(depthPercent)} · шаг цены ${formatPrice(panel.priceStep)}`;
+  scale.textContent = bookScaleLabel(scaleIndex);
+  scale.title = `Фиксированный шаг цены ${formatBookPrice(panel.priceStep, panel.baseTick)}`;
   if (observability.enabled) {
     observability.record("orderbook.ladder-dom", performance.now() - phaseStartedAt, {
       symbol,
@@ -1769,7 +1790,7 @@ function createBookLadderRowElement() {
   return row;
 }
 
-function patchBookLadderRows(body, rows, middle, maxSize, anomalyThreshold) {
+function patchBookLadderRows(body, rows, middle, maxSize, anomalyThreshold, baseTick) {
   let elements = [...body.children];
   if (
     elements.length !== rows.length
@@ -1805,7 +1826,11 @@ function patchBookLadderRows(body, rows, middle, maxSize, anomalyThreshold) {
       element.style.setProperty("--size", size);
     }
     const sizeText = source.quote > 0 ? formatCompactUsd(source.quote) : "";
-    const priceText = formatPrice(source.isMarket ? middle : source.price);
+    const labelSpace = sizeText ? `${sizeText.length + .75}ch` : "0px";
+    if (element.style.getPropertyValue("--book-size-label-space") !== labelSpace) {
+      element.style.setProperty("--book-size-label-space", labelSpace);
+    }
+    const priceText = formatBookPrice(source.isMarket ? middle : source.price, baseTick);
     if (element.firstElementChild.textContent !== sizeText) {
       element.firstElementChild.textContent = sizeText;
     }
@@ -2199,6 +2224,18 @@ function formatPrice(value) {
   if (value >= 1) return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
   if (value >= 0.01) return value.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 6 });
   return value.toPrecision(5);
+}
+
+function formatBookPrice(value, baseTick) {
+  if (!Number.isFinite(value)) return "—";
+  const tick = Math.abs(Number(baseTick));
+  const fractionDigits = Number.isFinite(tick) && tick > 0 && tick < 1
+    ? Math.min(10, Math.max(0, Math.ceil(-Math.log10(tick) - 1e-10)))
+    : 0;
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  });
 }
 
 function loadJson(key, fallback) {
@@ -2745,7 +2782,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-38-deep-book-tape-clusters-v2";
+const INPULS_RUNTIME_BUILD = "26-39-stable-book-tape-v3";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

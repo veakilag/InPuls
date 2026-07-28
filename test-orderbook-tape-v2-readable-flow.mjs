@@ -37,6 +37,22 @@ test('continuous flow is split into local groups', () => {
   assert.ok(Math.max(...laid.map(x=>x.density)) <= TAPE_READABLE_LAYOUT.maxClusterItems);
 });
 
+test('past trades never receive density-dependent vertical offsets', () => {
+  const window = windowFor(320);
+  const sparse = buildReadableTapeLayout(
+    Array.from({ length: 9 }, (_, id) => ({ id, time: window.endTime - 5 })),
+    window,
+    320,
+  );
+  const dense = buildReadableTapeLayout(
+    Array.from({ length: 30 }, (_, id) => ({ id, time: window.endTime - 5 })),
+    window,
+    320,
+  );
+  assert.ok(sparse.every((item) => item.yOffset === 0));
+  assert.ok(dense.every((item) => item.yOffset === 0));
+});
+
 test('neighboring dense groups never cross chronological order', () => {
   const window = windowFor(500);
   const timeAtX = (x) => (

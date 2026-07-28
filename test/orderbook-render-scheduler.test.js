@@ -17,7 +17,7 @@ test("all orderbook panels share one latest-only frame scheduler", () => {
   assert.match(app, /orderBookRenderScheduler\.remove\(panel\)/);
   assert.match(app, /orderbook\.scheduler-coalesced/);
   assert.match(app, /orderbook\.scheduler-yield/);
-  assert.match(app, /patchBookLadderRows\(body, rows, middle, maxSize, anomaly\)/);
+  assert.match(app, /patchBookLadderRows\(body, rows, middle, maxSize, anomaly, panel\.baseTick\)/);
   assert.doesNotMatch(app, /body\.innerHTML = rows\.map/);
 });
 

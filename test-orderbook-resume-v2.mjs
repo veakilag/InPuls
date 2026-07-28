@@ -77,13 +77,13 @@ test("a delayed feed retries independently", () => {
 });
 
 test("Resume v2 ships one consistent runtime", () => {
-  assert.match(index, /app\.js\?v=26-38-deep-book-tape-clusters-v2/);
-  assert.match(app, /orderbook\.js\?v=deep-book-tape-clusters-v2/);
+  assert.match(index, /app\.js\?v=26-39-stable-book-tape-v3/);
+  assert.match(app, /orderbook\.js\?v=stable-book-tape-v3/);
   assert.match(app, /render-scheduler\.js\?v=render-scheduler-v1/);
   assert.match(orderbook, /orderbook-worker\.js\?v=deep-book-tape-clusters-v2/);
   assert.match(orderbook, /orderbook-flow-workspace\.js\?v=deep-book-tape-clusters-v2/);
   assert.match(worker, /orderbook-tape-latency\.js\?v=worker-bp-v1/);
-  assert.match(sw, /inpuls-26-38-deep-book-tape-clusters-v2/);
+  assert.match(sw, /inpuls-26-39-stable-book-tape-v3/);
   assert.match(reset, /Resume v2/);
 });
 
