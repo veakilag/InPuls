@@ -60,7 +60,7 @@ test("worker timing metadata is converted into end-to-end metrics", async () => 
     assert.equal(snapshot.metrics["worker.payload-bytes"].p50, 4096);
     assert.equal(snapshot.metrics["source-to-main"].p50, 10);
     assert.equal(snapshot.metrics["main-to-render"].count, 1);
-    assert.equal(snapshot.metrics["main-to-render"].p50, 3);
+    assert.ok(Math.abs(snapshot.metrics["main-to-render"].p50 - 3) < 1e-9);
     assert.deepEqual(
       snapshot.metricsByTags["worker.post-to-main"][0].tags,
       { type: "data", symbol: "BTCUSDT", source: "live-depth" },

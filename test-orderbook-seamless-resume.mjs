@@ -92,11 +92,11 @@ test("current generation replaces an obsolete bootstrap request", () => {
 });
 
 test("cache versions keep seamless resume while shipping Resume v2", () => {
-  assert.match(orderbook, /orderbook-worker\.js\?v=orderbook-events-core-v1/);
-  assert.match(serviceWorker, /inpuls-26-35-orderbook-events-core-v1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=orderbook-events-core-v1/);
+  assert.match(orderbook, /orderbook-worker\.js\?v=density-lifecycle-v1/);
+  assert.match(serviceWorker, /inpuls-26-36-density-lifecycle-v1/);
+  assert.match(serviceWorker, /orderbook\.js\?v=density-lifecycle-v1/);
   assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(serviceWorker, /orderbook-worker\.js\?v=orderbook-events-core-v1/);
+  assert.match(serviceWorker, /orderbook-worker\.js\?v=density-lifecycle-v1/);
   assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=render-scheduler-v1/);
   assert.doesNotMatch(serviceWorker, /v26-22-background-restart/);
 });
