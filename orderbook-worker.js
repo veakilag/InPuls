@@ -2,6 +2,7 @@ importScripts("./orderbook-tape-guard.js?v=worker-bp-v1");
 importScripts("./orderbook-tape-latency.js?v=worker-bp-v1");
 importScripts("./orderbook-network.js?v=obs-pr1-1");
 importScripts("./orderbook-worker-buffers.js?v=worker-bp-v1");
+importScripts("./orderbook-events.js?v=orderbook-events-core-v1");
 
 const MAX_BOOK_LEVELS_PER_SIDE = 20_000;
 const MAX_EMITTED_LEVELS_PER_SIDE = 4_000;
@@ -95,16 +96,6 @@ function parsePayload(raw) {
   try { payload = JSON.parse(raw); } catch { return null; }
   if (payload?.result === null || payload?.id) return null;
   return { stream: String(payload?.stream ?? ""), data: payload?.data ?? payload };
-}
-
-function applyDepthUpdates(levels, updates) {
-  for (const row of updates ?? []) {
-    const price = Number(row?.[0]);
-    const quantity = Number(row?.[1]);
-    if (!Number.isFinite(price) || !Number.isFinite(quantity)) continue;
-    if (quantity === 0) levels.delete(price);
-    else levels.set(price, quantity);
-  }
 }
 
 function normalizeTrade(event, sourceHint = null, receivedAt = null) {
@@ -402,6 +393,7 @@ class SymbolFeed {
     this.forceEmit = false;
     this.lastEmitAt = 0;
     this.cachedSorted = null;
+    this.bookEvents = new self.InPulsOrderBookEvents.DepthEventJournal({ symbol });
     this.statusKey = "";
     this.trades = new self.InPulsOrderBookBuffers.RecentRingBuffer(MAX_TRADE_HISTORY);
     this.tradeIds = new Set();
@@ -506,7 +498,7 @@ class SymbolFeed {
     this.syncing = false;
     this.backgroundPaused = false;
     this.resetTapeGuard();
-    this.resetBook();
+    this.resetBook("start");
     this.setStatus("loading", "Подключение Worker");
     const generation = this.generation;
     diagnose(this.symbol, "feed.start", {
@@ -548,7 +540,7 @@ class SymbolFeed {
     if (this.trades.length) tradeStore.set(this.symbol, this.tradeSnapshot()).catch(() => {});
   }
 
-  resetBook() {
+  resetBook(reason = "reset") {
     this.bids.clear();
     this.asks.clear();
     this.partialBidKeys.clear();
@@ -563,6 +555,7 @@ class SymbolFeed {
     this.lastDepthAt = 0;
     this.lastDepthEventTime = 0;
     this.lastDepthSourceLagMs = null;
+    this.bookEvents.reset(reason);
   }
 
   setStatus(state, text) {
@@ -698,7 +691,7 @@ class SymbolFeed {
     this.lastTradeSourceLagMs = null;
     this.tapeGuard.disconnect("background-restart");
     this.resetFlowWindow();
-    this.resetBook();
+    this.resetBook("background-restart");
     this.setStatus(
       preserveLastFrame ? "stale" : "loading",
       preserveLastFrame ? "СИНХРОНИЗАЦИЯ · последний кадр" : "Восстановление Worker",
@@ -896,6 +889,7 @@ class SymbolFeed {
         },
         bookLevels: { bids: this.bids.size, asks: this.asks.size },
         resyncCount: this.resyncCount,
+        orderBookEvents: this.bookEvents.summary(),
         health: {
           mode: this.mode,
           depthAgeMs: this.lastDepthAt ? Math.max(0, now - this.lastDepthAt) : null,
@@ -936,8 +930,13 @@ class SymbolFeed {
       this.resync("Разрыв последовательности");
       return false;
     }
-    applyDepthUpdates(this.bids, event.b ?? event.bids);
-    applyDepthUpdates(this.asks, event.a ?? event.asks);
+    this.bookEvents.applyDiff({
+      bids: this.bids,
+      asks: this.asks,
+      event,
+      continuity: this.depthReady ? "live" : "recovered",
+      receivedAt: Number(event?.__receivedAt) || Date.now(),
+    });
     this.lastUpdateId = Number(event.u);
     this.cachedSorted = null;
     this.trimBook();
@@ -978,9 +977,13 @@ class SymbolFeed {
     }
     this.bids = new Map();
     this.asks = new Map();
-    applyDepthUpdates(this.bids, snapshot.bids);
-    applyDepthUpdates(this.asks, snapshot.asks);
-    this.lastUpdateId = snapshotId;
+    const baseline = this.bookEvents.seedSnapshot({
+      bids: this.bids,
+      asks: this.asks,
+      snapshot,
+      receivedAt: Date.now(),
+    });
+    this.lastUpdateId = baseline.snapshotId;
     this.cachedSorted = null;
     for (let index = bridgeIndex; index < applicable.length; index += 1) {
       if (!this.applyDepth(applicable[index], index === bridgeIndex)) return false;
@@ -989,6 +992,7 @@ class SymbolFeed {
     this.pendingSnapshot = null;
     this.depthReady = true;
     this.syncing = false;
+    this.bookEvents.markReady();
     diagnose(this.symbol, "depth.live", {
       state: "ready",
       generation: this.generation,
@@ -997,6 +1001,7 @@ class SymbolFeed {
       bufferedEvents: applicable.length - bridgeIndex,
       bids: this.bids.size,
       asks: this.asks.size,
+      orderBookEvents: this.bookEvents.summary(),
     });
     this.publishLiveStatus();
     this.markDirty(true);
@@ -1066,7 +1071,8 @@ class SymbolFeed {
     this.mode = "partial";
     this.transportIndex = 0;
     this.syncing = preserveLastFrame;
-    this.resetBook();
+    this.resetBook("partial-fallback");
+    this.bookEvents.markUnavailable("partial-depth");
     clearTimeout(this.firstDepthTimer);
     clearTimeout(this.snapshotTimer);
     this.setStatus(
@@ -1091,7 +1097,7 @@ class SymbolFeed {
     this.resyncCount += 1;
     const preserveLastFrame = this.syncing || this.depthReady || (this.bids.size > 0 && this.asks.size > 0);
     this.syncing = preserveLastFrame;
-    this.resetBook();
+    this.resetBook(text === "Переполнение буфера" ? "buffer-overflow" : "sequence-gap");
     this.setStatus(
       preserveLastFrame ? "stale" : "loading",
       preserveLastFrame ? `СИНХРОНИЗАЦИЯ · ${text}` : text,
@@ -1203,6 +1209,7 @@ class SymbolFeed {
         if (!Array.isArray(bids) || !Array.isArray(asks)) return;
         const receivedFirstDepth = this.lastDepthAt === 0;
         const receivedAt = Date.now();
+        update.__receivedAt = receivedAt;
         this.lastDepthAt = receivedAt;
         const sourceEventTime = Number(update?.E);
         if (Number.isFinite(sourceEventTime)) {
@@ -1264,7 +1271,7 @@ class SymbolFeed {
       });
       const preserveLastFrame = this.depthReady || this.syncing;
       this.syncing = preserveLastFrame;
-      this.resetBook();
+      this.resetBook("reconnect");
       this.setStatus(
         preserveLastFrame ? "stale" : "offline",
         preserveLastFrame ? "СИНХРОНИЗАЦИЯ · последний кадр" : "RECONNECT · WORKER",
