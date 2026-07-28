@@ -2,6 +2,7 @@ importScripts("./orderbook-tape-guard.js?v=worker-bp-v1");
 importScripts("./orderbook-tape-latency.js?v=worker-bp-v1");
 importScripts("./orderbook-network.js?v=obs-pr1-1");
 importScripts("./orderbook-worker-buffers.js?v=worker-bp-v1");
+importScripts("./orderbook-depth-projection.js?v=deep-book-v1");
 importScripts("./orderbook-events.js?v=orderbook-events-core-v1");
 importScripts("./orderbook-density.js?v=density-lifecycle-v1");
 
@@ -754,13 +755,14 @@ class SymbolFeed {
     if (!force && !this.forceEmit && now - this.lastEmitAt < this.emitIntervalMs()) return;
     const fullView = this.sortedDepth();
     const limit = Math.max(100, Math.min(MAX_EMITTED_LEVELS_PER_SIDE, Math.floor(requestedLimit)));
-    const view = {
-      bids: fullView.bids.slice(0, limit),
-      asks: fullView.asks.slice(0, limit),
-    };
+    const view = self.InPulsOrderBookDepthProjection.compactDepthView(fullView, {
+      exactLimit: limit,
+      densityLimit: 96,
+      bandCount: 128,
+    });
     if (!view.bids.length || !view.asks.length) return;
-    const bestBid = Number(view.bids[0][0]);
-    const bestAsk = Number(view.asks[0][0]);
+    const bestBid = Number(fullView.bids[0][0]);
+    const bestAsk = Number(fullView.asks[0][0]);
     const middle = (bestBid + bestAsk) / 2;
     const lowestBid = Number(view.bids.at(-1)?.[0]);
     const highestAsk = Number(view.asks.at(-1)?.[0]);
@@ -788,6 +790,7 @@ class SymbolFeed {
         resyncCount: this.resyncCount,
         orderBookEvents: this.bookEvents.summary(),
         densityLifecycle: this.densityLifecycle.summary(now),
+        depthProjection: view.metadata,
         health: {
           mode: this.mode,
           depthAgeMs: this.lastDepthAt ? Math.max(0, now - this.lastDepthAt) : null,

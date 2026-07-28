@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adaptiveBookScaleIndex, aggregateDepthBands, aggregateFootprintClusters, aggregateTradeClusters, aggregateTradePath, applyDepthUpdates, bookDepthLabel, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, depthView, inferPriceTick, maximumBookScaleIndex, normalizeBookDepthPercent, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForDepthPercent, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "../orderbook.js";
+import { adaptiveBookScaleIndex, aggregateDepthBands, aggregateFootprintClusters, aggregateTradeClusters, aggregateTradePath, applyDepthUpdates, BOOK_DEPTH_PERCENT_PRESETS, bookDepthLabel, bookScaleLabel, buildDepthLadder, depthCoverageScaleIndex, depthView, inferPriceTick, maximumBookScaleIndex, normalizeBookDepthPercent, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForDepthPercent, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "../orderbook.js";
 
 test("depth updates add, replace and remove price levels", () => {
   const levels = new Map([[100, 2], [99, 4]]);
@@ -59,6 +59,9 @@ test("percent depth gives BTC and alt books the same visible range", () => {
   assert.equal(priceStepForDepthPercent(.0001, .3, rows, 1), .0001);
   assert.equal(bookDepthLabel(1), "±1%");
   assert.equal(normalizeBookDepthPercent(.8), 1);
+  assert.deepEqual([...BOOK_DEPTH_PERCENT_PRESETS], [.25, .5, 1, 2, 5, 10, 20]);
+  assert.equal(bookDepthLabel(10), "±10%");
+  assert.equal(normalizeBookDepthPercent(17), 20);
 });
 
 test("trade clusters respect the minimum quote filter", () => {

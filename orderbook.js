@@ -4,7 +4,8 @@ import {
   selectReadableAggLabels,
 } from "./orderbook-tape-layout.js?v=26-25-tape-v2-1";
 import "./orderbook-network.js?v=obs-pr1-1";
-import "./orderbook-flow-workspace.js?v=multi-dom-live-tape-v1";
+import "./orderbook-depth-projection.js?v=deep-book-v1";
+import "./orderbook-flow-workspace.js?v=deep-book-tape-clusters-v2";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-lifecycle-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -80,7 +81,7 @@ export function aggregateDepthBands(levels, middlePrice, rangePercent, rowCount,
 }
 
 export const BOOK_SCALE_MULTIPLIERS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
-export const BOOK_DEPTH_PERCENT_PRESETS = [.25, .5, 1, 2, 5];
+export const BOOK_DEPTH_PERCENT_PRESETS = [.25, .5, 1, 2, 5, 10, 20];
 
 export function inferPriceTick(bids, asks, middlePrice) {
   const prices = [...(bids ?? []), ...(asks ?? [])]
@@ -842,12 +843,17 @@ class LegacyOrderBookFeed {
     if (refreshDepth || !this.cachedDepth) {
       this.cachedDepth = depthView(this.bids, this.asks, MAX_EMITTED_LEVELS_PER_SIDE);
     }
-    const view = this.cachedDepth;
+    const fullView = this.cachedDepth;
+    const view = globalThis.InPulsOrderBookDepthProjection.compactDepthView(fullView, {
+      exactLimit: 900,
+      densityLimit: 96,
+      bandCount: 128,
+    });
     if (!view.bids.length || !view.asks.length) return;
     const densityNow = Date.now();
     this.densityLifecycle.refresh({
-      bids: view.bids,
-      asks: view.asks,
+      bids: fullView.bids,
+      asks: fullView.asks,
       now: densityNow,
     });
     this.onData({
@@ -857,11 +863,12 @@ class LegacyOrderBookFeed {
       lastUpdateId: this.lastUpdateId,
       eventTime,
       depthReady: this.depthReady,
-      coverage: depthCoverage(view.bids, view.asks),
+      coverage: depthCoverage(fullView.bids, fullView.asks),
       bookLevels: { bids: this.bids.size, asks: this.asks.size },
       resyncCount: this.resyncCount,
       orderBookEvents: this.bookEvents.summary(),
       densityLifecycle: this.densityLifecycle.summary(densityNow),
+      depthProjection: view.metadata,
     });
   }
 
@@ -1222,7 +1229,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=multi-dom-live-tape-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=deep-book-tape-clusters-v2", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1636,19 +1643,20 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-37-multi-dom-live-tape-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-38-deep-book-tape-clusters-v2";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const TAPE_MAX_STORED = 4_000;
-const TAPE_MAX_RAW_VISIBLE = 1_200;
+const TAPE_MAX_RAW_VISIBLE = TAPE_MAX_STORED;
 const TAPE_MAX_AGG_VISIBLE = 900;
 const TAPE_SECOND_MS = 1_000;
+const TAPE_LIVE_EDGE_LEAD_MS = 180;
 const TAPE_MIN_SECOND_WIDTH = 22;
 const TAPE_MIN_SECONDS = 12;
 const TAPE_MAX_SECONDS = 45;
 const TAPE_TIMELINE_MIN_LABEL_GAP_PX = 42;
 const TAPE_AGG_LABEL_QUANTILE = .95;
-const TAPE_STALE_NOTICE_MS = 60_000;
+const TAPE_STALE_NOTICE_MS = 3_000;
 const TAPE_STATE_REFRESH_MS = 1_000;
 const TAPE_FREEZE_AFTER_MS = 2_500;
 const TAPE_MODE_KEY = "inpuls-tape-mode-v2";
@@ -1732,8 +1740,7 @@ function clampTape(value, minimum, maximum) {
 
 export function resolveTapeWindowEnd(latestTime, frozen, now = Date.now()) {
   const latest = Number(latestTime) || Number(now) || Date.now();
-  const current = Number(now) || Date.now();
-  return frozen ? latest + 1 : Math.max(latest + 1, current);
+  return latest + (frozen ? 1 : TAPE_LIVE_EDGE_LEAD_MS);
 }
 
 function tapeRecoveryFrozen(symbol) {
@@ -2206,7 +2213,17 @@ function decorateRuntimeBookRows(card) {
     0,
   );
   if (maximumCharacters > 0) {
-    const width = clampTape(maximumCharacters + .55, 5.5, 14);
+    const symbol = cardSymbol(card) ?? "";
+    if (card.dataset.inpulsPriceWidthSymbol !== symbol) {
+      card.dataset.inpulsPriceWidthSymbol = symbol;
+      card.dataset.inpulsPriceWidthChars = "0";
+    }
+    const previousWidth = Number(card.dataset.inpulsPriceWidthChars) || 0;
+    const width = Math.max(
+      previousWidth,
+      clampTape(maximumCharacters + 1.25, 6.5, 14),
+    );
+    card.dataset.inpulsPriceWidthChars = String(width);
     card.style.setProperty("--book-price-width", `${width}ch`);
   }
 
@@ -3054,10 +3071,15 @@ function drawTapeCard(card) {
     return;
   }
 
+  const staleSuffix = staleTradeSuffix(symbol);
   setTapeState(
     state,
-    frozen ? "ПОСЛЕДНИЙ КАДР · ждём свежий поток" : "",
-    frozen ? "attention" : "neutral",
+    frozen
+      ? "ПОСЛЕДНИЙ КАДР · ждём свежий поток"
+      : staleSuffix
+        ? `НЕТ НОВЫХ СДЕЛОК${staleSuffix}`
+        : "",
+    frozen || staleSuffix ? "attention" : "neutral",
   );
   const quotes = items.map((item) => Number(item.quote) || 0).filter((value) => value > 0);
   const strengthFor = createTapeStrengthScale(quotes);

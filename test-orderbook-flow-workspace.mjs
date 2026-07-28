@@ -7,6 +7,7 @@ import {
   buildFootprintColumns,
   createFootprintAccumulator,
   flowWindow,
+  footprintIntervalHistory,
   footprintIntervalSnapshot,
   footprintBucketMs,
   footprintTone,
@@ -89,6 +90,29 @@ test("a live reset clears both cluster timeframes", () => {
   assert.equal(footprintIntervalSnapshot(accumulator, 300_000, 62_000).count, 0);
 });
 
+test("cluster history keeps aligned 1M and 5M columns", () => {
+  const accumulator = createFootprintAccumulator();
+  ingestFootprintTrades(accumulator, [
+    { id: 1, price: 100, quantity: 1, quote: 100, time: 61_000, side: "buy" },
+    { id: 2, price: 101, quantity: 1, quote: 101, time: 121_000, side: "sell" },
+    { id: 3, price: 102, quantity: 1, quote: 102, time: 301_000, side: "buy" },
+  ]);
+
+  const oneMinute = footprintIntervalHistory(accumulator, 60_000, 302_000, 8);
+  assert.deepEqual(oneMinute.map((item) => item.startTime), [
+    60_000,
+    120_000,
+    180_000,
+    240_000,
+    300_000,
+  ]);
+  assert.deepEqual(oneMinute.map((item) => item.count), [1, 1, 0, 0, 1]);
+
+  const fiveMinutes = footprintIntervalHistory(accumulator, 300_000, 302_000, 8);
+  assert.deepEqual(fiveMinutes.map((item) => item.startTime), [0, 300_000]);
+  assert.deepEqual(fiveMinutes.map((item) => item.count), [2, 1]);
+});
+
 test("Flow Workspace redraw observer cannot trigger itself", () => {
   const source = readFileSync(
     new URL("./orderbook-flow-workspace.js", import.meta.url),
@@ -111,4 +135,7 @@ test("Flow Workspace redraw observer cannot trigger itself", () => {
     source,
     /if \(state\.flowCount\.textContent !== flowCountText\)/,
   );
+  assert.match(source, /bookWidth - delta/);
+  assert.match(source, /sellLabelLeft - sellWidth/);
+  assert.match(source, /buyLabelRight,/);
 });
