@@ -13,7 +13,9 @@ export const FLOW_WORKSPACE = Object.freeze({
 export const FOOTPRINT_TIMEFRAMES = Object.freeze([60_000, 5 * 60_000]);
 const FOOTPRINT_TIMEFRAME_KEY = "inpuls-footprint-timeframe-v1";
 const FOOTPRINT_MINUTE_MS = 60_000;
-const FOOTPRINT_RETAIN_MINUTES = 6;
+const FOOTPRINT_RETAIN_MINUTES = 30;
+const FOOTPRINT_MIN_COLUMN_PX = 82;
+const FOOTPRINT_MAX_VISIBLE_COLUMNS = 8;
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
@@ -244,15 +246,12 @@ export function ingestFootprintTrades(accumulator, incoming, { replace = false }
   return target;
 }
 
-export function footprintIntervalSnapshot(
+function footprintSnapshotAt(
   accumulator,
-  timeframeMs = FOOTPRINT_TIMEFRAMES[0],
-  now = Date.now(),
+  timeframe,
+  startTime,
+  now,
 ) {
-  const timeframe = FOOTPRINT_TIMEFRAMES.includes(Number(timeframeMs))
-    ? Number(timeframeMs)
-    : FOOTPRINT_TIMEFRAMES[0];
-  const startTime = footprintIntervalStart(now, timeframe);
   const endTime = startTime + timeframe;
   const cells = new Map();
   let count = 0;
@@ -290,6 +289,49 @@ export function footprintIntervalSnapshot(
   };
 }
 
+export function footprintIntervalSnapshot(
+  accumulator,
+  timeframeMs = FOOTPRINT_TIMEFRAMES[0],
+  now = Date.now(),
+) {
+  const timeframe = FOOTPRINT_TIMEFRAMES.includes(Number(timeframeMs))
+    ? Number(timeframeMs)
+    : FOOTPRINT_TIMEFRAMES[0];
+  const startTime = footprintIntervalStart(now, timeframe);
+  return footprintSnapshotAt(accumulator, timeframe, startTime, now);
+}
+
+export function footprintIntervalHistory(
+  accumulator,
+  timeframeMs = FOOTPRINT_TIMEFRAMES[0],
+  now = Date.now(),
+  limit = FOOTPRINT_MAX_VISIBLE_COLUMNS,
+) {
+  const timeframe = FOOTPRINT_TIMEFRAMES.includes(Number(timeframeMs))
+    ? Number(timeframeMs)
+    : FOOTPRINT_TIMEFRAMES[0];
+  const maximum = Math.max(
+    1,
+    Math.min(FOOTPRINT_MAX_VISIBLE_COLUMNS, Math.floor(Number(limit) || 1)),
+  );
+  const currentStart = footprintIntervalStart(now, timeframe);
+  const earliestMinute = Math.min(
+    currentStart,
+    ...[...(accumulator?.minutes?.keys?.() ?? [])].map(Number).filter(Number.isFinite),
+  );
+  const earliestInterval = footprintIntervalStart(earliestMinute, timeframe);
+  const available = Math.max(
+    1,
+    Math.floor((currentStart - earliestInterval) / timeframe) + 1,
+  );
+  const count = Math.min(maximum, available);
+
+  return Array.from({ length: count }, (_, index) => {
+    const startTime = currentStart - (count - index - 1) * timeframe;
+    return footprintSnapshotAt(accumulator, timeframe, startTime, now);
+  });
+}
+
 const footprintBySymbol = new Map();
 const statusBySymbol = new Map();
 const cardStates = new WeakMap();
@@ -324,6 +366,11 @@ function formatUsd(value) {
   if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(amount >= 10_000_000 ? 0 : 1)}M`;
   if (amount >= 1_000) return `${(amount / 1_000).toFixed(amount >= 100_000 ? 0 : 1)}K`;
   return amount >= 100 ? String(Math.round(amount)) : amount.toFixed(amount >= 10 ? 0 : 1);
+}
+
+function formatIntervalClock(time) {
+  const date = new Date(Number(time));
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function flowRecoveryFrozen(symbol) {
@@ -557,7 +604,7 @@ function bindSplitter(card, splitter, side) {
       } else {
         stage.style.setProperty(
           "--flow-book-width",
-          `${clamp(bookWidth + delta, FLOW_WORKSPACE.minimumBookPx, stageRect.width * .48)}px`,
+          `${clamp(bookWidth - delta, FLOW_WORKSPACE.minimumBookPx, stageRect.width * .48)}px`,
         );
       }
       requestDraw(card);
@@ -703,25 +750,39 @@ function renderCard(card, state) {
   }
 
   const accumulator = footprintBySymbol.get(symbol) ?? createFootprintAccumulator();
-  const interval = footprintIntervalSnapshot(accumulator, state.timeframeMs, Date.now());
-  const clustersByRow = new Map();
-  for (const source of interval.cells) {
-    const row = nearestRow(rows, source.price);
-    if (!row) continue;
-    const cluster = clustersByRow.get(row.index) ?? {
-      row,
-      buyQuote: 0,
-      sellQuote: 0,
-      quote: 0,
-      count: 0,
-    };
-    cluster.buyQuote += source.buyQuote;
-    cluster.sellQuote += source.sellQuote;
-    cluster.quote += source.quote;
-    cluster.count += source.count;
-    clustersByRow.set(row.index, cluster);
-  }
-  const clusters = [...clustersByRow.values()];
+  const visibleColumnLimit = Math.max(
+    1,
+    Math.min(
+      FOOTPRINT_MAX_VISIBLE_COLUMNS,
+      Math.floor(width / FOOTPRINT_MIN_COLUMN_PX),
+    ),
+  );
+  const intervals = footprintIntervalHistory(
+    accumulator,
+    state.timeframeMs,
+    Date.now(),
+    visibleColumnLimit,
+  );
+  const columns = intervals.map((interval) => {
+    const clustersByRow = new Map();
+    for (const source of interval.cells) {
+      const row = nearestRow(rows, source.price);
+      if (!row) continue;
+      const cluster = clustersByRow.get(row.index) ?? {
+        row,
+        buyQuote: 0,
+        sellQuote: 0,
+        quote: 0,
+        count: 0,
+      };
+      cluster.buyQuote += source.buyQuote;
+      cluster.sellQuote += source.sellQuote;
+      cluster.quote += source.quote;
+      cluster.count += source.count;
+      clustersByRow.set(row.index, cluster);
+    }
+    return { interval, clusters: [...clustersByRow.values()] };
+  });
 
   const dpr = Math.max(1, Math.min(1.5, globalThis.devicePixelRatio || 1));
   const pixelWidth = Math.max(1, Math.round(width * dpr));
@@ -733,56 +794,99 @@ function renderCard(card, state) {
   state.context.setTransform(dpr, 0, 0, dpr, 0, 0);
   state.context.clearRect(0, 0, width, height);
 
-  const maximum = Math.max(1, ...clusters.map((cluster) => cluster.quote));
-  const centerX = width / 2;
-  const maximumSideWidth = Math.max(10, width / 2 - 3);
+  const maximumSide = Math.max(
+    1,
+    ...columns.flatMap(({ clusters }) => (
+      clusters.flatMap((cluster) => [cluster.sellQuote, cluster.buyQuote])
+    )),
+  );
+  const columnWidth = width / Math.max(1, columns.length);
 
   state.context.font = "800 7px Inter, system-ui, sans-serif";
   state.context.textBaseline = "middle";
 
   if (state.visible) {
-    for (const cluster of clusters) {
-      const sellWidth = Math.sqrt(cluster.sellQuote / maximum) * maximumSideWidth;
-      const buyWidth = Math.sqrt(cluster.buyQuote / maximum) * maximumSideWidth;
-      const cellHeight = Math.max(2, Math.min(cluster.row.height * .84, 13));
-      if (sellWidth > 0) {
-        state.context.fillStyle = "rgba(225, 73, 91, .42)";
-        state.context.fillRect(
-          centerX - sellWidth,
-          cluster.row.y - cellHeight / 2,
-          sellWidth,
-          cellHeight,
-        );
-      }
-      if (buyWidth > 0) {
-        state.context.fillStyle = "rgba(39, 192, 137, .42)";
-        state.context.fillRect(
-          centerX,
-          cluster.row.y - cellHeight / 2,
-          buyWidth,
-          cellHeight,
-        );
+    columns.forEach(({ interval, clusters }, columnIndex) => {
+      const columnLeft = columnIndex * columnWidth;
+      const columnRight = columnLeft + columnWidth;
+      const centerX = columnLeft + columnWidth / 2;
+
+      for (const cluster of clusters) {
+        const sellLabel = formatUsd(cluster.sellQuote);
+        const buyLabel = formatUsd(cluster.buyQuote);
+        const sellLabelWidth = state.context.measureText(sellLabel).width;
+        const buyLabelWidth = state.context.measureText(buyLabel).width;
+        const sellLabelLeft = centerX - 3 - sellLabelWidth;
+        const buyLabelRight = centerX + 3 + buyLabelWidth;
+        const maximumSellWidth = Math.max(0, sellLabelLeft - columnLeft - 2);
+        const maximumBuyWidth = Math.max(0, columnRight - buyLabelRight - 2);
+        const sellWidth = Math.sqrt(cluster.sellQuote / maximumSide) * maximumSellWidth;
+        const buyWidth = Math.sqrt(cluster.buyQuote / maximumSide) * maximumBuyWidth;
+        const cellHeight = Math.max(2, Math.min(cluster.row.height * .84, 13));
+
+        if (sellWidth > 0) {
+          state.context.fillStyle = "rgba(225, 73, 91, .42)";
+          state.context.fillRect(
+            sellLabelLeft - sellWidth,
+            cluster.row.y - cellHeight / 2,
+            sellWidth,
+            cellHeight,
+          );
+        }
+        if (buyWidth > 0) {
+          state.context.fillStyle = "rgba(39, 192, 137, .42)";
+          state.context.fillRect(
+            buyLabelRight,
+            cluster.row.y - cellHeight / 2,
+            buyWidth,
+            cellHeight,
+          );
+        }
+
+        state.context.textAlign = "right";
+        state.context.fillStyle = "rgba(255, 128, 142, .98)";
+        state.context.fillText(sellLabel, centerX - 3, cluster.row.y);
+        state.context.textAlign = "left";
+        state.context.fillStyle = "rgba(93, 225, 181, .98)";
+        state.context.fillText(buyLabel, centerX + 3, cluster.row.y);
       }
 
-      state.context.textAlign = "right";
-      state.context.fillStyle = "rgba(255, 128, 142, .98)";
-      state.context.fillText(formatUsd(cluster.sellQuote), centerX - 3, cluster.row.y);
-      state.context.textAlign = "left";
-      state.context.fillStyle = "rgba(93, 225, 181, .98)";
-      state.context.fillText(formatUsd(cluster.buyQuote), centerX + 3, cluster.row.y);
-    }
+      state.context.strokeStyle = "rgba(133, 151, 160, .24)";
+      state.context.lineWidth = .7;
+      state.context.beginPath();
+      state.context.moveTo(centerX, 0);
+      state.context.lineTo(centerX, height);
+      state.context.stroke();
 
-    state.context.strokeStyle = "rgba(133, 151, 160, .28)";
-    state.context.lineWidth = .7;
-    state.context.beginPath();
-    state.context.moveTo(centerX, 0);
-    state.context.lineTo(centerX, height);
-    state.context.stroke();
+      if (columnIndex > 0) {
+        state.context.strokeStyle = "rgba(111, 82, 168, .28)";
+        state.context.beginPath();
+        state.context.moveTo(columnLeft + .5, 0);
+        state.context.lineTo(columnLeft + .5, height);
+        state.context.stroke();
+      }
+
+      state.context.fillStyle = "rgba(4, 7, 10, .86)";
+      state.context.fillRect(columnLeft + 1, height - 11, Math.max(0, columnWidth - 2), 11);
+      state.context.textAlign = "center";
+      state.context.fillStyle = interval.partial
+        ? "rgba(93, 225, 181, .92)"
+        : "rgba(145, 165, 175, .78)";
+      state.context.font = "700 6.5px Inter, system-ui, sans-serif";
+      state.context.fillText(
+        `${formatIntervalClock(interval.startTime)}${interval.partial ? " · LIVE" : ""}`,
+        centerX,
+        height - 5,
+      );
+      state.context.font = "800 7px Inter, system-ui, sans-serif";
+    });
   }
 
-  const countText = `${interval.partial ? "PARTIAL" : "FULL"} · ${interval.count}`;
+  const currentInterval = intervals.at(-1);
+  const totalCount = intervals.reduce((sum, interval) => sum + interval.count, 0);
+  const countText = `${currentInterval?.partial ? "PARTIAL" : "FULL"} · ${currentInterval?.count ?? 0}`;
   if (state.count.textContent !== countText) state.count.textContent = countText;
-  const flowCountText = `${interval.count} trades`;
+  const flowCountText = `${totalCount} trades`;
   if (state.flowCount.textContent !== flowCountText) {
     state.flowCount.textContent = flowCountText;
   }
@@ -791,9 +895,10 @@ function renderCard(card, state) {
     observability.rendered(symbol, "footprint");
     observability.record("footprint.render-card", performance.now() - renderStartedAt, {
       symbol,
-      trades: interval.count,
-      timeframeMs: interval.timeframe,
-      rows: clusters.length,
+      trades: totalCount,
+      timeframeMs: state.timeframeMs,
+      columns: columns.length,
+      rows: columns.reduce((sum, column) => sum + column.clusters.length, 0),
       ladderRows: rows.length,
     });
   }

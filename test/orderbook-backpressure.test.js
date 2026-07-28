@@ -61,3 +61,12 @@ test("Worker reports flow rates, processing cost, queue pressure and source fres
   assert.match(runtime, /TAPE_LIVE_MAX_PENDING = 900/);
   assert.match(runtime, /tape\.main-dropped/);
 });
+
+test("multi-book depth keeps distant liquidity through compact projection", () => {
+  assert.match(worker, /orderbook-depth-projection\.js\?v=deep-book-v1/);
+  assert.match(worker, /InPulsOrderBookDepthProjection\.compactDepthView\(fullView/);
+  assert.match(worker, /exactLimit: limit/);
+  assert.match(worker, /densityLimit: 96/);
+  assert.match(worker, /bandCount: 128/);
+  assert.match(worker, /depthProjection: view\.metadata/);
+});

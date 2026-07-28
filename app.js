@@ -5,7 +5,7 @@ import {
   formatCompactUsd,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { BOOK_DEPTH_PERCENT_PRESETS, aggregateFootprintClusters, aggregateTradePath, bookDepthLabel, buildDepthLadder, inferPriceTick, normalizeBookDepthPercent, OrderBookFeed, priceStepForDepthPercent, tradeTimeWindow } from "./orderbook.js?v=multi-dom-live-tape-v1";
+import { BOOK_DEPTH_PERCENT_PRESETS, aggregateFootprintClusters, aggregateTradePath, bookDepthLabel, buildDepthLadder, inferPriceTick, normalizeBookDepthPercent, OrderBookFeed, priceStepForDepthPercent, tradeTimeWindow } from "./orderbook.js?v=deep-book-tape-clusters-v2";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 
@@ -2745,7 +2745,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-37-multi-dom-live-tape-v1";
+const INPULS_RUNTIME_BUILD = "26-38-deep-book-tape-clusters-v2";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

@@ -41,7 +41,7 @@ test("long background keeps a frozen Tape frame", () => {
   assert.doesNotMatch(orderbook, /tapePendingBySymbol\.clear\(\);/);
 });
 
-test("Tape window freezes at the latest trade during recovery", () => {
+test("Tape window stays at the latest real trade instead of drawing future emptiness", () => {
   const functionSource = orderbook.match(
     /export function resolveTapeWindowEnd\([\s\S]*?\n\}/,
   )?.[0];
@@ -49,14 +49,15 @@ test("Tape window freezes at the latest trade during recovery", () => {
   const sandbox = {};
   vm.createContext(sandbox);
   vm.runInContext(
-    `${functionSource.replace("export ", "")}
+    `const TAPE_LIVE_EDGE_LEAD_MS = 180;
+     ${functionSource.replace("export ", "")}
      result = [
        resolveTapeWindowEnd(10_000, true, 20_000),
        resolveTapeWindowEnd(10_000, false, 20_000),
      ];`,
     sandbox,
   );
-  assert.deepEqual([...sandbox.result], [10_001, 20_000]);
+  assert.deepEqual([...sandbox.result], [10_001, 10_180]);
 });
 
 test("footprint preserves its canvas while the feed recovers", () => {
@@ -76,13 +77,13 @@ test("a delayed feed retries independently", () => {
 });
 
 test("Resume v2 ships one consistent runtime", () => {
-  assert.match(index, /app\.js\?v=26-37-multi-dom-live-tape-v1/);
-  assert.match(app, /orderbook\.js\?v=multi-dom-live-tape-v1/);
+  assert.match(index, /app\.js\?v=26-38-deep-book-tape-clusters-v2/);
+  assert.match(app, /orderbook\.js\?v=deep-book-tape-clusters-v2/);
   assert.match(app, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(orderbook, /orderbook-worker\.js\?v=multi-dom-live-tape-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=multi-dom-live-tape-v1/);
+  assert.match(orderbook, /orderbook-worker\.js\?v=deep-book-tape-clusters-v2/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=deep-book-tape-clusters-v2/);
   assert.match(worker, /orderbook-tape-latency\.js\?v=worker-bp-v1/);
-  assert.match(sw, /inpuls-26-37-multi-dom-live-tape-v1/);
+  assert.match(sw, /inpuls-26-38-deep-book-tape-clusters-v2/);
   assert.match(reset, /Resume v2/);
 });
 

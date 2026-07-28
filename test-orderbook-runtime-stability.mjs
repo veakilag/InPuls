@@ -12,12 +12,12 @@ const sw = readFileSync(new URL("./sw.js", import.meta.url), "utf8");
 const reset = readFileSync(new URL("./reset-v26.html", import.meta.url), "utf8");
 
 test("normal reload keeps one consistent runtime build", () => {
-  assert.match(index, /app\.js\?v=26-37-multi-dom-live-tape-v1/);
-  assert.match(app, /orderbook\.js\?v=multi-dom-live-tape-v1/);
+  assert.match(index, /app\.js\?v=26-38-deep-book-tape-clusters-v2/);
+  assert.match(app, /orderbook\.js\?v=deep-book-tape-clusters-v2/);
   assert.match(app, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=multi-dom-live-tape-v1/);
-  assert.match(orderbook, /orderbook-worker\.js\?v=multi-dom-live-tape-v1/);
-  assert.match(sw, /inpuls-26-37-multi-dom-live-tape-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=deep-book-tape-clusters-v2/);
+  assert.match(orderbook, /orderbook-worker\.js\?v=deep-book-tape-clusters-v2/);
+  assert.match(sw, /inpuls-26-38-deep-book-tape-clusters-v2/);
   assert.match(reset, /Resume v2/);
   assert.doesNotMatch(app, /getRegistrations\(\).*unregister/s);
 });
