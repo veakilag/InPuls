@@ -7,11 +7,12 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-52-signal-lab-analytics-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-53-owner-signal-lab-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=signal-observation-engine-v1";
 import { SignalLabLocalStore } from "./signal-lab.js?v=signal-lab-analytics-v1";
+import { parseInPulsNavigation } from "./owner-navigation.js?v=owner-signal-lab-v1";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -60,8 +61,11 @@ const DEFAULT_WORKSPACE = {
   extras: [],
 };
 
+const initialNavigation = parseInPulsNavigation(window.location.search);
 const savedChart = loadJson(STORAGE_KEYS.chart, { interval: "1m", range: "1h" });
-const savedSelectedSymbol = normalizeUsdtPerpetualSymbol(localStorage.getItem(STORAGE_KEYS.selectedSymbol)) || "BTCUSDT";
+const savedSelectedSymbol = initialNavigation.symbol
+  || normalizeUsdtPerpetualSymbol(localStorage.getItem(STORAGE_KEYS.selectedSymbol))
+  || "BTCUSDT";
 
 const state = {
   symbols: new Map(),
@@ -1481,6 +1485,70 @@ function createExtraChart(symbol) {
   return createExtraPanel(symbol, "chart");
 }
 
+function focusOrderBookPanel(panel) {
+  if (!panel?.element?.isConnected) return;
+  panel.element.scrollIntoView({ behavior: "smooth", block: "center" });
+  panel.element.animate?.(
+    [
+      { boxShadow: "0 0 0 1px rgba(66,217,177,.7), 0 0 28px rgba(66,217,177,.2)" },
+      { boxShadow: "" },
+    ],
+    { duration: 1_100, easing: "ease-out" },
+  );
+}
+
+function selectOrderBookPanelSymbol(panel, symbol) {
+  const normalizedSymbol = normalizeUsdtPerpetualSymbol(symbol);
+  if (!panel || !normalizedSymbol) return false;
+  const { model, element: article } = panel;
+  model.symbol = normalizedSymbol;
+  panel.latest = null;
+  panel.viewCenter = null;
+  panel.baseTick = null;
+  panel.autoCentering = false;
+  panel.autoScaleIndex = null;
+  panel.calmSince = 0;
+  panel.priceTrail = [];
+  panel.manualScrollAnchorPrice = null;
+  panel.selectedTradePathKey = null;
+  panel.tradeOffsetMs = 0;
+  panel.tradePriceDomain = null;
+  panel.tradeDomainKey = null;
+  panel.depthFitted = false;
+  article.querySelector(".book-hover-percent").hidden = true;
+  article.querySelector(".trade-flow-nodes").innerHTML = '<div class="orderbook-empty">Жду сделки…</div>';
+  article.querySelector(".trade-flow-detail").hidden = true;
+  article.querySelector(".orderbook-rows").innerHTML = '<div class="orderbook-empty">Загружаю глубину Binance…</div>';
+  article.querySelector("h2").textContent = `${normalizedSymbol.replace("USDT", "")}/USDT · Стакан`;
+  persistWorkspace();
+  panel.feed.select(normalizedSymbol);
+  return true;
+}
+
+function openOrderBookForSymbol(symbol) {
+  const normalizedSymbol = normalizeUsdtPerpetualSymbol(symbol);
+  if (!normalizedSymbol) return false;
+  const existing = [...orderBookPanels.values()]
+    .find((panel) => panel.model.symbol === normalizedSymbol);
+  if (existing) {
+    focusOrderBookPanel(existing);
+    return true;
+  }
+  if (createExtraPanel(normalizedSymbol, "orderbook")) {
+    const created = [...orderBookPanels.values()]
+      .find((panel) => panel.model.symbol === normalizedSymbol);
+    focusOrderBookPanel(created);
+    return true;
+  }
+  const reusable = orderBookPanels.values().next().value;
+  if (reusable && selectOrderBookPanelSymbol(reusable, normalizedSymbol)) {
+    focusOrderBookPanel(reusable);
+    return true;
+  }
+  showToast("Для стакана нет свободного места на рабочем поле");
+  return false;
+}
+
 function hideCorePanel(id) {
   const model = state.workspace[id];
   if (!model) return;
@@ -1595,27 +1663,7 @@ function mountOrderBook(model) {
     event.preventDefault();
     event.stopPropagation();
     clearDropState();
-    model.symbol = symbol;
-    panel.latest = null;
-    panel.viewCenter = null;
-    panel.baseTick = null;
-    panel.autoCentering = false;
-    panel.autoScaleIndex = null;
-    panel.calmSince = 0;
-    panel.priceTrail = [];
-    panel.manualScrollAnchorPrice = null;
-    panel.selectedTradePathKey = null;
-    panel.tradeOffsetMs = 0;
-    panel.tradePriceDomain = null;
-    panel.tradeDomainKey = null;
-    panel.depthFitted = false;
-    article.querySelector(".book-hover-percent").hidden = true;
-    article.querySelector(".trade-flow-nodes").innerHTML = '<div class="orderbook-empty">Жду сделки…</div>';
-    article.querySelector(".trade-flow-detail").hidden = true;
-    article.querySelector(".orderbook-rows").innerHTML = '<div class="orderbook-empty">Загружаю глубину Binance…</div>';
-    article.querySelector("h2").textContent = `${symbol.replace("USDT", "")}/USDT · Стакан`;
-    persistWorkspace();
-    panel.feed.select(symbol);
+    selectOrderBookPanelSymbol(panel, symbol);
   }, true);
   document.addEventListener("dragend", clearDropState);
   const stage = article.querySelector(".orderbook-stage");
@@ -2999,6 +3047,15 @@ els.installButton.addEventListener("click", async () => {
 });
 
 bindEvents();
+if (initialNavigation.symbol) {
+  selectChartSymbol(initialNavigation.symbol);
+  if (initialNavigation.open === "orderbook") {
+    openOrderBookForSymbol(initialNavigation.symbol);
+  }
+  if (initialNavigation.source === "signal-lab") {
+    observability.increment("owner-navigation.signal-lab");
+  }
+}
 feed.connect();
 els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === state.chartInterval));
 els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === state.chartRange));
@@ -3022,7 +3079,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-52-signal-lab-analytics-v1";
+const INPULS_RUNTIME_BUILD = "26-53-owner-signal-lab-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

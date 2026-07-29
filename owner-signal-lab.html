@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <meta name="theme-color" content="#0d1015" />
+    <meta name="inpuls-build" content="26-53-owner-signal-lab-v1" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./owner-signal-lab.css?v=26-53-owner-signal-lab-v1" />
+    <title>InPuls — Owner Signal Lab</title>
+  </head>
+  <body>
+    <header class="owner-topbar">
+      <a class="owner-brand" href="./" aria-label="Открыть InPuls">
+        <span class="owner-brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span><strong>INPULS</strong><small>OWNER SIGNAL LAB</small></span>
+      </a>
+      <div class="owner-status">
+        <span id="storage-state" data-state="loading">Подключаю локальную историю…</span>
+        <a href="./" target="_blank" rel="noopener noreferrer">Открыть InPuls</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="owner-intro" aria-labelledby="owner-title">
+        <div>
+          <span class="eyebrow">ЛОКАЛЬНЫЙ ПРОФИЛЬ</span>
+          <h1 id="owner-title">Что реально происходило после сигналов</h1>
+          <p>Только описательная статистика этого браузера. Продолжение не является винрейтом, прогнозом или командой на сделку.</p>
+        </div>
+        <div class="owner-privacy">
+          <strong>Данные остаются на этом устройстве</strong>
+          <span>Другой браузер или устройство эту историю не увидит.</span>
+        </div>
+      </section>
+
+      <section class="owner-controls" aria-label="Фильтры Signal Lab">
+        <div class="window-tabs" role="tablist" aria-label="Период">
+          <button type="button" data-window="1d" role="tab" aria-selected="false">1 день</button>
+          <button type="button" data-window="3d" role="tab" aria-selected="false">3 дня</button>
+          <button type="button" data-window="7d" role="tab" aria-selected="true" class="is-active">7 дней</button>
+          <button type="button" data-window="30d" role="tab" aria-selected="false">30 дней</button>
+        </div>
+        <label>
+          <span>Монета</span>
+          <input id="symbol-filter" type="search" autocomplete="off" placeholder="BTC, ETH…" />
+        </label>
+        <label>
+          <span>Сигнал</span>
+          <select id="signal-filter">
+            <option value="">Все сигналы</option>
+            <option value="impulse">Импульс</option>
+            <option value="knife">Нож</option>
+            <option value="breakout">Пробой</option>
+            <option value="cascade">Каскад</option>
+            <option value="compression">Сжатие</option>
+          </select>
+        </label>
+        <label>
+          <span>Горизонт</span>
+          <select id="horizon-filter">
+            <option value="">Все горизонты</option>
+            <option value="15s">15 секунд</option>
+            <option value="1m">1 минута</option>
+            <option value="3m">3 минуты</option>
+            <option value="5m">5 минут</option>
+          </select>
+        </label>
+        <button id="refresh-report" class="refresh-button" type="button">Обновить</button>
+      </section>
+
+      <section class="owner-summary" aria-label="Сводка">
+        <article><span>События</span><strong id="summary-events">—</strong><small>уникальных сигналов</small></article>
+        <article><span>Наблюдения</span><strong id="summary-usable">—</strong><small>полных live-результатов</small></article>
+        <article><span>Покрытие</span><strong id="summary-coverage">—</strong><small>полных из завершённых</small></article>
+        <article><span>Потери данных</span><strong id="summary-missing">—</strong><small>partial + unavailable</small></article>
+      </section>
+
+      <section class="owner-table-card" aria-labelledby="table-title">
+        <header>
+          <div>
+            <span class="eyebrow">SIGNAL × SYMBOL × HORIZON</span>
+            <h2 id="table-title">Статистика по монетам</h2>
+          </div>
+          <span id="generated-at">—</span>
+        </header>
+        <div class="owner-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Монета</th>
+                <th>Сигнал</th>
+                <th>Напр.</th>
+                <th>Горизонт</th>
+                <th class="number">N</th>
+                <th class="number">Продолжение</th>
+                <th class="number">Медиана</th>
+                <th class="number">MFE</th>
+                <th class="number">MAE</th>
+                <th class="number">До MFE</th>
+                <th>Качество</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="signal-lab-body"></tbody>
+          </table>
+          <div id="owner-empty" class="owner-empty" hidden>
+            <strong>Подходящих наблюдений пока нет</strong>
+            <p>Оставь InPuls открытым: статистика начнёт появляться после завершения горизонтов 15с / 1м / 3м / 5м.</p>
+          </div>
+        </div>
+      </section>
+
+      <p class="owner-note">Кнопка открывает текущий live-график и стакан монеты. Исторический стакан на момент сигнала станет доступен только после Replay.</p>
+    </main>
+
+    <script type="module" src="./owner-signal-lab.js?v=26-53-owner-signal-lab-v1"></script>
+  </body>
+</html>
