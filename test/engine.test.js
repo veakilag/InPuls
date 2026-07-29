@@ -134,20 +134,24 @@ test("support and resistance breakouts are separate facts", () => {
     range5m: { min: 99, max: 101, percent: 2 },
     range60s: { min: 99, max: 101, percent: 2 },
     liquidation: { longs: 0, shorts: 0, total: 0 },
+    minuteCandles: [
+      { high: 100, low: 99 }, { high: 101, low: 99.2 }, { high: 100.9, low: 99.1 },
+      { high: 101, low: 99.3 }, { high: 100.8, low: 99 },
+    ],
   };
   assert.equal(classifySignals({
     ...common,
-    price: 101,
+    price: 101.1,
     change15s: 0.3,
   }, DEFAULT_SETTINGS)[0].type, "breakout_resistance");
   assert.equal(classifySignals({
     ...common,
-    price: 99,
+    price: 98.9,
     change15s: -0.3,
   }, DEFAULT_SETTINGS)[0].type, "breakout_support");
 });
 
-test("knife and sharpening measure opposite counter-moves near the impulse extreme", () => {
+test("knife and sharpening require a sharp move followed by a one-percent reversal", () => {
   const common = {
     price: 100,
     volumeBoost: 2,
@@ -155,9 +159,13 @@ test("knife and sharpening measure opposite counter-moves near the impulse extre
     range60s: null,
     liquidation: { longs: 0, shorts: 0, total: 0 },
   };
-  const knife = classifySignals({ ...common, change15s: -0.8 }, DEFAULT_SETTINGS)
+  const knife = classifySignals({ ...common, change15s: 0.8, priceHistory: [
+    { at: 1, price: 100 }, { at: 2, price: 99 }, { at: 3, price: 98 }, { at: 4, price: 99.2 }, { at: 5, price: 100 }, { at: 6, price: 100 },
+  ] }, DEFAULT_SETTINGS)
     .find((signal) => signal.type === "knife");
-  const sharpening = classifySignals({ ...common, change15s: 0.8 }, DEFAULT_SETTINGS)
+  const sharpening = classifySignals({ ...common, change15s: -0.8, priceHistory: [
+    { at: 1, price: 100 }, { at: 2, price: 101 }, { at: 3, price: 102 }, { at: 4, price: 100.8 }, { at: 5, price: 100 }, { at: 6, price: 100 },
+  ] }, DEFAULT_SETTINGS)
     .find((signal) => signal.type === "sharpening");
   assert.equal(knife.direction, "up");
   assert.equal(sharpening.direction, "down");
