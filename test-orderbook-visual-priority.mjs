@@ -11,6 +11,10 @@ const sw = readFileSync(new URL("./sw.js", import.meta.url), "utf8");
 test("narrow books give unused price space back to sizes and mark the full current level", () => {
   assert.match(orderbook, /grid-template-columns: minmax\(0, 1fr\) var\(--book-price-width, 8\.25ch\)/);
   assert.doesNotMatch(orderbook, /minmax\(76px, var\(--book-price-width/);
+  assert.match(orderbook, /range\.selectNodeContents\(element\)/);
+  assert.match(orderbook, /Math\.ceil\(maximumTextPixels \+ 10\)/);
+  assert.match(orderbook, /--book-price-width", `\$\{width\}px`/);
+  assert.doesNotMatch(orderbook, /inpulsPriceWidthChars/);
   assert.match(orderbook, /\.book-ladder-row\.is-market \{[\s\S]*inset 4px 0 var\(--green\)/);
   assert.match(orderbook, /\.book-ladder-row\.is-market strong \{[\s\S]*background: transparent !important/);
   assert.doesNotMatch(orderbook, /border-right: 3px solid #66e4ff/);
@@ -20,10 +24,12 @@ test("narrow books give unused price space back to sizes and mark the full curre
 test("ordinary sizes are neutral and full-book anomalies have three tiers", () => {
   assert.match(orderbook, /rgba\(232, 237, 240, \.88\)/);
   assert.match(orderbook, /export function bookQuoteScale\(bids, asks, sampleLimit = 2_048\)/);
-  assert.match(app, /const automaticThreshold = Number\.isFinite\(genericWorkerAnomaly\)/);
+  assert.match(app, /sessionBookAnomalyThreshold\(/);
+  assert.match(app, /const orderBookAutoThresholds = new Map\(\)/);
   assert.match(app, /bid: automaticThreshold/);
   assert.match(app, /ask: automaticThreshold/);
-  assert.match(app, /Number\(source\.maxLevelQuote\)/);
+  assert.match(app, /bookDisplayedQuote\(source, automatic\)/);
+  assert.match(app, /const automaticHighlight = panel\.model\.highlightMode !== "manual"/);
   assert.match(app, /rows\.map\(\(row\) => Math\.max\(0, Number\(row\.quote\) \|\| 0\)\)/);
   assert.match(app, /function anomalyTierForQuote\(quote, threshold\)/);
   assert.match(app, /is-anomaly-tier-\$\{anomalyTier\}/);
@@ -38,6 +44,16 @@ test("ordinary sizes are neutral and full-book anomalies have three tiers", () =
   assert.match(orderbook, /\.book-ladder-row strong \{[\s\S]*border-left: 0 !important/);
   assert.match(orderbook, /\.book-ladder-row\.is-anomaly:not\(\.is-market\) \{[\s\S]*background: transparent !important;[\s\S]*box-shadow: none !important/);
   assert.doesNotMatch(orderbook, /is-anomaly strong,\s*[\s\S]*is-market strong/);
+});
+
+test("size labels stay readable and hover shows distance from current price", () => {
+  assert.match(orderbook, /\.book-ladder-row\.is-anomaly \.book-size \{[\s\S]*color: #f4f8fa !important/);
+  assert.match(orderbook, /\.book-ladder-row:not\(\.is-anomaly\) \.book-size \{[\s\S]*color: #e5edf1 !important/);
+  assert.match(app, /<span class="book-hover-percent" hidden aria-hidden="true"><\/span>/);
+  assert.match(app, /bookDistancePercentLabel\(price, panel\.lastMiddle\)/);
+  assert.match(app, /ladderRows\.addEventListener\("pointerleave", hideHoverPercent\)/);
+  assert.match(orderbook, /\.book-hover-percent\.is-bid/);
+  assert.match(orderbook, /\.book-hover-percent\.is-ask/);
 });
 
 test("footprint uses one proportional dominance cell and interval candles", () => {
@@ -96,8 +112,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-47-orderbook-scale-tape-consistency-v1/);
-  assert.match(app, /orderbook\.js\?v=26-47-orderbook-scale-tape-consistency-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-47-orderbook-scale-tape-consistency-v1/);
-  assert.match(sw, /26-47-orderbook-scale-tape-consistency-v1/);
+  assert.match(index, /26-48-orderbook-hover-stability-v1/);
+  assert.match(app, /orderbook\.js\?v=26-48-orderbook-hover-stability-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-48-orderbook-hover-stability-v1/);
+  assert.match(sw, /26-48-orderbook-hover-stability-v1/);
 });

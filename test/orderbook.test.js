@@ -1,6 +1,37 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adaptiveBookScaleIndex, aggregateDepthBands, aggregateFootprintClusters, aggregateTradeClusters, aggregateTradePath, applyDepthUpdates, BOOK_DEPTH_PERCENT_PRESETS, BOOK_SCALE_MULTIPLIERS, bookDepthLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, depthCoverageScaleIndex, depthView, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, normalizeBookDepthPercent, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForDepthPercent, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "../orderbook.js";
+import {
+  adaptiveBookScaleIndex,
+  aggregateDepthBands,
+  aggregateFootprintClusters,
+  aggregateTradeClusters,
+  aggregateTradePath,
+  applyDepthUpdates,
+  BOOK_DEPTH_PERCENT_PRESETS,
+  BOOK_SCALE_MULTIPLIERS,
+  bookDepthLabel,
+  bookDisplayedQuote,
+  bookDistancePercentLabel,
+  bookQuoteScale,
+  bookScaleIndexForWheel,
+  bookScaleLabel,
+  buildDepthLadder,
+  clampDepthViewCenter,
+  depthCoverageScaleIndex,
+  depthView,
+  inferPriceTick,
+  maximumBookScaleIndex,
+  maximumDepthQuote,
+  normalizeBookDepthPercent,
+  normalizeMarketTrade,
+  OrderBookFeed,
+  partialDepthView,
+  priceStepForDepthPercent,
+  priceStepForScale,
+  recoverBookScaleIndex,
+  sessionBookAnomalyThreshold,
+  tradeTimeWindow,
+} from "../orderbook.js";
 
 test("depth updates add, replace and remove price levels", () => {
   const levels = new Map([[100, 2], [99, 4]]);
@@ -94,6 +125,24 @@ test("AUTO can inspect the largest real order without treating an aggregated row
   const aggregated = rows.find((row) => row.levelCount > 1);
   assert.ok(aggregated.quote > aggregated.maxLevelQuote * 5);
   assert.ok(aggregated.maxLevelQuote >= 999 && aggregated.maxLevelQuote <= 1_000);
+  assert.equal(bookDisplayedQuote(aggregated, true), aggregated.maxLevelQuote);
+  assert.equal(bookDisplayedQuote(aggregated, false), aggregated.quote);
+});
+
+test("AUTO keeps one threshold per coin for the whole session", () => {
+  const thresholds = new Map();
+  assert.equal(sessionBookAnomalyThreshold(thresholds, "ADAUSDT", 100_000), 100_000);
+  assert.equal(sessionBookAnomalyThreshold(thresholds, "ADAUSDT", 240_000), 100_000);
+  assert.equal(sessionBookAnomalyThreshold(thresholds, "BTCUSDT", 900_000), 900_000);
+  assert.equal(sessionBookAnomalyThreshold(new Map(), "ADAUSDT", 100_000, false), 100_000);
+});
+
+test("hover distance from the current price is signed and compact", () => {
+  assert.equal(bookDistancePercentLabel(101, 100), "+1.00%");
+  assert.equal(bookDistancePercentLabel(99.75, 100), "-0.250%");
+  assert.equal(bookDistancePercentLabel(100, 100), "0.000%");
+  assert.equal(bookDistancePercentLabel(null, 100), "");
+  assert.equal(bookDistancePercentLabel(100, 0), "");
 });
 
 test("percent depth gives BTC and alt books the same visible range", () => {

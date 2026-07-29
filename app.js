@@ -7,7 +7,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=26-47-orderbook-scale-tape-consistency-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-48-orderbook-hover-stability-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 
@@ -299,6 +299,7 @@ const radarHistoryLoaded = new Set();
 const radarHistoryLoading = new Set();
 const extraCharts = new Map();
 const orderBookPanels = new Map();
+const orderBookAutoThresholds = new Map();
 const orderBookRenderScheduler = new LatestFrameScheduler({
   budgetMs: 8,
   maxPerFrame: 2,
@@ -1477,6 +1478,7 @@ function mountOrderBook(model) {
       <button class="book-splitter" type="button" aria-label="Изменить ширину ленты сделок" title="Потяни влево или вправо"></button>
       <section class="orderbook-ladder" aria-label="Стакан заявок">
         <div class="book-pane-title"><span>САЙЗ</span><span data-book-scale>${bookScaleLabel(model.bookScaleIndex)}</span><span>ЦЕНА</span></div>
+        <span class="book-hover-percent" hidden aria-hidden="true"></span>
         <div class="orderbook-rows"><div class="orderbook-empty">Загружаю глубину Binance…</div></div>
       </section>
       <span class="book-wheel-hint">Колесо · глубина · Ctrl + колесо — шаг</span>
@@ -1538,6 +1540,7 @@ function mountOrderBook(model) {
     panel.tradePriceDomain = null;
     panel.tradeDomainKey = null;
     panel.depthFitted = false;
+    article.querySelector(".book-hover-percent").hidden = true;
     article.querySelector(".trade-flow-nodes").innerHTML = '<div class="orderbook-empty">Жду сделки…</div>';
     article.querySelector(".trade-flow-detail").hidden = true;
     article.querySelector(".orderbook-rows").innerHTML = '<div class="orderbook-empty">Загружаю глубину Binance…</div>';
@@ -1547,6 +1550,29 @@ function mountOrderBook(model) {
   }, true);
   document.addEventListener("dragend", clearDropState);
   const stage = article.querySelector(".orderbook-stage");
+  const ladder = article.querySelector(".orderbook-ladder");
+  const ladderRows = article.querySelector(".orderbook-rows");
+  const hoverPercent = article.querySelector(".book-hover-percent");
+  const hideHoverPercent = () => {
+    hoverPercent.hidden = true;
+  };
+  ladderRows.addEventListener("pointermove", (event) => {
+    const row = event.target.closest?.(".book-ladder-row");
+    const price = parseRuntimeNumber(row?.querySelector("strong")?.textContent);
+    const label = bookDistancePercentLabel(price, panel.lastMiddle);
+    if (!row || !label) {
+      hideHoverPercent();
+      return;
+    }
+    const rowRect = row.getBoundingClientRect();
+    const ladderRect = ladder.getBoundingClientRect();
+    hoverPercent.textContent = label;
+    hoverPercent.style.top = `${rowRect.top + rowRect.height / 2 - ladderRect.top}px`;
+    hoverPercent.classList.toggle("is-bid", price < panel.lastMiddle);
+    hoverPercent.classList.toggle("is-ask", price > panel.lastMiddle);
+    hoverPercent.hidden = false;
+  });
+  ladderRows.addEventListener("pointerleave", hideHoverPercent);
   const centerButton = article.querySelector("[data-book-center]");
   const syncCenterButton = () => {
     centerButton.classList.toggle("is-active", model.bookCentered !== false);
@@ -1766,10 +1792,16 @@ function renderOrderBook(panel, data) {
   // projection используется только как совместимый Legacy fallback.
   const fallbackScale = bookQuoteScale(data.bids, data.asks);
   const genericWorkerAnomaly = Number(data.sizeAnomalyThresholdQuote);
-  const automaticThreshold = Number.isFinite(genericWorkerAnomaly)
+  const thresholdCandidate = Number.isFinite(genericWorkerAnomaly)
     && genericWorkerAnomaly > 0
     ? genericWorkerAnomaly
     : fallbackScale.anomalyThreshold;
+  const automaticThreshold = sessionBookAnomalyThreshold(
+    orderBookAutoThresholds,
+    symbol,
+    thresholdCandidate,
+    Number.isFinite(genericWorkerAnomaly) && genericWorkerAnomaly > 0,
+  ) ?? thresholdCandidate;
   const anomaly = panel.model.highlightMode === "manual"
     ? Math.max(0, Number(panel.model.highlightMinQuote) || 0)
     : {
@@ -1788,13 +1820,15 @@ function renderOrderBook(panel, data) {
     panel.priceStep,
     data.sizeScaleMaxQuote,
   );
-  // At a coarse price step one visible row may aggregate several real
-  // orders. Include the largest displayed total so bars remain proportional
-  // instead of several different values saturating at 100%.
-  const maxSize = Math.max(
-    fullBookMaximum,
-    ...rows.map((row) => Math.max(0, Number(row.quote) || 0)),
-  );
+  // AUTO shows the largest real order inside an aggregated row, so its bar
+  // uses the full-book real-order maximum. Manual ≥ $ keeps the band total.
+  const automaticHighlight = panel.model.highlightMode !== "manual";
+  const maxSize = automaticHighlight
+    ? fullBookMaximum
+    : Math.max(
+      fullBookMaximum,
+      ...rows.map((row) => Math.max(0, Number(row.quote) || 0)),
+    );
   if (observability.enabled) {
     observability.record("orderbook.compute", performance.now() - phaseStartedAt, {
       symbol,
@@ -1875,9 +1909,7 @@ function patchBookLadderRows(body, rows, middle, maxSize, anomalyThreshold, base
           : "bid";
     const automatic = anomalyThreshold && typeof anomalyThreshold === "object";
     const threshold = automatic ? anomalyThreshold[side] : anomalyThreshold;
-    const anomalyReference = automatic
-      ? Number(source.maxLevelQuote) || 0
-      : source.quote;
+    const anomalyReference = bookDisplayedQuote(source, automatic);
     const anomalyTier = anomalyTierForQuote(anomalyReference, threshold);
     const className = [
       "book-ladder-row",
@@ -1890,11 +1922,11 @@ function patchBookLadderRows(body, rows, middle, maxSize, anomalyThreshold, base
     ].filter(Boolean).join(" ");
     if (element.className !== className) element.className = className;
 
-    const size = `${Math.min(100, (source.quote / maxSize) * 100).toFixed(1)}%`;
+    const size = `${Math.min(100, (anomalyReference / maxSize) * 100).toFixed(1)}%`;
     if (element.style.getPropertyValue("--size") !== size) {
       element.style.setProperty("--size", size);
     }
-    const sizeText = source.quote > 0 ? formatCompactUsd(source.quote) : "";
+    const sizeText = anomalyReference > 0 ? formatCompactUsd(anomalyReference) : "";
     const priceText = formatBookPrice(source.isMarket ? middle : source.price, baseTick);
     if (element.firstElementChild.textContent !== sizeText) {
       element.firstElementChild.textContent = sizeText;
@@ -2921,7 +2953,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-47-orderbook-scale-tape-consistency-v1";
+const INPULS_RUNTIME_BUILD = "26-48-orderbook-hover-stability-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
