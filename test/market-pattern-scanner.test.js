@@ -64,20 +64,39 @@ test("marketwide scanner detects repeated strong best-quote support", () => {
   assert.equal(supporter.evidence.touchCount, 3);
 });
 
-test("cascade detector accepts same-side extrema in a zero-to-five-percent zone", () => {
+test("cascade detector requires three staircase highs and enters on the nearest breakout", () => {
   const candles = [
-    { time: 1, high: 100, low: 96 },
-    { time: 2, high: 102, low: 97 },
-    { time: 3, high: 100.5, low: 98 },
-    { time: 4, high: 103, low: 99 },
-    { time: 5, high: 101, low: 98 },
-    { time: 6, high: 104, low: 100 },
+    { time: 1, high: 99, low: 96 },
+    { time: 2, high: 100, low: 95 },
+    { time: 3, high: 98, low: 94 },
+    { time: 4, high: 102, low: 97 },
+    { time: 5, high: 99, low: 96 },
+    { time: 6, high: 104, low: 98 },
+    { time: 7, high: 101, low: 99 },
+    { time: 8, high: 105, low: 100 },
   ];
-  const detected = detectMarketwideCascade({ price: 104, minuteCandles: candles });
+  const detected = detectMarketwideCascade({ price: 105, minuteCandles: candles });
   assert.equal(detected.type, "cascade");
   assert.equal(detected.direction, "up");
-  assert.equal(detected.evidence.extremaCount, 2);
+  assert.equal(detected.evidence.extremaCount, 3);
+  assert.equal(detected.evidence.breakoutPrice, 104);
   assert.ok(detected.evidence.zoneWidthPercent <= 5);
+});
+
+test("cascade detector enters short below the newest staircase low", () => {
+  const candles = [
+    { time: 1, high: 104, low: 101 },
+    { time: 2, high: 103, low: 100 },
+    { time: 3, high: 102, low: 102 },
+    { time: 4, high: 101, low: 98 },
+    { time: 5, high: 100, low: 100 },
+    { time: 6, high: 99, low: 96 },
+    { time: 7, high: 98, low: 97 },
+    { time: 8, high: 97, low: 95 },
+  ];
+  const detected = detectMarketwideCascade({ price: 95, minuteCandles: candles });
+  assert.equal(detected.direction, "down");
+  assert.equal(detected.evidence.breakoutPrice, 96);
 });
 
 test("cascade detector rejects extrema zones wider than five percent", () => {
@@ -92,3 +111,16 @@ test("cascade detector rejects extrema zones wider than five percent", () => {
   assert.equal(detectMarketwideCascade({ price: 117, minuteCandles: candles }), null);
 });
 
+test("cascade detector rejects a staircase narrower than one percent", () => {
+  const candles = [
+    { time: 1, high: 100, low: 99.5 },
+    { time: 2, high: 100.1, low: 99.6 },
+    { time: 3, high: 99.9, low: 99.4 },
+    { time: 4, high: 100.4, low: 99.8 },
+    { time: 5, high: 100.1, low: 99.7 },
+    { time: 6, high: 100.8, low: 100 },
+    { time: 7, high: 100.4, low: 100.1 },
+    { time: 8, high: 101, low: 100.2 },
+  ];
+  assert.equal(detectMarketwideCascade({ price: 101, minuteCandles: candles }), null);
+});
