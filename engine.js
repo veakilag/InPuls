@@ -13,6 +13,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   maxRows: 100,
 });
 
+export const SIGNAL_FORMULA_VERSION = "radar-signals-v1";
+
 const HISTORY_MS = 6 * 60_000;
 const USDT_PERPETUAL_SYMBOL_PATTERN = /^[A-Z0-9]{1,20}USDT$/;
 
@@ -61,6 +63,7 @@ export class SymbolState {
     this.fundingRate = null;
     this.nextFundingTime = null;
     this.tradeBuckets = new Map();
+    this.lastTradeAt = null;
     this.liquidations = [];
     this.lastLiquidationKey = null;
     this.lastAlertAt = 0;
@@ -133,6 +136,7 @@ export class SymbolState {
     const price = Number(trade.p);
     const quantity = Number(trade.q);
     if (!Number.isFinite(price) || !Number.isFinite(quantity)) return;
+    this.lastTradeAt = time;
     const second = Math.floor(time / 1000) * 1000;
     const bucket = this.tradeBuckets.get(second) || { count: 0, buy: 0, sell: 0 };
     const firstId = Number(trade.f);
@@ -272,6 +276,7 @@ export class SymbolState {
     const base = {
       symbol: this.symbol,
       price: this.price,
+      updatedAt: this.lastUpdate,
       change15s,
       change1m,
       change5m,
@@ -282,6 +287,7 @@ export class SymbolState {
       range60s,
       range5m,
       trades,
+      lastTradeAt: this.lastTradeAt,
       liquidation,
       warmupSeconds,
       sparkline: this.history.slice(-90).map((item) => item.p),
@@ -414,7 +420,9 @@ export function classifySignals(metrics, settings = DEFAULT_SETTINGS) {
     });
   }
 
-  return result.sort((a, b) => b.priority - a.priority);
+  return result
+    .map((signal) => ({ ...signal, formulaVersion: SIGNAL_FORMULA_VERSION }))
+    .sort((a, b) => b.priority - a.priority);
 }
 
 export function scoreMetrics(metrics, signals, settings = DEFAULT_SETTINGS) {

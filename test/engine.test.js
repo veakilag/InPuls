@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULT_SETTINGS,
+  SIGNAL_FORMULA_VERSION,
   SymbolState,
   classifySignals,
   filterUsdtPerpetualTicker,
@@ -111,6 +112,7 @@ test("cascade needs aligned liquidation and movement", () => {
   const signals = classifySignals(metrics, DEFAULT_SETTINGS);
   assert.equal(signals[0].type, "cascade");
   assert.equal(signals[0].direction, "down");
+  assert.equal(signals[0].formulaVersion, SIGNAL_FORMULA_VERSION);
 });
 
 test("compression is classified after a quiet range with rising volume", () => {
