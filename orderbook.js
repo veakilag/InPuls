@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v3";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-47-orderbook-scale-tape-consistency-v1";
+import "./orderbook-flow-workspace.js?v=26-48-orderbook-hover-stability-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-lifecycle-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -72,6 +72,34 @@ export function bookQuoteScale(bids, asks, sampleLimit = 2_048) {
     sampledLevels: bid.sampledLevels + ask.sampledLevels,
     totalLevels: bid.totalLevels + ask.totalLevels,
   };
+}
+
+export function bookDisplayedQuote(row, automatic = false) {
+  const total = Math.max(0, Number(row?.quote) || 0);
+  const largestRealLevel = Math.max(0, Number(row?.maxLevelQuote) || 0);
+  return automatic && largestRealLevel > 0 ? largestRealLevel : total;
+}
+
+export function sessionBookAnomalyThreshold(cache, symbol, candidate, anchor = true) {
+  const amount = Number(candidate);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const key = String(symbol ?? "").toUpperCase();
+  const saved = Number(cache?.get?.(key));
+  if (Number.isFinite(saved) && saved > 0) return saved;
+  if (anchor && key && typeof cache?.set === "function") cache.set(key, amount);
+  return amount;
+}
+
+export function bookDistancePercentLabel(price, currentPrice) {
+  if (price === null || price === undefined || price === "") return "";
+  const level = Number(price);
+  const current = Number(currentPrice);
+  if (!Number.isFinite(level) || !Number.isFinite(current) || current <= 0) return "";
+  const percent = ((level - current) / current) * 100;
+  const absolute = Math.abs(percent);
+  const digits = absolute >= 10 ? 1 : absolute >= 1 ? 2 : 3;
+  const prefix = percent > 0 ? "+" : "";
+  return `${prefix}${percent.toFixed(digits)}%`;
 }
 
 export function partialDepthView(event, limit = 20) {
@@ -1339,7 +1367,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-47-orderbook-scale-tape-consistency-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-48-orderbook-hover-stability-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1753,7 +1781,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-47-orderbook-scale-tape-consistency-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-48-orderbook-hover-stability-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -2351,44 +2379,47 @@ function decorateRuntimeBookRows(card) {
   const priceElements = rows
     .map((row) => row.querySelector("strong"))
     .filter(Boolean);
-  const maximumCharacters = priceElements.reduce(
-    (maximum, element) => Math.max(
-      maximum,
-      String(element.textContent ?? "").replace(/\s/g, "").length,
-    ),
-    0,
-  );
-  if (maximumCharacters > 0) {
+
+  const step = runtimePriceStep(card);
+  if (Number.isFinite(step) && step > 0) {
+    const majorUnit = 10 ** Math.ceil(Math.log10(step * 20));
+    const halfUnit = majorUnit / 2;
+    const nearMultiple = (price, unit) => {
+      const ratio = price / unit;
+      return Math.abs(ratio - Math.round(ratio)) <= 1e-6;
+    };
+
+    for (const row of rows) {
+      const price = parseRuntimeNumber(row.querySelector("strong")?.textContent);
+      const round = Number.isFinite(price) && nearMultiple(price, majorUnit);
+      const half = !round && Number.isFinite(price) && nearMultiple(price, halfUnit);
+      row.classList.toggle("is-price-round", round);
+      row.classList.toggle("is-price-half", half);
+    }
+  }
+
+  const maximumTextPixels = priceElements.reduce((maximum, element) => {
+    let measured = 0;
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      measured = range.getBoundingClientRect().width;
+      range.detach?.();
+    } catch {}
+    if (!Number.isFinite(measured) || measured <= 0) measured = element.scrollWidth;
+    return Math.max(maximum, Number(measured) || 0);
+  }, 0);
+  if (maximumTextPixels > 0) {
     const symbol = cardSymbol(card) ?? "";
     if (card.dataset.inpulsPriceWidthSymbol !== symbol) {
       card.dataset.inpulsPriceWidthSymbol = symbol;
-      card.dataset.inpulsPriceWidthChars = "0";
+      card.dataset.inpulsPriceWidthPx = "0";
     }
-    const previousWidth = Number(card.dataset.inpulsPriceWidthChars) || 0;
-    const width = Math.max(
-      previousWidth,
-      clampTape(maximumCharacters + 1.25, 6.5, 14),
-    );
-    card.dataset.inpulsPriceWidthChars = String(width);
-    card.style.setProperty("--book-price-width", `${width}ch`);
-  }
-
-  const step = runtimePriceStep(card);
-  if (!Number.isFinite(step) || step <= 0) return;
-
-  const majorUnit = 10 ** Math.ceil(Math.log10(step * 20));
-  const halfUnit = majorUnit / 2;
-  const nearMultiple = (price, unit) => {
-    const ratio = price / unit;
-    return Math.abs(ratio - Math.round(ratio)) <= 1e-6;
-  };
-
-  for (const row of rows) {
-    const price = parseRuntimeNumber(row.querySelector("strong")?.textContent);
-    const round = Number.isFinite(price) && nearMultiple(price, majorUnit);
-    const half = !round && Number.isFinite(price) && nearMultiple(price, halfUnit);
-    row.classList.toggle("is-price-round", round);
-    row.classList.toggle("is-price-half", half);
+    const previousWidth = Number(card.dataset.inpulsPriceWidthPx) || 0;
+    // Measure the actual enlarged round/half-round text, not only its chars.
+    const width = Math.max(previousWidth, Math.ceil(maximumTextPixels + 10));
+    card.dataset.inpulsPriceWidthPx = String(width);
+    card.style.setProperty("--book-price-width", `${width}px`);
   }
 }
 
@@ -3777,6 +3808,35 @@ function installOrderbookVisualPriorityStyles() {
       align-items: stretch !important;
       position: relative;
     }
+    .orderbook-card .book-hover-percent {
+      position: absolute;
+      left: 3px;
+      z-index: 70;
+      width: 45px;
+      height: 16px;
+      display: grid;
+      place-items: center;
+      transform: translateY(-50%);
+      border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--line));
+      border-radius: 3px;
+      color: var(--text);
+      background: color-mix(in srgb, var(--panel) 92%, #000);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, .42);
+      pointer-events: none;
+      font: 850 7px/1 Inter, system-ui, sans-serif;
+      font-variant-numeric: tabular-nums;
+    }
+    .orderbook-card .book-hover-percent[hidden] {
+      display: none !important;
+    }
+    .orderbook-card .book-hover-percent.is-bid {
+      border-color: color-mix(in srgb, var(--green) 72%, var(--line));
+      color: color-mix(in srgb, var(--green) 82%, var(--text));
+    }
+    .orderbook-card .book-hover-percent.is-ask {
+      border-color: color-mix(in srgb, var(--red) 72%, var(--line));
+      color: color-mix(in srgb, var(--red) 82%, var(--text));
+    }
     .orderbook-card .book-ladder-row strong {
       width: 100% !important;
       min-width: 0 !important;
@@ -3843,9 +3903,17 @@ function installOrderbookVisualPriorityStyles() {
       box-shadow: none !important;
     }
     .orderbook-card .book-ladder-row.is-anomaly .book-size {
-      color: #071014 !important;
-      text-shadow: none !important;
+      color: #f4f8fa !important;
+      text-shadow:
+        0 1px 2px rgba(0, 0, 0, .98),
+        0 0 3px rgba(0, 0, 0, .88) !important;
       font-weight: 950 !important;
+    }
+    .orderbook-card .book-ladder-row:not(.is-anomaly) .book-size {
+      color: #e5edf1 !important;
+      text-shadow:
+        0 1px 2px rgba(0, 0, 0, .96),
+        0 0 3px rgba(0, 0, 0, .82) !important;
     }
     .orderbook-card .book-ladder-row.is-market:not(.is-anomaly) .book-size {
       color: #effff9 !important;

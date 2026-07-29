@@ -65,5 +65,5 @@ test("render optimization leaves strict depth sequencing untouched", () => {
   assert.match(applyBlock, /this\.lastUpdateId = Number\(event\.u\)/);
   assert.doesNotMatch(applyBlock, /LatestFrameScheduler|TAPE_DRAW_BUDGET/);
   assert.match(serviceWorker, /render-scheduler\.js/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-47-orderbook-scale-tape-consistency-v1/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-48-orderbook-hover-stability-v1/);
 });
