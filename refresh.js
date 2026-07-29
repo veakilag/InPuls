@@ -1,6 +1,6 @@
 import { clearInPulsRuntime } from "./pwa-reset.js";
 
-const BUILD = "26-45-orderbook-auto-cluster-theme-v1";
+const BUILD = "26-46-orderbook-footprint-clarity-v1";
 const button = document.getElementById("refresh");
 const status = document.getElementById("status");
 

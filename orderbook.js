@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v3";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-45-orderbook-auto-cluster-theme-v1";
+import "./orderbook-flow-workspace.js?v=26-46-orderbook-footprint-clarity-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-lifecycle-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1339,7 +1339,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-45-orderbook-auto-cluster-theme-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-46-orderbook-footprint-clarity-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1753,7 +1753,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-45-orderbook-auto-cluster-theme-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-46-orderbook-footprint-clarity-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -1901,10 +1901,10 @@ function installOrderBookStyles() {
       position: relative !important;
       overflow: hidden !important;
       contain: layout paint style;
-      background: color-mix(in srgb, var(--chart-bg) 72%, var(--panel)) !important;
+      background: color-mix(in srgb, var(--panel) 78%, var(--panel-2)) !important;
     }
     .orderbook-card .orderbook-tape {
-      background: color-mix(in srgb, var(--chart-bg) 72%, var(--panel)) !important;
+      background: color-mix(in srgb, var(--panel) 78%, var(--panel-2)) !important;
     }
     .orderbook-card .inpuls-tape-canvas {
       position: absolute;
@@ -2083,7 +2083,7 @@ function installOrderBookStyles() {
     .orderbook-card .book-ladder-row .book-size {
       min-width: 0;
       z-index: 0;
-      padding: 0 2px;
+      padding: 0 5px 0 2px;
       justify-content: flex-start;
       color: #050708 !important;
       text-align: left;
@@ -2105,7 +2105,7 @@ function installOrderBookStyles() {
       right: auto !important;
       left: 0 !important;
       width: max(var(--size), var(--book-size-label-space, 0px)) !important;
-      max-width: 100% !important;
+      max-width: calc(100% - 3px) !important;
       min-width: 0 !important;
       opacity: .86 !important;
       transform-origin: left center !important;
@@ -2139,7 +2139,6 @@ function installOrderBookStyles() {
       font-weight: 950;
       letter-spacing: .015em;
     }
-    .orderbook-card .book-ladder-row.is-anomaly strong,
     .orderbook-card .book-ladder-row.is-market strong {
       color: #f6fbfd !important;
       text-shadow: 0 1px 2px rgba(0, 0, 0, .92);
@@ -3812,15 +3811,21 @@ function installOrderbookVisualPriorityStyles() {
     }
     .orderbook-card .book-ladder-row.is-price-half:not(.is-market) strong {
       border-left: 1px solid color-mix(in srgb, var(--line) 72%, transparent) !important;
-      color: #c9d5da !important;
-      font-weight: 800 !important;
+      color: #d2dbe0 !important;
+      font-size: calc(7.4 * var(--font-scale)) !important;
+      font-weight: 820 !important;
     }
     .orderbook-card .book-ladder-row.is-price-round:not(.is-market) strong {
       border-left: 1px solid color-mix(in srgb, var(--line) 72%, transparent) !important;
       color: #f5fafc !important;
+      font-size: calc(8.2 * var(--font-scale)) !important;
       font-weight: 950 !important;
       text-shadow: 0 0 6px color-mix(in srgb, var(--accent) 48%, transparent);
       letter-spacing: .015em;
+    }
+    .orderbook-card .book-ladder-row.is-anomaly:not(.is-market) {
+      background: transparent !important;
+      box-shadow: none !important;
     }
     .orderbook-card .book-ladder-row.is-anomaly .book-size {
       color: #071014 !important;
@@ -3837,19 +3842,15 @@ function installOrderbookVisualPriorityStyles() {
     }
     .orderbook-card .book-ladder-row.is-anomaly-tier-1 .book-size::before {
       background: linear-gradient(90deg, #82e4ff, #3ab6e8) !important;
-      box-shadow: inset 2px 0 #e3faff, 0 0 5px rgba(72, 196, 239, .34);
+      box-shadow: inset 2px 0 #e3faff;
     }
     .orderbook-card .book-ladder-row.is-anomaly-tier-2 .book-size::before {
       background: linear-gradient(90deg, #d0a8ff, #8c5df3) !important;
-      box-shadow: inset 3px 0 #f0e2ff, 0 0 8px rgba(157, 105, 255, .5);
+      box-shadow: inset 3px 0 #f0e2ff;
     }
     .orderbook-card .book-ladder-row.is-anomaly-tier-3 .book-size::before {
       background: linear-gradient(90deg, #fff49c, #ffb43f 64%, #ff685d) !important;
-      box-shadow: inset 4px 0 #fffbd7, 0 0 11px rgba(255, 177, 65, .68);
-    }
-    .orderbook-card .book-ladder-row.is-anomaly-tier-2,
-    .orderbook-card .book-ladder-row.is-anomaly-tier-3 {
-      box-shadow: inset 0 1px rgba(255, 255, 255, .13), inset 0 -1px rgba(255, 255, 255, .09);
+      box-shadow: inset 4px 0 #fffbd7;
     }
   `;
   document.head.append(style);

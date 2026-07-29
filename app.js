@@ -7,7 +7,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=26-45-orderbook-auto-cluster-theme-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=26-46-orderbook-footprint-clarity-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 
@@ -404,6 +404,10 @@ function applyComfort(rawValue) {
   root.style.setProperty("--green", turquoise);
   root.style.setProperty("--blue", blue);
   root.style.setProperty("--red", red);
+  root.style.setProperty("--chart-bull-fill", palette.bull);
+  root.style.setProperty("--chart-bull-stroke", palette.bull);
+  root.style.setProperty("--chart-bear-fill", palette.bear);
+  root.style.setProperty("--chart-bear-stroke", palette.bearStroke);
   root.style.setProperty("--theme-level", String(amount));
   root.style.setProperty("--comfort-position", `${value}%`);
   const moonProgress = Math.max(0, Math.min(1, (amount - .2) / .7));
@@ -2920,7 +2924,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-45-orderbook-auto-cluster-theme-v1";
+const INPULS_RUNTIME_BUILD = "26-46-orderbook-footprint-clarity-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
