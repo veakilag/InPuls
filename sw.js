@@ -1,51 +1,58 @@
-const CACHE = "inpuls-26-52-signal-lab-analytics-v1";
-const BUILD = "26-52-signal-lab-analytics-v1";
+const CACHE = "inpuls-26-53-owner-signal-lab-v1";
+const BUILD = "26-53-owner-signal-lab-v1";
 
 const FORCED = new Map([
-  ["/app.js", "./app.js?v=26-52-signal-lab-analytics-v1"],
-  ["/orderbook.js", "./orderbook.js?v=26-52-signal-lab-analytics-v1"],
+  ["/app.js", "./app.js?v=26-53-owner-signal-lab-v1"],
+  ["/orderbook.js", "./orderbook.js?v=26-53-owner-signal-lab-v1"],
   ["/orderbook-events.js", "./orderbook-events.js?v=orderbook-events-core-v1"],
   ["/orderbook-density.js", "./orderbook-density.js?v=density-trades-correlation-v1"],
   ["/market-memory.js", "./market-memory.js?v=signal-observation-engine-v1"],
   ["/signal-lab.js", "./signal-lab.js?v=signal-lab-analytics-v1"],
+  ["/owner-navigation.js", "./owner-navigation.js?v=owner-signal-lab-v1"],
+  ["/owner-signal-lab.js", "./owner-signal-lab.js?v=26-53-owner-signal-lab-v1"],
+  ["/owner-signal-lab.css", "./owner-signal-lab.css?v=26-53-owner-signal-lab-v1"],
   ["/render-scheduler.js", "./render-scheduler.js?v=render-scheduler-v1"],
-  ["/orderbook-worker.js", "./orderbook-worker.js?v=26-52-signal-lab-analytics-v1"],
+  ["/orderbook-worker.js", "./orderbook-worker.js?v=26-53-owner-signal-lab-v1"],
   ["/orderbook-worker-buffers.js", "./orderbook-worker-buffers.js?v=worker-bp-v1"],
   ["/orderbook-depth-projection.js", "./orderbook-depth-projection.js?v=deep-book-v1"],
   ["/orderbook-tape-guard.js", "./orderbook-tape-guard.js?v=worker-bp-v1"],
   ["/orderbook-network.js", "./orderbook-network.js?v=obs-pr1-1"],
   ["/orderbook-tape-latency.js", "./orderbook-tape-latency.js?v=worker-bp-v1"],
-  ["/orderbook-flow-workspace.js", "./orderbook-flow-workspace.js?v=26-52-signal-lab-analytics-v1"],
+  ["/orderbook-flow-workspace.js", "./orderbook-flow-workspace.js?v=26-53-owner-signal-lab-v1"],
   ["/observability.js", "./observability.js?v=render-scheduler-v1"],
 ]);
 
 const SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=26-52-signal-lab-analytics-v1",
-  "./app.js?v=26-52-signal-lab-analytics-v1",
+  "./styles.css?v=26-53-owner-signal-lab-v1",
+  "./app.js?v=26-53-owner-signal-lab-v1",
   "./chart.js?v=23",
   "./engine.js?v=23",
-  "./orderbook.js?v=26-52-signal-lab-analytics-v1",
+  "./orderbook.js?v=26-53-owner-signal-lab-v1",
   "./orderbook-events.js?v=orderbook-events-core-v1",
   "./orderbook-density.js?v=density-trades-correlation-v1",
   "./market-memory.js?v=signal-observation-engine-v1",
   "./signal-lab.js?v=signal-lab-analytics-v1",
+  "./owner-signal-lab.html",
+  "./owner-signal-lab.js?v=26-53-owner-signal-lab-v1",
+  "./owner-signal-lab.css?v=26-53-owner-signal-lab-v1",
+  "./owner-navigation.js?v=owner-signal-lab-v1",
   "./render-scheduler.js?v=render-scheduler-v1",
-  "./orderbook-worker.js?v=26-52-signal-lab-analytics-v1",
+  "./orderbook-worker.js?v=26-53-owner-signal-lab-v1",
   "./orderbook-worker-buffers.js?v=worker-bp-v1",
   "./orderbook-depth-projection.js?v=deep-book-v1",
   "./orderbook-tape-guard.js?v=worker-bp-v1",
   "./orderbook-network.js?v=obs-pr1-1",
   "./orderbook-tape-layout.js?v=stable-tape-v3",
   "./orderbook-tape-latency.js?v=worker-bp-v1",
-  "./orderbook-flow-workspace.js?v=26-52-signal-lab-analytics-v1",
+  "./orderbook-flow-workspace.js?v=26-53-owner-signal-lab-v1",
   "./observability.js?v=render-scheduler-v1",
   "./pwa-reset.js",
   "./refresh.html",
-  "./refresh.js?v=26-52-signal-lab-analytics-v1",
+  "./refresh.js?v=26-53-owner-signal-lab-v1",
   "./reset-v26.html",
-  "./reset.js?v=26-52-signal-lab-analytics-v1",
+  "./reset.js?v=26-53-owner-signal-lab-v1",
   "./raw-stability-lab.html",
   "./raw-stability-lab.js?v=3",
   "./raw-stability-core.js?v=3",
@@ -125,6 +132,12 @@ function forcedUrlFor(url) {
   return null;
 }
 
+function navigationShellFor(request) {
+  const requestUrl = new URL(request.url);
+  const ownerPath = new URL("./owner-signal-lab.html", self.registration.scope).pathname;
+  return requestUrl.pathname === ownerPath ? "./owner-signal-lab.html" : "./index.html";
+}
+
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
@@ -146,16 +159,17 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (event.request.mode === "navigate") {
+    const navigationShell = navigationShellFor(event.request);
     event.respondWith(
       fetchFresh(event.request)
         .then(async (response) => {
           if (isCacheableResponse(event.request, response)) {
             const cache = await caches.open(CACHE);
-            await cache.put("./index.html", response.clone());
+            await cache.put(navigationShell, response.clone());
           }
           return response;
         })
-        .catch(() => caches.match("./index.html")),
+        .catch(() => caches.match(navigationShell)),
     );
     return;
   }
