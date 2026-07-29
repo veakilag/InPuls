@@ -9,6 +9,8 @@ import {
   flowWindow,
   footprintIntervalHistory,
   footprintIntervalSnapshot,
+  footprintColumnWidthForWheel,
+  footprintHistoryOffsetLimit,
   footprintBucketMs,
   footprintTone,
   ingestFootprintTrades,
@@ -111,6 +113,24 @@ test("cluster history keeps aligned 1M and 5M columns", () => {
   const fiveMinutes = footprintIntervalHistory(accumulator, 300_000, 302_000, 8);
   assert.deepEqual(fiveMinutes.map((item) => item.startTime), [0, 300_000]);
   assert.deepEqual(fiveMinutes.map((item) => item.count), [2, 1]);
+});
+
+test("Ctrl+wheel compacts columns toward LIVE and dragging can inspect older intervals", () => {
+  assert.equal(footprintColumnWidthForWheel(54, -100), 47);
+  assert.equal(footprintColumnWidthForWheel(47, 100), 54);
+
+  const accumulator = createFootprintAccumulator();
+  ingestFootprintTrades(accumulator, [
+    { id: 1, price: 100, quantity: 1, quote: 100, time: 61_000, side: "buy" },
+    { id: 2, price: 101, quantity: 1, quote: 101, time: 121_000, side: "sell" },
+    { id: 3, price: 102, quantity: 1, quote: 102, time: 181_000, side: "buy" },
+    { id: 4, price: 103, quantity: 1, quote: 103, time: 241_000, side: "sell" },
+    { id: 5, price: 104, quantity: 1, quote: 104, time: 301_000, side: "buy" },
+  ]);
+
+  assert.equal(footprintHistoryOffsetLimit(accumulator, 60_000, 302_000), 4);
+  const older = footprintIntervalHistory(accumulator, 60_000, 302_000, 2, 2);
+  assert.deepEqual(older.map((item) => item.startTime), [120_000, 180_000]);
 });
 
 test("Flow Workspace redraw observer cannot trigger itself", () => {

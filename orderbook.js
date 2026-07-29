@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v3";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-44-orderbook-clarity-v2";
+import "./orderbook-flow-workspace.js?v=26-45-orderbook-auto-cluster-theme-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-lifecycle-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -29,36 +29,48 @@ export function depthView(bids, asks, limit = 24) {
   };
 }
 
-export function bookQuoteScale(bids, asks, sampleLimit = 1_024) {
-  const sides = [bids ?? [], asks ?? []];
-  const totalLevels = sides.reduce((total, levels) => (
-    total + (Number.isFinite(levels?.size) ? levels.size : (Number(levels?.length) || 0))
-  ), 0);
+function bookSideQuoteScale(levels, sampleLimit = 1_024) {
+  const totalLevels = Number.isFinite(levels?.size)
+    ? levels.size
+    : (Number(levels?.length) || 0);
   const limit = Math.max(32, Math.floor(Number(sampleLimit) || 1_024));
   const sampleStride = Math.max(1, Math.ceil(totalLevels / limit));
   const sample = [];
   let maximum = 1;
   let validIndex = 0;
-  for (const levels of sides) {
-    for (const [priceValue, quantityValue] of levels ?? []) {
-      const quote = Number(priceValue) * Number(quantityValue);
-      if (!Number.isFinite(quote) || quote <= 0) continue;
-      if (quote > maximum) maximum = quote;
-      if (validIndex % sampleStride === 0) sample.push(quote);
-      validIndex += 1;
-    }
+  for (const [priceValue, quantityValue] of levels ?? []) {
+    const quote = Number(priceValue) * Number(quantityValue);
+    if (!Number.isFinite(quote) || quote <= 0) continue;
+    if (quote > maximum) maximum = quote;
+    if (validIndex % sampleStride === 0) sample.push(quote);
+    validIndex += 1;
   }
   sample.sort((left, right) => left - right);
   const quantile = (ratio) => sample.length
     ? sample[Math.min(sample.length - 1, Math.floor((sample.length - 1) * ratio))]
     : 0;
   const median = quantile(.5);
-  const upper = quantile(.9);
+  const upper = quantile(.95);
+  const extreme = quantile(.99);
   return {
     maximum,
-    anomalyThreshold: Math.max(1, median * 4, upper),
+    anomalyThreshold: Math.max(1, median * 6, upper * 1.35, extreme),
     sampledLevels: sample.length,
     totalLevels: validIndex,
+  };
+}
+
+export function bookQuoteScale(bids, asks, sampleLimit = 2_048) {
+  const sideLimit = Math.max(32, Math.floor((Number(sampleLimit) || 2_048) / 2));
+  const bid = bookSideQuoteScale(bids ?? [], sideLimit);
+  const ask = bookSideQuoteScale(asks ?? [], sideLimit);
+  return {
+    maximum: Math.max(bid.maximum, ask.maximum),
+    anomalyThreshold: Math.max(bid.anomalyThreshold, ask.anomalyThreshold),
+    bidAnomalyThreshold: bid.anomalyThreshold,
+    askAnomalyThreshold: ask.anomalyThreshold,
+    sampledLevels: bid.sampledLevels + ask.sampledLevels,
+    totalLevels: bid.totalLevels + ask.totalLevels,
   };
 }
 
@@ -278,7 +290,16 @@ function normalizeDepthLevels(levels, side) {
     .map((row) => {
       const price = Number(row?.[0]);
       const quantity = Number(row?.[1]);
-      return { price, quantity, quote: price * quantity };
+      const quote = price * quantity;
+      const sourceMaximum = Number(row?.maxLevelQuote ?? row?.[2]);
+      return {
+        price,
+        quantity,
+        quote,
+        maxLevelQuote: Number.isFinite(sourceMaximum) && sourceMaximum > 0
+          ? sourceMaximum
+          : quote,
+      };
     })
     .filter((row) => Number.isFinite(row.price) && Number.isFinite(row.quantity) && row.quantity > 0)
     .sort((left, right) => side === "ask" ? left.price - right.price : right.price - left.price);
@@ -287,7 +308,10 @@ function normalizeDepthLevels(levels, side) {
 function aggregatedDepthRow(levels, side, displayPrice) {
   const quantity = levels.reduce((sum, level) => sum + level.quantity, 0);
   const quote = levels.reduce((sum, level) => sum + level.quote, 0);
-  const maxLevel = levels.reduce((best, level) => level.quote > best.quote ? level : best, levels[0]);
+  const maxLevel = levels.reduce(
+    (best, level) => level.maxLevelQuote > best.maxLevelQuote ? level : best,
+    levels[0],
+  );
   const prices = levels.map((level) => level.price);
   return {
     price: Number(displayPrice),
@@ -301,7 +325,7 @@ function aggregatedDepthRow(levels, side, displayPrice) {
     rangeNear: side === "ask" ? Math.min(...prices) : Math.max(...prices),
     rangeFar: side === "ask" ? Math.max(...prices) : Math.min(...prices),
     maxLevelPrice: maxLevel.price,
-    maxLevelQuote: maxLevel.quote,
+    maxLevelQuote: maxLevel.maxLevelQuote,
   };
 }
 
@@ -790,6 +814,8 @@ class LegacyOrderBookFeed {
     this.cachedDepth = null;
     this.cachedSizeScaleMaxQuote = 1;
     this.cachedSizeAnomalyThresholdQuote = 1;
+    this.cachedSizeAnomalyThresholdBidQuote = 1;
+    this.cachedSizeAnomalyThresholdAskQuote = 1;
     this.resyncCount = 0;
     this.bookEvents = new globalThis.InPulsOrderBookEvents.DepthEventJournal();
     this.densityLifecycle = new globalThis.InPulsOrderBookDensity.DensityLifecycleTracker();
@@ -853,6 +879,8 @@ class LegacyOrderBookFeed {
     this.cachedDepth = null;
     this.cachedSizeScaleMaxQuote = 1;
     this.cachedSizeAnomalyThresholdQuote = 1;
+    this.cachedSizeAnomalyThresholdBidQuote = 1;
+    this.cachedSizeAnomalyThresholdAskQuote = 1;
     const bookEpoch = this.bookEvents.reset(reason);
     this.densityLifecycle.reset({ bookEpoch, reason });
   }
@@ -918,6 +946,8 @@ class LegacyOrderBookFeed {
       const quoteScale = bookQuoteScale(this.bids, this.asks);
       this.cachedSizeScaleMaxQuote = quoteScale.maximum;
       this.cachedSizeAnomalyThresholdQuote = quoteScale.anomalyThreshold;
+      this.cachedSizeAnomalyThresholdBidQuote = quoteScale.bidAnomalyThreshold;
+      this.cachedSizeAnomalyThresholdAskQuote = quoteScale.askAnomalyThreshold;
     }
     const fullView = this.cachedDepth;
     const view = globalThis.InPulsOrderBookDepthProjection.compactDepthView(fullView, {
@@ -943,6 +973,8 @@ class LegacyOrderBookFeed {
       bookLevels: { bids: this.bids.size, asks: this.asks.size },
       sizeScaleMaxQuote: this.cachedSizeScaleMaxQuote,
       sizeAnomalyThresholdQuote: this.cachedSizeAnomalyThresholdQuote,
+      sizeAnomalyThresholdBidQuote: this.cachedSizeAnomalyThresholdBidQuote,
+      sizeAnomalyThresholdAskQuote: this.cachedSizeAnomalyThresholdAskQuote,
       resyncCount: this.resyncCount,
       orderBookEvents: this.bookEvents.summary(),
       densityLifecycle: this.densityLifecycle.summary(densityNow),
@@ -1307,7 +1339,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-44-orderbook-clarity-v2", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-45-orderbook-auto-cluster-theme-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1721,7 +1753,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-44-orderbook-clarity-v2";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-45-orderbook-auto-cluster-theme-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -1869,6 +1901,10 @@ function installOrderBookStyles() {
       position: relative !important;
       overflow: hidden !important;
       contain: layout paint style;
+      background: color-mix(in srgb, var(--chart-bg) 72%, var(--panel)) !important;
+    }
+    .orderbook-card .orderbook-tape {
+      background: color-mix(in srgb, var(--chart-bg) 72%, var(--panel)) !important;
     }
     .orderbook-card .inpuls-tape-canvas {
       position: absolute;
@@ -1886,10 +1922,10 @@ function installOrderBookStyles() {
       transform: translate(-50%, -50%);
       max-width: min(84%, 280px);
       padding: 5px 8px;
-      border: 1px solid rgba(106, 132, 145, .22);
+      border: 1px solid var(--line-soft);
       border-radius: 6px;
-      background: rgba(7, 11, 15, .78);
-      color: #7f95a0;
+      background: color-mix(in srgb, var(--panel) 92%, transparent);
+      color: var(--muted);
       font: 600 10px/1.35 Inter, system-ui, sans-serif;
       text-align: center;
       pointer-events: none;
@@ -1919,10 +1955,10 @@ function installOrderBookStyles() {
     .orderbook-card .inpuls-tape-range-summary span {
       display: none;
       padding: 2px 5px;
-      border: 1px solid rgba(107, 132, 145, .22);
+      border: 1px solid var(--line-soft);
       border-radius: 4px;
-      background: rgba(7, 11, 15, .78);
-      color: #8fa5af;
+      background: color-mix(in srgb, var(--panel) 92%, transparent);
+      color: var(--muted);
       font: 700 9px/1.2 Inter, system-ui, sans-serif;
       white-space: nowrap;
     }
@@ -1946,10 +1982,10 @@ function installOrderBookStyles() {
       gap: 3px;
       min-width: 0;
       padding: 0 4px;
-      border: 1px solid rgba(108, 137, 150, .28);
+      border: 1px solid var(--line-soft);
       border-radius: 4px;
-      background: rgba(10, 15, 20, .75);
-      color: #78909c;
+      background: color-mix(in srgb, var(--panel-2) 90%, transparent);
+      color: var(--muted);
       font-size: 9px;
       line-height: 20px;
       height: 22px;
@@ -1962,7 +1998,7 @@ function installOrderBookStyles() {
       border: 0;
       outline: 0;
       background: transparent;
-      color: #d7e4ea;
+      color: var(--text);
       font: 700 10px/20px Inter, system-ui, sans-serif;
     }
     .orderbook-card .inpuls-tape-mode {
@@ -3747,21 +3783,26 @@ function installOrderbookVisualPriorityStyles() {
     }
     .orderbook-card .book-ladder-row.is-market {
       z-index: 5;
-      background: linear-gradient(90deg, rgba(83, 222, 255, .17), rgba(149, 101, 255, .2)) !important;
+      background: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--green) 18%, var(--panel)),
+        color-mix(in srgb, var(--green) 34%, var(--panel))
+      ) !important;
       box-shadow:
-        inset 3px 0 #66e4ff,
-        inset 0 1px rgba(118, 232, 255, .42),
-        inset 0 -1px rgba(174, 129, 255, .36);
+        inset 4px 0 var(--green),
+        inset 0 1px color-mix(in srgb, var(--green) 82%, transparent),
+        inset 0 -1px color-mix(in srgb, var(--green) 82%, transparent),
+        0 0 8px color-mix(in srgb, var(--green) 22%, transparent);
     }
     .orderbook-card .book-ladder-row.is-market strong {
       margin: 0 !important;
       border: 0 !important;
-      border-left: 1px solid rgba(113, 228, 255, .42) !important;
+      border-left: 1px solid color-mix(in srgb, var(--green) 66%, var(--line)) !important;
       border-radius: 0 !important;
-      color: #f8fdff !important;
+      color: #effff9 !important;
       background: transparent !important;
       box-shadow: none !important;
-      text-shadow: 0 1px 2px rgba(0, 0, 0, .82);
+      text-shadow: 0 0 5px color-mix(in srgb, var(--green) 52%, transparent);
       font-weight: 950 !important;
     }
     .orderbook-card .book-ladder-row.is-price-half:not(.is-market),
@@ -3781,10 +3822,14 @@ function installOrderbookVisualPriorityStyles() {
       text-shadow: 0 0 6px color-mix(in srgb, var(--accent) 48%, transparent);
       letter-spacing: .015em;
     }
-    .orderbook-card .book-ladder-row.is-anomaly .book-size,
-    .orderbook-card .book-ladder-row.is-market .book-size {
+    .orderbook-card .book-ladder-row.is-anomaly .book-size {
       color: #071014 !important;
       text-shadow: none !important;
+      font-weight: 950 !important;
+    }
+    .orderbook-card .book-ladder-row.is-market:not(.is-anomaly) .book-size {
+      color: #effff9 !important;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, .74) !important;
       font-weight: 950 !important;
     }
     .orderbook-card .book-ladder-row.is-anomaly .book-size::before {
