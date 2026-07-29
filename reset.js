@@ -1,6 +1,6 @@
 import { clearInPulsRuntime } from "./pwa-reset.js";
 
-const BUILD = "26-43-orderbook-visual-priority-v1";
+const BUILD = "26-44-orderbook-clarity-v2";
 const WORKER_URL = `./sw.js?v=${BUILD}`;
 const APP_URL = `./?build=${BUILD}`;
 const button = document.getElementById("reset");

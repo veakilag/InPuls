@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v3";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-43-orderbook-visual-priority-v1";
+import "./orderbook-flow-workspace.js?v=26-44-orderbook-clarity-v2";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-lifecycle-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -29,15 +29,37 @@ export function depthView(bids, asks, limit = 24) {
   };
 }
 
-function maximumBookLevelQuote(bids, asks) {
+export function bookQuoteScale(bids, asks, sampleLimit = 1_024) {
+  const sides = [bids ?? [], asks ?? []];
+  const totalLevels = sides.reduce((total, levels) => (
+    total + (Number.isFinite(levels?.size) ? levels.size : (Number(levels?.length) || 0))
+  ), 0);
+  const limit = Math.max(32, Math.floor(Number(sampleLimit) || 1_024));
+  const sampleStride = Math.max(1, Math.ceil(totalLevels / limit));
+  const sample = [];
   let maximum = 1;
-  for (const levels of [bids, asks]) {
+  let validIndex = 0;
+  for (const levels of sides) {
     for (const [priceValue, quantityValue] of levels ?? []) {
       const quote = Number(priceValue) * Number(quantityValue);
-      if (Number.isFinite(quote) && quote > maximum) maximum = quote;
+      if (!Number.isFinite(quote) || quote <= 0) continue;
+      if (quote > maximum) maximum = quote;
+      if (validIndex % sampleStride === 0) sample.push(quote);
+      validIndex += 1;
     }
   }
-  return maximum;
+  sample.sort((left, right) => left - right);
+  const quantile = (ratio) => sample.length
+    ? sample[Math.min(sample.length - 1, Math.floor((sample.length - 1) * ratio))]
+    : 0;
+  const median = quantile(.5);
+  const upper = quantile(.9);
+  return {
+    maximum,
+    anomalyThreshold: Math.max(1, median * 4, upper),
+    sampledLevels: sample.length,
+    totalLevels: validIndex,
+  };
 }
 
 export function partialDepthView(event, limit = 20) {
@@ -767,6 +789,7 @@ class LegacyOrderBookFeed {
     this.snapshotLoading = false;
     this.cachedDepth = null;
     this.cachedSizeScaleMaxQuote = 1;
+    this.cachedSizeAnomalyThresholdQuote = 1;
     this.resyncCount = 0;
     this.bookEvents = new globalThis.InPulsOrderBookEvents.DepthEventJournal();
     this.densityLifecycle = new globalThis.InPulsOrderBookDensity.DensityLifecycleTracker();
@@ -829,6 +852,7 @@ class LegacyOrderBookFeed {
     this.snapshotLoading = false;
     this.cachedDepth = null;
     this.cachedSizeScaleMaxQuote = 1;
+    this.cachedSizeAnomalyThresholdQuote = 1;
     const bookEpoch = this.bookEvents.reset(reason);
     this.densityLifecycle.reset({ bookEpoch, reason });
   }
@@ -891,7 +915,9 @@ class LegacyOrderBookFeed {
   #emit(eventTime = Date.now(), refreshDepth = false) {
     if (refreshDepth || !this.cachedDepth) {
       this.cachedDepth = depthView(this.bids, this.asks, MAX_EMITTED_LEVELS_PER_SIDE);
-      this.cachedSizeScaleMaxQuote = maximumBookLevelQuote(this.bids, this.asks);
+      const quoteScale = bookQuoteScale(this.bids, this.asks);
+      this.cachedSizeScaleMaxQuote = quoteScale.maximum;
+      this.cachedSizeAnomalyThresholdQuote = quoteScale.anomalyThreshold;
     }
     const fullView = this.cachedDepth;
     const view = globalThis.InPulsOrderBookDepthProjection.compactDepthView(fullView, {
@@ -916,6 +942,7 @@ class LegacyOrderBookFeed {
       coverage: depthCoverage(fullView.bids, fullView.asks),
       bookLevels: { bids: this.bids.size, asks: this.asks.size },
       sizeScaleMaxQuote: this.cachedSizeScaleMaxQuote,
+      sizeAnomalyThresholdQuote: this.cachedSizeAnomalyThresholdQuote,
       resyncCount: this.resyncCount,
       orderBookEvents: this.bookEvents.summary(),
       densityLifecycle: this.densityLifecycle.summary(densityNow),
@@ -1280,7 +1307,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-43-orderbook-visual-priority-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-44-orderbook-clarity-v2", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1694,7 +1721,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-43-orderbook-visual-priority-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-44-orderbook-clarity-v2";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -2133,12 +2160,12 @@ function installOrderBookStyles() {
       right: 4px;
       top: 22px;
       z-index: 35;
-      height: 13px;
+      height: 18px;
       display: grid;
       grid-template-columns: var(--liq-bid, 50%) var(--liq-ask, 50%);
       overflow: hidden;
       border: 1px solid rgba(92, 119, 132, .2);
-      border-radius: 3px;
+      border-radius: 4px;
       background: rgba(5, 9, 12, .82);
       pointer-events: none;
     }
@@ -2159,12 +2186,13 @@ function installOrderBookStyles() {
       align-items: center;
       justify-content: center;
       color: #aebfc7;
-      font: 800 7px/1 Inter, system-ui, sans-serif;
+      font: 850 9px/1 Inter, system-ui, sans-serif;
+      letter-spacing: .005em;
       text-shadow: 0 1px 2px #000;
       white-space: nowrap;
     }
     .orderbook-card .orderbook-rows {
-      padding-top: 14px;
+      padding-top: 19px;
     }
     .orderbook-card .inpuls-tape-controls {
       justify-content: flex-start;
@@ -3694,7 +3722,7 @@ function installOrderbookVisualPriorityStyles() {
   style.id = "inpuls-orderbook-visual-priority-v1";
   style.textContent = `
     .orderbook-card .book-ladder-row {
-      grid-template-columns: minmax(0, 1fr) minmax(76px, var(--book-price-width, 8.8ch)) !important;
+      grid-template-columns: minmax(0, 1fr) var(--book-price-width, 8.25ch) !important;
       column-gap: 0 !important;
       align-items: stretch !important;
       position: relative;
@@ -3703,7 +3731,7 @@ function installOrderbookVisualPriorityStyles() {
       width: 100% !important;
       min-width: 0 !important;
       overflow: hidden !important;
-      padding: 0 8px 0 4px !important;
+      padding: 0 3px 0 2px !important;
       border-left: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
       justify-self: stretch !important;
       justify-content: flex-end !important;
@@ -3719,21 +3747,39 @@ function installOrderbookVisualPriorityStyles() {
     }
     .orderbook-card .book-ladder-row.is-market {
       z-index: 5;
-      background: linear-gradient(90deg, rgba(83, 222, 255, .07), rgba(149, 101, 255, .17)) !important;
-      box-shadow: inset 0 1px rgba(118, 232, 255, .36), inset 0 -1px rgba(174, 129, 255, .32);
+      background: linear-gradient(90deg, rgba(83, 222, 255, .17), rgba(149, 101, 255, .2)) !important;
+      box-shadow:
+        inset 3px 0 #66e4ff,
+        inset 0 1px rgba(118, 232, 255, .42),
+        inset 0 -1px rgba(174, 129, 255, .36);
     }
     .orderbook-card .book-ladder-row.is-market strong {
-      width: calc(100% - 4px) !important;
-      margin-right: 4px;
-      padding-right: 9px !important;
-      border: 1px solid rgba(113, 228, 255, .72) !important;
-      border-right: 3px solid #66e4ff !important;
-      border-radius: 3px 0 0 3px;
-      color: #fff !important;
-      background: linear-gradient(90deg, rgba(91, 73, 157, .72), rgba(22, 119, 148, .86)) !important;
-      box-shadow: 0 0 9px rgba(88, 220, 255, .32), inset 0 0 0 1px rgba(255, 255, 255, .08);
-      text-shadow: 0 1px 2px rgba(0, 0, 0, .9);
+      margin: 0 !important;
+      border: 0 !important;
+      border-left: 1px solid rgba(113, 228, 255, .42) !important;
+      border-radius: 0 !important;
+      color: #f8fdff !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, .82);
       font-weight: 950 !important;
+    }
+    .orderbook-card .book-ladder-row.is-price-half:not(.is-market),
+    .orderbook-card .book-ladder-row.is-price-round:not(.is-market) {
+      background: transparent !important;
+      box-shadow: none !important;
+    }
+    .orderbook-card .book-ladder-row.is-price-half:not(.is-market) strong {
+      border-left: 1px solid color-mix(in srgb, var(--line) 72%, transparent) !important;
+      color: #c9d5da !important;
+      font-weight: 800 !important;
+    }
+    .orderbook-card .book-ladder-row.is-price-round:not(.is-market) strong {
+      border-left: 1px solid color-mix(in srgb, var(--line) 72%, transparent) !important;
+      color: #f5fafc !important;
+      font-weight: 950 !important;
+      text-shadow: 0 0 6px color-mix(in srgb, var(--accent) 48%, transparent);
+      letter-spacing: .015em;
     }
     .orderbook-card .book-ladder-row.is-anomaly .book-size,
     .orderbook-card .book-ladder-row.is-market .book-size {
@@ -3771,4 +3817,3 @@ if (typeof document !== "undefined") {
     installOrderbookVisualPriorityStyles();
   }
 }
-
