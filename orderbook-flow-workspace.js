@@ -171,6 +171,12 @@ export function footprintTone(cell) {
   return clamp((buy - sell) / total, -1, 1);
 }
 
+export function footprintCellIntensity(value, maximum) {
+  const amount = Math.max(0, Number(value) || 0);
+  const peak = Math.max(1, Number(maximum) || 1);
+  return clamp(Math.sqrt(amount / peak), 0, 1);
+}
+
 export function visibleFlowCount(trades, startTime, endTime) {
   let count = 0;
   for (const trade of trades ?? []) {
@@ -198,6 +204,12 @@ function minuteBucket(accumulator, startTime) {
     endTime: startTime + FOOTPRINT_MINUTE_MS,
     count: 0,
     quote: 0,
+    firstTradeTime: Infinity,
+    lastTradeTime: -Infinity,
+    openPrice: null,
+    closePrice: null,
+    highPrice: null,
+    lowPrice: null,
     cells: new Map(),
   };
   accumulator.minutes.set(startTime, bucket);
@@ -241,6 +253,20 @@ export function ingestFootprintTrades(accumulator, incoming, { replace = false }
     bucket.cells.set(priceKey, cell);
     bucket.quote += trade.quote;
     bucket.count += 1;
+    if (trade.time < bucket.firstTradeTime) {
+      bucket.firstTradeTime = trade.time;
+      bucket.openPrice = trade.price;
+    }
+    if (trade.time >= bucket.lastTradeTime) {
+      bucket.lastTradeTime = trade.time;
+      bucket.closePrice = trade.price;
+    }
+    bucket.highPrice = bucket.highPrice === null
+      ? trade.price
+      : Math.max(bucket.highPrice, trade.price);
+    bucket.lowPrice = bucket.lowPrice === null
+      ? trade.price
+      : Math.min(bucket.lowPrice, trade.price);
   }
 
   pruneFootprintAccumulator(target, latestTime || Date.now());
@@ -257,11 +283,31 @@ function footprintSnapshotAt(
   const cells = new Map();
   let count = 0;
   let quote = 0;
+  let firstTradeTime = Infinity;
+  let lastTradeTime = -Infinity;
+  let openPrice = null;
+  let closePrice = null;
+  let highPrice = null;
+  let lowPrice = null;
 
   for (const bucket of accumulator?.minutes?.values?.() ?? []) {
     if (bucket.startTime < startTime || bucket.startTime >= endTime) continue;
     count += bucket.count;
     quote += bucket.quote;
+    if (Number.isFinite(bucket.firstTradeTime) && bucket.firstTradeTime < firstTradeTime) {
+      firstTradeTime = bucket.firstTradeTime;
+      openPrice = bucket.openPrice;
+    }
+    if (Number.isFinite(bucket.lastTradeTime) && bucket.lastTradeTime >= lastTradeTime) {
+      lastTradeTime = bucket.lastTradeTime;
+      closePrice = bucket.closePrice;
+    }
+    if (Number.isFinite(bucket.highPrice)) {
+      highPrice = highPrice === null ? bucket.highPrice : Math.max(highPrice, bucket.highPrice);
+    }
+    if (Number.isFinite(bucket.lowPrice)) {
+      lowPrice = lowPrice === null ? bucket.lowPrice : Math.min(lowPrice, bucket.lowPrice);
+    }
     for (const source of bucket.cells.values()) {
       const priceKey = Number(source.price).toPrecision(15);
       const cell = cells.get(priceKey) ?? {
@@ -286,6 +332,10 @@ function footprintSnapshotAt(
     partial: Number(now) < endTime,
     count,
     quote,
+    openPrice,
+    closePrice,
+    highPrice,
+    lowPrice,
     cells: [...cells.values()].sort((left, right) => right.price - left.price),
   };
 }
@@ -835,47 +885,59 @@ function renderCard(card, state) {
       const centerX = columnLeft + columnWidth / 2;
 
       for (const cluster of clusters) {
-        const sellLabel = formatUsd(cluster.sellQuote);
-        const buyLabel = formatUsd(cluster.buyQuote);
-        const sellLabelWidth = state.context.measureText(sellLabel).width;
-        const buyLabelWidth = state.context.measureText(buyLabel).width;
-        const sellLabelLeft = centerX - 3 - sellLabelWidth;
-        const buyLabelRight = centerX + 3 + buyLabelWidth;
-        const maximumSellWidth = Math.max(0, sellLabelLeft - columnLeft - 2);
-        const maximumBuyWidth = Math.max(0, columnRight - buyLabelRight - 2);
-        const sellWidth = Math.sqrt(cluster.sellQuote / maximumSide) * maximumSellWidth;
-        const buyWidth = Math.sqrt(cluster.buyQuote / maximumSide) * maximumBuyWidth;
-        const cellHeight = Math.max(2, Math.min(cluster.row.height * .84, 13));
+        const sellLabel = cluster.sellQuote > 0 ? formatUsd(cluster.sellQuote) : "";
+        const buyLabel = cluster.buyQuote > 0 ? formatUsd(cluster.buyQuote) : "";
+        const sellStrength = footprintCellIntensity(cluster.sellQuote, maximumSide);
+        const buyStrength = footprintCellIntensity(cluster.buyQuote, maximumSide);
+        const cellHeight = Math.max(3, Math.min(cluster.row.height * .92, 14));
+        const cellTop = cluster.row.y - cellHeight / 2;
+        const halfWidth = Math.max(1, columnWidth / 2 - 1.5);
 
-        if (sellWidth > 0) {
-          state.context.fillStyle = "rgba(225, 73, 91, .42)";
-          state.context.fillRect(
-            sellLabelLeft - sellWidth,
-            cluster.row.y - cellHeight / 2,
-            sellWidth,
-            cellHeight,
-          );
-        }
-        if (buyWidth > 0) {
-          state.context.fillStyle = "rgba(39, 192, 137, .42)";
-          state.context.fillRect(
-            buyLabelRight,
-            cluster.row.y - cellHeight / 2,
-            buyWidth,
-            cellHeight,
-          );
-        }
+        state.context.fillStyle = `rgba(226, 58, 78, ${.08 + sellStrength * .82})`;
+        state.context.fillRect(columnLeft + 1, cellTop, halfWidth, cellHeight);
+        state.context.fillStyle = `rgba(71, 210, 39, ${.08 + buyStrength * .82})`;
+        state.context.fillRect(centerX + .5, cellTop, halfWidth, cellHeight);
 
-        state.context.textAlign = "right";
-        state.context.fillStyle = "rgba(255, 128, 142, .98)";
-        state.context.fillText(sellLabel, centerX - 3, cluster.row.y);
-        state.context.textAlign = "left";
-        state.context.fillStyle = "rgba(93, 225, 181, .98)";
-        state.context.fillText(buyLabel, centerX + 3, cluster.row.y);
+        state.context.strokeStyle = "rgba(225, 233, 238, .18)";
+        state.context.lineWidth = .5;
+        state.context.strokeRect(columnLeft + 1, cellTop, Math.max(1, columnWidth - 2), cellHeight);
+
+        state.context.textAlign = "center";
+        state.context.fillStyle = sellStrength > .52
+          ? "rgba(255,255,255,.98)"
+          : "rgba(255,174,183,.98)";
+        state.context.fillText(sellLabel, columnLeft + columnWidth * .25, cluster.row.y);
+        state.context.fillStyle = buyStrength > .52
+          ? "rgba(255,255,255,.98)"
+          : "rgba(154,246,132,.98)";
+        state.context.fillText(buyLabel, columnLeft + columnWidth * .75, cluster.row.y);
       }
 
-      state.context.strokeStyle = "rgba(133, 151, 160, .24)";
-      state.context.lineWidth = .7;
+      const highRow = nearestRow(rows, interval.highPrice);
+      const lowRow = nearestRow(rows, interval.lowPrice);
+      const openRow = nearestRow(rows, interval.openPrice);
+      const closeRow = nearestRow(rows, interval.closePrice);
+      if (highRow && lowRow && openRow && closeRow) {
+        const rising = Number(interval.closePrice) >= Number(interval.openPrice);
+        state.context.strokeStyle = rising
+          ? "rgba(122, 255, 74, .98)"
+          : "rgba(255, 68, 83, .98)";
+        state.context.fillStyle = rising
+          ? "rgba(79, 224, 50, .94)"
+          : "rgba(239, 54, 72, .94)";
+        state.context.lineWidth = 1;
+        state.context.beginPath();
+        state.context.moveTo(centerX, highRow.y);
+        state.context.lineTo(centerX, lowRow.y);
+        state.context.stroke();
+        const bodyTop = Math.min(openRow.y, closeRow.y);
+        const bodyHeight = Math.max(2, Math.abs(closeRow.y - openRow.y));
+        state.context.fillRect(centerX - 2, bodyTop, 4, bodyHeight);
+        state.context.strokeRect(centerX - 2, bodyTop, 4, bodyHeight);
+      }
+
+      state.context.strokeStyle = "rgba(222, 231, 236, .28)";
+      state.context.lineWidth = .65;
       state.context.beginPath();
       state.context.moveTo(centerX, 0);
       state.context.lineTo(centerX, height);
