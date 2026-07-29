@@ -2,7 +2,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
   minTurnover24h: 10_000_000,
   impulse15s: 0.35,
   knife15s: 0.8,
+  knifeRecoveryPercent: 1,
   breakout15s: 0.25,
+  breakoutLevelTolerancePercent: 0.15,
   volumeBoost: 2.5,
   cascadeMove15s: 0.45,
   cascadeLiquidationUsd: 50_000,
@@ -11,9 +13,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
   maxRows: 100,
 });
 
-export const SIGNAL_FORMULA_VERSION = "radar-signals-v2";
+export const SIGNAL_FORMULA_VERSION = "radar-signals-v3-structured-patterns";
 
-const HISTORY_MS = 6 * 60_000;
+const HISTORY_MS = 20 * 60_000;
 const USDT_PERPETUAL_SYMBOL_PATTERN = /^[A-Z0-9]{1,20}USDT$/;
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -288,7 +290,8 @@ export class SymbolState {
       lastTradeAt: this.lastTradeAt,
       liquidation,
       warmupSeconds,
-      sparkline: this.history.slice(-90).map((item) => item.p),
+      sparkline: this.history.slice(-180).map((item) => item.p),
+      priceHistory: this.history.slice(-1_200).map((item) => ({ at: item.t, price: item.p })),
       fundingRate: this.fundingRate,
       nextFundingTime: this.nextFundingTime,
       natr1m,
@@ -350,6 +353,30 @@ export function classifySignals(metrics, settings = DEFAULT_SETTINGS) {
   const boost = metrics.volumeBoost || 0;
   const liquidations = metrics.liquidation;
   const enough15s = move15 !== null;
+  const history = (Array.isArray(metrics.priceHistory) ? metrics.priceHistory : [])
+    .map((point) => ({ at: Number(point?.at), price: Number(point?.price) }))
+    .filter((point) => Number.isFinite(point.at) && Number.isFinite(point.price) && point.price > 0)
+    .sort((left, right) => left.at - right.at);
+  const reversal = (side) => {
+    if (history.length < 6 || !(metrics.price > 0)) return null;
+    let extremeIndex = -1;
+    let extreme = side === "down" ? Infinity : -Infinity;
+    for (let index = 1; index < history.length - 1; index += 1) {
+      if ((side === "down" && history[index].price < extreme) || (side === "up" && history[index].price > extreme)) {
+        extreme = history[index].price;
+        extremeIndex = index;
+      }
+    }
+    if (extremeIndex < 1) return null;
+    const before = history.slice(0, extremeIndex).map((point) => point.price);
+    const origin = side === "down" ? Math.max(...before) : Math.min(...before);
+    const impulse = Math.abs(percentChange(extreme, origin) || 0);
+    const recovery = Math.abs(percentChange(metrics.price, extreme) || 0);
+    const recovered = side === "down" ? metrics.price > extreme : metrics.price < extreme;
+    return recovered ? { impulse, recovery } : null;
+  };
+  const dropAndBuyback = reversal("down");
+  const spikeAndSelloff = reversal("up");
 
   if (
     enough15s
@@ -369,36 +396,46 @@ export function classifySignals(metrics, settings = DEFAULT_SETTINGS) {
     }
   }
 
-  if (enough15s && move15 <= -settings.knife15s && boost >= Math.max(1.5, settings.volumeBoost * 0.7)) {
+  if (dropAndBuyback && dropAndBuyback.impulse >= settings.knife15s && dropAndBuyback.recovery >= settings.knifeRecoveryPercent) {
     result.push({
       type: "knife",
       label: "НОЖ",
       direction: "up",
-      reason: `Импульс вниз ${move15.toFixed(2)}% за 15с · поиск лонга у экстремума · объём ×${boost.toFixed(1)}`,
+      reason: `Вынос вниз ${dropAndBuyback.impulse.toFixed(2)}% и быстрый выкуп ${dropAndBuyback.recovery.toFixed(2)}%`,
       priority: 90,
     });
   }
 
-  if (enough15s && move15 >= settings.knife15s && boost >= Math.max(1.5, settings.volumeBoost * 0.7)) {
+  if (spikeAndSelloff && spikeAndSelloff.impulse >= settings.knife15s && spikeAndSelloff.recovery >= settings.knifeRecoveryPercent) {
     result.push({
       type: "sharpening",
       label: "ЗАТОЧКА",
       direction: "down",
-      reason: `Импульс вверх +${move15.toFixed(2)}% за 15с · поиск шорта у экстремума · объём ×${boost.toFixed(1)}`,
+      reason: `Вынос вверх ${spikeAndSelloff.impulse.toFixed(2)}% и быстрый слив ${spikeAndSelloff.recovery.toFixed(2)}%`,
       priority: 90,
     });
   }
 
-  if (enough15s && metrics.range5m && absMove15 >= settings.breakout15s && boost >= 1.4) {
-    const tolerance = 0.0007;
-    const up = move15 > 0 && metrics.price >= metrics.range5m.max * (1 - tolerance);
-    const down = move15 < 0 && metrics.price <= metrics.range5m.min * (1 + tolerance);
+  const levelTouches = (side) => {
+    const key = side === "up" ? "high" : "low";
+    const candles = Array.isArray(metrics.minuteCandles) ? metrics.minuteCandles.slice(-40, -1) : [];
+    const values = candles.map((candle) => Number(candle?.[key])).filter((value) => value > 0);
+    if (values.length < 3) return null;
+    const level = side === "up" ? Math.max(...values) : Math.min(...values);
+    const touches = values.filter((value) => Math.abs(percentChange(value, level) || 0) <= settings.breakoutLevelTolerancePercent);
+    return touches.length >= 2 ? level : null;
+  };
+  if (enough15s && absMove15 >= settings.breakout15s && boost >= 1.4) {
+    const resistance = levelTouches("up");
+    const support = levelTouches("down");
+    const up = move15 > 0 && resistance !== null && metrics.price > resistance;
+    const down = move15 < 0 && support !== null && metrics.price < support;
     if (up || down) {
       result.push({
         type: up ? "breakout_resistance" : "breakout_support",
         label: up ? "ПРОБОЙ УС" : "ПРОБОЙ УП",
         direction: up ? "up" : "down",
-        reason: `${up ? "Хай" : "Лой"} 5м · ${move15 > 0 ? "+" : ""}${move15.toFixed(2)}% за 15с`,
+        reason: `${up ? "Уровень сопротивления" : "Уровень поддержки"} подтверждён 2+ касаниями и пробит импульсом ${move15 > 0 ? "+" : ""}${move15.toFixed(2)}%`,
         priority: 80,
       });
     }
