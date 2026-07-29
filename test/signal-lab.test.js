@@ -365,6 +365,9 @@ test("Signal Lab review UI exposes comments and enriched JSON/CSV export", async
   assert.match(script, /Не уверен/);
   assert.match(script, /Твой комментарий/);
   assert.match(script, /reviewExport/);
+  assert.match(script, /candleSeriesForEvent/);
+  assert.match(script, /Почему событие вошло/);
+  assert.match(script, /detectorExplanation/);
   assert.match(storage, /detectorEvidence/);
   assert.match(storage, /observations/);
   assert.match(storage, /formula/);

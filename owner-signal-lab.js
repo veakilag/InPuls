@@ -1,4 +1,4 @@
-const BUILD = "26-58-signal-lab-review-export-v1";
+const BUILD = "26-59-signal-lab-candles-explanation-v1";
 const BOOT_TIMEOUT_MS = 12_000;
 const REPORT_TIMEOUT_MS = 10_000;
 const STARTED_EVENT = "inpuls:owner-signal-lab-started";
@@ -170,23 +170,49 @@ function shortEventId(id) {
     : value.slice(-36);
 }
 
-function pathForEvent(event) {
-  const before = event?.context?.chartContext?.candles ?? [];
-  const after = event?.observation?.pricePath ?? [];
-  const points = before.map((candle) => ({
-    at: Number(candle.time),
-    price: Number(candle.close),
-    phase: "before",
-  })).concat(after.map((point) => ({
-    at: Number(point.at),
-    price: Number(point.price),
-    phase: "after",
-  }))).filter((point) => Number.isFinite(point.at) && Number.isFinite(point.price));
-  return points.sort((left, right) => left.at - right.at);
+function candleSeriesForEvent(event) {
+  const intervalMs = 60_000;
+  const candles = (event?.context?.chartContext?.candles ?? [])
+    .map((candle) => ({
+      time: Number(candle.time),
+      open: Number(candle.open),
+      high: Number(candle.high),
+      low: Number(candle.low),
+      close: Number(candle.close),
+    }))
+    .filter((candle) => (
+      Number.isFinite(candle.time)
+      && [candle.open, candle.high, candle.low, candle.close]
+        .every((value) => Number.isFinite(value) && value > 0)
+    ));
+  const byTime = new Map(candles.map((candle) => [candle.time, { ...candle, sampledAfter: false }]));
+  for (const point of event?.observation?.pricePath ?? []) {
+    const at = Number(point?.at);
+    const price = Number(point?.price);
+    if (!Number.isFinite(at) || !Number.isFinite(price) || price <= 0) continue;
+    const time = Math.floor(at / intervalMs) * intervalMs;
+    const existing = byTime.get(time);
+    if (existing) {
+      existing.high = Math.max(existing.high, price);
+      existing.low = Math.min(existing.low, price);
+      existing.close = price;
+      existing.sampledAfter = true;
+    } else {
+      byTime.set(time, {
+        time,
+        open: price,
+        high: price,
+        low: price,
+        close: price,
+        sampledAfter: true,
+      });
+    }
+  }
+  return [...byTime.values()].sort((left, right) => left.time - right.time);
 }
 
 function drawMiniChart(canvas, event) {
-  const points = pathForEvent(event);
+  const candles = candleSeriesForEvent(event);
   const context = canvas.getContext("2d");
   const ratio = Math.min(2, window.devicePixelRatio || 1);
   const width = Math.max(280, canvas.clientWidth);
@@ -195,16 +221,16 @@ function drawMiniChart(canvas, event) {
   canvas.height = Math.round(height * ratio);
   context.scale(ratio, ratio);
   context.clearRect(0, 0, width, height);
-  if (points.length < 2) return false;
-  const prices = points.map((point) => point.price);
+  if (candles.length < 2) return false;
+  const prices = candles.flatMap((candle) => [candle.high, candle.low]);
   const minimum = Math.min(...prices);
   const maximum = Math.max(...prices);
   const range = Math.max(maximum - minimum, Math.abs(maximum) * 0.0001);
-  const minimumAt = points[0].at;
-  const maximumAt = points.at(-1).at;
+  const minimumAt = candles[0].time;
+  const maximumAt = candles.at(-1).time + 60_000;
   const timeRange = Math.max(1, maximumAt - minimumAt);
-  const x = (point) => 8 + ((point.at - minimumAt) / timeRange) * (width - 16);
-  const y = (point) => 8 + ((maximum - point.price) / range) * (height - 16);
+  const x = (at) => 8 + ((at - minimumAt) / timeRange) * (width - 16);
+  const y = (price) => 8 + ((maximum - price) / range) * (height - 16);
   context.strokeStyle = "rgba(142, 155, 167, .16)";
   context.lineWidth = 1;
   [0.25, 0.5, 0.75].forEach((fraction) => {
@@ -214,7 +240,7 @@ function drawMiniChart(canvas, event) {
     context.stroke();
   });
   const triggerAt = Number(event.triggeredAt);
-  const triggerX = x({ at: triggerAt });
+  const triggerX = x(triggerAt);
   context.fillStyle = "rgba(101, 183, 255, .07)";
   context.fillRect(triggerX, 0, width - triggerX, height);
   context.strokeStyle = "#65b7ff";
@@ -224,15 +250,87 @@ function drawMiniChart(canvas, event) {
   context.lineTo(triggerX, height);
   context.stroke();
   context.setLineDash([]);
-  context.strokeStyle = "#42d9b1";
-  context.lineWidth = 2;
-  context.beginPath();
-  points.forEach((point, index) => {
-    if (index === 0) context.moveTo(x(point), y(point));
-    else context.lineTo(x(point), y(point));
+  const candleWidth = Math.max(2, Math.min(9, (width - 20) / candles.length * 0.58));
+  candles.forEach((candle) => {
+    const center = x(candle.time + 30_000);
+    const rising = candle.close >= candle.open;
+    context.strokeStyle = rising ? "#42d9b1" : "#ff6b7a";
+    context.fillStyle = rising ? "rgba(66,217,177,.82)" : "rgba(255,107,122,.82)";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(center, y(candle.high));
+    context.lineTo(center, y(candle.low));
+    context.stroke();
+    const top = y(Math.max(candle.open, candle.close));
+    const bottom = y(Math.min(candle.open, candle.close));
+    context.fillRect(center - candleWidth / 2, top, candleWidth, Math.max(1.5, bottom - top));
   });
-  context.stroke();
+
+  const evidence = event?.detectorEvidence;
+  if (event?.signalType === "cascade" && evidence) {
+    const lower = finite(evidence.zoneLower);
+    const upper = finite(evidence.zoneUpper);
+    if (lower !== null && upper !== null) {
+      context.fillStyle = "rgba(255, 190, 92, .11)";
+      context.fillRect(0, y(upper), width, Math.max(2, y(lower) - y(upper)));
+    }
+    context.fillStyle = "#ffbe5c";
+    for (const extreme of evidence.extrema ?? []) {
+      const at = finite(extreme?.at);
+      const price = finite(extreme?.price);
+      if (at === null || price === null) continue;
+      context.beginPath();
+      context.arc(x(at + 30_000), y(price), 3, 0, Math.PI * 2);
+      context.fill();
+    }
+  }
   return true;
+}
+
+function formatQuote(value) {
+  const numeric = finite(value);
+  if (numeric === null) return "—";
+  return new Intl.NumberFormat("ru-RU", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(numeric);
+}
+
+function detectorExplanation(event) {
+  const evidence = event?.detectorEvidence ?? {};
+  const facts = [];
+  const lead = event?.reason
+    ? `Детектор включил событие: ${event.reason}.`
+    : "Событие прошло формальные условия детектора.";
+  if (event?.signalType === "cascade") {
+    const count = finite(evidence.extremaCount);
+    const width = finite(evidence.zoneWidthPercent);
+    const distance = finite(evidence.breakoutDistancePercent);
+    if (count !== null) facts.push(`нашёл ${count} однотипных экстремума`);
+    if (width !== null) facts.push(`они лежали в зоне шириной ${width.toFixed(2)}%`);
+    if (distance !== null) facts.push(`цена вышла за границу на ${distance.toFixed(2)}%`);
+  } else if (event?.signalType === "rearranger") {
+    const multiple = finite(evidence.sizeMultiple);
+    const move = finite(evidence.movePercent);
+    if (multiple !== null) facts.push(`сайз был в ${multiple.toFixed(1)}× больше медианного`);
+    if (move !== null) facts.push(`его переставили на ${move.toFixed(3)}%`);
+    if (evidence.side) facts.push(`сторона книги: ${evidence.side}`);
+  } else if (event?.signalType === "size_supporter") {
+    const multiple = finite(evidence.sizeMultiple);
+    const touches = finite(evidence.touchCount);
+    if (multiple !== null) facts.push(`сайз был в ${multiple.toFixed(1)}× больше медианного`);
+    if (touches !== null) facts.push(`повторился ${Math.round(touches)} раза у спреда`);
+    if (evidence.quoteUsd) facts.push(`объём около $${formatQuote(evidence.quoteUsd)}`);
+  } else {
+    const market = event?.context?.market;
+    if (finite(market?.change15s) !== null) facts.push(`изменение 15с: ${formatPercent(market.change15s)}`);
+    if (finite(market?.volumeAcceleration) !== null) {
+      facts.push(`ускорение объёма: ${Number(market.volumeAcceleration).toFixed(1)}×`);
+    }
+    const liquidations = finite(event?.context?.liquidations?.totalQuote);
+    if (liquidations !== null && liquidations > 0) facts.push(`ликвидации: $${formatQuote(liquidations)}`);
+  }
+  return { lead, facts: facts.slice(0, 4) };
 }
 
 function eventReviewData(event, overrides = {}) {
@@ -268,7 +366,11 @@ function renderEvent(event) {
   chart.className = "event-mini-chart";
   const canvas = document.createElement("canvas");
   chart.append(canvas);
-  const note = appendTextElement(chart, "p", "Реальный контекст до события и путь после. Синяя линия — момент срабатывания.");
+  const note = appendTextElement(
+    chart,
+    "p",
+    "Свечи 1м из сохранённого OHLC и реальных цен после события. Синяя линия — срабатывание; жёлтая зона и точки — признаки каскада.",
+  );
   article.append(header, chart);
   requestAnimationFrame(() => {
     if (!drawMiniChart(canvas, event)) {
@@ -277,6 +379,17 @@ function renderEvent(event) {
       chart.classList.add("is-empty");
     }
   });
+  const explanation = detectorExplanation(event);
+  const why = document.createElement("section");
+  why.className = "event-detector-explanation";
+  appendTextElement(why, "strong", "Почему событие вошло");
+  appendTextElement(why, "p", explanation.lead);
+  if (explanation.facts.length) {
+    const list = document.createElement("ul");
+    explanation.facts.forEach((fact) => appendTextElement(list, "li", fact));
+    why.append(list);
+  }
+  article.append(why);
   const result = document.createElement("div");
   result.className = "event-result";
   const outcome = event.observation;
