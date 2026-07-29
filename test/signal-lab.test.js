@@ -125,7 +125,13 @@ test("event review rows keep unique IDs, real chart evidence and manual verdicts
     events: [event],
     contexts: [context],
     observations: [result],
-    reviews: [{ eventId: event.id, verdict: "bad", reviewedAt: NOW }],
+    reviews: [{
+      eventId: event.id,
+      verdict: "bad",
+      reason: "weak-extremes",
+      comment: "Второй хай не относится к структуре",
+      reviewedAt: NOW,
+    }],
   }, {
     now: NOW,
     windows: [{ key: "1d", durationMs: DAY }],
@@ -135,6 +141,8 @@ test("event review rows keep unique IDs, real chart evidence and manual verdicts
   assert.equal(row.observation.pricePath.length, 2);
   assert.equal(row.context.chartContext.candles.length, 1);
   assert.equal(row.review.verdict, "bad");
+  assert.equal(row.review.reason, "weak-extremes");
+  assert.equal(row.review.comment, "Второй хай не относится к структуре");
 });
 
 test("primary statistics use only complete live observations and expose every exclusion", () => {
@@ -342,4 +350,22 @@ test("browser runtime wires persistent Signal Lab without adding destructive con
   assert.doesNotMatch(app, /inpulsSignalLab[\s\S]{0,300}(clear|delete)/i);
   assert.match(serviceWorker, /signal-lab\.js\?v=signal-lab-analytics-v1/);
   assert.match(version, /signal-lab-analytics-v1/);
+});
+
+test("Signal Lab review UI exposes comments and enriched JSON/CSV export", async () => {
+  const [html, script, storage] = await Promise.all([
+    readFile(new URL("../owner-signal-lab.html", import.meta.url), "utf8"),
+    readFile(new URL("../owner-signal-lab.js", import.meta.url), "utf8"),
+    readFile(new URL("../signal-lab.js", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(html, /Проверь паттерн на графике/);
+  assert.match(html, /Экспорт JSON/);
+  assert.match(html, /Экспорт CSV/);
+  assert.match(script, /Не уверен/);
+  assert.match(script, /Твой комментарий/);
+  assert.match(script, /reviewExport/);
+  assert.match(storage, /detectorEvidence/);
+  assert.match(storage, /observations/);
+  assert.match(storage, /formula/);
 });

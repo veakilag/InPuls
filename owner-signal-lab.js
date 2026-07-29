@@ -1,4 +1,4 @@
-const BUILD = "26-57-signal-lab-review-v1";
+const BUILD = "26-58-signal-lab-review-export-v1";
 const BOOT_TIMEOUT_MS = 12_000;
 const REPORT_TIMEOUT_MS = 10_000;
 const STARTED_EVENT = "inpuls:owner-signal-lab-started";
@@ -39,6 +39,16 @@ const EVIDENCE_LABELS = Object.freeze({
   substantial: "Крупная выборка",
 });
 
+const REVIEW_REASONS = Object.freeze([
+  ["", "Причина (необязательно)"],
+  ["wrong-structure", "Неверно собран паттерн"],
+  ["weak-extremes", "Плохие экстремумы / уровень"],
+  ["late-trigger", "Слишком поздний сигнал"],
+  ["noise", "Обычный рыночный шум"],
+  ["bad-liquidity", "Плохая ликвидность"],
+  ["other", "Другое"],
+]);
+
 const elements = {
   storageState: document.querySelector("#storage-state"),
   windowButtons: [...document.querySelectorAll("[data-window]")],
@@ -61,6 +71,9 @@ const elements = {
   emptyMessage: document.querySelector("#owner-empty-message"),
   eventList: document.querySelector("#event-review-list"),
   eventEmpty: document.querySelector("#event-review-empty"),
+  reviewProgress: document.querySelector("#review-progress"),
+  exportJson: document.querySelector("#export-json"),
+  exportCsv: document.querySelector("#export-csv"),
 };
 
 let buildInPulsNavigationUrl = null;
@@ -222,6 +235,18 @@ function drawMiniChart(canvas, event) {
   return true;
 }
 
+function eventReviewData(event, overrides = {}) {
+  return {
+    reason: overrides.reason ?? event.review?.reason ?? "",
+    comment: overrides.comment ?? event.review?.comment ?? "",
+  };
+}
+
+async function saveEventReview(event, verdict, overrides = {}) {
+  await store.review(event.id, verdict, eventReviewData(event, overrides));
+  await refreshReport();
+}
+
 function renderEvent(event) {
   const article = document.createElement("article");
   article.className = "event-review-item";
@@ -252,15 +277,28 @@ function renderEvent(event) {
       chart.classList.add("is-empty");
     }
   });
-  const footer = document.createElement("footer");
+  const result = document.createElement("div");
+  result.className = "event-result";
   const outcome = event.observation;
-  appendTextElement(
-    footer,
-    "span",
-    `${HORIZON_LABELS[outcome?.horizon] || outcome?.horizon || "—"} · MFE ${formatPercent(outcome?.mfePercent)} · MAE ${formatPercent(outcome?.maePercent)}`,
+  result.append(
+    createMetric("Лучший ход", formatPercent(outcome?.mfePercent), "MFE"),
+    createMetric("Против паттерна", formatPercent(outcome?.maePercent), "MAE"),
+    createMetric(
+      "Итог",
+      formatPercent(outcome?.directionalReturnPercent),
+      `через ${HORIZON_LABELS[outcome?.horizon] || outcome?.horizon || "—"}`,
+    ),
   );
+  article.append(result);
+  const review = document.createElement("div");
+  review.className = "event-review-controls";
   const actions = document.createElement("div");
-  for (const [verdict, label] of [["good", "✓ Годный"], ["bad", "✕ Говно"]]) {
+  actions.className = "event-verdicts";
+  for (const [verdict, label] of [
+    ["good", "✓ Годный"],
+    ["bad", "✕ Мусор"],
+    ["unsure", "? Не уверен"],
+  ]) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = label;
@@ -268,13 +306,38 @@ function renderEvent(event) {
     button.classList.toggle("is-active", event.review?.verdict === verdict);
     button.addEventListener("click", async () => {
       const next = event.review?.verdict === verdict ? null : verdict;
-      await store.review(event.id, next);
-      await refreshReport();
+      await saveEventReview(event, next, {
+        reason: reason.value,
+        comment: comment.value,
+      });
     });
     actions.append(button);
   }
-  footer.append(actions);
-  article.append(footer);
+  const reason = document.createElement("select");
+  reason.setAttribute("aria-label", "Причина оценки");
+  for (const [value, label] of REVIEW_REASONS) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    reason.append(option);
+  }
+  reason.value = event.review?.reason || "";
+  const comment = document.createElement("textarea");
+  comment.rows = 2;
+  comment.maxLength = 1_000;
+  comment.placeholder = "Твой комментарий: что именно детектор увидел неправильно?";
+  comment.value = event.review?.comment || "";
+  const saveDetails = async () => {
+    if (!event.review?.verdict) return;
+    await saveEventReview(event, event.review.verdict, {
+      reason: reason.value,
+      comment: comment.value,
+    });
+  };
+  reason.addEventListener("change", saveDetails);
+  comment.addEventListener("change", saveDetails);
+  review.append(actions, reason, comment);
+  article.append(review);
   return article;
 }
 
@@ -295,6 +358,75 @@ function renderEvents(windowReport) {
   for (const event of events) fragment.append(renderEvent(event));
   elements.eventList.replaceChildren(fragment);
   elements.eventEmpty.hidden = events.length > 0;
+  const reviewed = events.filter((event) => event.review?.verdict).length;
+  elements.reviewProgress.textContent = `${reviewed} из ${events.length} отмечено`;
+}
+
+function downloadText(filename, content, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function csvCell(value) {
+  const text = typeof value === "string" ? value : JSON.stringify(value ?? "");
+  return `"${text.replaceAll("\"", "\"\"")}"`;
+}
+
+async function exportReviews(format) {
+  const rows = await store.reviewExport();
+  if (!rows.length) {
+    elements.reviewProgress.textContent = "Сначала отметь хотя бы одно событие";
+    return;
+  }
+  const stamp = new Date().toISOString().slice(0, 10);
+  if (format === "json") {
+    downloadText(
+      `inpuls-signal-lab-reviews-${stamp}.json`,
+      JSON.stringify({
+        exportVersion: 1,
+        exportedAt: new Date().toISOString(),
+        source: "local-browser-profile",
+        reviews: rows,
+      }, null, 2),
+      "application/json;charset=utf-8",
+    );
+    return;
+  }
+  const headers = [
+    "eventId", "symbol", "signalType", "direction", "triggeredAt", "verdict",
+    "reason", "comment", "reviewedAt", "formulaVersion", "detectorEvidence",
+    "chartContext", "observations",
+  ];
+  const lines = [headers.map(csvCell).join(",")];
+  for (const row of rows) {
+    lines.push([
+      row.eventId,
+      row.symbol,
+      row.signalType,
+      row.direction,
+      new Date(row.triggeredAt).toISOString(),
+      row.review.verdict,
+      row.review.reason,
+      row.review.comment,
+      new Date(row.review.reviewedAt).toISOString(),
+      row.formula?.version || "",
+      row.detectorEvidence,
+      row.context?.chartContext || null,
+      row.observations,
+    ].map(csvCell).join(","));
+  }
+  downloadText(
+    `inpuls-signal-lab-reviews-${stamp}.csv`,
+    `\uFEFF${lines.join("\n")}`,
+    "text/csv;charset=utf-8",
+  );
 }
 
 function selectedReportWindow() {
@@ -551,6 +683,8 @@ elements.refresh.addEventListener("click", () => {
   }
   refreshReport();
 });
+elements.exportJson.addEventListener("click", () => exportReviews("json"));
+elements.exportCsv.addEventListener("click", () => exportReviews("csv"));
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
     if (store) refreshReport();

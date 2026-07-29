@@ -794,9 +794,14 @@ export class SignalLabLocalStore {
     });
   }
 
-  review(eventId, verdict) {
+  review(eventId, verdict, {
+    reason = "",
+    comment = "",
+  } = {}) {
     const normalizedId = String(eventId || "").slice(0, 180);
-    const normalizedVerdict = ["good", "bad"].includes(verdict) ? verdict : null;
+    const normalizedVerdict = ["good", "bad", "unsure"].includes(verdict) ? verdict : null;
+    const normalizedReason = String(reason || "").trim().slice(0, 80);
+    const normalizedComment = String(comment || "").trim().slice(0, 1_000);
     if (!normalizedId) return Promise.reject(new TypeError("eventId is required"));
     return this.#enqueue(async () => {
       const database = await this.#openDatabase();
@@ -807,6 +812,8 @@ export class SignalLabLocalStore {
         store.put({
           eventId: normalizedId,
           verdict: normalizedVerdict,
+          reason: normalizedReason,
+          comment: normalizedComment,
           reviewedAt: Date.now(),
         });
       } else {
@@ -815,6 +822,38 @@ export class SignalLabLocalStore {
       await transactionDone(transaction);
       return true;
     });
+  }
+
+  async reviewExport() {
+    const snapshot = await this.snapshot();
+    const contexts = new Map(snapshot.contexts.map((row) => [row.eventId, row]));
+    const observations = new Map();
+    for (const row of snapshot.observations) {
+      const values = observations.get(row.eventId) ?? [];
+      values.push(row);
+      observations.set(row.eventId, values);
+    }
+    const events = new Map(snapshot.events.map((row) => [row.id, row]));
+    return deepFreeze(snapshot.reviews
+      .filter((review) => review?.verdict && events.has(review.eventId))
+      .map((review) => {
+        const event = events.get(review.eventId);
+        return {
+          exportVersion: 1,
+          eventId: event.id,
+          symbol: event.symbol,
+          signalType: event.signalType,
+          direction: event.direction,
+          triggeredAt: event.triggeredAt,
+          price: event.price,
+          formula: event.formula ?? null,
+          detectorEvidence: event.detectorEvidence ?? null,
+          context: contexts.get(event.id) ?? null,
+          observations: observations.get(event.id) ?? [],
+          review,
+        };
+      })
+      .sort((left, right) => left.triggeredAt - right.triggeredAt));
   }
 
   status() {
