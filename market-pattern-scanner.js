@@ -9,8 +9,10 @@ const DEFAULTS = Object.freeze({
   supporterWindowMs: 8_000,
   supporterMinimumTouches: 3,
   signalLifetimeMs: 4_000,
+  cascadeMinimumWidthPercent: 1,
   cascadeMaximumWidthPercent: 5,
-  cascadeMinimumExtrema: 2,
+  cascadeMinimumExtrema: 3,
+  cascadeMinimumStepPercent: 0.08,
 });
 
 function finite(value) {
@@ -187,18 +189,36 @@ function localExtrema(candles, side) {
 function cascadeCandidate(candles, side, price, options) {
   const extrema = localExtrema(candles, side).slice(-8);
   if (extrema.length < options.cascadeMinimumExtrema) return null;
+  let staircase = [];
+  for (const extreme of extrema) {
+    const previous = staircase.at(-1);
+    const step = previous ? percentDistance(previous.price, extreme.price) : null;
+    const movesTowardBreakout = !previous
+      || (side === "high" ? extreme.price > previous.price : extreme.price < previous.price);
+    if (!previous || (movesTowardBreakout && step >= options.cascadeMinimumStepPercent)) {
+      staircase.push(extreme);
+    } else {
+      staircase = [extreme];
+    }
+  }
+  if (staircase.length < options.cascadeMinimumExtrema) return null;
   let best = null;
-  for (let start = 0; start <= extrema.length - options.cascadeMinimumExtrema; start += 1) {
-    const group = extrema.slice(start);
+  for (let start = 0; start <= staircase.length - options.cascadeMinimumExtrema; start += 1) {
+    const group = staircase.slice(start);
     const prices = group.map((item) => item.price);
     const lower = Math.min(...prices);
     const upper = Math.max(...prices);
     const widthPercent = percentDistance(lower, upper);
-    if (widthPercent === null || widthPercent > options.cascadeMaximumWidthPercent) continue;
-    const broken = side === "high" ? price > upper : price < lower;
+    if (
+      widthPercent === null
+      || widthPercent < options.cascadeMinimumWidthPercent
+      || widthPercent > options.cascadeMaximumWidthPercent
+    ) continue;
+    const nearest = group.at(-1).price;
+    const broken = side === "high" ? price > nearest : price < nearest;
     if (!broken) continue;
     if (!best || group.length > best.extrema.length) {
-      best = { side, extrema: group, lower, upper, widthPercent };
+      best = { side, extrema: group, lower, upper, nearest, widthPercent };
     }
   }
   return best;
@@ -216,11 +236,11 @@ export function detectMarketwideCascade(metrics, options = {}) {
     ? (high.extrema.at(-1)?.at ?? 0) >= (low.extrema.at(-1)?.at ?? 0) ? high : low
     : high || low;
   if (!candidate) return null;
-  const level = candidate.side === "high" ? candidate.upper : candidate.lower;
+  const level = candidate.nearest;
   return signal(
     "cascade",
     candidate.side === "high" ? "up" : "down",
-    `${candidate.extrema.length} экстремума в зоне ${candidate.widthPercent.toFixed(2)}% сняты импульсом`,
+    `${candidate.extrema.length} ступенчатых ${candidate.side === "high" ? "хая" : "лоя"} · пробит ближайший уровень`,
     {
       scope: "marketwide-minute-candles",
       timeframe: "1m",
@@ -230,7 +250,7 @@ export function detectMarketwideCascade(metrics, options = {}) {
       zoneLower: candidate.lower,
       zoneUpper: candidate.upper,
       zoneWidthPercent: candidate.widthPercent,
-      breakoutPrice: price,
+      breakoutPrice: level,
       breakoutDistancePercent: percentDistance(level, price),
       lastTouchAt: candidate.extrema.at(-1)?.at ?? null,
     },
