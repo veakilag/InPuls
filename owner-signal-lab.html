@@ -7,9 +7,9 @@
     <meta name="referrer" content="no-referrer" />
     <meta name="robots" content="noindex,nofollow,noarchive" />
     <meta name="theme-color" content="#0d1015" />
-    <meta name="inpuls-build" content="26-57-signal-lab-review-v1" />
+    <meta name="inpuls-build" content="26-58-signal-lab-review-export-v1" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./owner-signal-lab.css?v=26-57-signal-lab-review-v1" />
+    <link rel="stylesheet" href="./owner-signal-lab.css?v=26-58-signal-lab-review-export-v1" />
     <title>InPuls — Owner Signal Lab</title>
   </head>
   <body>
@@ -102,7 +102,30 @@
         <article><span>Данных собрано</span><strong id="summary-coverage">—</strong><small>полных результатов</small></article>
       </section>
 
-      <section class="owner-table-card" aria-labelledby="table-title">
+      <section class="owner-table-card event-review-card" aria-labelledby="event-review-title">
+        <header>
+          <div>
+            <span class="eyebrow">СОБЫТИЯ ДЛЯ РАЗМЕТКИ</span>
+            <h2 id="event-review-title">Проверь паттерн на графике</h2>
+          </div>
+          <div class="event-export-actions">
+            <span id="review-progress">—</span>
+            <button id="export-json" type="button">Экспорт JSON</button>
+            <button id="export-csv" type="button">Экспорт CSV</button>
+          </div>
+        </header>
+        <div class="owner-results">
+          <div id="event-review-list" class="event-review-list"></div>
+          <div id="event-review-empty" class="owner-empty" hidden>
+            <strong>Подходящих событий пока нет</strong>
+            <p>Оставь InPuls открытым. Новые события появятся после завершения горизонта; старые записи без реального пути не дорисовываются.</p>
+          </div>
+        </div>
+      </section>
+
+      <details class="aggregate-results">
+        <summary>Общая статистика по паттернам</summary>
+        <section class="owner-table-card" aria-labelledby="table-title">
         <header>
           <div>
             <span class="eyebrow">РЕЗУЛЬТАТЫ ПО МОНЕТАМ</span>
@@ -117,29 +140,13 @@
             <p id="owner-empty-message">Оставь InPuls открытым: статистика начнёт появляться после завершения горизонтов 15с / 1м / 3м / 5м.</p>
           </div>
         </div>
-      </section>
-
-      <section class="owner-table-card event-review-card" aria-labelledby="event-review-title">
-        <header>
-          <div>
-            <span class="eyebrow">РУЧНАЯ ПРОВЕРКА</span>
-            <h2 id="event-review-title">Отдельные события и мини‑графики</h2>
-          </div>
-          <span>Годный / Говно</span>
-        </header>
-        <div class="owner-results">
-          <div id="event-review-list" class="event-review-list"></div>
-          <div id="event-review-empty" class="owner-empty" hidden>
-            <strong>Отдельных событий пока нет</strong>
-            <p>Новые события появятся здесь после срабатывания детектора. Старые события без сохранённого пути останутся доступны, но без выдуманного графика.</p>
-          </div>
-        </div>
-      </section>
+        </section>
+      </details>
 
       <p class="owner-note"><strong>Как читать:</strong> «Дали &gt;1%» — сколько раз цена прошла больше 1% в сторону паттерна. MFE — типичный лучший ход, MAE — типичное движение против сценария. Кнопка открывает текущую монету, а не исторический момент сигнала.</p>
     </main>
 
-    <script src="./owner-signal-lab-guard.js?v=26-57-signal-lab-review-v1"></script>
-    <script type="module" src="./owner-signal-lab.js?v=26-57-signal-lab-review-v1"></script>
+    <script src="./owner-signal-lab-guard.js?v=26-58-signal-lab-review-export-v1"></script>
+    <script type="module" src="./owner-signal-lab.js?v=26-58-signal-lab-review-export-v1"></script>
   </body>
 </html>
