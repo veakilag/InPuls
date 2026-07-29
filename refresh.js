@@ -1,6 +1,6 @@
 import { clearInPulsRuntime } from "./pwa-reset.js";
 
-const BUILD = "26-46-orderbook-footprint-clarity-v1";
+const BUILD = "26-47-orderbook-scale-tape-consistency-v1";
 const button = document.getElementById("refresh");
 const status = document.getElementById("status");
 

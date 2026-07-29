@@ -9,8 +9,8 @@ test("browser entry points keep user version v23 and identify the current releas
     source("index.html"), source("app.js"), source("sw.js"), source("refresh.html"), source("VERSION.txt"),
   ]);
   for (const text of [html, app, worker, refresh, version]) assert.doesNotMatch(text, /(?:v|build=|\?v=)22\b/);
-  assert.match(html, /inpuls-build" content="26-46-orderbook-footprint-clarity-v1"/);
-  assert.match(worker, /inpuls-26-46-orderbook-footprint-clarity-v1/);
+  assert.match(html, /inpuls-build" content="26-47-orderbook-scale-tape-consistency-v1"/);
+  assert.match(worker, /inpuls-26-47-orderbook-scale-tape-consistency-v1/);
   assert.match(html, /SCREENER <small>v23<\/small>/);
   assert.match(version, /^InPuls v23/m);
 });
@@ -36,7 +36,8 @@ test("v23 DOM exposes fixed price steps, live Tape and footprint controls", asyn
   assert.match(app, /bookScaleIndex/);
   assert.match(app, /function formatBookPrice\(value, baseTick\)/);
   assert.match(app, /minimumFractionDigits: fractionDigits/);
-  assert.match(app, /--book-size-label-space/);
+  assert.doesNotMatch(app, /--book-size-label-space/);
+  assert.match(app, /const maxSize = Math\.max\([\s\S]*rows\.map\(\(row\) => Math\.max\(0, Number\(row\.quote\) \|\| 0\)\)/);
   assert.match(app, /maximumDepthQuote\([\s\S]*data\.sizeScaleMaxQuote/);
   assert.doesNotMatch(app, /priceStepForDepthPercent/);
 });
@@ -75,8 +76,8 @@ test("browser entry points carry a restrictive CSP and reset scripts stay extern
   }
   assert.doesNotMatch(pages[3], /<script>(?:.|\n)*getRegistrations/);
   assert.doesNotMatch(pages[4], /<script>(?:.|\n)*getRegistrations/);
-  assert.match(pages[3], /refresh\.js\?v=26-46-orderbook-footprint-clarity-v1/);
-  assert.match(pages[4], /reset\.js\?v=26-46-orderbook-footprint-clarity-v1/);
+  assert.match(pages[3], /refresh\.js\?v=26-47-orderbook-scale-tape-consistency-v1/);
+  assert.match(pages[4], /reset\.js\?v=26-47-orderbook-scale-tape-consistency-v1/);
 });
 
 test("Service Worker installs atomically and validates cached response types", async () => {
@@ -126,6 +127,8 @@ test("orderbook price text is separated from the size boundary", async () => {
   const orderbook = await source("orderbook.js");
   assert.match(orderbook, /grid-template-columns: minmax\(0, 1fr\) var\(--book-price-width, 8\.25ch\)/);
   assert.match(orderbook, /padding: 0 3px 0 2px !important;/);
-  assert.match(orderbook, /border-left: 1px solid color-mix\(in srgb, var\(--line\) 72%, transparent\);/);
+  assert.match(orderbook, /column-gap: 4px !important;/);
+  assert.match(orderbook, /\.book-ladder-row \.book-size \{[\s\S]*border-right: 1px solid color-mix\(in srgb, var\(--line\) 72%, transparent\);/);
+  assert.match(orderbook, /\.book-ladder-row strong \{[\s\S]*border-left: 0 !important;/);
   assert.match(orderbook, /\.book-ladder-row \.book-size \{[\s\S]*overflow: hidden !important;/);
 });

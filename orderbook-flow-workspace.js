@@ -685,7 +685,7 @@ function injectStyles() {
     .orderbook-card .book-splitter { display: none !important; }
     .orderbook-card .orderbook-tape,
     .orderbook-card .trade-flow {
-      background: color-mix(in srgb, var(--panel) 78%, var(--panel-2)) !important;
+      background: var(--panel) !important;
     }
     .orderbook-card [data-book-clusters] { display: none !important; }
     .orderbook-card.is-clusters-hidden .inpuls-footprint-pane,
@@ -1184,6 +1184,9 @@ function install() {
   injectStyles();
   globalThis.addEventListener("inpuls:tape-data", acceptTape);
   globalThis.addEventListener("inpuls:book-status", acceptBookStatus);
+  globalThis.addEventListener("inpuls:theme-change", () => {
+    document.querySelectorAll(".orderbook-card").forEach((card) => requestDraw(card));
+  });
   globalThis.addEventListener(FLOW_LAYER_VISIBILITY_EVENT, (event) => {
     const card = event?.detail?.card;
     if (!(card instanceof Element) || !card.matches(".orderbook-card")) return;
