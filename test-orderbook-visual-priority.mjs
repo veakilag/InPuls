@@ -20,16 +20,22 @@ test("narrow books give unused price space back to sizes and mark the full curre
 test("ordinary sizes are neutral and full-book anomalies have three tiers", () => {
   assert.match(orderbook, /rgba\(232, 237, 240, \.88\)/);
   assert.match(orderbook, /export function bookQuoteScale\(bids, asks, sampleLimit = 2_048\)/);
-  assert.match(app, /data\.sizeAnomalyThresholdBidQuote/);
-  assert.match(app, /data\.sizeAnomalyThresholdAskQuote/);
+  assert.match(app, /const automaticThreshold = Number\.isFinite\(genericWorkerAnomaly\)/);
+  assert.match(app, /bid: automaticThreshold/);
+  assert.match(app, /ask: automaticThreshold/);
   assert.match(app, /Number\(source\.maxLevelQuote\)/);
-  assert.doesNotMatch(app, /rows\.map\(\(item\) => item\.quote\).*sort/);
+  assert.match(app, /rows\.map\(\(row\) => Math\.max\(0, Number\(row\.quote\) \|\| 0\)\)/);
   assert.match(app, /function anomalyTierForQuote\(quote, threshold\)/);
   assert.match(app, /is-anomaly-tier-\$\{anomalyTier\}/);
   assert.match(orderbook, /is-anomaly-tier-1/);
   assert.match(orderbook, /is-anomaly-tier-2/);
   assert.match(orderbook, /is-anomaly-tier-3/);
-  assert.match(orderbook, /max-width: calc\(100% - 3px\) !important/);
+  assert.match(orderbook, /width: var\(--size\) !important/);
+  assert.match(orderbook, /max-width: 100% !important/);
+  assert.doesNotMatch(orderbook, /book-size-label-space/);
+  assert.match(orderbook, /column-gap: 4px !important/);
+  assert.match(orderbook, /\.book-ladder-row \.book-size \{[\s\S]*border-right: 1px solid/);
+  assert.match(orderbook, /\.book-ladder-row strong \{[\s\S]*border-left: 0 !important/);
   assert.match(orderbook, /\.book-ladder-row\.is-anomaly:not\(\.is-market\) \{[\s\S]*background: transparent !important;[\s\S]*box-shadow: none !important/);
   assert.doesNotMatch(orderbook, /is-anomaly strong,\s*[\s\S]*is-market strong/);
 });
@@ -56,9 +62,17 @@ test("cluster history is compact, pannable and follows the brightness palette", 
   assert.match(flow, /export function footprintHistoryOffsetLimit/);
   assert.match(flow, /state\.historyOffset = clamp\(startOffset \+ columns/);
   assert.match(flow, /color-mix\(in srgb, var\(--panel\) 78%, var\(--panel-2\)\)/);
-  assert.match(orderbook, /\.orderbook-card \.orderbook-tape \{[\s\S]*var\(--panel\) 78%/);
+  assert.match(orderbook, /\.orderbook-card \.orderbook-tape,[\s\S]*background: var\(--panel\) !important/);
   assert.doesNotMatch(flow, /rgba\(71, 210, 39/);
   assert.doesNotMatch(flow, /rgba\(226, 58, 78/);
+});
+
+test("Tape paints the active panel theme instead of a black canvas", () => {
+  assert.match(app, /dispatchEvent\(new CustomEvent\("inpuls:theme-change"\)\)/);
+  assert.match(orderbook, /function paintTapeSurface\(context, rect\)/);
+  assert.match(orderbook, /getPropertyValue\("--panel"\)/);
+  assert.match(orderbook, /globalThis\.addEventListener\("inpuls:theme-change"/);
+  assert.match(flow, /globalThis\.addEventListener\("inpuls:theme-change"/);
 });
 
 test("round prices affect only text and the liquidity meter stays readable", () => {
@@ -82,8 +96,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-46-orderbook-footprint-clarity-v1/);
-  assert.match(app, /orderbook\.js\?v=26-46-orderbook-footprint-clarity-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-46-orderbook-footprint-clarity-v1/);
-  assert.match(sw, /26-46-orderbook-footprint-clarity-v1/);
+  assert.match(index, /26-47-orderbook-scale-tape-consistency-v1/);
+  assert.match(app, /orderbook\.js\?v=26-47-orderbook-scale-tape-consistency-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-47-orderbook-scale-tape-consistency-v1/);
+  assert.match(sw, /26-47-orderbook-scale-tape-consistency-v1/);
 });

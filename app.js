@@ -7,7 +7,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=26-46-orderbook-footprint-clarity-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=26-47-orderbook-scale-tape-consistency-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 
@@ -434,6 +434,7 @@ function applyComfort(rawValue) {
   };
   priceChart.setTheme(activeChartTheme);
   for (const panel of extraCharts.values()) panel.chart.setTheme(activeChartTheme);
+  globalThis.dispatchEvent(new CustomEvent("inpuls:theme-change"));
 }
 
 function applyFontScale(rawValue) {
@@ -1765,34 +1766,34 @@ function renderOrderBook(panel, data) {
   // projection используется только как совместимый Legacy fallback.
   const fallbackScale = bookQuoteScale(data.bids, data.asks);
   const genericWorkerAnomaly = Number(data.sizeAnomalyThresholdQuote);
-  const sideAnomaly = (value, fallback) => {
-    const threshold = Number(value);
-    if (Number.isFinite(threshold) && threshold > 0) return threshold;
-    if (Number.isFinite(genericWorkerAnomaly) && genericWorkerAnomaly > 0) {
-      return genericWorkerAnomaly;
-    }
-    return fallback;
-  };
+  const automaticThreshold = Number.isFinite(genericWorkerAnomaly)
+    && genericWorkerAnomaly > 0
+    ? genericWorkerAnomaly
+    : fallbackScale.anomalyThreshold;
   const anomaly = panel.model.highlightMode === "manual"
     ? Math.max(0, Number(panel.model.highlightMinQuote) || 0)
     : {
-      bid: sideAnomaly(
-        data.sizeAnomalyThresholdBidQuote,
-        fallbackScale.bidAnomalyThreshold,
-      ),
-      ask: sideAnomaly(
-        data.sizeAnomalyThresholdAskQuote,
-        fallbackScale.askAnomalyThreshold,
-      ),
+      // One absolute threshold per symbol keeps color priority comparable
+      // across both sides: a smaller bid can never look stronger than a
+      // larger ask merely because the two sides have different baselines.
+      bid: automaticThreshold,
+      ask: automaticThreshold,
     };
   // Keep the visual size scale stable while the user scrolls. The Worker sends
   // the maximum real level from the whole known local book; projected depth is
   // used only as a Legacy fallback.
-  const maxSize = maximumDepthQuote(
+  const fullBookMaximum = maximumDepthQuote(
     data.bids,
     data.asks,
     panel.priceStep,
     data.sizeScaleMaxQuote,
+  );
+  // At a coarse price step one visible row may aggregate several real
+  // orders. Include the largest displayed total so bars remain proportional
+  // instead of several different values saturating at 100%.
+  const maxSize = Math.max(
+    fullBookMaximum,
+    ...rows.map((row) => Math.max(0, Number(row.quote) || 0)),
   );
   if (observability.enabled) {
     observability.record("orderbook.compute", performance.now() - phaseStartedAt, {
@@ -1894,10 +1895,6 @@ function patchBookLadderRows(body, rows, middle, maxSize, anomalyThreshold, base
       element.style.setProperty("--size", size);
     }
     const sizeText = source.quote > 0 ? formatCompactUsd(source.quote) : "";
-    const labelSpace = sizeText ? `${sizeText.length + .75}ch` : "0px";
-    if (element.style.getPropertyValue("--book-size-label-space") !== labelSpace) {
-      element.style.setProperty("--book-size-label-space", labelSpace);
-    }
     const priceText = formatBookPrice(source.isMarket ? middle : source.price, baseTick);
     if (element.firstElementChild.textContent !== sizeText) {
       element.firstElementChild.textContent = sizeText;
@@ -2924,7 +2921,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-46-orderbook-footprint-clarity-v1";
+const INPULS_RUNTIME_BUILD = "26-47-orderbook-scale-tape-consistency-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

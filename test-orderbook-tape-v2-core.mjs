@@ -28,25 +28,26 @@ test("renderer uses readable layout and removes RAW labels", () => {
   assert.match(orderbook, /return latest \+ \(frozen \? 1 : TAPE_LIVE_EDGE_LEAD_MS\)/);
   assert.match(orderbook, /card\.dataset\.inpulsPriceWidthChars/);
   assert.match(orderbook, /left: 0 !important;/);
-  assert.match(orderbook, /width: max\(var\(--size\), var\(--book-size-label-space/);
+  assert.match(orderbook, /width: var\(--size\) !important/);
+  assert.doesNotMatch(orderbook, /book-size-label-space/);
   assert.match(orderbook, />ЛЕНТА<\/button>/);
   assert.match(orderbook, />КЛАСТЕРЫ<\/button>/);
 });
 
 test("Flow Workspace cache and reset page point to the new runtime", () => {
-  assert.match(orderbook, /inpuls-orderbook-runtime-26-46-orderbook-footprint-clarity-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-46-orderbook-footprint-clarity-v1/);
-  assert.match(serviceWorker, /inpuls-26-46-orderbook-footprint-clarity-v1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=26-46-orderbook-footprint-clarity-v1/);
+  assert.match(orderbook, /inpuls-orderbook-runtime-26-47-orderbook-scale-tape-consistency-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-47-orderbook-scale-tape-consistency-v1/);
+  assert.match(serviceWorker, /inpuls-26-47-orderbook-scale-tape-consistency-v1/);
+  assert.match(serviceWorker, /orderbook\.js\?v=26-47-orderbook-scale-tape-consistency-v1/);
   assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-46-orderbook-footprint-clarity-v1/);
+  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-47-orderbook-scale-tape-consistency-v1/);
   assert.match(serviceWorker, /orderbook-tape-layout\.js\?v=stable-tape-v3/);
   assert.match(serviceWorker, /orderbook-tape-latency\.js\?v=worker-bp-v1/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-46-orderbook-footprint-clarity-v1/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-47-orderbook-scale-tape-consistency-v1/);
   assert.match(resetPage, /Resume v2/);
-  assert.match(resetPage, /reset\.js\?v=26-46-orderbook-footprint-clarity-v1/);
+  assert.match(resetPage, /reset\.js\?v=26-47-orderbook-scale-tape-consistency-v1/);
   assert.match(resetScript, /sw\.js\?v=\$\{BUILD\}/);
-  assert.match(resetScript, /26-46-orderbook-footprint-clarity-v1/);
+  assert.match(resetScript, /26-47-orderbook-scale-tape-consistency-v1/);
 });
 
 test("production TAPE accepts only live packets and starts from an empty frame", () => {

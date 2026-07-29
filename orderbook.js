@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v3";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-46-orderbook-footprint-clarity-v1";
+import "./orderbook-flow-workspace.js?v=26-47-orderbook-scale-tape-consistency-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-lifecycle-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1339,7 +1339,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-46-orderbook-footprint-clarity-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-47-orderbook-scale-tape-consistency-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1753,7 +1753,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-46-orderbook-footprint-clarity-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-47-orderbook-scale-tape-consistency-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -1901,10 +1901,11 @@ function installOrderBookStyles() {
       position: relative !important;
       overflow: hidden !important;
       contain: layout paint style;
-      background: color-mix(in srgb, var(--panel) 78%, var(--panel-2)) !important;
+      background: var(--panel) !important;
     }
-    .orderbook-card .orderbook-tape {
-      background: color-mix(in srgb, var(--panel) 78%, var(--panel-2)) !important;
+    .orderbook-card .orderbook-tape,
+    .orderbook-card .trade-tape-body {
+      background: var(--panel) !important;
     }
     .orderbook-card .inpuls-tape-canvas {
       position: absolute;
@@ -2068,7 +2069,7 @@ function installOrderBookStyles() {
     }
     .orderbook-card .book-ladder-row {
       grid-template-columns: minmax(0, 1fr) var(--book-price-width, 7.5ch) !important;
-      column-gap: 0 !important;
+      column-gap: 4px !important;
       align-items: stretch !important;
     }
     .orderbook-card .book-ladder-row .book-size,
@@ -2084,6 +2085,7 @@ function installOrderBookStyles() {
       min-width: 0;
       z-index: 0;
       padding: 0 5px 0 2px;
+      border-right: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
       justify-content: flex-start;
       color: #050708 !important;
       text-align: left;
@@ -2094,8 +2096,8 @@ function installOrderBookStyles() {
       width: 100% !important;
       min-width: 0 !important;
       overflow: hidden !important;
-      padding: 0 1px 0 5px !important;
-      border-left: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+      padding: 0 1px 0 2px !important;
+      border-left: 0 !important;
       justify-self: stretch !important;
       justify-content: flex-start !important;
       text-align: left !important;
@@ -2104,8 +2106,8 @@ function installOrderBookStyles() {
     .orderbook-card .book-ladder-row .book-size::before {
       right: auto !important;
       left: 0 !important;
-      width: max(var(--size), var(--book-size-label-space, 0px)) !important;
-      max-width: calc(100% - 3px) !important;
+      width: var(--size) !important;
+      max-width: 100% !important;
       min-width: 0 !important;
       opacity: .86 !important;
       transform-origin: left center !important;
@@ -3098,6 +3100,18 @@ function roundedRectPath(context, x, y, width, height, radius) {
   context.closePath();
 }
 
+function tapeSurfaceColor() {
+  if (typeof document === "undefined") return "#181b20";
+  return getComputedStyle(document.documentElement)
+    .getPropertyValue("--panel")
+    .trim() || "#181b20";
+}
+
+function paintTapeSurface(context, rect) {
+  context.clearRect(0, 0, rect.width, rect.height);
+  context.fillStyle = tapeSurfaceColor();
+  context.fillRect(0, 0, rect.width, rect.height);
+}
 
 function drawTapeCard(card) {
   const drawStartedAt = performance.now();
@@ -3146,7 +3160,7 @@ function drawTapeCard(card) {
 
   const symbol = initialSymbol;
   if (!symbol) {
-    context.clearRect(0, 0, rect.width, rect.height);
+    paintTapeSurface(context, rect);
     state.hasFrame = false;
     setTapeState(state, "Выберите монету");
     skip("missing-symbol");
@@ -3155,7 +3169,7 @@ function drawTapeCard(card) {
 
   const stored = tapeTradesBySymbol.get(symbol) ?? [];
   if (!stored.length) {
-    if (!state.hasFrame) context.clearRect(0, 0, rect.width, rect.height);
+    if (!state.hasFrame) paintTapeSurface(context, rect);
     const live = tapeStatusText(card).includes("TAPE");
     setTapeState(
       state,
@@ -3192,7 +3206,7 @@ function drawTapeCard(card) {
     recent.push(trade);
   }
   if (!recent.length) {
-    context.clearRect(0, 0, rect.width, rect.height);
+    paintTapeSurface(context, rect);
     state.hasFrame = false;
     setTapeRangeSummary(state, 0, 0);
     setTapeState(state, `Нет сделок в текущем окне${staleTradeSuffix(symbol)}`);
@@ -3200,7 +3214,7 @@ function drawTapeCard(card) {
     return;
   }
 
-  context.clearRect(0, 0, rect.width, rect.height);
+  paintTapeSurface(context, rect);
   state.hasFrame = false;
   setTapeRangeSummary(state, 0, 0);
   drawTapeTimeline(context, rect, window);
@@ -3703,6 +3717,7 @@ function installOrderBookRuntime() {
   window.addEventListener("focus", () => scheduleTapeDraw(true), { passive: true });
   window.addEventListener("pageshow", () => scheduleTapeDraw(true), { passive: true });
   window.addEventListener("orientationchange", () => scheduleTapeDraw(true), { passive: true });
+  globalThis.addEventListener("inpuls:theme-change", () => scheduleTapeDraw(true));
   document.addEventListener("fullscreenchange", () => scheduleTapeDraw(true));
   document.addEventListener("transitionend", (event) => {
     if (event.target?.closest?.(".orderbook-card")) scheduleTapeDraw(true);
@@ -3758,7 +3773,7 @@ function installOrderbookVisualPriorityStyles() {
   style.textContent = `
     .orderbook-card .book-ladder-row {
       grid-template-columns: minmax(0, 1fr) var(--book-price-width, 8.25ch) !important;
-      column-gap: 0 !important;
+      column-gap: 4px !important;
       align-items: stretch !important;
       position: relative;
     }
@@ -3767,7 +3782,7 @@ function installOrderbookVisualPriorityStyles() {
       min-width: 0 !important;
       overflow: hidden !important;
       padding: 0 3px 0 2px !important;
-      border-left: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+      border-left: 0 !important;
       justify-self: stretch !important;
       justify-content: flex-end !important;
       text-align: right !important;
@@ -3810,13 +3825,13 @@ function installOrderbookVisualPriorityStyles() {
       box-shadow: none !important;
     }
     .orderbook-card .book-ladder-row.is-price-half:not(.is-market) strong {
-      border-left: 1px solid color-mix(in srgb, var(--line) 72%, transparent) !important;
+      border-left: 0 !important;
       color: #d2dbe0 !important;
       font-size: calc(7.4 * var(--font-scale)) !important;
       font-weight: 820 !important;
     }
     .orderbook-card .book-ladder-row.is-price-round:not(.is-market) strong {
-      border-left: 1px solid color-mix(in srgb, var(--line) 72%, transparent) !important;
+      border-left: 0 !important;
       color: #f5fafc !important;
       font-size: calc(8.2 * var(--font-scale)) !important;
       font-weight: 950 !important;

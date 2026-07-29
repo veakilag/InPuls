@@ -598,10 +598,10 @@ body { background: var(--bg); }
 .orderbook-rows { min-height: 0; display: grid; grid-template-rows: minmax(0,1fr) 25px minmax(0,1fr); overflow: hidden; background: none; }
 .book-side { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .book-asks { justify-content: flex-end; }.book-bids { justify-content: flex-start; }
-.book-ladder-row { position: relative; min-height: 13px; flex: 1 1 13px; display: grid; grid-template-columns: 1fr 1fr; align-items: center; padding: 0 2px; font: 7px/1 Arial,sans-serif; }
-.book-ladder-row .book-size { position: relative; height: 100%; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; padding-right: 3px; color: color-mix(in srgb,var(--text) 72%,var(--muted)); isolation: isolate; }
+.book-ladder-row { position: relative; min-height: 13px; flex: 1 1 13px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 4px; align-items: center; padding: 0 2px; font: 7px/1 Arial,sans-serif; }
+.book-ladder-row .book-size { position: relative; height: 100%; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; padding-right: 3px; border-right: 1px solid color-mix(in srgb,var(--line) 72%,transparent); color: color-mix(in srgb,var(--text) 72%,var(--muted)); isolation: isolate; }
 .book-ladder-row .book-size::before { content:""; position:absolute; z-index:-1; top:1px; bottom:1px; left:0; width:var(--size,0%); opacity:.22; background:currentColor; }
-.book-ladder-row strong { min-width: 0; overflow: hidden; padding-right: 3px; color: color-mix(in srgb,var(--text) 88%,var(--muted)); text-align: right; text-overflow: clip; }
+.book-ladder-row strong { min-width: 0; overflow: hidden; padding-right: 3px; border-left: 0; color: color-mix(in srgb,var(--text) 88%,var(--muted)); text-align: right; text-overflow: clip; }
 .book-ladder-row.is-bid .book-size { color: var(--green); }.book-ladder-row.is-ask .book-size { color: var(--red); }
 .book-ladder-row.is-anomaly { z-index: 2; background: transparent; box-shadow: none; }
 .book-ladder-row.is-anomaly .book-size { color: #fff; font-weight: 900; text-shadow: 0 0 7px var(--accent); }
