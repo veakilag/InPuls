@@ -197,6 +197,104 @@ main {
   line-height: 1.55;
 }
 
+.event-review-card {
+  margin-top: 12px;
+}
+
+.event-review-list {
+  display: grid;
+  gap: 12px;
+}
+
+.event-review-item {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: linear-gradient(145deg, rgba(20, 27, 35, .98), rgba(13, 18, 24, .98));
+}
+
+.event-review-item > header,
+.event-review-item > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+}
+
+.event-review-item > header > div {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.event-review-item > header span,
+.event-review-item > header time,
+.event-review-item > header code,
+.event-review-item > footer > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.event-review-item > header code {
+  user-select: all;
+}
+
+.event-mini-chart {
+  position: relative;
+  min-height: 178px;
+  padding: 10px 12px 0;
+  border-block: 1px solid rgba(38, 49, 61, .68);
+  background: rgba(6, 10, 14, .48);
+}
+
+.event-mini-chart canvas {
+  width: 100%;
+  height: 150px;
+  display: block;
+}
+
+.event-mini-chart p {
+  margin: 5px 0 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.event-mini-chart.is-empty {
+  display: grid;
+  min-height: 100px;
+  place-items: center;
+}
+
+.event-review-item > footer > div {
+  display: flex;
+  gap: 7px;
+}
+
+.event-review-item button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  background: rgba(17, 22, 29, .8);
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.event-review-item button[data-verdict="good"].is-active {
+  border-color: rgba(66, 217, 177, .55);
+  color: var(--green);
+  background: rgba(66, 217, 177, .1);
+}
+
+.event-review-item button[data-verdict="bad"].is-active {
+  border-color: rgba(255, 100, 116, .55);
+  color: var(--red);
+  background: rgba(255, 100, 116, .1);
+}
+
 .owner-privacy {
   display: grid;
   gap: 6px;
@@ -698,6 +796,16 @@ main {
 
   .pattern-metrics {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .event-review-item > footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .event-review-item > footer > div,
+  .event-review-item button {
+    flex: 1;
   }
 
   .pattern-metrics .target-metric {

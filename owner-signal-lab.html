@@ -7,9 +7,9 @@
     <meta name="referrer" content="no-referrer" />
     <meta name="robots" content="noindex,nofollow,noarchive" />
     <meta name="theme-color" content="#0d1015" />
-    <meta name="inpuls-build" content="26-56-signal-lab-readable-v1" />
+    <meta name="inpuls-build" content="26-57-signal-lab-review-v1" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./owner-signal-lab.css?v=26-56-signal-lab-readable-v1" />
+    <link rel="stylesheet" href="./owner-signal-lab.css?v=26-57-signal-lab-review-v1" />
     <title>InPuls — Owner Signal Lab</title>
   </head>
   <body>
@@ -119,10 +119,27 @@
         </div>
       </section>
 
+      <section class="owner-table-card event-review-card" aria-labelledby="event-review-title">
+        <header>
+          <div>
+            <span class="eyebrow">РУЧНАЯ ПРОВЕРКА</span>
+            <h2 id="event-review-title">Отдельные события и мини‑графики</h2>
+          </div>
+          <span>Годный / Говно</span>
+        </header>
+        <div class="owner-results">
+          <div id="event-review-list" class="event-review-list"></div>
+          <div id="event-review-empty" class="owner-empty" hidden>
+            <strong>Отдельных событий пока нет</strong>
+            <p>Новые события появятся здесь после срабатывания детектора. Старые события без сохранённого пути останутся доступны, но без выдуманного графика.</p>
+          </div>
+        </div>
+      </section>
+
       <p class="owner-note"><strong>Как читать:</strong> «Дали &gt;1%» — сколько раз цена прошла больше 1% в сторону паттерна. MFE — типичный лучший ход, MAE — типичное движение против сценария. Кнопка открывает текущую монету, а не исторический момент сигнала.</p>
     </main>
 
-    <script src="./owner-signal-lab-guard.js?v=26-56-signal-lab-readable-v1"></script>
-    <script type="module" src="./owner-signal-lab.js?v=26-56-signal-lab-readable-v1"></script>
+    <script src="./owner-signal-lab-guard.js?v=26-57-signal-lab-review-v1"></script>
+    <script type="module" src="./owner-signal-lab.js?v=26-57-signal-lab-review-v1"></script>
   </body>
 </html>

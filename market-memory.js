@@ -10,6 +10,8 @@ export const MARKET_MEMORY_SCHEMA_VERSION = 1;
 export const SIGNAL_FORMULA_VERSION = "radar-signals-v2";
 export const SIGNAL_CONTEXT_VERSION = 1;
 export const SIGNAL_OBSERVATION_VERSION = 2;
+const MAX_STORED_PATH_POINTS = 96;
+const MAX_CONTEXT_CANDLES = 30;
 
 export const DATA_QUALITY_STATES = Object.freeze({
   LIVE: "live",
@@ -181,6 +183,66 @@ function firstPointAtOrAfter(points, timestamp) {
   return points[low] ?? null;
 }
 
+function compactPricePath(points, importantTimes = [], maximum = MAX_STORED_PATH_POINTS) {
+  const rows = (Array.isArray(points) ? points : [])
+    .filter((point) => (
+      finiteOrNull(point?.at) !== null
+      && finiteOrNull(point?.price) !== null
+      && Number(point.price) > 0
+    ));
+  if (rows.length <= maximum) {
+    return rows.map(({ at, price }) => ({ at, price }));
+  }
+  const keep = new Set([0, rows.length - 1]);
+  for (const timestamp of importantTimes) {
+    let bestIndex = 0;
+    let bestDistance = Infinity;
+    rows.forEach((point, index) => {
+      const distance = Math.abs(point.at - timestamp);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    });
+    keep.add(bestIndex);
+  }
+  const slots = Math.max(1, maximum - keep.size);
+  const step = Math.max(1, Math.ceil(rows.length / slots));
+  for (let start = 0; start < rows.length && keep.size < maximum; start += step) {
+    const slice = rows.slice(start, Math.min(rows.length, start + step));
+    if (!slice.length) continue;
+    let minimumIndex = start;
+    let maximumIndex = start;
+    slice.forEach((point, offset) => {
+      if (point.price < rows[minimumIndex].price) minimumIndex = start + offset;
+      if (point.price > rows[maximumIndex].price) maximumIndex = start + offset;
+    });
+    keep.add(minimumIndex);
+    if (keep.size < maximum) keep.add(maximumIndex);
+  }
+  return [...keep]
+    .sort((left, right) => left - right)
+    .slice(0, maximum)
+    .map((index) => ({ at: rows[index].at, price: rows[index].price }));
+}
+
+function minuteCandleSnapshot(candles) {
+  return (Array.isArray(candles) ? candles : [])
+    .slice(-MAX_CONTEXT_CANDLES)
+    .map((candle) => ({
+      time: finiteOrNull(candle?.time),
+      open: finiteOrNull(candle?.open),
+      high: finiteOrNull(candle?.high),
+      low: finiteOrNull(candle?.low),
+      close: finiteOrNull(candle?.close),
+    }))
+    .filter((candle) => (
+      candle.time !== null
+      && [candle.open, candle.high, candle.low, candle.close]
+        .every((value) => value !== null && value > 0)
+    ));
+}
+
 function observePricePath({
   observation,
   event,
@@ -240,6 +302,12 @@ function observePricePath({
     mfeAt,
     maeAt,
     effectDurationMs: Math.max(0, mfeAt - event.triggeredAt),
+    pricePath: compactPricePath(included, [
+      event.triggeredAt,
+      finalSample.at,
+      mfeAt,
+      maeAt,
+    ]),
     quality: pathQuality(
       included,
       finalSample,
@@ -568,6 +636,10 @@ export function createSignalContext({
         "raw-trade-repeat-detection-unavailable-v1",
         ...(!orderBook ? ["order-book-evidence-requires-open-panel"] : []),
       ],
+    },
+    chartContext: {
+      timeframe: "1m",
+      candles: minuteCandleSnapshot(metrics?.minuteCandles),
     },
     openInterest: {
       value: null,

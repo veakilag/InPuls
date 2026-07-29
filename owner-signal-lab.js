@@ -1,4 +1,4 @@
-const BUILD = "26-56-signal-lab-readable-v1";
+const BUILD = "26-57-signal-lab-review-v1";
 const BOOT_TIMEOUT_MS = 12_000;
 const REPORT_TIMEOUT_MS = 10_000;
 const STARTED_EVENT = "inpuls:owner-signal-lab-started";
@@ -59,6 +59,8 @@ const elements = {
   empty: document.querySelector("#owner-empty"),
   emptyTitle: document.querySelector("#owner-empty-title"),
   emptyMessage: document.querySelector("#owner-empty-message"),
+  eventList: document.querySelector("#event-review-list"),
+  eventEmpty: document.querySelector("#event-review-empty"),
 };
 
 let buildInPulsNavigationUrl = null;
@@ -145,6 +147,154 @@ function createMetric(label, value, note, { className = "", valueClass = "" } = 
   appendTextElement(metric, "strong", value, valueClass);
   appendTextElement(metric, "small", note);
   return metric;
+}
+
+function shortEventId(id) {
+  const value = String(id || "");
+  const parts = value.split(":");
+  return parts.length >= 5
+    ? `${parts[1]}-${parts[2]}-${parts[3]}-${parts.at(-1)}`
+    : value.slice(-36);
+}
+
+function pathForEvent(event) {
+  const before = event?.context?.chartContext?.candles ?? [];
+  const after = event?.observation?.pricePath ?? [];
+  const points = before.map((candle) => ({
+    at: Number(candle.time),
+    price: Number(candle.close),
+    phase: "before",
+  })).concat(after.map((point) => ({
+    at: Number(point.at),
+    price: Number(point.price),
+    phase: "after",
+  }))).filter((point) => Number.isFinite(point.at) && Number.isFinite(point.price));
+  return points.sort((left, right) => left.at - right.at);
+}
+
+function drawMiniChart(canvas, event) {
+  const points = pathForEvent(event);
+  const context = canvas.getContext("2d");
+  const ratio = Math.min(2, window.devicePixelRatio || 1);
+  const width = Math.max(280, canvas.clientWidth);
+  const height = 150;
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  context.scale(ratio, ratio);
+  context.clearRect(0, 0, width, height);
+  if (points.length < 2) return false;
+  const prices = points.map((point) => point.price);
+  const minimum = Math.min(...prices);
+  const maximum = Math.max(...prices);
+  const range = Math.max(maximum - minimum, Math.abs(maximum) * 0.0001);
+  const minimumAt = points[0].at;
+  const maximumAt = points.at(-1).at;
+  const timeRange = Math.max(1, maximumAt - minimumAt);
+  const x = (point) => 8 + ((point.at - minimumAt) / timeRange) * (width - 16);
+  const y = (point) => 8 + ((maximum - point.price) / range) * (height - 16);
+  context.strokeStyle = "rgba(142, 155, 167, .16)";
+  context.lineWidth = 1;
+  [0.25, 0.5, 0.75].forEach((fraction) => {
+    context.beginPath();
+    context.moveTo(0, height * fraction);
+    context.lineTo(width, height * fraction);
+    context.stroke();
+  });
+  const triggerAt = Number(event.triggeredAt);
+  const triggerX = x({ at: triggerAt });
+  context.fillStyle = "rgba(101, 183, 255, .07)";
+  context.fillRect(triggerX, 0, width - triggerX, height);
+  context.strokeStyle = "#65b7ff";
+  context.setLineDash([4, 4]);
+  context.beginPath();
+  context.moveTo(triggerX, 0);
+  context.lineTo(triggerX, height);
+  context.stroke();
+  context.setLineDash([]);
+  context.strokeStyle = "#42d9b1";
+  context.lineWidth = 2;
+  context.beginPath();
+  points.forEach((point, index) => {
+    if (index === 0) context.moveTo(x(point), y(point));
+    else context.lineTo(x(point), y(point));
+  });
+  context.stroke();
+  return true;
+}
+
+function renderEvent(event) {
+  const article = document.createElement("article");
+  article.className = "event-review-item";
+  const header = document.createElement("header");
+  const identity = document.createElement("div");
+  appendTextElement(identity, "strong", String(event.symbol || "").replace(/USDT$/, ""));
+  appendTextElement(identity, "span", SIGNAL_LABELS[event.signalType] || event.signalType || "—");
+  const id = appendTextElement(identity, "code", `#${shortEventId(event.id)}`);
+  id.title = event.id;
+  const time = appendTextElement(header, "time", new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(event.triggeredAt)));
+  time.dateTime = new Date(event.triggeredAt).toISOString();
+  header.prepend(identity);
+  const chart = document.createElement("div");
+  chart.className = "event-mini-chart";
+  const canvas = document.createElement("canvas");
+  chart.append(canvas);
+  const note = appendTextElement(chart, "p", "Реальный контекст до события и путь после. Синяя линия — момент срабатывания.");
+  article.append(header, chart);
+  requestAnimationFrame(() => {
+    if (!drawMiniChart(canvas, event)) {
+      canvas.hidden = true;
+      note.textContent = "Для этой старой записи реальный ценовой путь не сохранён — график не дорисовываем.";
+      chart.classList.add("is-empty");
+    }
+  });
+  const footer = document.createElement("footer");
+  const outcome = event.observation;
+  appendTextElement(
+    footer,
+    "span",
+    `${HORIZON_LABELS[outcome?.horizon] || outcome?.horizon || "—"} · MFE ${formatPercent(outcome?.mfePercent)} · MAE ${formatPercent(outcome?.maePercent)}`,
+  );
+  const actions = document.createElement("div");
+  for (const [verdict, label] of [["good", "✓ Годный"], ["bad", "✕ Говно"]]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.dataset.verdict = verdict;
+    button.classList.toggle("is-active", event.review?.verdict === verdict);
+    button.addEventListener("click", async () => {
+      const next = event.review?.verdict === verdict ? null : verdict;
+      await store.review(event.id, next);
+      await refreshReport();
+    });
+    actions.append(button);
+  }
+  footer.append(actions);
+  article.append(footer);
+  return article;
+}
+
+function renderEvents(windowReport) {
+  const events = (windowReport?.events ?? [])
+    .filter((event) => {
+      const symbolQuery = elements.symbolFilter.value.trim().toUpperCase();
+      const signal = elements.signalFilter.value;
+      if (symbolQuery && !String(event.symbol).includes(symbolQuery)) return false;
+      if (signal && event.signalType !== signal) return false;
+      if (selectedView === "cascades" && event.signalType !== "cascade") return false;
+      if (selectedView === "algorithms" && !["rearranger", "size_supporter"].includes(event.signalType)) return false;
+      if (selectedView === "winners" && Number(event.observation?.mfePercent || 0) <= 1) return false;
+      return true;
+    })
+    .slice(0, 100);
+  const fragment = document.createDocumentFragment();
+  for (const event of events) fragment.append(renderEvent(event));
+  elements.eventList.replaceChildren(fragment);
+  elements.eventEmpty.hidden = events.length > 0;
 }
 
 function selectedReportWindow() {
@@ -278,6 +428,7 @@ function render() {
   renderStatus();
   const rows = filteredRows(windowReport);
   renderSummary(windowReport, rows);
+  renderEvents(windowReport);
   const fragment = document.createDocumentFragment();
   for (const group of rows) fragment.append(renderRow(group));
   elements.body.replaceChildren(fragment);
