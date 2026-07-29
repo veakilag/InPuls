@@ -1,5 +1,5 @@
-const CACHE = "inpuls-26-61-signal-lab-manual-refresh-v1";
-const BUILD = "26-61-signal-lab-manual-refresh-v1";
+const CACHE = "inpuls-26-55-scalper-pattern-evidence-v1";
+const BUILD = "26-55-scalper-pattern-evidence-v1";
 
 const FORCED = new Map([
   ["/app.js", "./app.js?v=26-55-scalper-pattern-evidence-v1"],
