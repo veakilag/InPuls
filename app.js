@@ -7,10 +7,11 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-51-signal-observation-engine-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-52-signal-lab-analytics-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=signal-observation-engine-v1";
+import { SignalLabLocalStore } from "./signal-lab.js?v=signal-lab-analytics-v1";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -302,6 +303,26 @@ const extraCharts = new Map();
 const orderBookPanels = new Map();
 const orderBookAutoThresholds = new Map();
 const signalMemory = new SignalMemoryTracker();
+const signalLab = new SignalLabLocalStore();
+signalLab.initialize().then((status) => {
+  if (status.recoveredObservations) {
+    observability.increment(
+      "signal-lab.recovered-observations",
+      status.recoveredObservations,
+    );
+  }
+}).catch(() => {
+  observability.increment("signal-lab.storage-errors");
+});
+Object.defineProperty(window, "inpulsSignalLab", {
+  configurable: false,
+  enumerable: false,
+  writable: false,
+  value: Object.freeze({
+    report: (options = {}) => signalLab.report(options),
+    status: () => signalLab.status(),
+  }),
+});
 const orderBookRenderScheduler = new LatestFrameScheduler({
   budgetMs: 8,
   maxPerFrame: 2,
@@ -654,6 +675,15 @@ function updateSignalMemory(metrics, now) {
     now,
     contextForSymbol: latestOrderBookForSignalMemory,
   });
+  if (
+    created.events.length
+    || created.observations.length
+    || created.resolvedObservations.length
+  ) {
+    signalLab.persist(created, { now }).catch(() => {
+      observability.increment("signal-lab.storage-errors");
+    });
+  }
   if (created.events.length) {
     observability.increment("market-memory.signal-events", created.events.length);
   }
@@ -2992,7 +3022,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-51-signal-observation-engine-v1";
+const INPULS_RUNTIME_BUILD = "26-52-signal-lab-analytics-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
