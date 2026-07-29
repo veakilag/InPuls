@@ -1,4 +1,4 @@
-const BUILD = "26-59-signal-lab-candles-explanation-v1";
+const BUILD = "26-60-signal-lab-chart-context-v1";
 const BOOT_TIMEOUT_MS = 12_000;
 const REPORT_TIMEOUT_MS = 10_000;
 const STARTED_EVENT = "inpuls:owner-signal-lab-started";
@@ -48,6 +48,13 @@ const REVIEW_REASONS = Object.freeze([
   ["bad-liquidity", "Плохая ликвидность"],
   ["other", "Другое"],
 ]);
+
+const MINI_CHART_INTERVALS = Object.freeze({
+  "1m": { label: "1 мин", intervalMs: 60_000 },
+  "5m": { label: "5 мин", intervalMs: 300_000 },
+  "1h": { label: "1 час", intervalMs: 3_600_000 },
+});
+const miniChartCache = new Map();
 
 const elements = {
   storageState: document.querySelector("#storage-state"),
@@ -170,9 +177,9 @@ function shortEventId(id) {
     : value.slice(-36);
 }
 
-function candleSeriesForEvent(event) {
-  const intervalMs = 60_000;
+function candleSeriesForEvent(event, intervalMs = 60_000, sourceCandles = null) {
   const candles = (event?.context?.chartContext?.candles ?? [])
+    .concat(sourceCandles ?? [])
     .map((candle) => ({
       time: Number(candle.time),
       open: Number(candle.open),
@@ -186,7 +193,7 @@ function candleSeriesForEvent(event) {
         .every((value) => Number.isFinite(value) && value > 0)
     ));
   const byTime = new Map(candles.map((candle) => [candle.time, { ...candle, sampledAfter: false }]));
-  for (const point of event?.observation?.pricePath ?? []) {
+  for (const point of sourceCandles ? [] : (event?.observation?.pricePath ?? [])) {
     const at = Number(point?.at);
     const price = Number(point?.price);
     if (!Number.isFinite(at) || !Number.isFinite(price) || price <= 0) continue;
@@ -211,8 +218,68 @@ function candleSeriesForEvent(event) {
   return [...byTime.values()].sort((left, right) => left.time - right.time);
 }
 
-function drawMiniChart(canvas, event) {
-  const candles = candleSeriesForEvent(event);
+function aggregateCandles(candles, intervalMs) {
+  const buckets = new Map();
+  candles.forEach((candle) => {
+    const time = Math.floor(candle.time / intervalMs) * intervalMs;
+    const existing = buckets.get(time);
+    if (existing) {
+      existing.high = Math.max(existing.high, candle.high);
+      existing.low = Math.min(existing.low, candle.low);
+      existing.close = candle.close;
+    } else {
+      buckets.set(time, { ...candle, time });
+    }
+  });
+  return [...buckets.values()].sort((left, right) => left.time - right.time);
+}
+
+async function loadMiniChartCandles(event, timeframe) {
+  const config = MINI_CHART_INTERVALS[timeframe];
+  const key = `${event.symbol}:${timeframe}:${Math.floor(event.triggeredAt / config.intervalMs)}`;
+  const cached = miniChartCache.get(key);
+  if (cached) return cached;
+  const promise = (async () => {
+    const endTime = Math.min(Date.now(), Number(event.triggeredAt) + config.intervalMs * 20);
+    const url = new URL("https://fapi.binance.com/fapi/v1/klines");
+    url.search = new URLSearchParams({
+      symbol: event.symbol,
+      interval: timeframe,
+      endTime: String(endTime),
+      limit: "100",
+    }).toString();
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const rows = await response.json();
+    return rows.map((row) => ({
+      time: Number(row[0]),
+      open: Number(row[1]),
+      high: Number(row[2]),
+      low: Number(row[3]),
+      close: Number(row[4]),
+    }));
+  })();
+  miniChartCache.set(key, promise);
+  try {
+    return await promise;
+  } catch (error) {
+    miniChartCache.set(key, null);
+    throw error;
+  }
+}
+
+function drawMiniChart(canvas, event, {
+  timeframe = "1m",
+  sourceCandles = null,
+  offset = 0,
+  visibleCount = 34,
+} = {}) {
+  const intervalMs = MINI_CHART_INTERVALS[timeframe]?.intervalMs ?? 60_000;
+  let candles = candleSeriesForEvent(event, intervalMs, sourceCandles);
+  if (intervalMs > 60_000 && !sourceCandles) candles = aggregateCandles(candles, intervalMs);
+  const maximumOffset = Math.max(0, candles.length - visibleCount);
+  const safeOffset = Math.max(0, Math.min(maximumOffset, offset));
+  candles = candles.slice(safeOffset, safeOffset + visibleCount);
   const context = canvas.getContext("2d");
   const ratio = Math.min(2, window.devicePixelRatio || 1);
   const width = Math.max(280, canvas.clientWidth);
@@ -227,7 +294,7 @@ function drawMiniChart(canvas, event) {
   const maximum = Math.max(...prices);
   const range = Math.max(maximum - minimum, Math.abs(maximum) * 0.0001);
   const minimumAt = candles[0].time;
-  const maximumAt = candles.at(-1).time + 60_000;
+  const maximumAt = candles.at(-1).time + intervalMs;
   const timeRange = Math.max(1, maximumAt - minimumAt);
   const x = (at) => 8 + ((at - minimumAt) / timeRange) * (width - 16);
   const y = (price) => 8 + ((maximum - price) / range) * (height - 16);
@@ -252,7 +319,7 @@ function drawMiniChart(canvas, event) {
   context.setLineDash([]);
   const candleWidth = Math.max(2, Math.min(9, (width - 20) / candles.length * 0.58));
   candles.forEach((candle) => {
-    const center = x(candle.time + 30_000);
+    const center = x(candle.time + intervalMs / 2);
     const rising = candle.close >= candle.open;
     context.strokeStyle = rising ? "#42d9b1" : "#ff6b7a";
     context.fillStyle = rising ? "rgba(66,217,177,.82)" : "rgba(255,107,122,.82)";
@@ -280,11 +347,11 @@ function drawMiniChart(canvas, event) {
       const price = finite(extreme?.price);
       if (at === null || price === null) continue;
       context.beginPath();
-      context.arc(x(at + 30_000), y(price), 3, 0, Math.PI * 2);
+      context.arc(x(at + intervalMs / 2), y(price), 3, 0, Math.PI * 2);
       context.fill();
     }
   }
-  return true;
+  return { candleCount: candles.length, maximumOffset, offset: safeOffset };
 }
 
 function formatQuote(value) {
@@ -364,21 +431,87 @@ function renderEvent(event) {
   header.prepend(identity);
   const chart = document.createElement("div");
   chart.className = "event-mini-chart";
+  const toolbar = document.createElement("div");
+  toolbar.className = "event-chart-toolbar";
+  const timeframeButtons = document.createElement("div");
+  timeframeButtons.className = "event-chart-timeframes";
+  const chartHint = appendTextElement(toolbar, "span", "Тяни график · колесо — масштаб");
+  chartHint.className = "event-chart-hint";
+  toolbar.prepend(timeframeButtons);
   const canvas = document.createElement("canvas");
-  chart.append(canvas);
+  canvas.tabIndex = 0;
+  canvas.setAttribute("aria-label", "Свечной график события. Перетаскивайте по горизонтали, колесом меняйте масштаб.");
+  chart.append(toolbar, canvas);
   const note = appendTextElement(
     chart,
     "p",
     "Свечи 1м из сохранённого OHLC и реальных цен после события. Синяя линия — срабатывание; жёлтая зона и точки — признаки каскада.",
   );
   article.append(header, chart);
-  requestAnimationFrame(() => {
-    if (!drawMiniChart(canvas, event)) {
+  const chartState = {
+    timeframe: "1m",
+    sourceCandles: null,
+    offset: 1_000_000,
+    visibleCount: 34,
+    dragging: false,
+    dragX: 0,
+    dragOffset: 0,
+  };
+  const redraw = () => {
+    const result = drawMiniChart(canvas, event, chartState);
+    if (!result) {
       canvas.hidden = true;
       note.textContent = "Для этой старой записи реальный ценовой путь не сохранён — график не дорисовываем.";
       chart.classList.add("is-empty");
+      return;
     }
+    canvas.hidden = false;
+    chart.classList.remove("is-empty");
+    chartState.offset = result.offset;
+    canvas.classList.toggle("is-draggable", result.maximumOffset > 0);
+  };
+  for (const [timeframe, config] of Object.entries(MINI_CHART_INTERVALS)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = config.label;
+    button.classList.toggle("is-active", timeframe === chartState.timeframe);
+    button.addEventListener("click", async () => {
+      chartState.timeframe = timeframe;
+      chartState.offset = 1_000_000;
+      timeframeButtons.querySelectorAll("button").forEach((item) => item.classList.toggle("is-active", item === button));
+      note.textContent = `Загружаю реальные свечи ${config.label} Binance Futures…`;
+      try {
+        chartState.sourceCandles = await loadMiniChartCandles(event, timeframe);
+        note.textContent = `Реальные свечи ${config.label} Binance Futures. Синяя линия — событие; график можно двигать и масштабировать.`;
+      } catch {
+        chartState.sourceCandles = timeframe === "1m" ? null : [];
+        note.textContent = "Binance не отдал исторические свечи. Показываю только честно сохранённый локальный контекст.";
+      }
+      redraw();
+    });
+    timeframeButtons.append(button);
+  }
+  canvas.addEventListener("pointerdown", (event_) => {
+    chartState.dragging = true;
+    chartState.dragX = event_.clientX;
+    chartState.dragOffset = chartState.offset;
+    canvas.setPointerCapture(event_.pointerId);
   });
+  canvas.addEventListener("pointermove", (event_) => {
+    if (!chartState.dragging) return;
+    const pixelsPerCandle = Math.max(4, canvas.clientWidth / chartState.visibleCount);
+    chartState.offset = Math.round(chartState.dragOffset - (event_.clientX - chartState.dragX) / pixelsPerCandle);
+    redraw();
+  });
+  const stopDragging = () => { chartState.dragging = false; };
+  canvas.addEventListener("pointerup", stopDragging);
+  canvas.addEventListener("pointercancel", stopDragging);
+  canvas.addEventListener("wheel", (event_) => {
+    event_.preventDefault();
+    chartState.visibleCount = Math.max(12, Math.min(80, chartState.visibleCount + (event_.deltaY > 0 ? 4 : -4)));
+    redraw();
+  }, { passive: false });
+  requestAnimationFrame(redraw);
   const explanation = detectorExplanation(event);
   const why = document.createElement("section");
   why.className = "event-detector-explanation";

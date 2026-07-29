@@ -11,7 +11,7 @@ export const SIGNAL_FORMULA_VERSION = "radar-signals-v2";
 export const SIGNAL_CONTEXT_VERSION = 1;
 export const SIGNAL_OBSERVATION_VERSION = 2;
 const MAX_STORED_PATH_POINTS = 96;
-const MAX_CONTEXT_CANDLES = 30;
+const MAX_CONTEXT_CANDLES = 100;
 
 export const DATA_QUALITY_STATES = Object.freeze({
   LIVE: "live",

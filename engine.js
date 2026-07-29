@@ -294,7 +294,7 @@ export class SymbolState {
       natr1m,
       natr5m,
       minuteReturns,
-      minuteCandles: this.minuteCandles.slice(-32).map((candle) => ({ ...candle })),
+      minuteCandles: this.minuteCandles.slice(-100).map((candle) => ({ ...candle })),
     };
 
     const signals = classifySignals(base, settings);
