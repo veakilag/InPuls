@@ -34,9 +34,10 @@ order-ID attribution.
 ### SignalObservation
 
 Four separate pending observations are created for 15 seconds, 1 minute,
-3 minutes, and 5 minutes. This release does not fill future prices, returns, MFE,
-MAE, or effect duration. Those values remain `null` until the observation engine
-receives the required future price path.
+3 minutes, and 5 minutes. The Signal Observation Engine fills each entity from
+the live future price path when its horizon becomes due. The exact formulas,
+quality rules, and missed-horizon behavior are defined in
+`signal-observation-engine-v1.md`.
 
 ## Runtime behavior
 

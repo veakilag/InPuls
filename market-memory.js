@@ -1,7 +1,7 @@
 export const MARKET_MEMORY_SCHEMA_VERSION = 1;
 export const SIGNAL_FORMULA_VERSION = "radar-signals-v1";
 export const SIGNAL_CONTEXT_VERSION = 1;
-export const SIGNAL_OBSERVATION_VERSION = 1;
+export const SIGNAL_OBSERVATION_VERSION = 2;
 
 export const DATA_QUALITY_STATES = Object.freeze({
   LIVE: "live",
@@ -26,10 +26,19 @@ export const SIGNAL_OBSERVATION_HORIZONS = Object.freeze([
 const SYMBOL_PATTERN = /^[A-Z0-9]{1,20}USDT$/;
 const DEFAULT_RELEASE_AFTER_MS = 2_000;
 const DEFAULT_MAX_EVENTS = 1_000;
+const DEFAULT_FINAL_SAMPLE_MAX_DELAY_MS = 5_000;
+const DEFAULT_MAX_LIVE_SAMPLE_GAP_MS = 5_000;
 const LIVE_MARKET_AGE_MS = 5_000;
 const LIVE_TRADE_AGE_MS = 3_000;
 const LIVE_DEPTH_AGE_MS = 3_500;
 const STALE_DEPTH_AGE_MS = 9_000;
+const OBSERVATION_DEFINITION = [
+  "return=(final-baseline)/baseline*100",
+  "directionalReturn=return*signalDirection",
+  "MFE=max(directional excursion,0)",
+  "MAE=min(directional excursion,0)",
+  "effectDuration=time-to-MFE",
+].join("; ");
 
 function finiteOrNull(value) {
   const numeric = Number(value);
@@ -99,6 +108,152 @@ function combineQuality(states) {
   if (states.includes(DATA_QUALITY_STATES.STALE)) return DATA_QUALITY_STATES.STALE;
   if (states.includes(DATA_QUALITY_STATES.PARTIAL)) return DATA_QUALITY_STATES.PARTIAL;
   return DATA_QUALITY_STATES.LIVE;
+}
+
+function percentFromBaseline(price, baselinePrice) {
+  if (
+    !Number.isFinite(price)
+    || !Number.isFinite(baselinePrice)
+    || baselinePrice <= 0
+  ) return null;
+  return ((price - baselinePrice) / baselinePrice) * 100;
+}
+
+function directionSign(direction) {
+  if (direction === "down") return -1;
+  return 1;
+}
+
+function pathQuality(points, finalSample, dueAt, maxLiveSampleGapMs) {
+  let maxGapMs = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    maxGapMs = Math.max(maxGapMs, points[index].at - points[index - 1].at);
+  }
+  const finalSampleDelayMs = Math.max(0, finalSample.at - dueAt);
+  const continuous = maxGapMs <= maxLiveSampleGapMs;
+  return {
+    state: continuous ? DATA_QUALITY_STATES.LIVE : DATA_QUALITY_STATES.PARTIAL,
+    reason: continuous
+      ? "observed-live-price-path"
+      : "observed-with-price-path-gaps",
+    sampleCount: points.length,
+    firstSampleAt: points[0]?.at ?? null,
+    lastSampleAt: points.at(-1)?.at ?? null,
+    maxGapMs,
+    finalSampleDelayMs,
+    limitations: continuous ? [] : ["price-path-gap"],
+  };
+}
+
+function unavailablePathQuality(points, candidate, dueAt, reason) {
+  let maxGapMs = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    maxGapMs = Math.max(maxGapMs, points[index].at - points[index - 1].at);
+  }
+  return {
+    state: OBSERVATION_STATES.UNAVAILABLE,
+    reason,
+    sampleCount: points.length,
+    firstSampleAt: points[0]?.at ?? null,
+    lastSampleAt: points.at(-1)?.at ?? null,
+    maxGapMs,
+    finalSampleDelayMs: candidate ? Math.max(0, candidate.at - dueAt) : null,
+    limitations: ["horizon-price-unavailable"],
+  };
+}
+
+function firstPointAtOrAfter(points, timestamp) {
+  let low = 0;
+  let high = points.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (points[middle].at < timestamp) low = middle + 1;
+    else high = middle;
+  }
+  return points[low] ?? null;
+}
+
+function observePricePath({
+  observation,
+  event,
+  points,
+  finalSample,
+  observedAt,
+  maxLiveSampleGapMs,
+}) {
+  const included = points.filter((point) => (
+    point.at >= event.triggeredAt && point.at <= finalSample.at
+  ));
+  if (!included.length || included[0].at !== event.triggeredAt) {
+    included.unshift({
+      at: event.triggeredAt,
+      sourceAt: event.sourceEventAt,
+      price: event.price,
+    });
+  }
+
+  const sign = directionSign(event.direction);
+  let maximumRaw = 0;
+  let minimumRaw = 0;
+  let maximumDirectional = 0;
+  let minimumDirectional = 0;
+  let mfeAt = event.triggeredAt;
+  let maeAt = event.triggeredAt;
+
+  for (const point of included) {
+    const raw = percentFromBaseline(point.price, event.price);
+    if (raw === null) continue;
+    maximumRaw = Math.max(maximumRaw, raw);
+    minimumRaw = Math.min(minimumRaw, raw);
+    const directional = raw * sign;
+    if (directional > maximumDirectional) {
+      maximumDirectional = directional;
+      mfeAt = point.at;
+    }
+    if (directional < minimumDirectional) {
+      minimumDirectional = directional;
+      maeAt = point.at;
+    }
+  }
+
+  const returnPercent = percentFromBaseline(finalSample.price, event.price);
+  return deepFreeze({
+    ...observation,
+    state: OBSERVATION_STATES.OBSERVED,
+    observedAt,
+    finalPrice: finalSample.price,
+    finalPriceAt: finalSample.at,
+    returnPercent,
+    directionalReturnPercent: returnPercent === null ? null : returnPercent * sign,
+    maxAbovePercent: maximumRaw,
+    maxBelowPercent: minimumRaw,
+    mfePercent: maximumDirectional,
+    maePercent: minimumDirectional,
+    mfeAt,
+    maeAt,
+    effectDurationMs: Math.max(0, mfeAt - event.triggeredAt),
+    quality: pathQuality(
+      included,
+      finalSample,
+      observation.dueAt,
+      maxLiveSampleGapMs,
+    ),
+  });
+}
+
+function markObservationUnavailable({
+  observation,
+  points,
+  candidate,
+  observedAt,
+  reason,
+}) {
+  return deepFreeze({
+    ...observation,
+    state: OBSERVATION_STATES.UNAVAILABLE,
+    observedAt,
+    quality: unavailablePathQuality(points, candidate, observation.dueAt, reason),
+  });
 }
 
 function densityEpisodeSnapshot(record) {
@@ -438,14 +593,26 @@ export function createPendingSignalObservations({
       observedAt: null,
       baselinePrice: event.price,
       finalPrice: null,
+      finalPriceAt: null,
       returnPercent: null,
+      directionalReturnPercent: null,
+      maxAbovePercent: null,
+      maxBelowPercent: null,
       mfePercent: null,
       maePercent: null,
+      mfeAt: null,
+      maeAt: null,
       effectDurationMs: null,
-      definition: "return-from-event-price; MFE/MAE require observed price path",
+      definition: OBSERVATION_DEFINITION,
       quality: {
         state: OBSERVATION_STATES.PENDING,
         reason: "awaiting-horizon",
+        sampleCount: 1,
+        firstSampleAt: event.triggeredAt,
+        lastSampleAt: event.triggeredAt,
+        maxGapMs: 0,
+        finalSampleDelayMs: null,
+        limitations: [],
       },
     };
   }));
@@ -457,16 +624,29 @@ export class SignalMemoryTracker {
     maxEvents = DEFAULT_MAX_EVENTS,
     venue = "binance-usdm",
     formulaVersion = SIGNAL_FORMULA_VERSION,
+    finalSampleMaxDelayMs = DEFAULT_FINAL_SAMPLE_MAX_DELAY_MS,
+    maxLiveSampleGapMs = DEFAULT_MAX_LIVE_SAMPLE_GAP_MS,
   } = {}) {
     this.releaseAfterMs = Math.max(250, Number(releaseAfterMs) || DEFAULT_RELEASE_AFTER_MS);
     this.maxEvents = Math.max(1, Math.floor(Number(maxEvents) || DEFAULT_MAX_EVENTS));
     this.venue = safeText(venue, 40);
     this.formulaVersion = safeText(formulaVersion, 80);
+    this.finalSampleMaxDelayMs = Math.max(
+      250,
+      Number(finalSampleMaxDelayMs) || DEFAULT_FINAL_SAMPLE_MAX_DELAY_MS,
+    );
+    this.maxLiveSampleGapMs = Math.max(
+      250,
+      Number(maxLiveSampleGapMs) || DEFAULT_MAX_LIVE_SAMPLE_GAP_MS,
+    );
     this.sequence = 0;
     this.activeSignals = new Map();
     this.signalEvents = [];
     this.signalContexts = [];
     this.signalObservations = [];
+    this.eventsById = new Map();
+    this.pricePaths = new Map();
+    this.pendingEventIdsBySymbol = new Map();
   }
 
   #signalKey(symbol, signal, settingsFingerprint) {
@@ -489,6 +669,115 @@ export class SignalMemoryTracker {
     this.signalContexts = this.signalContexts.filter((context) => !removedIds.has(context.eventId));
     this.signalObservations = this.signalObservations
       .filter((observation) => !removedIds.has(observation.eventId));
+    for (const event of removed) {
+      this.eventsById.delete(event.id);
+      this.pricePaths.delete(event.id);
+      const eventIds = this.pendingEventIdsBySymbol.get(event.symbol);
+      eventIds?.delete(event.id);
+      if (eventIds && !eventIds.size) this.pendingEventIdsBySymbol.delete(event.symbol);
+    }
+  }
+
+  #registerPricePath(event) {
+    this.eventsById.set(event.id, event);
+    this.pricePaths.set(event.id, {
+      symbol: event.symbol,
+      points: [{
+        at: event.triggeredAt,
+        sourceAt: event.sourceEventAt,
+        price: event.price,
+      }],
+    });
+    const eventIds = this.pendingEventIdsBySymbol.get(event.symbol) ?? new Set();
+    eventIds.add(event.id);
+    this.pendingEventIdsBySymbol.set(event.symbol, eventIds);
+  }
+
+  #recordLivePriceSamples(liveRows, capturedAt) {
+    for (const { metricsItem, symbol } of liveRows) {
+      const eventIds = this.pendingEventIdsBySymbol.get(symbol);
+      if (!eventIds?.size) continue;
+      const price = finiteOrNull(metricsItem?.price);
+      const sourceAt = finiteOrNull(metricsItem?.updatedAt);
+      if (price === null || price <= 0 || sourceAt === null) continue;
+
+      for (const eventId of eventIds) {
+        const path = this.pricePaths.get(eventId);
+        const event = this.eventsById.get(eventId);
+        if (!path || !event || capturedAt < event.triggeredAt) continue;
+        const latest = path.points.at(-1);
+        if (
+          latest
+          && sourceAt !== null
+          && latest.sourceAt !== null
+          && sourceAt <= latest.sourceAt
+        ) continue;
+        path.points.push({ at: capturedAt, sourceAt, price });
+      }
+    }
+  }
+
+  #resolvePendingObservations(capturedAt) {
+    const resolved = [];
+    for (let index = 0; index < this.signalObservations.length; index += 1) {
+      const observation = this.signalObservations[index];
+      if (observation.state !== OBSERVATION_STATES.PENDING) continue;
+      if (capturedAt < observation.dueAt) continue;
+      const event = this.eventsById.get(observation.eventId);
+      const path = this.pricePaths.get(observation.eventId);
+      if (!event || !path) continue;
+
+      const candidate = firstPointAtOrAfter(path.points, observation.dueAt);
+      let next = null;
+      if (candidate) {
+        const delayMs = candidate.at - observation.dueAt;
+        next = delayMs <= this.finalSampleMaxDelayMs
+          ? observePricePath({
+            observation,
+            event,
+            points: path.points,
+            finalSample: candidate,
+            observedAt: capturedAt,
+            maxLiveSampleGapMs: this.maxLiveSampleGapMs,
+          })
+          : markObservationUnavailable({
+            observation,
+            points: path.points,
+            candidate,
+            observedAt: capturedAt,
+            reason: "first-future-price-missed-horizon-window",
+          });
+      } else if (capturedAt > observation.dueAt + this.finalSampleMaxDelayMs) {
+        next = markObservationUnavailable({
+          observation,
+          points: path.points,
+          candidate: null,
+          observedAt: capturedAt,
+          reason: "no-live-price-within-horizon-window",
+        });
+      }
+
+      if (!next) continue;
+      this.signalObservations[index] = next;
+      resolved.push(next);
+    }
+    if (resolved.length) this.#releaseCompletedPricePaths();
+    return resolved;
+  }
+
+  #releaseCompletedPricePaths() {
+    const pendingIds = new Set(
+      this.signalObservations
+        .filter((observation) => observation.state === OBSERVATION_STATES.PENDING)
+        .map((observation) => observation.eventId),
+    );
+    for (const [eventId, path] of this.pricePaths) {
+      if (pendingIds.has(eventId)) continue;
+      this.pricePaths.delete(eventId);
+      const eventIds = this.pendingEventIdsBySymbol.get(path.symbol);
+      eventIds?.delete(eventId);
+      if (eventIds && !eventIds.size) this.pendingEventIdsBySymbol.delete(path.symbol);
+    }
   }
 
   ingest({
@@ -539,10 +828,14 @@ export class SignalMemoryTracker {
       }
     }
 
+    this.#recordLivePriceSamples(liveRows, capturedAt);
+    const resolvedObservations = this.#resolvePendingObservations(capturedAt);
+
     const created = {
       events: [],
       contexts: [],
       observations: [],
+      resolvedObservations,
     };
 
     for (const [key, { metricsItem, signal, symbol }] of currentSignals) {
@@ -595,6 +888,7 @@ export class SignalMemoryTracker {
       this.signalEvents.push(event);
       this.signalContexts.push(context);
       this.signalObservations.push(...observations);
+      this.#registerPricePath(event);
       created.events.push(event);
       created.contexts.push(context);
       created.observations.push(...observations);
@@ -621,6 +915,12 @@ export class SignalMemoryTracker {
       observations: this.signalObservations.length,
       pendingObservations: this.signalObservations
         .filter((observation) => observation.state === OBSERVATION_STATES.PENDING)
+        .length,
+      observedObservations: this.signalObservations
+        .filter((observation) => observation.state === OBSERVATION_STATES.OBSERVED)
+        .length,
+      unavailableObservations: this.signalObservations
+        .filter((observation) => observation.state === OBSERVATION_STATES.UNAVAILABLE)
         .length,
       activeSignals: this.activeSignals.size,
       formulaVersion: this.formulaVersion,

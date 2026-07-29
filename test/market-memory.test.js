@@ -55,6 +55,10 @@ function eventFixture(now = 1_000) {
   });
 }
 
+function pricedMetrics(price, now, signals = []) {
+  return { ...metrics(now, signals), price };
+}
+
 test("SignalEvent is an immutable formula-versioned snapshot without future results", () => {
   const event = eventFixture();
 
@@ -169,6 +173,140 @@ test("SignalObservation starts pending at the exact 15s, 1m, 3m and 5m horizons"
   assert.ok(observations.every((item) => item.state === OBSERVATION_STATES.PENDING));
   assert.ok(observations.every((item) => item.finalPrice === null));
   assert.ok(observations.every((item) => item.mfePercent === null && item.maePercent === null));
+  assert.ok(observations.every((item) => item.version === 2));
+  assert.match(observations[0].definition, /MFE=max\(directional excursion,0\)/);
+});
+
+test("tracker fills the 15s observation from a continuous live price path", () => {
+  const tracker = new SignalMemoryTracker();
+  tracker.ingest({ metrics: [metrics(1_000)], now: 1_000 });
+  tracker.ingest({ metrics: [pricedMetrics(101, 4_000)], now: 4_000 });
+  tracker.ingest({ metrics: [pricedMetrics(99, 7_000)], now: 7_000 });
+  tracker.ingest({ metrics: [pricedMetrics(100.5, 10_000)], now: 10_000 });
+  tracker.ingest({ metrics: [pricedMetrics(101.5, 13_000)], now: 13_000 });
+  const result = tracker.ingest({
+    metrics: [pricedMetrics(102, 16_000)],
+    now: 16_000,
+  });
+
+  assert.equal(result.resolvedObservations.length, 1);
+  const observation = result.resolvedObservations[0];
+  assert.equal(observation.horizon, "15s");
+  assert.equal(observation.state, OBSERVATION_STATES.OBSERVED);
+  assert.equal(observation.finalPrice, 102);
+  assert.equal(observation.finalPriceAt, 16_000);
+  assert.equal(observation.returnPercent, 2);
+  assert.equal(observation.directionalReturnPercent, 2);
+  assert.equal(observation.maxAbovePercent, 2);
+  assert.equal(observation.maxBelowPercent, -1);
+  assert.equal(observation.mfePercent, 2);
+  assert.equal(observation.maePercent, -1);
+  assert.equal(observation.mfeAt, 16_000);
+  assert.equal(observation.maeAt, 7_000);
+  assert.equal(observation.effectDurationMs, 15_000);
+  assert.equal(observation.quality.state, DATA_QUALITY_STATES.LIVE);
+  assert.equal(observation.quality.sampleCount, 6);
+  assert.equal(observation.quality.maxGapMs, 3_000);
+  assert.equal(observation.quality.finalSampleDelayMs, 0);
+});
+
+test("an observed result is partial when the price path has a material gap", () => {
+  const tracker = new SignalMemoryTracker();
+  tracker.ingest({ metrics: [metrics(1_000)], now: 1_000 });
+  const result = tracker.ingest({
+    metrics: [pricedMetrics(102, 16_000)],
+    now: 16_000,
+  });
+
+  const observation = result.resolvedObservations[0];
+  assert.equal(observation.state, OBSERVATION_STATES.OBSERVED);
+  assert.equal(observation.quality.state, DATA_QUALITY_STATES.PARTIAL);
+  assert.equal(observation.quality.reason, "observed-with-price-path-gaps");
+  assert.equal(observation.quality.maxGapMs, 15_000);
+  assert.deepEqual(observation.quality.limitations, ["price-path-gap"]);
+});
+
+test("MFE and MAE follow the signal direction while return stays market-signed", () => {
+  const tracker = new SignalMemoryTracker();
+  const downSignal = [{
+    type: "knife",
+    label: "НОЖ",
+    direction: "down",
+    reason: "-0.80% за 15с",
+    priority: 90,
+  }];
+  tracker.ingest({
+    metrics: [pricedMetrics(100, 1_000, downSignal)],
+    now: 1_000,
+  });
+  tracker.ingest({ metrics: [pricedMetrics(102, 6_000)], now: 6_000 });
+  tracker.ingest({ metrics: [pricedMetrics(99, 11_000)], now: 11_000 });
+  const result = tracker.ingest({
+    metrics: [pricedMetrics(97, 16_000)],
+    now: 16_000,
+  });
+
+  const observation = result.resolvedObservations[0];
+  assert.equal(observation.returnPercent, -3);
+  assert.equal(observation.directionalReturnPercent, 3);
+  assert.equal(observation.maxAbovePercent, 2);
+  assert.equal(observation.maxBelowPercent, -3);
+  assert.equal(observation.mfePercent, 3);
+  assert.equal(observation.maePercent, -2);
+  assert.equal(observation.mfeAt, 16_000);
+  assert.equal(observation.maeAt, 6_000);
+});
+
+test("a missed horizon after a browser pause is unavailable instead of backfilled", () => {
+  const tracker = new SignalMemoryTracker({ finalSampleMaxDelayMs: 5_000 });
+  tracker.ingest({ metrics: [metrics(1_000)], now: 1_000 });
+  const afterPause = tracker.ingest({
+    metrics: [pricedMetrics(110, 30_000)],
+    now: 30_000,
+  });
+
+  assert.equal(afterPause.resolvedObservations.length, 1);
+  const observation = afterPause.resolvedObservations[0];
+  assert.equal(observation.horizon, "15s");
+  assert.equal(observation.state, OBSERVATION_STATES.UNAVAILABLE);
+  assert.equal(observation.finalPrice, null);
+  assert.equal(observation.returnPercent, null);
+  assert.equal(
+    observation.quality.reason,
+    "first-future-price-missed-horizon-window",
+  );
+  assert.equal(observation.quality.finalSampleDelayMs, 14_000);
+  assert.deepEqual(observation.quality.limitations, ["horizon-price-unavailable"]);
+});
+
+test("the price path stays alive until later horizons resolve", () => {
+  const tracker = new SignalMemoryTracker({ maxLiveSampleGapMs: 20_000 });
+  tracker.ingest({ metrics: [metrics(1_000)], now: 1_000 });
+  const first = tracker.ingest({
+    metrics: [pricedMetrics(101, 16_000)],
+    now: 16_000,
+  });
+  tracker.ingest({ metrics: [pricedMetrics(102, 31_000)], now: 31_000 });
+  tracker.ingest({ metrics: [pricedMetrics(103, 46_000)], now: 46_000 });
+  const second = tracker.ingest({
+    metrics: [pricedMetrics(104, 61_000)],
+    now: 61_000,
+  });
+
+  assert.deepEqual(first.resolvedObservations.map((item) => item.horizon), ["15s"]);
+  assert.deepEqual(second.resolvedObservations.map((item) => item.horizon), ["1m"]);
+  assert.equal(second.resolvedObservations[0].mfePercent, 4);
+  assert.deepEqual(tracker.summary(), {
+    schemaVersion: 1,
+    events: 1,
+    contexts: 1,
+    observations: 4,
+    pendingObservations: 2,
+    observedObservations: 2,
+    unavailableObservations: 0,
+    activeSignals: 0,
+    formulaVersion: SIGNAL_FORMULA_VERSION,
+  });
 });
 
 test("tracker emits once for a continuous signal and rearms only after a real absence", () => {
@@ -194,6 +332,8 @@ test("tracker emits once for a continuous signal and rearms only after a real ab
     contexts: 2,
     observations: 8,
     pendingObservations: 8,
+    observedObservations: 0,
+    unavailableObservations: 0,
     activeSignals: 1,
     formulaVersion: SIGNAL_FORMULA_VERSION,
   });
@@ -249,6 +389,7 @@ test("browser runtime captures the contract and ships it in the atomic app shell
   assert.match(app, /SignalMemoryTracker/);
   assert.match(app, /updateSignalMemory\(metrics, now\)/);
   assert.match(app, /contextForSymbol: latestOrderBookForSignalMemory/);
-  assert.match(serviceWorker, /market-memory\.js\?v=signal-memory-contract-v1/);
-  assert.match(version, /signal-memory-contract-v1/);
+  assert.match(app, /market-memory\.signal-observations/);
+  assert.match(serviceWorker, /market-memory\.js\?v=signal-observation-engine-v1/);
+  assert.match(version, /signal-observation-engine-v1/);
 });
