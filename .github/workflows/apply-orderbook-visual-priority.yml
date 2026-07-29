@@ -1,0 +1,481 @@
+name: Apply orderbook visual priority
+
+on:
+  push:
+    branches:
+      - agent/orderbook-visual-priority-v1
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply visual priority changes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          OLD = "26-42-orderbook-scroll-theme-v1"
+          NEW = "26-43-orderbook-visual-priority-v1"
+
+          def replace_once(path, old, new, label):
+              source = path.read_text(encoding="utf-8")
+              count = source.count(old)
+              if count != 1:
+                  raise RuntimeError(f"Expected one {label} in {path}, got {count}")
+              path.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+          # app.js: three anomaly tiers based on the existing threshold.
+          app = Path("app.js")
+          replace_once(
+              app,
+              "function patchBookLadderRows(body, rows, middle, maxSize, anomalyThreshold, baseTick) {",
+              '''function anomalyTierForQuote(quote, threshold) {
+            const amount = Math.max(0, Number(quote) || 0);
+            const base = Math.max(1, Number(threshold) || 1);
+            if (amount < base) return 0;
+            if (amount >= base * 3.5) return 3;
+            if (amount >= base * 2) return 2;
+            return 1;
+          }
+
+          function patchBookLadderRows(body, rows, middle, maxSize, anomalyThreshold, baseTick) {''',
+              "ladder anomaly helper",
+          )
+          replace_once(
+              app,
+              '''    const anomalous = source.quote >= anomalyThreshold && source.quote > 0;
+              const className = [
+                "book-ladder-row",
+                `is-${side}`,
+                anomalous ? "is-anomaly" : "",
+                source.isMarket ? "is-market" : "",
+                source.isRound ? "is-price-round" : "",
+                source.isHalfRound ? "is-price-half" : "",
+              ].filter(Boolean).join(" ");''',
+              '''    const anomalyTier = anomalyTierForQuote(source.quote, anomalyThreshold);
+              const className = [
+                "book-ladder-row",
+                `is-${side}`,
+                anomalyTier ? "is-anomaly" : "",
+                anomalyTier ? `is-anomaly-tier-${anomalyTier}` : "",
+                source.isMarket ? "is-market" : "",
+                source.isRound ? "is-price-round" : "",
+                source.isHalfRound ? "is-price-half" : "",
+              ].filter(Boolean).join(" ");''',
+              "ladder anomaly classes",
+          )
+
+          # orderbook.js: late CSS override, independent from duplicate selectors.
+          orderbook = Path("orderbook.js")
+          orderbook_text = orderbook.read_text(encoding="utf-8")
+          visual_styles = r'''
+
+          function installOrderbookVisualPriorityStyles() {
+            if (typeof document === "undefined" || document.getElementById("inpuls-orderbook-visual-priority-v1")) return;
+            const style = document.createElement("style");
+            style.id = "inpuls-orderbook-visual-priority-v1";
+            style.textContent = `
+              .orderbook-card .book-ladder-row {
+                grid-template-columns: minmax(0, 1fr) minmax(76px, var(--book-price-width, 8.8ch)) !important;
+                column-gap: 0 !important;
+                align-items: stretch !important;
+                position: relative;
+              }
+              .orderbook-card .book-ladder-row strong {
+                width: 100% !important;
+                min-width: 0 !important;
+                overflow: hidden !important;
+                padding: 0 8px 0 4px !important;
+                border-left: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+                justify-self: stretch !important;
+                justify-content: flex-end !important;
+                text-align: right !important;
+                white-space: nowrap;
+                box-sizing: border-box;
+              }
+              .orderbook-card .book-ladder-row .book-size::before,
+              .orderbook-card .book-ladder-row.is-bid .book-size::before,
+              .orderbook-card .book-ladder-row.is-ask .book-size::before {
+                background: linear-gradient(90deg, rgba(232, 237, 240, .88), rgba(151, 161, 169, .48)) !important;
+                opacity: .84 !important;
+              }
+              .orderbook-card .book-ladder-row.is-market {
+                z-index: 5;
+                background: linear-gradient(90deg, rgba(83, 222, 255, .07), rgba(149, 101, 255, .17)) !important;
+                box-shadow: inset 0 1px rgba(118, 232, 255, .36), inset 0 -1px rgba(174, 129, 255, .32);
+              }
+              .orderbook-card .book-ladder-row.is-market strong {
+                width: calc(100% - 4px) !important;
+                margin-right: 4px;
+                padding-right: 9px !important;
+                border: 1px solid rgba(113, 228, 255, .72) !important;
+                border-right: 3px solid #66e4ff !important;
+                border-radius: 3px 0 0 3px;
+                color: #fff !important;
+                background: linear-gradient(90deg, rgba(91, 73, 157, .72), rgba(22, 119, 148, .86)) !important;
+                box-shadow: 0 0 9px rgba(88, 220, 255, .32), inset 0 0 0 1px rgba(255, 255, 255, .08);
+                text-shadow: 0 1px 2px rgba(0, 0, 0, .9);
+                font-weight: 950 !important;
+              }
+              .orderbook-card .book-ladder-row.is-anomaly .book-size,
+              .orderbook-card .book-ladder-row.is-market .book-size {
+                color: #071014 !important;
+                text-shadow: none !important;
+                font-weight: 950 !important;
+              }
+              .orderbook-card .book-ladder-row.is-anomaly .book-size::before {
+                opacity: .98 !important;
+              }
+              .orderbook-card .book-ladder-row.is-anomaly-tier-1 .book-size::before {
+                background: linear-gradient(90deg, #82e4ff, #3ab6e8) !important;
+                box-shadow: inset 2px 0 #e3faff, 0 0 5px rgba(72, 196, 239, .34);
+              }
+              .orderbook-card .book-ladder-row.is-anomaly-tier-2 .book-size::before {
+                background: linear-gradient(90deg, #d0a8ff, #8c5df3) !important;
+                box-shadow: inset 3px 0 #f0e2ff, 0 0 8px rgba(157, 105, 255, .5);
+              }
+              .orderbook-card .book-ladder-row.is-anomaly-tier-3 .book-size::before {
+                background: linear-gradient(90deg, #fff49c, #ffb43f 64%, #ff685d) !important;
+                box-shadow: inset 4px 0 #fffbd7, 0 0 11px rgba(255, 177, 65, .68);
+              }
+              .orderbook-card .book-ladder-row.is-anomaly-tier-2,
+              .orderbook-card .book-ladder-row.is-anomaly-tier-3 {
+                box-shadow: inset 0 1px rgba(255, 255, 255, .13), inset 0 -1px rgba(255, 255, 255, .09);
+              }
+            `;
+            document.head.append(style);
+          }
+
+          if (typeof document !== "undefined") {
+            if (document.readyState === "loading") {
+              document.addEventListener("DOMContentLoaded", installOrderbookVisualPriorityStyles, { once: true });
+            } else {
+              installOrderbookVisualPriorityStyles();
+            }
+          }
+          '''
+          if "inpuls-orderbook-visual-priority-v1" in orderbook_text:
+              raise RuntimeError("Visual priority styles already exist")
+          orderbook.write_text(orderbook_text.rstrip() + visual_styles + "\n", encoding="utf-8")
+
+          # orderbook-flow-workspace.js: classic split footprint cells + candle.
+          flow = Path("orderbook-flow-workspace.js")
+          replace_once(
+              flow,
+              '''export function footprintTone(cell) {
+            const buy = Math.max(0, Number(cell?.buyQuote) || 0);
+            const sell = Math.max(0, Number(cell?.sellQuote) || 0);
+            const total = Math.max(1, buy + sell);
+            return clamp((buy - sell) / total, -1, 1);
+          }''',
+              '''export function footprintTone(cell) {
+            const buy = Math.max(0, Number(cell?.buyQuote) || 0);
+            const sell = Math.max(0, Number(cell?.sellQuote) || 0);
+            const total = Math.max(1, buy + sell);
+            return clamp((buy - sell) / total, -1, 1);
+          }
+
+          export function footprintCellIntensity(value, maximum) {
+            const amount = Math.max(0, Number(value) || 0);
+            const peak = Math.max(1, Number(maximum) || 1);
+            return clamp(Math.sqrt(amount / peak), 0, 1);
+          }''',
+              "footprint intensity helper",
+          )
+          replace_once(
+              flow,
+              '''  const bucket = accumulator.minutes.get(startTime) ?? {
+            startTime,
+            endTime: startTime + FOOTPRINT_MINUTE_MS,
+            count: 0,
+            quote: 0,
+            cells: new Map(),
+          };''',
+              '''  const bucket = accumulator.minutes.get(startTime) ?? {
+            startTime,
+            endTime: startTime + FOOTPRINT_MINUTE_MS,
+            count: 0,
+            quote: 0,
+            firstTradeTime: Infinity,
+            lastTradeTime: -Infinity,
+            openPrice: null,
+            closePrice: null,
+            highPrice: null,
+            lowPrice: null,
+            cells: new Map(),
+          };''',
+              "minute OHLC fields",
+          )
+          replace_once(
+              flow,
+              '''    bucket.cells.set(priceKey, cell);
+              bucket.quote += trade.quote;
+              bucket.count += 1;''',
+              '''    bucket.cells.set(priceKey, cell);
+              bucket.quote += trade.quote;
+              bucket.count += 1;
+              if (trade.time < bucket.firstTradeTime) {
+                bucket.firstTradeTime = trade.time;
+                bucket.openPrice = trade.price;
+              }
+              if (trade.time >= bucket.lastTradeTime) {
+                bucket.lastTradeTime = trade.time;
+                bucket.closePrice = trade.price;
+              }
+              bucket.highPrice = bucket.highPrice === null
+                ? trade.price
+                : Math.max(bucket.highPrice, trade.price);
+              bucket.lowPrice = bucket.lowPrice === null
+                ? trade.price
+                : Math.min(bucket.lowPrice, trade.price);''',
+              "minute OHLC ingest",
+          )
+          replace_once(
+              flow,
+              '''  const cells = new Map();
+            let count = 0;
+            let quote = 0;
+
+            for (const bucket of accumulator?.minutes?.values?.() ?? []) {''',
+              '''  const cells = new Map();
+            let count = 0;
+            let quote = 0;
+            let firstTradeTime = Infinity;
+            let lastTradeTime = -Infinity;
+            let openPrice = null;
+            let closePrice = null;
+            let highPrice = null;
+            let lowPrice = null;
+
+            for (const bucket of accumulator?.minutes?.values?.() ?? []) {''',
+              "snapshot OHLC variables",
+          )
+          replace_once(
+              flow,
+              '''    count += bucket.count;
+              quote += bucket.quote;
+              for (const source of bucket.cells.values()) {''',
+              '''    count += bucket.count;
+              quote += bucket.quote;
+              if (Number.isFinite(bucket.firstTradeTime) && bucket.firstTradeTime < firstTradeTime) {
+                firstTradeTime = bucket.firstTradeTime;
+                openPrice = bucket.openPrice;
+              }
+              if (Number.isFinite(bucket.lastTradeTime) && bucket.lastTradeTime >= lastTradeTime) {
+                lastTradeTime = bucket.lastTradeTime;
+                closePrice = bucket.closePrice;
+              }
+              if (Number.isFinite(bucket.highPrice)) {
+                highPrice = highPrice === null ? bucket.highPrice : Math.max(highPrice, bucket.highPrice);
+              }
+              if (Number.isFinite(bucket.lowPrice)) {
+                lowPrice = lowPrice === null ? bucket.lowPrice : Math.min(lowPrice, bucket.lowPrice);
+              }
+              for (const source of bucket.cells.values()) {''',
+              "snapshot OHLC merge",
+          )
+          replace_once(
+              flow,
+              '''    partial: Number(now) < endTime,
+              count,
+              quote,
+              cells: [...cells.values()].sort((left, right) => right.price - left.price),''',
+              '''    partial: Number(now) < endTime,
+              count,
+              quote,
+              openPrice,
+              closePrice,
+              highPrice,
+              lowPrice,
+              cells: [...cells.values()].sort((left, right) => right.price - left.price),''',
+              "snapshot OHLC return",
+          )
+
+          old_render = '''      for (const cluster of clusters) {
+                const sellLabel = formatUsd(cluster.sellQuote);
+                const buyLabel = formatUsd(cluster.buyQuote);
+                const sellLabelWidth = state.context.measureText(sellLabel).width;
+                const buyLabelWidth = state.context.measureText(buyLabel).width;
+                const sellLabelLeft = centerX - 3 - sellLabelWidth;
+                const buyLabelRight = centerX + 3 + buyLabelWidth;
+                const maximumSellWidth = Math.max(0, sellLabelLeft - columnLeft - 2);
+                const maximumBuyWidth = Math.max(0, columnRight - buyLabelRight - 2);
+                const sellWidth = Math.sqrt(cluster.sellQuote / maximumSide) * maximumSellWidth;
+                const buyWidth = Math.sqrt(cluster.buyQuote / maximumSide) * maximumBuyWidth;
+                const cellHeight = Math.max(2, Math.min(cluster.row.height * .84, 13));
+
+                if (sellWidth > 0) {
+                  state.context.fillStyle = "rgba(225, 73, 91, .42)";
+                  state.context.fillRect(
+                    sellLabelLeft - sellWidth,
+                    cluster.row.y - cellHeight / 2,
+                    sellWidth,
+                    cellHeight,
+                  );
+                }
+                if (buyWidth > 0) {
+                  state.context.fillStyle = "rgba(39, 192, 137, .42)";
+                  state.context.fillRect(
+                    buyLabelRight,
+                    cluster.row.y - cellHeight / 2,
+                    buyWidth,
+                    cellHeight,
+                  );
+                }
+
+                state.context.textAlign = "right";
+                state.context.fillStyle = "rgba(255, 128, 142, .98)";
+                state.context.fillText(sellLabel, centerX - 3, cluster.row.y);
+                state.context.textAlign = "left";
+                state.context.fillStyle = "rgba(93, 225, 181, .98)";
+                state.context.fillText(buyLabel, centerX + 3, cluster.row.y);
+              }
+
+              state.context.strokeStyle = "rgba(133, 151, 160, .24)";
+              state.context.lineWidth = .7;
+              state.context.beginPath();
+              state.context.moveTo(centerX, 0);
+              state.context.lineTo(centerX, height);
+              state.context.stroke();'''
+
+          new_render = '''      for (const cluster of clusters) {
+                const sellLabel = cluster.sellQuote > 0 ? formatUsd(cluster.sellQuote) : "";
+                const buyLabel = cluster.buyQuote > 0 ? formatUsd(cluster.buyQuote) : "";
+                const sellStrength = footprintCellIntensity(cluster.sellQuote, maximumSide);
+                const buyStrength = footprintCellIntensity(cluster.buyQuote, maximumSide);
+                const cellHeight = Math.max(3, Math.min(cluster.row.height * .92, 14));
+                const cellTop = cluster.row.y - cellHeight / 2;
+                const halfWidth = Math.max(1, columnWidth / 2 - 1.5);
+
+                state.context.fillStyle = `rgba(226, 58, 78, ${.08 + sellStrength * .82})`;
+                state.context.fillRect(columnLeft + 1, cellTop, halfWidth, cellHeight);
+                state.context.fillStyle = `rgba(71, 210, 39, ${.08 + buyStrength * .82})`;
+                state.context.fillRect(centerX + .5, cellTop, halfWidth, cellHeight);
+
+                state.context.strokeStyle = "rgba(225, 233, 238, .18)";
+                state.context.lineWidth = .5;
+                state.context.strokeRect(columnLeft + 1, cellTop, Math.max(1, columnWidth - 2), cellHeight);
+
+                state.context.textAlign = "center";
+                state.context.fillStyle = sellStrength > .52 ? "rgba(255,255,255,.98)" : "rgba(255,174,183,.98)";
+                state.context.fillText(sellLabel, columnLeft + columnWidth * .25, cluster.row.y);
+                state.context.fillStyle = buyStrength > .52 ? "rgba(255,255,255,.98)" : "rgba(154,246,132,.98)";
+                state.context.fillText(buyLabel, columnLeft + columnWidth * .75, cluster.row.y);
+              }
+
+              const highRow = nearestRow(rows, interval.highPrice);
+              const lowRow = nearestRow(rows, interval.lowPrice);
+              const openRow = nearestRow(rows, interval.openPrice);
+              const closeRow = nearestRow(rows, interval.closePrice);
+              if (highRow && lowRow && openRow && closeRow) {
+                const rising = Number(interval.closePrice) >= Number(interval.openPrice);
+                state.context.strokeStyle = rising ? "rgba(122, 255, 74, .98)" : "rgba(255, 68, 83, .98)";
+                state.context.fillStyle = rising ? "rgba(79, 224, 50, .94)" : "rgba(239, 54, 72, .94)";
+                state.context.lineWidth = 1;
+                state.context.beginPath();
+                state.context.moveTo(centerX, highRow.y);
+                state.context.lineTo(centerX, lowRow.y);
+                state.context.stroke();
+                const bodyTop = Math.min(openRow.y, closeRow.y);
+                const bodyHeight = Math.max(2, Math.abs(closeRow.y - openRow.y));
+                state.context.fillRect(centerX - 2, bodyTop, 4, bodyHeight);
+                state.context.strokeRect(centerX - 2, bodyTop, 4, bodyHeight);
+              }
+
+              state.context.strokeStyle = "rgba(222, 231, 236, .28)";
+              state.context.lineWidth = .65;
+              state.context.beginPath();
+              state.context.moveTo(centerX, 0);
+              state.context.lineTo(centerX, height);
+              state.context.stroke();'''
+          replace_once(flow, old_render, new_render, "footprint render block")
+
+          # Runtime/cache consistency.
+          for path in [Path("index.html"), Path("app.js"), Path("orderbook.js"), Path("sw.js"), Path("reset-v26.html")]:
+              text = path.read_text(encoding="utf-8")
+              if OLD not in text:
+                  raise RuntimeError(f"Old build token missing in {path}")
+              path.write_text(text.replace(OLD, NEW), encoding="utf-8")
+
+          for path in Path(".").glob("test-orderbook-*.mjs"):
+              text = path.read_text(encoding="utf-8")
+              path.write_text(text.replace(OLD, NEW), encoding="utf-8")
+
+          test_source = r'''import assert from "node:assert/strict";
+          import { readFileSync } from "node:fs";
+          import test from "node:test";
+
+          const app = readFileSync(new URL("./app.js", import.meta.url), "utf8");
+          const orderbook = readFileSync(new URL("./orderbook.js", import.meta.url), "utf8");
+          const flow = readFileSync(new URL("./orderbook-flow-workspace.js", import.meta.url), "utf8");
+          const index = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+          const sw = readFileSync(new URL("./sw.js", import.meta.url), "utf8");
+
+          test("current price has protected right spacing and a dedicated marker", () => {
+            assert.match(orderbook, /minmax\(76px, var\(--book-price-width, 8\.8ch\)\)/);
+            assert.match(orderbook, /\.book-ladder-row\.is-market strong[\s\S]*margin-right: 4px/);
+            assert.match(orderbook, /border-right: 3px solid #66e4ff/);
+            assert.match(orderbook, /justify-content: flex-end/);
+          });
+
+          test("ordinary sizes are neutral and anomalies have three tiers", () => {
+            assert.match(orderbook, /rgba\(232, 237, 240, \.88\)/);
+            assert.match(app, /function anomalyTierForQuote\(quote, threshold\)/);
+            assert.match(app, /is-anomaly-tier-\$\{anomalyTier\}/);
+            assert.match(orderbook, /is-anomaly-tier-1/);
+            assert.match(orderbook, /is-anomaly-tier-2/);
+            assert.match(orderbook, /is-anomaly-tier-3/);
+          });
+
+          test("footprint uses split rectangular cells and interval candles", () => {
+            assert.match(flow, /export function footprintCellIntensity/);
+            assert.match(flow, /columnWidth \* \.25/);
+            assert.match(flow, /columnWidth \* \.75/);
+            assert.match(flow, /const highRow = nearestRow\(rows, interval\.highPrice\)/);
+            assert.match(flow, /const rising = Number\(interval\.closePrice\) >= Number\(interval\.openPrice\)/);
+          });
+
+          test("visual priority ships one consistent runtime", () => {
+            assert.match(index, /26-43-orderbook-visual-priority-v1/);
+            assert.match(app, /orderbook\.js\?v=26-43-orderbook-visual-priority-v1/);
+            assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-43-orderbook-visual-priority-v1/);
+            assert.match(sw, /26-43-orderbook-visual-priority-v1/);
+          });
+          '''
+          Path("test-orderbook-visual-priority.mjs").write_text(test_source, encoding="utf-8")
+          Path("visual-priority-diagnostics.txt").unlink(missing_ok=True)
+          Path(".github/workflows/apply-orderbook-visual-priority.yml").unlink(missing_ok=True)
+          PY
+
+      - name: Validate JavaScript
+        run: |
+          node --input-type=module --check < app.js
+          node --input-type=module --check < orderbook.js
+          node --check orderbook-flow-workspace.js
+          node --check sw.js
+          node --check test-orderbook-visual-priority.mjs
+
+      - name: Run orderbook tests
+        run: node --test test-orderbook-*.mjs
+
+      - name: Commit visual priority
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No generated changes"
+            exit 1
+          fi
+          git commit -m "Improve orderbook visual priority"
+          git push
