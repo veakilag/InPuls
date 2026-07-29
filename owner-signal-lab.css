@@ -217,6 +217,7 @@ main {
 }
 
 .owner-controls {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -265,6 +266,27 @@ main {
   gap: 5px;
 }
 
+.advanced-filters {
+  width: 100%;
+  border-top: 1px solid rgba(142, 155, 167, .12);
+  padding-top: 10px;
+}
+
+.advanced-filters summary {
+  width: max-content;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.advanced-filters > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
 .owner-controls label span {
   color: var(--muted);
   font-size: 10px;
@@ -296,6 +318,38 @@ main {
   color: var(--violet);
 }
 
+.view-tabs {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.view-tabs button {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(17, 22, 29, .72);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.view-tabs button span {
+  color: var(--green);
+}
+
+.view-tabs button.is-active {
+  border-color: rgba(66, 217, 177, .42);
+  color: var(--text);
+  background: rgba(66, 217, 177, .11);
+  box-shadow: inset 0 0 0 1px rgba(66, 217, 177, .05);
+}
+
 .owner-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -314,6 +368,11 @@ main {
   background: linear-gradient(145deg, rgba(23, 30, 39, .96), rgba(14, 19, 26, .96));
 }
 
+.owner-summary article.summary-primary {
+  border-color: rgba(66, 217, 177, .32);
+  background: linear-gradient(145deg, rgba(27, 61, 57, .72), rgba(14, 25, 28, .96));
+}
+
 .owner-summary span,
 .owner-summary small {
   color: var(--muted);
@@ -323,6 +382,13 @@ main {
 .owner-summary strong {
   font-size: 29px;
   letter-spacing: -.03em;
+}
+
+#summary-best {
+  overflow: hidden;
+  font-size: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .owner-table-card {
@@ -352,45 +418,144 @@ main {
   font-size: 11px;
 }
 
-.owner-table-wrap {
-  overflow-x: auto;
+.owner-results {
+  padding: 14px;
 }
 
-table {
-  width: 100%;
-  min-width: 1120px;
-  border-collapse: collapse;
+.pattern-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.pattern-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: linear-gradient(145deg, rgba(20, 27, 35, .98), rgba(13, 18, 24, .98));
+  transition: border-color .15s ease, transform .15s ease;
+}
+
+.pattern-card:hover {
+  border-color: rgba(101, 183, 255, .32);
+  transform: translateY(-1px);
+}
+
+.pattern-card > header {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(38, 49, 61, .68);
+}
+
+.pattern-card > header > div {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.pattern-card > header strong {
+  font-size: 18px;
+  letter-spacing: -.02em;
+}
+
+.pattern-card > header > div span {
+  color: var(--muted);
   font-size: 12px;
 }
 
-th,
-td {
-  height: 44px;
-  padding: 0 12px;
-  border-bottom: 1px solid rgba(38, 49, 61, .72);
-  text-align: left;
+.direction-badge {
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--blue);
+  background: rgba(101, 183, 255, .08);
+  font-size: 10px;
+  font-weight: 800;
   white-space: nowrap;
 }
 
-th {
-  position: sticky;
-  z-index: 1;
-  top: 0;
+.pattern-metrics {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr 1fr;
+}
+
+.pattern-metrics > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 14px;
+  border-right: 1px solid rgba(38, 49, 61, .55);
+}
+
+.pattern-metrics > div:last-child {
+  border-right: 0;
+}
+
+.pattern-metrics span,
+.pattern-metrics small {
+  overflow: hidden;
   color: var(--muted);
-  background: #11171e;
   font-size: 10px;
-  letter-spacing: .05em;
-  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-td.number,
-th.number {
-  text-align: right;
+.pattern-metrics strong {
+  font-size: 20px;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -.025em;
 }
 
-tbody tr:hover {
-  background: rgba(101, 183, 255, .045);
+.pattern-metrics strong i {
+  font-style: normal;
+}
+
+.pattern-metrics strong b {
+  color: var(--line);
+  font-weight: 400;
+}
+
+.pattern-metrics .target-metric strong {
+  color: var(--green);
+  font-size: 25px;
+}
+
+.pattern-card > footer {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(38, 49, 61, .55);
+}
+
+.pattern-card details {
+  position: relative;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pattern-card details summary {
+  cursor: pointer;
+}
+
+.pattern-card details p {
+  position: absolute;
+  z-index: 2;
+  bottom: 24px;
+  left: -8px;
+  width: 290px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: #0b1016;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .35);
+  line-height: 1.5;
 }
 
 .metric-positive {
@@ -419,14 +584,11 @@ tbody tr:hover {
   color: var(--green);
 }
 
-.owner-table-card td:last-child {
-  text-align: right;
-}
-
-.owner-table-card td:last-child a {
+.pattern-card > footer > a {
   display: inline-flex;
   min-height: 30px;
   align-items: center;
+  margin-left: auto;
   padding: 0 10px;
 }
 
@@ -481,6 +643,10 @@ tbody tr:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .pattern-grid {
+    grid-template-columns: 1fr;
+  }
+
   .refresh-button {
     margin-left: 0;
   }
@@ -510,7 +676,33 @@ tbody tr:hover {
     width: 100%;
   }
 
+  .owner-controls .window-tabs {
+    order: 1;
+  }
+
+  .owner-controls > label {
+    order: 2;
+  }
+
+  .owner-controls .refresh-button {
+    order: 3;
+  }
+
+  .owner-controls .advanced-filters {
+    order: 4;
+  }
+
   .owner-summary {
     grid-template-columns: 1fr;
+  }
+
+  .pattern-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .pattern-metrics .target-metric {
+    grid-column: 1 / -1;
+    border-right: 0;
+    border-bottom: 1px solid rgba(38, 49, 61, .55);
   }
 }
