@@ -88,36 +88,48 @@ function reconnectDelay(attempt = 0) {
   return exponential + jitter;
 }
 
-function bookQuoteScale(bids, asks, sampleLimit = 1_024) {
-  const sides = [bids ?? [], asks ?? []];
-  const totalLevels = sides.reduce((total, levels) => (
-    total + (Number.isFinite(levels?.size) ? levels.size : (Number(levels?.length) || 0))
-  ), 0);
+function bookSideQuoteScale(levels, sampleLimit = 1_024) {
+  const totalLevels = Number.isFinite(levels?.size)
+    ? levels.size
+    : (Number(levels?.length) || 0);
   const limit = Math.max(32, Math.floor(Number(sampleLimit) || 1_024));
   const sampleStride = Math.max(1, Math.ceil(totalLevels / limit));
   const sample = [];
   let maximum = 1;
   let validIndex = 0;
-  for (const levels of sides) {
-    for (const [priceValue, quantityValue] of levels ?? []) {
-      const quote = Number(priceValue) * Number(quantityValue);
-      if (!Number.isFinite(quote) || quote <= 0) continue;
-      if (quote > maximum) maximum = quote;
-      if (validIndex % sampleStride === 0) sample.push(quote);
-      validIndex += 1;
-    }
+  for (const [priceValue, quantityValue] of levels ?? []) {
+    const quote = Number(priceValue) * Number(quantityValue);
+    if (!Number.isFinite(quote) || quote <= 0) continue;
+    if (quote > maximum) maximum = quote;
+    if (validIndex % sampleStride === 0) sample.push(quote);
+    validIndex += 1;
   }
   sample.sort((left, right) => left - right);
   const quantile = (ratio) => sample.length
     ? sample[Math.min(sample.length - 1, Math.floor((sample.length - 1) * ratio))]
     : 0;
   const median = quantile(.5);
-  const upper = quantile(.9);
+  const upper = quantile(.95);
+  const extreme = quantile(.99);
   return {
     maximum,
-    anomalyThreshold: Math.max(1, median * 4, upper),
+    anomalyThreshold: Math.max(1, median * 6, upper * 1.35, extreme),
     sampledLevels: sample.length,
     totalLevels: validIndex,
+  };
+}
+
+function bookQuoteScale(bids, asks, sampleLimit = 2_048) {
+  const sideLimit = Math.max(32, Math.floor((Number(sampleLimit) || 2_048) / 2));
+  const bid = bookSideQuoteScale(bids ?? [], sideLimit);
+  const ask = bookSideQuoteScale(asks ?? [], sideLimit);
+  return {
+    maximum: Math.max(bid.maximum, ask.maximum),
+    anomalyThreshold: Math.max(bid.anomalyThreshold, ask.anomalyThreshold),
+    bidAnomalyThreshold: bid.anomalyThreshold,
+    askAnomalyThreshold: ask.anomalyThreshold,
+    sampledLevels: bid.sampledLevels + ask.sampledLevels,
+    totalLevels: bid.totalLevels + ask.totalLevels,
   };
 }
 
@@ -786,6 +798,8 @@ class SymbolFeed {
       asks,
       sizeScaleMaxQuote: quoteScale.maximum,
       sizeAnomalyThresholdQuote: quoteScale.anomalyThreshold,
+      sizeAnomalyThresholdBidQuote: quoteScale.bidAnomalyThreshold,
+      sizeAnomalyThresholdAskQuote: quoteScale.askAnomalyThreshold,
     };
     return this.cachedSorted;
   }
@@ -830,6 +844,8 @@ class SymbolFeed {
         bookLevels: { bids: this.bids.size, asks: this.asks.size },
         sizeScaleMaxQuote: fullView.sizeScaleMaxQuote,
         sizeAnomalyThresholdQuote: fullView.sizeAnomalyThresholdQuote,
+        sizeAnomalyThresholdBidQuote: fullView.sizeAnomalyThresholdBidQuote,
+        sizeAnomalyThresholdAskQuote: fullView.sizeAnomalyThresholdAskQuote,
         resyncCount: this.resyncCount,
         orderBookEvents: this.bookEvents.summary(),
         densityLifecycle: this.densityLifecycle.summary(now),

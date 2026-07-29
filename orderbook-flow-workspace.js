@@ -5,7 +5,7 @@ export const FLOW_WORKSPACE = Object.freeze({
   minimumBucketMs: 250,
   maximumColumns: 28,
   maximumTrades: 6_000,
-  minimumPanePx: 108,
+  minimumPanePx: 88,
   minimumTapePx: 160,
   minimumBookPx: 104,
 });
@@ -15,11 +15,29 @@ const FOOTPRINT_TIMEFRAME_KEY = "inpuls-footprint-timeframe-v1";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
 const FOOTPRINT_MINUTE_MS = 60_000;
 const FOOTPRINT_RETAIN_MINUTES = 30;
-const FOOTPRINT_MIN_COLUMN_PX = 82;
-const FOOTPRINT_MAX_VISIBLE_COLUMNS = 8;
+const FOOTPRINT_DEFAULT_COLUMN_PX = 54;
+const FOOTPRINT_MIN_COLUMN_PX = 34;
+const FOOTPRINT_MAX_COLUMN_PX = 90;
+const FOOTPRINT_COLUMN_STEP_PX = 7;
+const FOOTPRINT_MAX_VISIBLE_COLUMNS = 16;
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
+}
+
+export function footprintColumnWidthForWheel(currentWidth, deltaY) {
+  const current = clamp(
+    Number(currentWidth) || FOOTPRINT_DEFAULT_COLUMN_PX,
+    FOOTPRINT_MIN_COLUMN_PX,
+    FOOTPRINT_MAX_COLUMN_PX,
+  );
+  const wheel = Number(deltaY);
+  if (!Number.isFinite(wheel) || wheel === 0) return current;
+  return clamp(
+    current + (wheel < 0 ? -FOOTPRINT_COLUMN_STEP_PX : FOOTPRINT_COLUMN_STEP_PX),
+    FOOTPRINT_MIN_COLUMN_PX,
+    FOOTPRINT_MAX_COLUMN_PX,
+  );
 }
 
 export function normalizeFlowTrade(trade) {
@@ -357,6 +375,7 @@ export function footprintIntervalHistory(
   timeframeMs = FOOTPRINT_TIMEFRAMES[0],
   now = Date.now(),
   limit = FOOTPRINT_MAX_VISIBLE_COLUMNS,
+  offset = 0,
 ) {
   const timeframe = FOOTPRINT_TIMEFRAMES.includes(Number(timeframeMs))
     ? Number(timeframeMs)
@@ -371,16 +390,42 @@ export function footprintIntervalHistory(
     ...[...(accumulator?.minutes?.keys?.() ?? [])].map(Number).filter(Number.isFinite),
   );
   const earliestInterval = footprintIntervalStart(earliestMinute, timeframe);
+  const latestOffset = Math.max(
+    0,
+    Math.floor((currentStart - earliestInterval) / timeframe),
+  );
+  const safeOffset = Math.min(
+    latestOffset,
+    Math.max(0, Math.floor(Number(offset) || 0)),
+  );
+  const endStart = currentStart - safeOffset * timeframe;
   const available = Math.max(
     1,
-    Math.floor((currentStart - earliestInterval) / timeframe) + 1,
+    Math.floor((endStart - earliestInterval) / timeframe) + 1,
   );
   const count = Math.min(maximum, available);
 
   return Array.from({ length: count }, (_, index) => {
-    const startTime = currentStart - (count - index - 1) * timeframe;
+    const startTime = endStart - (count - index - 1) * timeframe;
     return footprintSnapshotAt(accumulator, timeframe, startTime, now);
   });
+}
+
+export function footprintHistoryOffsetLimit(
+  accumulator,
+  timeframeMs = FOOTPRINT_TIMEFRAMES[0],
+  now = Date.now(),
+) {
+  const timeframe = FOOTPRINT_TIMEFRAMES.includes(Number(timeframeMs))
+    ? Number(timeframeMs)
+    : FOOTPRINT_TIMEFRAMES[0];
+  const starts = [...(accumulator?.minutes?.keys?.() ?? [])]
+    .map(Number)
+    .filter(Number.isFinite);
+  if (!starts.length) return 0;
+  const earliest = footprintIntervalStart(Math.min(...starts), timeframe);
+  const latest = footprintIntervalStart(now, timeframe);
+  return Math.max(0, Math.floor((latest - earliest) / timeframe));
 }
 
 const footprintBySymbol = new Map();
@@ -422,6 +467,50 @@ function formatUsd(value) {
 function formatIntervalClock(time) {
   const date = new Date(Number(time));
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function readThemeColor(name, fallback) {
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
+  return /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
+}
+
+function mixHex(left, right, amount) {
+  const ratio = clamp(Number(amount) || 0, 0, 1);
+  const parse = (value) => [
+    Number.parseInt(value.slice(1, 3), 16),
+    Number.parseInt(value.slice(3, 5), 16),
+    Number.parseInt(value.slice(5, 7), 16),
+  ];
+  const a = parse(left);
+  const b = parse(right);
+  return `#${a.map((value, index) => (
+    Math.round(value + (b[index] - value) * ratio)
+      .toString(16)
+      .padStart(2, "0")
+  )).join("")}`;
+}
+
+function rgbaHex(value, alpha = 1) {
+  return `rgba(${Number.parseInt(value.slice(1, 3), 16)}, ${
+    Number.parseInt(value.slice(3, 5), 16)
+  }, ${Number.parseInt(value.slice(5, 7), 16)}, ${clamp(alpha, 0, 1)})`;
+}
+
+function footprintTheme() {
+  const panel = readThemeColor("--panel", "#181b20");
+  const panel2 = readThemeColor("--panel-2", "#22262c");
+  const green = readThemeColor("--green", "#42d9b1");
+  const red = readThemeColor("--red", "#ff7181");
+  return {
+    panel,
+    panel2,
+    text: readThemeColor("--text", "#edf1f4"),
+    muted: readThemeColor("--muted", "#9ba4ad"),
+    green: mixHex(panel2, green, .55),
+    red: mixHex(panel2, red, .55),
+  };
 }
 
 function flowRecoveryFrozen(symbol) {
@@ -483,7 +572,7 @@ function injectStyles() {
     .orderbook-card .orderbook-stage.inpuls-flow-workspace {
       display: grid !important;
       grid-template-columns:
-        minmax(${FLOW_WORKSPACE.minimumPanePx}px, var(--flow-cluster-width, 24%))
+        minmax(${FLOW_WORKSPACE.minimumPanePx}px, var(--flow-cluster-width, 20%))
         7px
         minmax(${FLOW_WORKSPACE.minimumTapePx}px, 1fr)
         7px
@@ -501,7 +590,7 @@ function injectStyles() {
     }
     .orderbook-card.is-tape-hidden .orderbook-stage.inpuls-flow-workspace {
       grid-template-columns:
-        minmax(${FLOW_WORKSPACE.minimumPanePx}px, var(--flow-cluster-width, 24%))
+        minmax(${FLOW_WORKSPACE.minimumPanePx}px, var(--flow-cluster-width, 20%))
         7px
         0
         0
@@ -515,8 +604,13 @@ function injectStyles() {
       position: relative;
       min-width: 0;
       overflow: hidden;
-      border-right: 1px solid rgba(111, 82, 168, .24);
-      background: rgba(4, 7, 10, .72);
+      border-right: 1px solid color-mix(in srgb, var(--violet) 22%, var(--line));
+      background: color-mix(in srgb, var(--chart-bg) 72%, var(--panel));
+      cursor: grab;
+      touch-action: none;
+    }
+    .orderbook-card .inpuls-footprint-pane.is-panning {
+      cursor: grabbing;
     }
     .orderbook-card .inpuls-footprint-toolbar {
       position: absolute;
@@ -527,19 +621,19 @@ function injectStyles() {
       align-items: center;
       gap: 4px;
       padding: 0 5px;
-      border-bottom: 1px solid rgba(98, 126, 139, .18);
-      background: rgba(7, 10, 14, .9);
-      color: #8299a4;
+      border-bottom: 1px solid var(--line-soft);
+      background: color-mix(in srgb, var(--panel) 94%, var(--chart-bg));
+      color: var(--muted);
       font: 800 8px/1 Inter, system-ui, sans-serif;
     }
     .orderbook-card .inpuls-footprint-toolbar button {
       min-width: 28px;
       height: 18px;
       padding: 0 5px;
-      border: 1px solid rgba(105, 132, 145, .28);
+      border: 1px solid var(--line-soft);
       border-radius: 4px;
-      background: rgba(12, 17, 22, .88);
-      color: #8ba1ac;
+      background: var(--panel-2);
+      color: var(--muted);
       font: inherit;
       cursor: pointer;
     }
@@ -550,7 +644,7 @@ function injectStyles() {
     }
     .orderbook-card .inpuls-footprint-toolbar strong {
       margin-left: auto;
-      color: #a8bbc3;
+      color: var(--muted);
       white-space: nowrap;
     }
     .orderbook-card .inpuls-footprint-canvas {
@@ -571,7 +665,7 @@ function injectStyles() {
       touch-action: none;
       border: 0;
       padding: 0;
-      background: rgba(92, 70, 135, .08);
+      background: color-mix(in srgb, var(--violet) 8%, var(--panel));
     }
     .orderbook-card .inpuls-flow-splitter::before {
       content: "";
@@ -581,6 +675,10 @@ function injectStyles() {
     .orderbook-card .inpuls-flow-splitter[data-flow-split="clusters"] { grid-area: split-a; }
     .orderbook-card .inpuls-flow-splitter[data-flow-split="tape"] { grid-area: split-b; }
     .orderbook-card .book-splitter { display: none !important; }
+    .orderbook-card .orderbook-tape,
+    .orderbook-card .trade-flow {
+      background: color-mix(in srgb, var(--chart-bg) 72%, var(--panel)) !important;
+    }
     .orderbook-card [data-book-clusters] { display: none !important; }
     .orderbook-card.is-clusters-hidden .inpuls-footprint-pane,
     .orderbook-card.is-clusters-hidden .inpuls-flow-splitter[data-flow-split="clusters"],
@@ -701,6 +799,7 @@ function ensureCard(card) {
     <div class="inpuls-footprint-toolbar">
       <button type="button" data-footprint-timeframe="60000" class="is-active" aria-pressed="true">1М</button>
       <button type="button" data-footprint-timeframe="300000" aria-pressed="false">5М</button>
+      <strong data-footprint-navigation>LIVE</strong>
     </div>
     <canvas class="inpuls-footprint-canvas"></canvas>
   `;
@@ -733,6 +832,8 @@ function ensureCard(card) {
     )
       ? Number(localStorage.getItem(FOOTPRINT_TIMEFRAME_KEY))
       : FOOTPRINT_TIMEFRAMES[0],
+    columnWidthPx: FOOTPRINT_DEFAULT_COLUMN_PX,
+    historyOffset: 0,
     hasFrame: false,
     lastSymbol: null,
   };
@@ -748,6 +849,7 @@ function ensureCard(card) {
   pane.querySelectorAll("[data-footprint-timeframe]").forEach((button) => {
     button.addEventListener("click", () => {
       state.timeframeMs = Number(button.dataset.footprintTimeframe);
+      state.historyOffset = 0;
       localStorage.setItem(FOOTPRINT_TIMEFRAME_KEY, String(state.timeframeMs));
       syncTimeframes();
       state.hasFrame = false;
@@ -755,6 +857,58 @@ function ensureCard(card) {
     });
   });
   syncTimeframes();
+
+  pane.addEventListener("wheel", (event) => {
+    if (!(event.ctrlKey || event.metaKey)) return;
+    if (!Number.isFinite(event.deltaY) || event.deltaY === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    state.columnWidthPx = footprintColumnWidthForWheel(
+      state.columnWidthPx,
+      event.deltaY,
+    );
+    if (event.deltaY < 0) state.historyOffset = 0;
+    state.hasFrame = false;
+    requestDraw(card);
+  }, { passive: false });
+
+  pane.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.target.closest(".inpuls-footprint-toolbar")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    pane.setPointerCapture(event.pointerId);
+    pane.classList.add("is-panning");
+    const startX = event.clientX;
+    const startOffset = state.historyOffset;
+    const symbol = cardSymbol(card);
+    const accumulator = footprintBySymbol.get(symbol);
+    const maximumOffset = footprintHistoryOffsetLimit(
+      accumulator,
+      state.timeframeMs,
+      Date.now(),
+    );
+
+    const move = (moveEvent) => {
+      const columns = Math.round(
+        (moveEvent.clientX - startX) / Math.max(1, state.columnWidthPx),
+      );
+      state.historyOffset = clamp(startOffset + columns, 0, maximumOffset);
+      state.hasFrame = false;
+      requestDraw(card);
+    };
+    const stop = () => {
+      pane.classList.remove("is-panning");
+      if (pane.hasPointerCapture(event.pointerId)) {
+        pane.releasePointerCapture(event.pointerId);
+      }
+      pane.removeEventListener("pointermove", move);
+      pane.removeEventListener("pointerup", stop);
+      pane.removeEventListener("pointercancel", stop);
+    };
+    pane.addEventListener("pointermove", move);
+    pane.addEventListener("pointerup", stop);
+    pane.addEventListener("pointercancel", stop);
+  });
 
   bindSplitter(card, splitClusters, "clusters");
   bindSplitter(card, splitTape, "tape");
@@ -788,6 +942,7 @@ function renderCard(card, state) {
   }
   if (state.lastSymbol !== symbol) {
     state.lastSymbol = symbol;
+    state.historyOffset = 0;
     state.hasFrame = false;
   }
   const frozen = flowRecoveryFrozen(symbol);
@@ -810,11 +965,15 @@ function renderCard(card, state) {
   }
 
   const accumulator = footprintBySymbol.get(symbol) ?? createFootprintAccumulator();
+  state.historyOffset = Math.min(
+    state.historyOffset,
+    footprintHistoryOffsetLimit(accumulator, state.timeframeMs, Date.now()),
+  );
   const visibleColumnLimit = Math.max(
     1,
     Math.min(
       FOOTPRINT_MAX_VISIBLE_COLUMNS,
-      Math.floor(width / FOOTPRINT_MIN_COLUMN_PX),
+      Math.floor(width / Math.max(FOOTPRINT_MIN_COLUMN_PX, state.columnWidthPx)),
     ),
   );
   const intervals = footprintIntervalHistory(
@@ -822,6 +981,7 @@ function renderCard(card, state) {
     state.timeframeMs,
     Date.now(),
     visibleColumnLimit,
+    state.historyOffset,
   );
   const columns = intervals.map((interval) => {
     const clustersByRow = new Map();
@@ -858,15 +1018,22 @@ function renderCard(card, state) {
     1,
     ...columns.flatMap(({ clusters }) => clusters.map((cluster) => cluster.quote)),
   );
-  const columnWidth = width / Math.max(1, columns.length);
+  const columnWidth = Math.min(width, state.columnWidthPx);
+  const columnsLeft = Math.max(0, width - columns.length * columnWidth);
+  const theme = footprintTheme();
+  const navigation = state.pane.querySelector("[data-footprint-navigation]");
+  if (navigation) {
+    navigation.textContent = state.historyOffset > 0
+      ? `−${state.historyOffset}`
+      : "LIVE";
+  }
 
   state.context.font = "800 7px Inter, system-ui, sans-serif";
   state.context.textBaseline = "middle";
 
   if (state.visible) {
     columns.forEach(({ interval, clusters }, columnIndex) => {
-      const columnLeft = columnIndex * columnWidth;
-      const columnRight = columnLeft + columnWidth;
+      const columnLeft = columnsLeft + columnIndex * columnWidth;
       const centerX = columnLeft + columnWidth / 2;
 
       for (const cluster of clusters) {
@@ -882,29 +1049,29 @@ function renderCard(card, state) {
         const cellWidth = Math.max(1, columnWidth - 2);
         const sellWidth = cellWidth * sellShare;
         const buyWidth = Math.max(0, cellWidth - sellWidth);
-        const alpha = .16 + clusterStrength * .7;
+        const alpha = .24 + clusterStrength * .42;
 
-        state.context.fillStyle = "rgba(8, 12, 15, .9)";
+        state.context.fillStyle = theme.panel2;
         state.context.fillRect(cellLeft, cellTop, cellWidth, cellHeight);
         if (sellWidth > 0) {
-          state.context.fillStyle = `rgba(226, 58, 78, ${alpha})`;
+          state.context.fillStyle = rgbaHex(theme.red, alpha);
           state.context.fillRect(cellLeft, cellTop, sellWidth, cellHeight);
         }
         if (buyWidth > 0) {
-          state.context.fillStyle = `rgba(71, 210, 39, ${alpha})`;
+          state.context.fillStyle = rgbaHex(theme.green, alpha);
           state.context.fillRect(cellLeft + sellWidth, cellTop, buyWidth, cellHeight);
         }
 
         state.context.strokeStyle = dominantSide === "B"
-          ? "rgba(122, 255, 92, .78)"
+          ? rgbaHex(theme.green, .82)
           : dominantSide === "S"
-            ? "rgba(255, 92, 108, .78)"
-            : "rgba(225, 233, 238, .36)";
+            ? rgbaHex(theme.red, .82)
+            : rgbaHex(theme.muted, .36);
         state.context.lineWidth = .75;
         state.context.strokeRect(cellLeft, cellTop, cellWidth, cellHeight);
 
         state.context.textAlign = "center";
-        state.context.fillStyle = "rgba(255, 255, 255, .98)";
+        state.context.fillStyle = theme.text;
         state.context.fillText(
           `${dominantSide} ${Math.round(dominantShare * 100)}% · ${formatUsd(cluster.quote)}`,
           centerX,
@@ -919,11 +1086,11 @@ function renderCard(card, state) {
       if (highRow && lowRow && openRow && closeRow) {
         const rising = Number(interval.closePrice) >= Number(interval.openPrice);
         state.context.strokeStyle = rising
-          ? "rgba(122, 255, 74, .98)"
-          : "rgba(255, 68, 83, .98)";
+          ? rgbaHex(theme.green, .94)
+          : rgbaHex(theme.red, .94);
         state.context.fillStyle = rising
-          ? "rgba(79, 224, 50, .94)"
-          : "rgba(239, 54, 72, .94)";
+          ? rgbaHex(theme.green, .9)
+          : rgbaHex(theme.red, .9);
         state.context.lineWidth = 1;
         state.context.beginPath();
         state.context.moveTo(centerX, highRow.y);
@@ -935,27 +1102,12 @@ function renderCard(card, state) {
         state.context.strokeRect(centerX - 2, bodyTop, 4, bodyHeight);
       }
 
-      state.context.strokeStyle = "rgba(222, 231, 236, .28)";
-      state.context.lineWidth = .65;
-      state.context.beginPath();
-      state.context.moveTo(centerX, 0);
-      state.context.lineTo(centerX, height);
-      state.context.stroke();
-
-      if (columnIndex > 0) {
-        state.context.strokeStyle = "rgba(111, 82, 168, .28)";
-        state.context.beginPath();
-        state.context.moveTo(columnLeft + .5, 0);
-        state.context.lineTo(columnLeft + .5, height);
-        state.context.stroke();
-      }
-
-      state.context.fillStyle = "rgba(4, 7, 10, .86)";
+      state.context.fillStyle = theme.panel;
       state.context.fillRect(columnLeft + 1, height - 11, Math.max(0, columnWidth - 2), 11);
       state.context.textAlign = "center";
       state.context.fillStyle = interval.partial
-        ? "rgba(93, 225, 181, .92)"
-        : "rgba(145, 165, 175, .78)";
+        ? rgbaHex(theme.green, .96)
+        : rgbaHex(theme.muted, .82);
       state.context.font = "700 6.5px Inter, system-ui, sans-serif";
       state.context.fillText(
         `${formatIntervalClock(interval.startTime)}${interval.partial ? " · LIVE" : ""}`,

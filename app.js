@@ -7,7 +7,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=26-44-orderbook-clarity-v2";
+import { aggregateFootprintClusters, aggregateTradePath, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=26-45-orderbook-auto-cluster-theme-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 
@@ -1682,6 +1682,10 @@ function mountOrderBook(model) {
   });
   article.addEventListener("wheel", (event) => {
     if (!Number.isFinite(event.deltaY) || event.deltaY === 0) return;
+    if (
+      (event.ctrlKey || event.metaKey)
+      && event.target.closest?.(".inpuls-footprint-pane")
+    ) return;
     if (!Number.isFinite(panel.priceStep)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -1755,11 +1759,28 @@ function renderOrderBook(panel, data) {
   // Автоподсветка обязана оставаться одинаковой при ручном скролле.
   // Worker считает референс по всей известной локальной книге; compact
   // projection используется только как совместимый Legacy fallback.
-  const workerAnomaly = Number(data.sizeAnomalyThresholdQuote);
-  const autoAnomaly = Number.isFinite(workerAnomaly) && workerAnomaly > 0
-    ? workerAnomaly
-    : bookQuoteScale(data.bids, data.asks).anomalyThreshold;
-  const anomaly = panel.model.highlightMode === "manual" ? Math.max(0, Number(panel.model.highlightMinQuote) || 0) : autoAnomaly;
+  const fallbackScale = bookQuoteScale(data.bids, data.asks);
+  const genericWorkerAnomaly = Number(data.sizeAnomalyThresholdQuote);
+  const sideAnomaly = (value, fallback) => {
+    const threshold = Number(value);
+    if (Number.isFinite(threshold) && threshold > 0) return threshold;
+    if (Number.isFinite(genericWorkerAnomaly) && genericWorkerAnomaly > 0) {
+      return genericWorkerAnomaly;
+    }
+    return fallback;
+  };
+  const anomaly = panel.model.highlightMode === "manual"
+    ? Math.max(0, Number(panel.model.highlightMinQuote) || 0)
+    : {
+      bid: sideAnomaly(
+        data.sizeAnomalyThresholdBidQuote,
+        fallbackScale.bidAnomalyThreshold,
+      ),
+      ask: sideAnomaly(
+        data.sizeAnomalyThresholdAskQuote,
+        fallbackScale.askAnomalyThreshold,
+      ),
+    };
   // Keep the visual size scale stable while the user scrolls. The Worker sends
   // the maximum real level from the whole known local book; projected depth is
   // used only as a Legacy fallback.
@@ -1847,7 +1868,12 @@ function patchBookLadderRows(body, rows, middle, maxSize, anomalyThreshold, base
         : source.price >= middle
           ? "ask"
           : "bid";
-    const anomalyTier = anomalyTierForQuote(source.quote, anomalyThreshold);
+    const automatic = anomalyThreshold && typeof anomalyThreshold === "object";
+    const threshold = automatic ? anomalyThreshold[side] : anomalyThreshold;
+    const anomalyReference = automatic
+      ? Number(source.maxLevelQuote) || 0
+      : source.quote;
+    const anomalyTier = anomalyTierForQuote(anomalyReference, threshold);
     const className = [
       "book-ladder-row",
       `is-${side}`,
@@ -2894,7 +2920,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-44-orderbook-clarity-v2";
+const INPULS_RUNTIME_BUILD = "26-45-orderbook-auto-cluster-theme-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

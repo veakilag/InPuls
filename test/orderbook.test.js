@@ -82,8 +82,18 @@ test("automatic anomaly reference uses the complete book rather than the visible
 
   assert.equal(scale.maximum, 98_000);
   assert.ok(scale.anomalyThreshold > 20_000);
+  assert.ok(scale.bidAnomalyThreshold > 20_000);
+  assert.ok(scale.askAnomalyThreshold > 20_000);
   assert.ok(Math.max(...viewport.map((row) => row.quote)) < scale.maximum);
   assert.equal(scale.totalLevels, bids.length + asks.length);
+});
+
+test("AUTO can inspect the largest real order without treating an aggregated row as one order", () => {
+  const bids = Array.from({ length: 10 }, (_, index) => [100 - index * .01, 10]);
+  const rows = buildDepthLadder(bids, [], 100.1, 99.95, 1, 3);
+  const aggregated = rows.find((row) => row.levelCount > 1);
+  assert.ok(aggregated.quote > aggregated.maxLevelQuote * 5);
+  assert.ok(aggregated.maxLevelQuote >= 999 && aggregated.maxLevelQuote <= 1_000);
 });
 
 test("percent depth gives BTC and alt books the same visible range", () => {

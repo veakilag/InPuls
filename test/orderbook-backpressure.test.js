@@ -63,9 +63,11 @@ test("Worker reports flow rates, processing cost, queue pressure and source fres
 });
 
 test("Worker publishes one full-book size scale without expanding UI depth", () => {
-  assert.match(worker, /function bookQuoteScale\(bids, asks, sampleLimit = 1_024\)/);
+  assert.match(worker, /function bookQuoteScale\(bids, asks, sampleLimit = 2_048\)/);
   assert.match(worker, /sizeScaleMaxQuote: fullView\.sizeScaleMaxQuote/);
   assert.match(worker, /sizeAnomalyThresholdQuote: fullView\.sizeAnomalyThresholdQuote/);
+  assert.match(worker, /sizeAnomalyThresholdBidQuote: fullView\.sizeAnomalyThresholdBidQuote/);
+  assert.match(worker, /sizeAnomalyThresholdAskQuote: fullView\.sizeAnomalyThresholdAskQuote/);
   assert.match(worker, /const sampleStride = Math\.max\(1, Math\.ceil\(totalLevels \/ limit\)\)/);
 });
 
