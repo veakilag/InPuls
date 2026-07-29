@@ -133,6 +133,8 @@ test("SignalContext keeps current facts separate and marks unavailable inputs pa
   assert.equal(context.liquidity.observed, false);
   assert.equal(context.quality.overall, DATA_QUALITY_STATES.PARTIAL);
   assert.equal(context.patternEvidence.minuteStructure.timeframe, "1m");
+  assert.equal(context.chartContext.timeframe, "1m");
+  assert.equal(context.chartContext.candles.length, 3);
   assert.equal("returnPercent" in context, false);
 });
 

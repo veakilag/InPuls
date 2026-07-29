@@ -109,6 +109,34 @@ test("Signal Lab publishes the intended 1d, 3d, 7d and 30d windows", () => {
   );
 });
 
+test("event review rows keep unique IDs, real chart evidence and manual verdicts", () => {
+  const event = signalEvent({ id: "event-review-1", signalType: "cascade" });
+  const result = observation(event, { horizon: "5m", mfePercent: 2.4 });
+  result.pricePath = [
+    { at: event.triggeredAt, price: 100 },
+    { at: event.triggeredAt + 1_000, price: 101 },
+  ];
+  const context = signalContext(event);
+  context.chartContext = {
+    timeframe: "1m",
+    candles: [{ time: event.triggeredAt - 60_000, open: 99, high: 100, low: 98, close: 99.5 }],
+  };
+  const report = buildSignalLabReport({
+    events: [event],
+    contexts: [context],
+    observations: [result],
+    reviews: [{ eventId: event.id, verdict: "bad", reviewedAt: NOW }],
+  }, {
+    now: NOW,
+    windows: [{ key: "1d", durationMs: DAY }],
+  });
+  const row = report.windows[0].events[0];
+  assert.equal(row.id, event.id);
+  assert.equal(row.observation.pricePath.length, 2);
+  assert.equal(row.context.chartContext.candles.length, 1);
+  assert.equal(row.review.verdict, "bad");
+});
+
 test("primary statistics use only complete live observations and expose every exclusion", () => {
   const events = Array.from(
     { length: 6 },

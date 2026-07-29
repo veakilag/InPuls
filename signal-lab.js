@@ -1,5 +1,5 @@
 export const SIGNAL_LAB_SCHEMA_VERSION = 1;
-export const SIGNAL_LAB_STORAGE_VERSION = 1;
+export const SIGNAL_LAB_STORAGE_VERSION = 2;
 
 export const SIGNAL_LAB_WINDOWS = Object.freeze([
   Object.freeze({ key: "1d", durationMs: 86_400_000 }),
@@ -25,6 +25,7 @@ const STORE_NAMES = Object.freeze({
   EVENTS: "events",
   CONTEXTS: "contexts",
   OBSERVATIONS: "observations",
+  REVIEWS: "reviews",
 });
 
 function finiteOrNull(value) {
@@ -263,6 +264,44 @@ function sortGroups(left, right) {
     || String(left.symbol || "").localeCompare(String(right.symbol || ""));
 }
 
+function preferredObservation(observations) {
+  const rank = new Map([["5m", 4], ["3m", 3], ["1m", 2], ["15s", 1]]);
+  return [...observations].sort((left, right) => (
+    Number(right.state === "observed") - Number(left.state === "observed")
+    || (rank.get(right.horizon) || 0) - (rank.get(left.horizon) || 0)
+  ))[0] ?? null;
+}
+
+function buildEventRows(records, reviews) {
+  const byEvent = new Map();
+  for (const record of records) {
+    const rows = byEvent.get(record.event.id) ?? [];
+    rows.push(record);
+    byEvent.set(record.event.id, rows);
+  }
+  return [...byEvent.values()].map((eventRecords) => {
+    const first = eventRecords[0];
+    const observation = preferredObservation(eventRecords.map((record) => record.observation));
+    return {
+      id: first.event.id,
+      symbol: first.event.symbol,
+      signalType: first.event.signalType,
+      direction: first.event.direction,
+      triggeredAt: first.event.triggeredAt,
+      price: first.event.price,
+      reason: first.event.reason,
+      detectorEvidence: first.event.detectorEvidence ?? null,
+      context: first.context ? {
+        chartContext: first.context.chartContext ?? null,
+        patternEvidence: first.context.patternEvidence ?? null,
+        liquidity: first.context.liquidity ?? null,
+      } : null,
+      observation,
+      review: reviews.get(first.event.id) ?? null,
+    };
+  }).sort((left, right) => right.triggeredAt - left.triggeredAt);
+}
+
 function windowCounts(records, now) {
   const observations = records.map((record) => record.observation);
   const observed = observations.filter((observation) => observation?.state === "observed");
@@ -313,6 +352,11 @@ export function buildSignalLabReport(snapshot = {}, {
       .filter((observation) => observation?.entity === "SignalObservation" && observation?.id)
       .map((observation) => [observation.id, observation]),
   );
+  const reviews = new Map(
+    (Array.isArray(snapshot?.reviews) ? snapshot.reviews : [])
+      .filter((review) => review?.eventId)
+      .map((review) => [review.eventId, review]),
+  );
   const normalizedWindows = normalizeWindows(windows);
   const reports = normalizedWindows.map((window) => {
     const sinceAt = generatedAt - window.durationMs;
@@ -342,6 +386,7 @@ export function buildSignalLabReport(snapshot = {}, {
       counts: windowCounts(records, generatedAt),
       signalGroups,
       symbolGroups,
+      events: buildEventRows(records, reviews),
     };
   });
   const linkedObservationCount = [...observations.values()]
@@ -504,6 +549,9 @@ export class SignalLabLocalStore {
           observations.createIndex("eventId", "eventId", { unique: false });
           observations.createIndex("dueAt", "dueAt", { unique: false });
         }
+        if (!database.objectStoreNames.contains(STORE_NAMES.REVIEWS)) {
+          database.createObjectStore(STORE_NAMES.REVIEWS, { keyPath: "eventId" });
+        }
       };
       request.onsuccess = () => {
         const database = request.result;
@@ -524,19 +572,21 @@ export class SignalLabLocalStore {
 
   async #readAll(database) {
     const transaction = database.transaction(
-      [STORE_NAMES.EVENTS, STORE_NAMES.CONTEXTS, STORE_NAMES.OBSERVATIONS],
+      [STORE_NAMES.EVENTS, STORE_NAMES.CONTEXTS, STORE_NAMES.OBSERVATIONS, STORE_NAMES.REVIEWS],
       "readonly",
     );
     const results = await Promise.all([
       requestResult(transaction.objectStore(STORE_NAMES.EVENTS).getAll()),
       requestResult(transaction.objectStore(STORE_NAMES.CONTEXTS).getAll()),
       requestResult(transaction.objectStore(STORE_NAMES.OBSERVATIONS).getAll()),
+      requestResult(transaction.objectStore(STORE_NAMES.REVIEWS).getAll()),
       transactionDone(transaction),
     ]);
     return {
       events: results[0],
       contexts: results[1],
       observations: results[2],
+      reviews: results[3],
     };
   }
 
@@ -583,15 +633,17 @@ export class SignalLabLocalStore {
     this.lastPrunedAt = now;
     if (!removedIds.size) return 0;
     const transaction = database.transaction(
-      [STORE_NAMES.EVENTS, STORE_NAMES.CONTEXTS, STORE_NAMES.OBSERVATIONS],
+      [STORE_NAMES.EVENTS, STORE_NAMES.CONTEXTS, STORE_NAMES.OBSERVATIONS, STORE_NAMES.REVIEWS],
       "readwrite",
     );
     const eventStore = transaction.objectStore(STORE_NAMES.EVENTS);
     const contextStore = transaction.objectStore(STORE_NAMES.CONTEXTS);
     const observationStore = transaction.objectStore(STORE_NAMES.OBSERVATIONS);
+    const reviewStore = transaction.objectStore(STORE_NAMES.REVIEWS);
     for (const eventId of removedIds) {
       eventStore.delete(eventId);
       contextStore.delete(eventId);
+      reviewStore.delete(eventId);
     }
     for (const observation of snapshot.observations) {
       if (removedIds.has(observation.eventId)) observationStore.delete(observation.id);
@@ -679,6 +731,7 @@ export class SignalLabLocalStore {
         events: [],
         contexts: [],
         observations: [],
+        reviews: [],
       });
     }
     try {
@@ -697,6 +750,7 @@ export class SignalLabLocalStore {
         observations: stored.observations.filter(
           (observation) => eventIds.has(observation.eventId),
         ),
+        reviews: stored.reviews.filter((review) => eventIds.has(review.eventId)),
       });
     } catch (error) {
       this.#setError(error);
@@ -737,6 +791,29 @@ export class SignalLabLocalStore {
       now,
       windows,
       storageState: this.health.state,
+    });
+  }
+
+  review(eventId, verdict) {
+    const normalizedId = String(eventId || "").slice(0, 180);
+    const normalizedVerdict = ["good", "bad"].includes(verdict) ? verdict : null;
+    if (!normalizedId) return Promise.reject(new TypeError("eventId is required"));
+    return this.#enqueue(async () => {
+      const database = await this.#openDatabase();
+      if (!database) return false;
+      const transaction = database.transaction(STORE_NAMES.REVIEWS, "readwrite");
+      const store = transaction.objectStore(STORE_NAMES.REVIEWS);
+      if (normalizedVerdict) {
+        store.put({
+          eventId: normalizedId,
+          verdict: normalizedVerdict,
+          reviewedAt: Date.now(),
+        });
+      } else {
+        store.delete(normalizedId);
+      }
+      await transactionDone(transaction);
+      return true;
     });
   }
 
