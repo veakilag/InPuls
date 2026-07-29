@@ -5,9 +5,9 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v3";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-48-orderbook-hover-stability-v1";
+import "./orderbook-flow-workspace.js?v=26-49-density-trades-correlation-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
-import "./orderbook-density.js?v=density-lifecycle-v1";
+import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
 
 export function applyDepthUpdates(levels, updates) {
@@ -1238,6 +1238,8 @@ class LegacyOrderBookFeed {
       if (isTrade) {
         const trade = normalizeMarketTrade(update);
         if (this.#insertTrade(trade, true)) {
+          const matchedDensities = this.densityLifecycle.ingestTrades([trade]);
+          if (matchedDensities.length) this.#emit(trade?.time ?? Date.now());
           this.#queueTradeDispatch(trade);
         }
         return;
@@ -1334,6 +1336,8 @@ class LegacyOrderBookFeed {
       const trade = normalizeMarketTrade(update);
       if (!this.#insertTrade(trade, true)) return;
       this.tradeTransportIndex = 0;
+      const matchedDensities = this.densityLifecycle.ingestTrades([trade]);
+      if (matchedDensities.length) this.#emit(trade?.time ?? Date.now());
       this.#queueTradeDispatch(trade);
     });
 
@@ -1367,7 +1371,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-48-orderbook-hover-stability-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-49-density-trades-correlation-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1439,7 +1443,7 @@ class OrderBookWorkerManager {
       // Worker не использует import/export, поэтому classic-режим надёжнее
       // module Worker в Chromium/Yandex при работе через Service Worker.
       this.worker = new Worker(ORDERBOOK_WORKER_URL, {
-        name: "inpuls-density-lifecycle-v1",
+        name: "inpuls-density-trades-correlation-v1",
       });
       this.startupTimer = setTimeout(() => {
         if (this.workerReady) return;
@@ -1781,7 +1785,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-48-orderbook-hover-stability-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-49-density-trades-correlation-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";

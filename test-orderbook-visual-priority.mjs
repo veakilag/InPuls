@@ -112,8 +112,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-48-orderbook-hover-stability-v1/);
-  assert.match(app, /orderbook\.js\?v=26-48-orderbook-hover-stability-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-48-orderbook-hover-stability-v1/);
-  assert.match(sw, /26-48-orderbook-hover-stability-v1/);
+  assert.match(index, /26-49-density-trades-correlation-v1/);
+  assert.match(app, /orderbook\.js\?v=26-49-density-trades-correlation-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-49-density-trades-correlation-v1/);
+  assert.match(sw, /26-49-density-trades-correlation-v1/);
 });

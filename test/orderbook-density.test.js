@@ -91,7 +91,8 @@ test("snapshot seeds observed densities without fabricating depth events", () =>
   assert.equal(summary.bookEpoch, 7);
   assert.equal(summary.activeCount, 2);
   assert.equal(summary.quality.complete, true);
-  assert.equal(summary.quality.causality, "depth-only");
+  assert.equal(summary.quality.causality, "probabilistic-depth-trade-correlation");
+  assert.equal(summary.quality.importance, "not-scored-from-size");
   assert.deepEqual(
     summary.densities.map(({ side, price, state, source, observedBeforeDetection }) => ({
       side,
@@ -195,7 +196,7 @@ test("a zero quantity closes a density as removed without claiming execution", (
   assert.equal(summary.recentlyClosed.length, 1);
   assert.equal(summary.recentlyClosed[0].state, "removed");
   assert.equal(summary.recentlyClosed[0].closeReason, "removed");
-  assert.equal(summary.quality.causality, "depth-only");
+  assert.equal(summary.quality.causality, "probabilistic-depth-trade-correlation");
   assert.equal(summary.epochCounts.removed, 1);
 });
 
@@ -299,8 +300,8 @@ test("Worker and Legacy fallback share the density lifecycle contract", async ()
     readFile(new URL("../sw.js", import.meta.url), "utf8"),
   ]);
 
-  assert.match(worker, /importScripts\("\.\/orderbook-density\.js\?v=density-lifecycle-v1"\)/);
-  assert.match(runtime, /import "\.\/orderbook-density\.js\?v=density-lifecycle-v1"/);
+  assert.match(worker, /importScripts\("\.\/orderbook-density\.js\?v=density-trades-correlation-v1"\)/);
+  assert.match(runtime, /import "\.\/orderbook-density\.js\?v=density-trades-correlation-v1"/);
   assert.match(worker, /this\.densityLifecycle\.seedSnapshot\(/);
   assert.match(runtime, /this\.densityLifecycle\.seedSnapshot\(/);
   assert.match(worker, /this\.densityLifecycle\.ingest\(bookEvents\)/);
@@ -312,5 +313,5 @@ test("Worker and Legacy fallback share the density lifecycle contract", async ()
     runtime.match(/this\.densityLifecycle\.markUnavailable\("partial-depth"\)/g)?.length,
     2,
   );
-  assert.match(serviceWorker, /orderbook-density\.js\?v=density-lifecycle-v1/);
+  assert.match(serviceWorker, /orderbook-density\.js\?v=density-trades-correlation-v1/);
 });
