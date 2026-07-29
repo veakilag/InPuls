@@ -7,9 +7,10 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-49-density-trades-correlation-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-50-signal-memory-contract-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
+import { SignalMemoryTracker } from "./market-memory.js?v=signal-memory-contract-v1";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -300,6 +301,7 @@ const radarHistoryLoading = new Set();
 const extraCharts = new Map();
 const orderBookPanels = new Map();
 const orderBookAutoThresholds = new Map();
+const signalMemory = new SignalMemoryTracker();
 const orderBookRenderScheduler = new LatestFrameScheduler({
   budgetMs: 8,
   maxPerFrame: 2,
@@ -633,6 +635,30 @@ function getMetrics(now = Date.now()) {
     });
 }
 
+function latestOrderBookForSignalMemory(symbol) {
+  let latest = null;
+  for (const panel of orderBookPanels.values()) {
+    if (panel?.model?.symbol !== symbol || !panel.latest) continue;
+    if (
+      !latest
+      || Number(panel.latest.eventTime) > Number(latest.eventTime)
+    ) latest = panel.latest;
+  }
+  return latest;
+}
+
+function updateSignalMemory(metrics, now) {
+  const created = signalMemory.ingest({
+    metrics,
+    settings: state.settings,
+    now,
+    contextForSymbol: latestOrderBookForSignalMemory,
+  });
+  if (created.events.length) {
+    observability.increment("market-memory.signal-events", created.events.length);
+  }
+}
+
 async function warmupRadarHistory() {
   const ranked = state.lastMetrics.slice().sort((left, right) => right.quoteVolume24h - left.quoteVolume24h);
   const symbols = [...new Set(["BTCUSDT", ...ranked.map((item) => item.symbol)])]
@@ -662,6 +688,7 @@ function render() {
   const now = Date.now();
   const metrics = getMetrics(now);
   state.lastMetrics = metrics;
+  updateSignalMemory(metrics, now);
   updateAlerts(metrics, now);
   if (observability.enabled) {
     observability.record("app.render.metrics", performance.now() - phaseStartedAt, {
@@ -2953,7 +2980,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-49-density-trades-correlation-v1";
+const INPULS_RUNTIME_BUILD = "26-50-signal-memory-contract-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
