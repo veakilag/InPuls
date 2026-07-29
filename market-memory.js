@@ -1,5 +1,13 @@
+import {
+  PATTERN_CATALOG_VERSION,
+  densityGeometry,
+  minuteStructureEvidence,
+  patternClock,
+  patternDefinition,
+} from "./pattern-catalog.js";
+
 export const MARKET_MEMORY_SCHEMA_VERSION = 1;
-export const SIGNAL_FORMULA_VERSION = "radar-signals-v1";
+export const SIGNAL_FORMULA_VERSION = "radar-signals-v2";
 export const SIGNAL_CONTEXT_VERSION = 1;
 export const SIGNAL_OBSERVATION_VERSION = 2;
 
@@ -439,6 +447,7 @@ export function createSignalEvent({
     throw new TypeError("A signal event requires id, symbol, positive price and signal type");
   }
   const detectedAt = positiveTimestamp(now);
+  const pattern = patternDefinition(signal.type);
   return deepFreeze({
     schemaVersion: MARKET_MEMORY_SCHEMA_VERSION,
     entity: "SignalEvent",
@@ -455,6 +464,11 @@ export function createSignalEvent({
     priority: finiteOrNull(signal.priority),
     label: safeText(signal.label, 80),
     reason: safeText(signal.reason),
+    taxonomy: pattern ? {
+      version: PATTERN_CATALOG_VERSION,
+      group: pattern.group,
+      detectorState: pattern.detectorState,
+    } : null,
     formula: {
       name: "radar-signal-classifier",
       version: safeText(signal.formulaVersion || formulaVersion, 80),
@@ -489,6 +503,9 @@ export function createSignalContext({
     bitcoin.state,
   ]);
   const buyShare = finiteOrNull(metrics?.trades?.buyShare);
+  const clock = patternClock(capturedAt);
+  const bookGeometry = densityGeometry(orderBook);
+  const minuteStructure = minuteStructureEvidence(metrics?.minuteCandles, metrics?.price);
 
   return deepFreeze({
     schemaVersion: MARKET_MEMORY_SCHEMA_VERSION,
@@ -532,6 +549,20 @@ export function createSignalContext({
     funding: {
       rate: finiteOrNull(metrics?.fundingRate),
       nextAt: finiteOrNull(metrics?.nextFundingTime),
+    },
+    patternEvidence: {
+      version: PATTERN_CATALOG_VERSION,
+      observationScope: "signal-triggered-only",
+      clock,
+      minuteStructure,
+      orderBookGeometry: bookGeometry,
+      tradeSource: "aggregated-trades",
+      rawTradeIdentityAvailable: false,
+      limitations: [
+        "cascade-and-algorithm-thresholds-are-not-calibrated-v2",
+        "raw-trade-repeat-detection-unavailable-v1",
+        ...(!orderBook ? ["order-book-evidence-requires-open-panel"] : []),
+      ],
     },
     openInterest: {
       value: null,

@@ -6,14 +6,12 @@ export const DEFAULT_SETTINGS = Object.freeze({
   volumeBoost: 2.5,
   cascadeMove15s: 0.45,
   cascadeLiquidationUsd: 50_000,
-  compressionRange60s: 0.22,
-  compressionVolumeBoost: 1.6,
   alertScore: 68,
   trackedTrades: 45,
   maxRows: 100,
 });
 
-export const SIGNAL_FORMULA_VERSION = "radar-signals-v1";
+export const SIGNAL_FORMULA_VERSION = "radar-signals-v2";
 
 const HISTORY_MS = 6 * 60_000;
 const USDT_PERPETUAL_SYMBOL_PATTERN = /^[A-Z0-9]{1,20}USDT$/;
@@ -296,6 +294,7 @@ export class SymbolState {
       natr1m,
       natr5m,
       minuteReturns,
+      minuteCandles: this.minuteCandles.slice(-32).map((candle) => ({ ...candle })),
     };
 
     const signals = classifySignals(base, settings);
@@ -361,8 +360,8 @@ export function classifySignals(metrics, settings = DEFAULT_SETTINGS) {
     const aligned = falling ? liquidations.longs >= liquidations.shorts : liquidations.shorts >= liquidations.longs;
     if (aligned) {
       result.push({
-        type: "cascade",
-        label: "КАСКАД",
+        type: "liquidation_cascade",
+        label: "КАСКАД ЛИКВИДАЦИЙ",
         direction: falling ? "down" : "up",
         reason: `${falling ? "Лонги" : "Шорты"} ликвидированы на ${formatCompactUsd(falling ? liquidations.longs : liquidations.shorts)} за 60с`,
         priority: 100,
@@ -374,8 +373,18 @@ export function classifySignals(metrics, settings = DEFAULT_SETTINGS) {
     result.push({
       type: "knife",
       label: "НОЖ",
+      direction: "up",
+      reason: `Импульс вниз ${move15.toFixed(2)}% за 15с · поиск лонга у экстремума · объём ×${boost.toFixed(1)}`,
+      priority: 90,
+    });
+  }
+
+  if (enough15s && move15 >= settings.knife15s && boost >= Math.max(1.5, settings.volumeBoost * 0.7)) {
+    result.push({
+      type: "sharpening",
+      label: "ЗАТОЧКА",
       direction: "down",
-      reason: `${move15.toFixed(2)}% за 15с · объём ×${boost.toFixed(1)}`,
+      reason: `Импульс вверх +${move15.toFixed(2)}% за 15с · поиск шорта у экстремума · объём ×${boost.toFixed(1)}`,
       priority: 90,
     });
   }
@@ -386,8 +395,8 @@ export function classifySignals(metrics, settings = DEFAULT_SETTINGS) {
     const down = move15 < 0 && metrics.price <= metrics.range5m.min * (1 + tolerance);
     if (up || down) {
       result.push({
-        type: "breakout",
-        label: "ПРОБОЙ",
+        type: up ? "breakout_resistance" : "breakout_support",
+        label: up ? "ПРОБОЙ УС" : "ПРОБОЙ УП",
         direction: up ? "up" : "down",
         reason: `${up ? "Хай" : "Лой"} 5м · ${move15 > 0 ? "+" : ""}${move15.toFixed(2)}% за 15с`,
         priority: 80,
@@ -402,21 +411,6 @@ export function classifySignals(metrics, settings = DEFAULT_SETTINGS) {
       direction: move15 >= 0 ? "up" : "down",
       reason: `${move15 > 0 ? "+" : ""}${move15.toFixed(2)}% за 15с · объём ×${boost.toFixed(1)}`,
       priority: 70,
-    });
-  }
-
-  if (
-    metrics.range60s
-    && metrics.range60s.percent <= settings.compressionRange60s
-    && boost >= settings.compressionVolumeBoost
-    && absMove15 < settings.impulse15s
-  ) {
-    result.push({
-      type: "compression",
-      label: "СЖАТИЕ",
-      direction: (move15 || 0) >= 0 ? "up" : "down",
-      reason: `Диапазон 60с ${metrics.range60s.percent.toFixed(2)}% · объём ×${boost.toFixed(1)}`,
-      priority: 50,
     });
   }
 
@@ -441,7 +435,7 @@ export function scoreMetrics(metrics, signals, settings = DEFAULT_SETTINGS) {
   score += clamp(imbalance / 100, 0, 1) * 8;
   score += clamp((metrics.liquidation?.total || 0) / Math.max(settings.cascadeLiquidationUsd, 1), 0, 2) * 6;
   if (signals.length) score += 10;
-  if (signals.some((signal) => signal.type === "cascade")) score += 8;
+  if (signals.some((signal) => signal.type === "liquidation_cascade")) score += 8;
   return Math.round(clamp(score, 0, 100));
 }
 

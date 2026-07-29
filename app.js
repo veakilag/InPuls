@@ -5,12 +5,12 @@ import {
   formatCompactUsd,
   isUsdtPerpetualSymbol,
   normalizeUsdtPerpetualSymbol,
-} from "./engine.js?v=23";
+} from "./engine.js?v=26-55-scalper-pattern-evidence-v1";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-54-owner-signal-lab-boot-recovery-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-55-scalper-pattern-evidence-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
-import { SignalMemoryTracker } from "./market-memory.js?v=signal-observation-engine-v1";
+import { SignalMemoryTracker } from "./market-memory.js?v=26-55-scalper-pattern-evidence-v1";
 import { SignalLabLocalStore } from "./signal-lab.js?v=signal-lab-analytics-v1";
 import { parseInPulsNavigation } from "./owner-navigation.js?v=owner-signal-lab-v1";
 
@@ -39,7 +39,14 @@ const DEFAULT_INPLAY = Object.freeze({ minV24: 100, minNatr1: null, minNatr5: nu
 const EMPTY_RADAR_FILTERS = Object.freeze([]);
 const CHART_INTERVALS = Object.freeze(["1s", "5s", "15s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "12h", "1d", "3d", "1w", "1M"]);
 const DEFAULT_FAVORITE_TIMEFRAMES = Object.freeze(["1m", "5m", "15m"]);
-const SIGNAL_TYPES = new Set(["cascade", "knife", "breakout", "impulse", "compression"]);
+const SIGNAL_TYPES = new Set([
+  "liquidation_cascade",
+  "knife",
+  "sharpening",
+  "breakout_resistance",
+  "breakout_support",
+  "impulse",
+]);
 
 function intervalLabel(interval) {
   return String(interval).replace("1M", "1мес").replace("s", "с").replace("m", "м").replace("h", "ч").replace("d", "д").replace("w", "н");
@@ -3079,7 +3086,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-54-owner-signal-lab-boot-recovery-v1";
+const INPULS_RUNTIME_BUILD = "26-55-scalper-pattern-evidence-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
