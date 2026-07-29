@@ -1,4 +1,4 @@
-const BUILD = "26-63-signal-lab-tagging-snapshot-v1";
+const BUILD = "26-64-signal-lab-without-impulse-v1";
 const BOOT_TIMEOUT_MS = 12_000;
 const REPORT_TIMEOUT_MS = 10_000;
 const STARTED_EVENT = "inpuls:owner-signal-lab-started";
@@ -6,7 +6,6 @@ const STARTED_EVENT = "inpuls:owner-signal-lab-started";
 window.dispatchEvent(new Event(STARTED_EVENT));
 
 const SIGNAL_LABELS = Object.freeze({
-  impulse: "Импульс",
   knife: "Нож",
   sharpening: "Заточка",
   cascade: "Каскад",
