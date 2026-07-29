@@ -21,6 +21,19 @@ const DEFAULT_MAX_EVENTS = 10_000;
 const DEFAULT_FINAL_SAMPLE_MAX_DELAY_MS = 5_000;
 const DEFAULT_PRUNE_INTERVAL_MS = 600_000;
 export const SIGNAL_LAB_TARGET_MFE_PERCENT = 1;
+// Impulse remains in the raw Signal Memory stream, but it is intentionally
+// excluded from the current Pattern Lab until its dedicated module is ready.
+export const SIGNAL_LAB_PATTERN_TYPES = Object.freeze([
+  "liquidation_cascade",
+  "knife",
+  "sharpening",
+  "breakout_resistance",
+  "breakout_support",
+  "cascade",
+  "rearranger",
+  "size_supporter",
+]);
+const SIGNAL_LAB_PATTERN_TYPE_SET = new Set(SIGNAL_LAB_PATTERN_TYPES);
 const STORE_NAMES = Object.freeze({
   EVENTS: "events",
   CONTEXTS: "contexts",
@@ -339,17 +352,29 @@ export function buildSignalLabReport(snapshot = {}, {
   const generatedAt = positiveTimestamp(now);
   const events = new Map(
     (Array.isArray(snapshot?.events) ? snapshot.events : [])
-      .filter((event) => event?.entity === "SignalEvent" && event?.id)
+      .filter((event) => (
+        event?.entity === "SignalEvent"
+        && event?.id
+        && SIGNAL_LAB_PATTERN_TYPE_SET.has(event.signalType)
+      ))
       .map((event) => [event.id, event]),
   );
   const contexts = new Map(
     (Array.isArray(snapshot?.contexts) ? snapshot.contexts : [])
-      .filter((context) => context?.entity === "SignalContext" && context?.eventId)
+      .filter((context) => (
+        context?.entity === "SignalContext"
+        && context?.eventId
+        && events.has(context.eventId)
+      ))
       .map((context) => [context.eventId, context]),
   );
   const observations = new Map(
     (Array.isArray(snapshot?.observations) ? snapshot.observations : [])
-      .filter((observation) => observation?.entity === "SignalObservation" && observation?.id)
+      .filter((observation) => (
+        observation?.entity === "SignalObservation"
+        && observation?.id
+        && events.has(observation.eventId)
+      ))
       .map((observation) => [observation.id, observation]),
   );
   const reviews = new Map(
