@@ -9,6 +9,7 @@ runtime_paths = [
     Path("orderbook.js"),
     Path("sw.js"),
     Path("reset-v26.html"),
+    Path("reset.js"),
 ]
 
 for path in runtime_paths:
@@ -23,9 +24,9 @@ for path in Path(".").glob("test-orderbook-*.mjs"):
 
 flow_contract = Path("test-orderbook-flow-workspace.mjs")
 flow_contract_source = flow_contract.read_text(encoding="utf-8")
-old_contract = '''  assert.match(source, /sellLabelLeft - sellWidth/);
+old_contract = r'''  assert.match(source, /sellLabelLeft - sellWidth/);
   assert.match(source, /buyLabelRight,/);'''
-new_contract = '''  assert.match(source, /columnLeft \+ columnWidth \* \.25/);
+new_contract = r'''  assert.match(source, /columnLeft \+ columnWidth \* \.25/);
   assert.match(source, /columnLeft \+ columnWidth \* \.75/);
   assert.match(source, /const highRow = nearestRow\(rows, interval\.highPrice\)/);'''
 if flow_contract_source.count(old_contract) != 1:
