@@ -112,8 +112,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-54-owner-signal-lab-boot-recovery-v1/);
-  assert.match(app, /orderbook\.js\?v=26-54-owner-signal-lab-boot-recovery-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-54-owner-signal-lab-boot-recovery-v1/);
-  assert.match(sw, /26-54-owner-signal-lab-boot-recovery-v1/);
+  assert.match(index, /26-55-scalper-pattern-evidence-v1/);
+  assert.match(app, /orderbook\.js\?v=26-55-scalper-pattern-evidence-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-55-scalper-pattern-evidence-v1/);
+  assert.match(sw, /26-55-scalper-pattern-evidence-v1/);
 });

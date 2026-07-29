@@ -100,7 +100,7 @@ test("liquidation snapshots are deduplicated", () => {
   assert.deepEqual(symbol.liquidationFlow(start + 1000), { longs: 100_000, shorts: 0, total: 100_000 });
 });
 
-test("cascade needs aligned liquidation and movement", () => {
+test("liquidation cascade is not mislabeled as the classic order-book cascade", () => {
   const metrics = {
     price: 99,
     change15s: -0.8,
@@ -110,12 +110,12 @@ test("cascade needs aligned liquidation and movement", () => {
     liquidation: { longs: 120_000, shorts: 5_000, total: 125_000 },
   };
   const signals = classifySignals(metrics, DEFAULT_SETTINGS);
-  assert.equal(signals[0].type, "cascade");
+  assert.equal(signals[0].type, "liquidation_cascade");
   assert.equal(signals[0].direction, "down");
   assert.equal(signals[0].formulaVersion, SIGNAL_FORMULA_VERSION);
 });
 
-test("compression is classified after a quiet range with rising volume", () => {
+test("compression is no longer classified as a scalper pattern", () => {
   const metrics = {
     price: 100,
     change15s: 0.08,
@@ -125,5 +125,40 @@ test("compression is classified after a quiet range with rising volume", () => {
     liquidation: { longs: 0, shorts: 0, total: 0 },
   };
   const signals = classifySignals(metrics, DEFAULT_SETTINGS);
-  assert.equal(signals[0].type, "compression");
+  assert.equal(signals.length, 0);
+});
+
+test("support and resistance breakouts are separate facts", () => {
+  const common = {
+    volumeBoost: 2,
+    range5m: { min: 99, max: 101, percent: 2 },
+    range60s: { min: 99, max: 101, percent: 2 },
+    liquidation: { longs: 0, shorts: 0, total: 0 },
+  };
+  assert.equal(classifySignals({
+    ...common,
+    price: 101,
+    change15s: 0.3,
+  }, DEFAULT_SETTINGS)[0].type, "breakout_resistance");
+  assert.equal(classifySignals({
+    ...common,
+    price: 99,
+    change15s: -0.3,
+  }, DEFAULT_SETTINGS)[0].type, "breakout_support");
+});
+
+test("knife and sharpening measure opposite counter-moves near the impulse extreme", () => {
+  const common = {
+    price: 100,
+    volumeBoost: 2,
+    range5m: null,
+    range60s: null,
+    liquidation: { longs: 0, shorts: 0, total: 0 },
+  };
+  const knife = classifySignals({ ...common, change15s: -0.8 }, DEFAULT_SETTINGS)
+    .find((signal) => signal.type === "knife");
+  const sharpening = classifySignals({ ...common, change15s: 0.8 }, DEFAULT_SETTINGS)
+    .find((signal) => signal.type === "sharpening");
+  assert.equal(knife.direction, "up");
+  assert.equal(sharpening.direction, "down");
 });

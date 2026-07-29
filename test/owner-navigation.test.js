@@ -58,6 +58,6 @@ test("owner dashboard stays unlinked, local-only and exposes no destructive hist
   assert.match(app, /parseInPulsNavigation/);
   assert.match(app, /openOrderBookForSymbol/);
   assert.match(worker, /owner-signal-lab\.html/);
-  assert.match(worker, /owner-signal-lab-guard\.js\?v=26-54-owner-signal-lab-boot-recovery-v1/);
-  assert.match(worker, /owner-signal-lab\.js\?v=26-54-owner-signal-lab-boot-recovery-v1/);
+  assert.match(worker, /owner-signal-lab-guard\.js\?v=26-55-scalper-pattern-evidence-v1/);
+  assert.match(worker, /owner-signal-lab\.js\?v=26-55-scalper-pattern-evidence-v1/);
 });

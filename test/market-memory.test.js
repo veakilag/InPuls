@@ -39,6 +39,11 @@ function metrics(now = 1_000, signals = [{
     nextFundingTime: now + 3_600_000,
     natr1m: 0.4,
     natr5m: 0.7,
+    minuteCandles: [
+      { time: now - 180_000, open: 99, high: 100, low: 98, close: 99 },
+      { time: now - 120_000, open: 99, high: 102, low: 99, close: 101 },
+      { time: now - 60_000, open: 101, high: 101.5, low: 100, close: 100.5 },
+    ],
     correlation: 0.65,
     score: 76,
     signals,
@@ -97,6 +102,7 @@ test("SignalContext keeps current facts separate and marks unavailable inputs pa
   assert.equal(context.marketRegime.label, null);
   assert.equal(context.liquidity.observed, false);
   assert.equal(context.quality.overall, DATA_QUALITY_STATES.PARTIAL);
+  assert.equal(context.patternEvidence.minuteStructure.timeframe, "1m");
   assert.equal("returnPercent" in context, false);
 });
 
@@ -390,6 +396,7 @@ test("browser runtime captures the contract and ships it in the atomic app shell
   assert.match(app, /updateSignalMemory\(metrics, now\)/);
   assert.match(app, /contextForSymbol: latestOrderBookForSignalMemory/);
   assert.match(app, /market-memory\.signal-observations/);
-  assert.match(serviceWorker, /market-memory\.js\?v=signal-observation-engine-v1/);
+  assert.match(serviceWorker, /market-memory\.js\?v=26-55-scalper-pattern-evidence-v1/);
+  assert.match(serviceWorker, /pattern-catalog\.js\?v=26-55-scalper-pattern-evidence-v1/);
   assert.match(version, /signal-observation-engine-v1/);
 });
