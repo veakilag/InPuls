@@ -7,10 +7,10 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-50-signal-memory-contract-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-51-signal-observation-engine-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
-import { SignalMemoryTracker } from "./market-memory.js?v=signal-memory-contract-v1";
+import { SignalMemoryTracker } from "./market-memory.js?v=signal-observation-engine-v1";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -656,6 +656,18 @@ function updateSignalMemory(metrics, now) {
   });
   if (created.events.length) {
     observability.increment("market-memory.signal-events", created.events.length);
+  }
+  if (created.resolvedObservations.length) {
+    observability.increment(
+      "market-memory.signal-observations",
+      created.resolvedObservations.length,
+    );
+    const unavailable = created.resolvedObservations
+      .filter((observation) => observation.state === "unavailable")
+      .length;
+    if (unavailable) {
+      observability.increment("market-memory.signal-observations-unavailable", unavailable);
+    }
   }
 }
 
@@ -2980,7 +2992,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-50-signal-memory-contract-v1";
+const INPULS_RUNTIME_BUILD = "26-51-signal-observation-engine-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
