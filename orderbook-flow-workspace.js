@@ -588,12 +588,6 @@ function injectStyles() {
     .orderbook-card.is-tape-hidden .inpuls-flow-splitter[data-flow-split="tape"] {
       display: none !important;
     }
-    .orderbook-card .inpuls-flow-count {
-      flex: 0 0 auto;
-      color: #8fa5af;
-      font: 800 8px/1 Inter, system-ui, sans-serif;
-      white-space: nowrap;
-    }
     .orderbook-card .book-ladder-row .book-size::before {
       left: 0 !important;
       right: auto !important;
@@ -728,18 +722,11 @@ function ensureCard(card) {
   book.after(splitTape);
   splitTape.after(tape);
 
-  const toolbar = tape.querySelector(".trade-tape-toolbar");
-  const flowCount = document.createElement("span");
-  flowCount.className = "inpuls-flow-count";
-  flowCount.textContent = "0 trades";
-  toolbar?.append(flowCount);
-
   const canvas = pane.querySelector("canvas");
   const state = {
     pane,
     canvas,
     context: canvas.getContext("2d"),
-    flowCount,
     visible: true,
     timeframeMs: FOOTPRINT_TIMEFRAMES.includes(
       Number(localStorage.getItem(FOOTPRINT_TIMEFRAME_KEY)),
@@ -867,11 +854,9 @@ function renderCard(card, state) {
   state.context.setTransform(dpr, 0, 0, dpr, 0, 0);
   state.context.clearRect(0, 0, width, height);
 
-  const maximumSide = Math.max(
+  const maximumCluster = Math.max(
     1,
-    ...columns.flatMap(({ clusters }) => (
-      clusters.flatMap((cluster) => [cluster.sellQuote, cluster.buyQuote])
-    )),
+    ...columns.flatMap(({ clusters }) => clusters.map((cluster) => cluster.quote)),
   );
   const columnWidth = width / Math.max(1, columns.length);
 
@@ -885,32 +870,46 @@ function renderCard(card, state) {
       const centerX = columnLeft + columnWidth / 2;
 
       for (const cluster of clusters) {
-        const sellLabel = cluster.sellQuote > 0 ? formatUsd(cluster.sellQuote) : "";
-        const buyLabel = cluster.buyQuote > 0 ? formatUsd(cluster.buyQuote) : "";
-        const sellStrength = footprintCellIntensity(cluster.sellQuote, maximumSide);
-        const buyStrength = footprintCellIntensity(cluster.buyQuote, maximumSide);
+        const totalQuote = Math.max(Number.EPSILON, cluster.quote);
+        const sellShare = Math.max(0, cluster.sellQuote) / totalQuote;
+        const buyShare = Math.max(0, cluster.buyQuote) / totalQuote;
+        const dominantSide = buyShare > sellShare ? "B" : sellShare > buyShare ? "S" : "·";
+        const dominantShare = Math.max(buyShare, sellShare);
+        const clusterStrength = footprintCellIntensity(cluster.quote, maximumCluster);
         const cellHeight = Math.max(3, Math.min(cluster.row.height * .92, 14));
         const cellTop = cluster.row.y - cellHeight / 2;
-        const halfWidth = Math.max(1, columnWidth / 2 - 1.5);
+        const cellLeft = columnLeft + 1;
+        const cellWidth = Math.max(1, columnWidth - 2);
+        const sellWidth = cellWidth * sellShare;
+        const buyWidth = Math.max(0, cellWidth - sellWidth);
+        const alpha = .16 + clusterStrength * .7;
 
-        state.context.fillStyle = `rgba(226, 58, 78, ${.08 + sellStrength * .82})`;
-        state.context.fillRect(columnLeft + 1, cellTop, halfWidth, cellHeight);
-        state.context.fillStyle = `rgba(71, 210, 39, ${.08 + buyStrength * .82})`;
-        state.context.fillRect(centerX + .5, cellTop, halfWidth, cellHeight);
+        state.context.fillStyle = "rgba(8, 12, 15, .9)";
+        state.context.fillRect(cellLeft, cellTop, cellWidth, cellHeight);
+        if (sellWidth > 0) {
+          state.context.fillStyle = `rgba(226, 58, 78, ${alpha})`;
+          state.context.fillRect(cellLeft, cellTop, sellWidth, cellHeight);
+        }
+        if (buyWidth > 0) {
+          state.context.fillStyle = `rgba(71, 210, 39, ${alpha})`;
+          state.context.fillRect(cellLeft + sellWidth, cellTop, buyWidth, cellHeight);
+        }
 
-        state.context.strokeStyle = "rgba(225, 233, 238, .18)";
-        state.context.lineWidth = .5;
-        state.context.strokeRect(columnLeft + 1, cellTop, Math.max(1, columnWidth - 2), cellHeight);
+        state.context.strokeStyle = dominantSide === "B"
+          ? "rgba(122, 255, 92, .78)"
+          : dominantSide === "S"
+            ? "rgba(255, 92, 108, .78)"
+            : "rgba(225, 233, 238, .36)";
+        state.context.lineWidth = .75;
+        state.context.strokeRect(cellLeft, cellTop, cellWidth, cellHeight);
 
         state.context.textAlign = "center";
-        state.context.fillStyle = sellStrength > .52
-          ? "rgba(255,255,255,.98)"
-          : "rgba(255,174,183,.98)";
-        state.context.fillText(sellLabel, columnLeft + columnWidth * .25, cluster.row.y);
-        state.context.fillStyle = buyStrength > .52
-          ? "rgba(255,255,255,.98)"
-          : "rgba(154,246,132,.98)";
-        state.context.fillText(buyLabel, columnLeft + columnWidth * .75, cluster.row.y);
+        state.context.fillStyle = "rgba(255, 255, 255, .98)";
+        state.context.fillText(
+          `${dominantSide} ${Math.round(dominantShare * 100)}% · ${formatUsd(cluster.quote)}`,
+          centerX,
+          cluster.row.y,
+        );
       }
 
       const highRow = nearestRow(rows, interval.highPrice);
@@ -968,10 +967,6 @@ function renderCard(card, state) {
   }
 
   const totalCount = intervals.reduce((sum, interval) => sum + interval.count, 0);
-  const flowCountText = `${totalCount} trades`;
-  if (state.flowCount.textContent !== flowCountText) {
-    state.flowCount.textContent = flowCountText;
-  }
   state.hasFrame = true;
   if (observability.enabled) {
     observability.rendered(symbol, "footprint");

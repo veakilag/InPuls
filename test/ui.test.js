@@ -9,8 +9,8 @@ test("browser entry points keep user version v23 and identify the current releas
     source("index.html"), source("app.js"), source("sw.js"), source("refresh.html"), source("VERSION.txt"),
   ]);
   for (const text of [html, app, worker, refresh, version]) assert.doesNotMatch(text, /(?:v|build=|\?v=)22\b/);
-  assert.match(html, /inpuls-build" content="26-43-orderbook-visual-priority-v1"/);
-  assert.match(worker, /inpuls-26-43-orderbook-visual-priority-v1/);
+  assert.match(html, /inpuls-build" content="26-44-orderbook-clarity-v2"/);
+  assert.match(worker, /inpuls-26-44-orderbook-clarity-v2/);
   assert.match(html, /SCREENER <small>v23<\/small>/);
   assert.match(version, /^InPuls v23/m);
 });
@@ -75,8 +75,8 @@ test("browser entry points carry a restrictive CSP and reset scripts stay extern
   }
   assert.doesNotMatch(pages[3], /<script>(?:.|\n)*getRegistrations/);
   assert.doesNotMatch(pages[4], /<script>(?:.|\n)*getRegistrations/);
-  assert.match(pages[3], /refresh\.js\?v=26-43-orderbook-visual-priority-v1/);
-  assert.match(pages[4], /reset\.js\?v=26-43-orderbook-visual-priority-v1/);
+  assert.match(pages[3], /refresh\.js\?v=26-44-orderbook-clarity-v2/);
+  assert.match(pages[4], /reset\.js\?v=26-44-orderbook-clarity-v2/);
 });
 
 test("Service Worker installs atomically and validates cached response types", async () => {
@@ -124,7 +124,8 @@ test("brightness control keeps fixed accents and morphs from sun to moon", async
 
 test("orderbook price text is separated from the size boundary", async () => {
   const orderbook = await source("orderbook.js");
-  assert.match(orderbook, /padding: 0 1px 0 5px !important;/);
+  assert.match(orderbook, /grid-template-columns: minmax\(0, 1fr\) var\(--book-price-width, 8\.25ch\)/);
+  assert.match(orderbook, /padding: 0 3px 0 2px !important;/);
   assert.match(orderbook, /border-left: 1px solid color-mix\(in srgb, var\(--line\) 72%, transparent\);/);
   assert.match(orderbook, /\.book-ladder-row \.book-size \{[\s\S]*overflow: hidden !important;/);
 });

@@ -131,12 +131,10 @@ test("Flow Workspace redraw observer cannot trigger itself", () => {
   assert.doesNotMatch(source, /content: "TAPE"/);
   assert.match(source, /FLOW_LAYER_VISIBILITY_EVENT/);
   assert.match(source, /skip\("layer-hidden"\)/);
-  assert.match(
-    source,
-    /if \(state\.flowCount\.textContent !== flowCountText\)/,
-  );
+  assert.doesNotMatch(source, /inpuls-flow-count|flowCount|flowCountText|0 trades/);
   assert.match(source, /bookWidth - delta/);
-  assert.match(source, /columnLeft \+ columnWidth \* \.25/);
-  assert.match(source, /columnLeft \+ columnWidth \* \.75/);
+  assert.match(source, /const sellWidth = cellWidth \* sellShare/);
+  assert.match(source, /const buyWidth = Math\.max\(0, cellWidth - sellWidth\)/);
+  assert.match(source, /\$\{dominantSide\} \$\{Math\.round\(dominantShare \* 100\)\}%/);
   assert.match(source, /const highRow = nearestRow\(rows, interval\.highPrice\)/);
 });

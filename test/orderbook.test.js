@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adaptiveBookScaleIndex, aggregateDepthBands, aggregateFootprintClusters, aggregateTradeClusters, aggregateTradePath, applyDepthUpdates, BOOK_DEPTH_PERCENT_PRESETS, BOOK_SCALE_MULTIPLIERS, bookDepthLabel, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, depthCoverageScaleIndex, depthView, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, normalizeBookDepthPercent, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForDepthPercent, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "../orderbook.js";
+import { adaptiveBookScaleIndex, aggregateDepthBands, aggregateFootprintClusters, aggregateTradeClusters, aggregateTradePath, applyDepthUpdates, BOOK_DEPTH_PERCENT_PRESETS, BOOK_SCALE_MULTIPLIERS, bookDepthLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, depthCoverageScaleIndex, depthView, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, normalizeBookDepthPercent, normalizeMarketTrade, OrderBookFeed, partialDepthView, priceStepForDepthPercent, priceStepForScale, recoverBookScaleIndex, tradeTimeWindow } from "../orderbook.js";
 
 test("depth updates add, replace and remove price levels", () => {
   const levels = new Map([[100, 2], [99, 4]]);
@@ -71,6 +71,19 @@ test("size bars use the complete projected book instead of the visible ladder", 
   assert.ok(Math.max(...visibleRows.map((row) => row.quote)) < 990);
   assert.equal(maximumDepthQuote(bids, asks, 1), 990);
   assert.equal(maximumDepthQuote(bids, asks, 1, 1_250), 1_250);
+});
+
+test("automatic anomaly reference uses the complete book rather than the visible ladder", () => {
+  const bids = Array.from({ length: 50 }, (_, index) => [100 - index * .01, 100 + index]);
+  const asks = Array.from({ length: 50 }, (_, index) => [100 + index * .01, 120 + index]);
+  bids.push([98, 1_000]);
+  const scale = bookQuoteScale(bids, asks);
+  const viewport = buildDepthLadder(bids, asks, 100, 100, .01, 9);
+
+  assert.equal(scale.maximum, 98_000);
+  assert.ok(scale.anomalyThreshold > 20_000);
+  assert.ok(Math.max(...viewport.map((row) => row.quote)) < scale.maximum);
+  assert.equal(scale.totalLevels, bids.length + asks.length);
 });
 
 test("percent depth gives BTC and alt books the same visible range", () => {

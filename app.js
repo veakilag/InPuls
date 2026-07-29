@@ -7,7 +7,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=26-43-orderbook-visual-priority-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=26-44-orderbook-clarity-v2";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 
@@ -1752,10 +1752,13 @@ function renderOrderBook(panel, data) {
   // Manual scroll is authoritative: market movement must never recenter the DOM.
   panel.autoCentering = false;
   const rows = buildDepthLadder(data.bids, data.asks, middle, panel.viewCenter, panel.priceStep, rowCount);
-  const values = rows.map((item) => item.quote).filter((value) => value > 0).sort((a, b) => a - b);
-  const median = values.length ? values[Math.floor(values.length / 2)] : 0;
-  const upper = values.length ? values[Math.floor(values.length * .9)] : Infinity;
-  const autoAnomaly = Math.max(median * 4, upper, 1);
+  // Автоподсветка обязана оставаться одинаковой при ручном скролле.
+  // Worker считает референс по всей известной локальной книге; compact
+  // projection используется только как совместимый Legacy fallback.
+  const workerAnomaly = Number(data.sizeAnomalyThresholdQuote);
+  const autoAnomaly = Number.isFinite(workerAnomaly) && workerAnomaly > 0
+    ? workerAnomaly
+    : bookQuoteScale(data.bids, data.asks).anomalyThreshold;
   const anomaly = panel.model.highlightMode === "manual" ? Math.max(0, Number(panel.model.highlightMinQuote) || 0) : autoAnomaly;
   // Keep the visual size scale stable while the user scrolls. The Worker sends
   // the maximum real level from the whole known local book; projected depth is
@@ -2891,7 +2894,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-43-orderbook-visual-priority-v1";
+const INPULS_RUNTIME_BUILD = "26-44-orderbook-clarity-v2";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
