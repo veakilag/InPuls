@@ -7,7 +7,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-53-owner-signal-lab-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-54-owner-signal-lab-boot-recovery-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=signal-observation-engine-v1";
@@ -3079,7 +3079,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-53-owner-signal-lab-v1";
+const INPULS_RUNTIME_BUILD = "26-54-owner-signal-lab-boot-recovery-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

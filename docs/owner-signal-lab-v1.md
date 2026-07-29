@@ -52,3 +52,12 @@ InPuls validates the symbol, selects it on the primary chart, and:
 The handoff opens the current live order book. It does not recreate the order
 book at the historical signal timestamp. That needs Replay and 24/7 stored
 market data.
+
+## Boot recovery
+
+- The owner page registers and updates the current InPuls Service Worker.
+- Dashboard dependencies use the current build as their cache-buster.
+- Module, IndexedDB, and report startup have bounded timeouts.
+- A failed startup renders an explicit error with a retry action instead of
+  remaining in the loading state.
+- Retrying never clears IndexedDB events or observations.

@@ -1,5 +1,9 @@
-import { buildInPulsNavigationUrl } from "./owner-navigation.js?v=owner-signal-lab-v1";
-import { SignalLabLocalStore } from "./signal-lab.js?v=signal-lab-analytics-v1";
+const BUILD = "26-54-owner-signal-lab-boot-recovery-v1";
+const BOOT_TIMEOUT_MS = 12_000;
+const REPORT_TIMEOUT_MS = 10_000;
+const STARTED_EVENT = "inpuls:owner-signal-lab-started";
+
+window.dispatchEvent(new Event(STARTED_EVENT));
 
 const SIGNAL_LABELS = Object.freeze({
   impulse: "Импульс",
@@ -43,12 +47,47 @@ const elements = {
   generatedAt: document.querySelector("#generated-at"),
   body: document.querySelector("#signal-lab-body"),
   empty: document.querySelector("#owner-empty"),
+  emptyTitle: document.querySelector("#owner-empty-title"),
+  emptyMessage: document.querySelector("#owner-empty-message"),
 };
 
-const store = new SignalLabLocalStore();
+let buildInPulsNavigationUrl = null;
+let store = null;
 let selectedWindow = "7d";
 let report = null;
 let loading = false;
+let booting = null;
+let lastError = null;
+
+function normalizedError(error, fallback = "unknown-owner-signal-lab-error") {
+  const message = String(error?.message || error || fallback).slice(0, 240);
+  return {
+    code: error?.code || fallback,
+    message,
+  };
+}
+
+function withTimeout(promise, timeoutMs, code) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const error = new Error(code);
+      error.code = code;
+      reject(error);
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+}
+
+async function updateOwnerRuntime() {
+  if (!("serviceWorker" in navigator)) return null;
+  const registration = await navigator.serviceWorker.register(
+    `./sw.js?v=${BUILD}`,
+    { scope: "./", updateViaCache: "none" },
+  );
+  await registration.update();
+  return registration;
+}
 
 function finite(value) {
   const numeric = Number(value);
@@ -103,7 +142,9 @@ function filteredRows(windowReport) {
 }
 
 function renderStatus() {
-  const state = report?.source?.storageState || store.status().state || "loading";
+  const state = lastError
+    ? "error"
+    : report?.source?.storageState || store?.status().state || "loading";
   const labels = {
     available: "Локальная история подключена",
     idle: "Локальная история запускается",
@@ -113,9 +154,17 @@ function renderStatus() {
   };
   elements.storageState.dataset.state = state;
   elements.storageState.textContent = labels[state] || "Состояние истории неизвестно";
+  elements.storageState.title = lastError?.message || "";
 }
 
 function renderSummary(windowReport) {
+  if (!windowReport) {
+    elements.summaryEvents.textContent = "—";
+    elements.summaryUsable.textContent = "—";
+    elements.summaryCoverage.textContent = "—";
+    elements.summaryMissing.textContent = "—";
+    return;
+  }
   const counts = windowReport?.counts ?? {};
   const due = Math.max(0, Number(counts.observed || 0) + Number(counts.unavailable || 0) + Number(counts.overduePending || 0));
   const usable = Number(counts.usableLive || 0);
@@ -161,7 +210,7 @@ function renderRow(group) {
   link.textContent = "Открыть ↗";
   link.target = "_blank";
   link.rel = "noopener noreferrer";
-  link.href = buildInPulsNavigationUrl(window.location.href, {
+  link.href = buildInPulsNavigationUrl?.(window.location.href, {
     symbol: group.symbol,
   }) || "./";
   link.setAttribute("aria-label", `Открыть ${group.symbol} в InPuls со стаканом`);
@@ -179,6 +228,12 @@ function render() {
   for (const group of rows) fragment.append(renderRow(group));
   elements.body.replaceChildren(fragment);
   elements.empty.hidden = rows.length > 0;
+  elements.emptyTitle.textContent = lastError
+    ? "Не удалось подключить локальную историю"
+    : "Подходящих наблюдений пока нет";
+  elements.emptyMessage.textContent = lastError
+    ? "Нажми «Повторить». История не удалена: ошибка касается только подключения страницы к хранилищу."
+    : "Оставь InPuls открытым: статистика начнёт появляться после завершения горизонтов 15с / 1м / 3м / 5м.";
   elements.generatedAt.textContent = report?.generatedAt
     ? `Обновлено ${new Intl.DateTimeFormat("ru-RU", {
       hour: "2-digit",
@@ -194,20 +249,67 @@ function render() {
 }
 
 async function refreshReport() {
-  if (loading) return;
+  if (loading || !store) return;
   loading = true;
   elements.refresh.disabled = true;
   elements.refresh.textContent = "Обновляю…";
   try {
-    report = await store.report();
-  } catch {
+    report = await withTimeout(
+      store.report(),
+      REPORT_TIMEOUT_MS,
+      "signal-lab-report-timeout",
+    );
+    lastError = null;
+  } catch (error) {
     report = null;
+    lastError = normalizedError(error, "signal-lab-report-failed");
   } finally {
     loading = false;
     elements.refresh.disabled = false;
-    elements.refresh.textContent = "Обновить";
+    elements.refresh.textContent = lastError ? "Повторить" : "Обновить";
     render();
   }
+}
+
+async function boot() {
+  if (booting) return booting;
+  lastError = null;
+  report = null;
+  delete elements.refresh.dataset.bootFallback;
+  elements.storageState.dataset.state = "loading";
+  elements.storageState.textContent = "Подключаю локальную историю…";
+  elements.refresh.disabled = true;
+  elements.refresh.textContent = "Подключаю…";
+  booting = (async () => {
+    const [navigationModule, signalLabModule] = await withTimeout(
+      Promise.all([
+        import(`./owner-navigation.js?v=${BUILD}`),
+        import(`./signal-lab.js?v=${BUILD}`),
+      ]),
+      BOOT_TIMEOUT_MS,
+      "signal-lab-module-timeout",
+    );
+    buildInPulsNavigationUrl = navigationModule.buildInPulsNavigationUrl;
+    store = new signalLabModule.SignalLabLocalStore();
+    await withTimeout(
+      store.initialize(),
+      BOOT_TIMEOUT_MS,
+      "signal-lab-storage-timeout",
+    );
+    await refreshReport();
+  })()
+    .catch((error) => {
+      store = null;
+      report = null;
+      lastError = normalizedError(error, "signal-lab-boot-failed");
+      elements.refresh.disabled = false;
+      elements.refresh.textContent = "Повторить";
+      render();
+    })
+    .finally(() => {
+      booting = null;
+    });
+  return booting;
 }
 
 for (const button of elements.windowButtons) {
@@ -220,12 +322,22 @@ for (const control of [elements.symbolFilter, elements.signalFilter, elements.ho
   control.addEventListener("input", render);
   control.addEventListener("change", render);
 }
-elements.refresh.addEventListener("click", refreshReport);
+elements.refresh.addEventListener("click", () => {
+  if (lastError || !store) {
+    boot();
+    return;
+  }
+  refreshReport();
+});
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refreshReport();
+  if (!document.hidden) {
+    if (store) refreshReport();
+    else boot();
+  }
 });
 
-store.initialize()
-  .catch(() => null)
-  .finally(refreshReport);
-setInterval(refreshReport, 30_000);
+updateOwnerRuntime().catch(() => null);
+boot();
+setInterval(() => {
+  if (store) refreshReport();
+}, 30_000);

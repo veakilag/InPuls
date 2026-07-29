@@ -34,8 +34,9 @@ test("owner navigation rejects invalid symbols and unknown actions", () => {
 });
 
 test("owner dashboard stays unlinked, local-only and exposes no destructive history controls", async () => {
-  const [html, script, app, worker] = await Promise.all([
+  const [html, guard, script, app, worker] = await Promise.all([
     readFile(new URL("../owner-signal-lab.html", import.meta.url), "utf8"),
+    readFile(new URL("../owner-signal-lab-guard.js", import.meta.url), "utf8"),
     readFile(new URL("../owner-signal-lab.js", import.meta.url), "utf8"),
     readFile(new URL("../app.js", import.meta.url), "utf8"),
     readFile(new URL("../sw.js", import.meta.url), "utf8"),
@@ -44,10 +45,19 @@ test("owner dashboard stays unlinked, local-only and exposes no destructive hist
   assert.match(html, /script-src 'self'/);
   assert.match(script, /SignalLabLocalStore/);
   assert.match(script, /buildInPulsNavigationUrl/);
+  assert.doesNotMatch(script, /^import\s/m);
+  assert.match(script, /signal-lab-module-timeout/);
+  assert.match(script, /signal-lab-storage-timeout/);
+  assert.match(script, /serviceWorker\.register/);
+  assert.match(script, /Нажми «Повторить»/);
+  assert.match(html, /owner-signal-lab-guard\.js/);
+  assert.match(guard, /owner-signal-lab-module-did-not-settle/);
+  assert.match(guard, /Локальная история останется на устройстве/);
   assert.doesNotMatch(script, /\.(?:clear|delete)\(/);
   assert.doesNotMatch(app, /href=["']\.\/owner-signal-lab\.html/);
   assert.match(app, /parseInPulsNavigation/);
   assert.match(app, /openOrderBookForSymbol/);
   assert.match(worker, /owner-signal-lab\.html/);
-  assert.match(worker, /owner-signal-lab\.js\?v=26-53-owner-signal-lab-v1/);
+  assert.match(worker, /owner-signal-lab-guard\.js\?v=26-54-owner-signal-lab-boot-recovery-v1/);
+  assert.match(worker, /owner-signal-lab\.js\?v=26-54-owner-signal-lab-boot-recovery-v1/);
 });

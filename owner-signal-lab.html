@@ -7,9 +7,9 @@
     <meta name="referrer" content="no-referrer" />
     <meta name="robots" content="noindex,nofollow,noarchive" />
     <meta name="theme-color" content="#0d1015" />
-    <meta name="inpuls-build" content="26-53-owner-signal-lab-v1" />
+    <meta name="inpuls-build" content="26-54-owner-signal-lab-boot-recovery-v1" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./owner-signal-lab.css?v=26-53-owner-signal-lab-v1" />
+    <link rel="stylesheet" href="./owner-signal-lab.css?v=26-54-owner-signal-lab-boot-recovery-v1" />
     <title>InPuls — Owner Signal Lab</title>
   </head>
   <body>
@@ -108,8 +108,8 @@
             <tbody id="signal-lab-body"></tbody>
           </table>
           <div id="owner-empty" class="owner-empty" hidden>
-            <strong>Подходящих наблюдений пока нет</strong>
-            <p>Оставь InPuls открытым: статистика начнёт появляться после завершения горизонтов 15с / 1м / 3м / 5м.</p>
+            <strong id="owner-empty-title">Подходящих наблюдений пока нет</strong>
+            <p id="owner-empty-message">Оставь InPuls открытым: статистика начнёт появляться после завершения горизонтов 15с / 1м / 3м / 5м.</p>
           </div>
         </div>
       </section>
@@ -117,6 +117,7 @@
       <p class="owner-note">Кнопка открывает текущий live-график и стакан монеты. Исторический стакан на момент сигнала станет доступен только после Replay.</p>
     </main>
 
-    <script type="module" src="./owner-signal-lab.js?v=26-53-owner-signal-lab-v1"></script>
+    <script src="./owner-signal-lab-guard.js?v=26-54-owner-signal-lab-boot-recovery-v1"></script>
+    <script type="module" src="./owner-signal-lab.js?v=26-54-owner-signal-lab-boot-recovery-v1"></script>
   </body>
 </html>

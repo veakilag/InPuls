@@ -70,12 +70,16 @@ test("static server sends browser security headers and limits methods", async ()
 test("owner Signal Lab is served as a protected same-origin page", async () => {
   await withServer(async (port) => {
     const page = await rawRequest(port, "/owner-signal-lab.html");
+    const guard = await rawRequest(port, "/owner-signal-lab-guard.js");
     const script = await rawRequest(port, "/owner-signal-lab.js");
     assert.equal(page.status, 200);
     assert.match(page.headers["content-type"], /text\/html/);
     assert.match(page.headers["content-security-policy"], /frame-ancestors 'none'/);
     assert.match(page.body, /noindex,nofollow,noarchive/);
     assert.match(page.body, /OWNER SIGNAL LAB/);
+    assert.equal(guard.status, 200);
+    assert.match(guard.headers["content-type"], /(?:text|application)\/javascript/);
+    assert.match(guard.body, /owner-signal-lab-module-did-not-settle/);
     assert.equal(script.status, 200);
     assert.match(script.headers["content-type"], /(?:text|application)\/javascript/);
     assert.match(script.body, /SignalLabLocalStore/);
