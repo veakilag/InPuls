@@ -7,7 +7,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=23";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=26-42-orderbook-scroll-theme-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, priceStepForScale, tradeTimeWindow } from "./orderbook.js?v=26-43-orderbook-visual-priority-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 
@@ -1815,6 +1815,15 @@ function createBookLadderRowElement() {
   return row;
 }
 
+function anomalyTierForQuote(quote, threshold) {
+  const amount = Math.max(0, Number(quote) || 0);
+  const base = Math.max(1, Number(threshold) || 1);
+  if (amount < base) return 0;
+  if (amount >= base * 3.5) return 3;
+  if (amount >= base * 2) return 2;
+  return 1;
+}
+
 function patchBookLadderRows(body, rows, middle, maxSize, anomalyThreshold, baseTick) {
   let elements = [...body.children];
   if (
@@ -1835,11 +1844,12 @@ function patchBookLadderRows(body, rows, middle, maxSize, anomalyThreshold, base
         : source.price >= middle
           ? "ask"
           : "bid";
-    const anomalous = source.quote >= anomalyThreshold && source.quote > 0;
+    const anomalyTier = anomalyTierForQuote(source.quote, anomalyThreshold);
     const className = [
       "book-ladder-row",
       `is-${side}`,
-      anomalous ? "is-anomaly" : "",
+      anomalyTier ? "is-anomaly" : "",
+      anomalyTier ? `is-anomaly-tier-${anomalyTier}` : "",
       source.isMarket ? "is-market" : "",
       source.isRound ? "is-price-round" : "",
       source.isHalfRound ? "is-price-half" : "",
@@ -2881,7 +2891,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-42-orderbook-scroll-theme-v1";
+const INPULS_RUNTIME_BUILD = "26-43-orderbook-visual-priority-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

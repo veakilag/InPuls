@@ -1,6 +1,6 @@
 import { clearInPulsRuntime } from "./pwa-reset.js";
 
-const BUILD = "26-42-orderbook-scroll-theme-v1";
+const BUILD = "26-43-orderbook-visual-priority-v1";
 const button = document.getElementById("refresh");
 const status = document.getElementById("status");
 
