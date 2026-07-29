@@ -368,6 +368,8 @@ test("Signal Lab review UI exposes comments and enriched JSON/CSV export", async
   assert.match(script, /candleSeriesForEvent/);
   assert.match(script, /Почему событие вошло/);
   assert.match(script, /detectorExplanation/);
+  assert.match(script, /Разметка должна оставаться локальным действием/);
+  assert.doesNotMatch(script, /async function saveEventReview[\s\S]{0,900}refreshReport\(\)/);
   assert.match(storage, /detectorEvidence/);
   assert.match(storage, /observations/);
   assert.match(storage, /formula/);

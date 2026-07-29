@@ -1,4 +1,4 @@
-const BUILD = "26-61-signal-lab-manual-refresh-v1";
+const BUILD = "26-62-signal-lab-local-tagging-v1";
 const BOOT_TIMEOUT_MS = 12_000;
 const REPORT_TIMEOUT_MS = 10_000;
 const STARTED_EVENT = "inpuls:owner-signal-lab-started";
@@ -408,8 +408,17 @@ function eventReviewData(event, overrides = {}) {
 }
 
 async function saveEventReview(event, verdict, overrides = {}) {
-  await store.review(event.id, verdict, eventReviewData(event, overrides));
-  await refreshReport();
+  const review = eventReviewData(event, overrides);
+  const saved = await store.review(event.id, verdict, review);
+  if (!saved) return false;
+
+  // Разметка должна оставаться локальным действием. Полный report() здесь
+  // пересоздавал все карточки и сбрасывал открытые/перетянутые мини-графики.
+  // Свежую сводку пользователь получает только по явной кнопке «Обновить».
+  event.review = verdict
+    ? { verdict, ...review, reviewedAt: Date.now() }
+    : null;
+  return true;
 }
 
 function renderEvent(event) {
@@ -540,6 +549,37 @@ function renderEvent(event) {
   review.className = "event-review-controls";
   const actions = document.createElement("div");
   actions.className = "event-verdicts";
+  const verdictButtons = new Map();
+  let reviewSaving = false;
+  const syncReviewControls = () => {
+    for (const [verdict, button] of verdictButtons) {
+      button.classList.toggle("is-active", event.review?.verdict === verdict);
+    }
+    const visibleEvents = (selectedReportWindow()?.events ?? []).filter((item) => {
+      const symbolQuery = elements.symbolFilter.value.trim().toUpperCase();
+      const signal = elements.signalFilter.value;
+      if (symbolQuery && !String(item.symbol).includes(symbolQuery)) return false;
+      if (signal && item.signalType !== signal) return false;
+      if (selectedView === "cascades" && item.signalType !== "cascade") return false;
+      if (selectedView === "algorithms" && !["rearranger", "size_supporter"].includes(item.signalType)) return false;
+      if (selectedView === "winners" && Number(item.observation?.mfePercent || 0) <= 1) return false;
+      return true;
+    }).slice(0, 100);
+    elements.reviewProgress.textContent = `${visibleEvents.filter((item) => item.review?.verdict).length} из ${visibleEvents.length} отмечено`;
+  };
+  const persistReview = async (verdict, overrides) => {
+    if (reviewSaving) return false;
+    reviewSaving = true;
+    for (const button of verdictButtons.values()) button.disabled = true;
+    try {
+      const saved = await saveEventReview(event, verdict, overrides);
+      if (saved) syncReviewControls();
+      return saved;
+    } finally {
+      reviewSaving = false;
+      for (const button of verdictButtons.values()) button.disabled = false;
+    }
+  };
   for (const [verdict, label] of [
     ["good", "✓ Годный"],
     ["bad", "✕ Мусор"],
@@ -552,11 +592,12 @@ function renderEvent(event) {
     button.classList.toggle("is-active", event.review?.verdict === verdict);
     button.addEventListener("click", async () => {
       const next = event.review?.verdict === verdict ? null : verdict;
-      await saveEventReview(event, next, {
+      await persistReview(next, {
         reason: reason.value,
         comment: comment.value,
       });
     });
+    verdictButtons.set(verdict, button);
     actions.append(button);
   }
   const reason = document.createElement("select");
@@ -575,7 +616,7 @@ function renderEvent(event) {
   comment.value = event.review?.comment || "";
   const saveDetails = async () => {
     if (!event.review?.verdict) return;
-    await saveEventReview(event, event.review.verdict, {
+    await persistReview(event.review.verdict, {
       reason: reason.value,
       comment: comment.value,
     });
