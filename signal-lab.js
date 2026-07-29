@@ -20,6 +20,7 @@ const DEFAULT_RETENTION_MS = 2_592_000_000;
 const DEFAULT_MAX_EVENTS = 10_000;
 const DEFAULT_FINAL_SAMPLE_MAX_DELAY_MS = 5_000;
 const DEFAULT_PRUNE_INTERVAL_MS = 600_000;
+export const SIGNAL_LAB_TARGET_MFE_PERCENT = 1;
 const STORE_NAMES = Object.freeze({
   EVENTS: "events",
   CONTEXTS: "contexts",
@@ -180,6 +181,9 @@ function summarizeGroup(records, symbolScoped, now) {
   const continued = directional.filter((value) => value > 0).length;
   const flat = directional.filter((value) => value === 0).length;
   const adverse = directional.filter((value) => value < 0).length;
+  const targetHits = usable.filter(
+    (observation) => Number(observation.mfePercent) > SIGNAL_LAB_TARGET_MFE_PERCENT,
+  ).length;
   const limitations = [];
   if (usable.length < 20) limitations.push("sample-below-20");
   if (partial.length) limitations.push("partial-price-paths-excluded");
@@ -217,6 +221,13 @@ function summarizeGroup(records, symbolScoped, now) {
       flat,
       adverse,
       ratePercent: roundedPercent(continued, usable.length),
+    },
+    target: {
+      definition: `mfePercent > ${SIGNAL_LAB_TARGET_MFE_PERCENT}`,
+      thresholdPercent: SIGNAL_LAB_TARGET_MFE_PERCENT,
+      hits: targetHits,
+      misses: usable.length - targetHits,
+      ratePercent: roundedPercent(targetHits, usable.length),
     },
     outcome: {
       marketReturnPercent: numericSummary(
@@ -353,6 +364,7 @@ export function buildSignalLabReport(snapshot = {}, {
     definitions: {
       primarySample: "state=observed AND quality.state=live AND complete outcome",
       continuation: "directionalReturnPercent > 0",
+      targetHit: `mfePercent > ${SIGNAL_LAB_TARGET_MFE_PERCENT}`,
       marketReturn: "(finalPrice-baselinePrice)/baselinePrice*100",
       directionalReturn: "marketReturn*signalDirection",
       mfe: "maximum favorable directional excursion",

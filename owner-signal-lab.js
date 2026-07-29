@@ -13,6 +13,8 @@ const SIGNAL_LABELS = Object.freeze({
   breakout_resistance: "Пробой УС",
   breakout_support: "Пробой УП",
   liquidation_cascade: "Каскад ликвидаций",
+  rearranger: "Переставляш",
+  size_supporter: "Подставляш",
   breakout: "Пробой · legacy",
   compression: "Сжатие · legacy",
 });
@@ -43,6 +45,7 @@ const elements = {
   symbolFilter: document.querySelector("#symbol-filter"),
   signalFilter: document.querySelector("#signal-filter"),
   horizonFilter: document.querySelector("#horizon-filter"),
+  resultFilter: document.querySelector("#result-filter"),
   refresh: document.querySelector("#refresh-report"),
   summaryEvents: document.querySelector("#summary-events"),
   summaryUsable: document.querySelector("#summary-usable"),
@@ -142,6 +145,7 @@ function filteredRows(windowReport) {
     (!symbolQuery || String(group.symbol).includes(symbolQuery))
     && (!signal || group.signalType === signal)
     && (!horizon || group.horizon === horizon)
+    && (elements.resultFilter.value !== "target" || Number(group.target?.hits || 0) > 0)
   ));
 }
 
@@ -188,6 +192,7 @@ function renderRow(group) {
     createCell(HORIZON_LABELS[group.horizon] || group.horizon || "—"),
     createCell(formatInteger(group.sample?.usableLive), "number"),
     createCell(formatPercent(group.continuation?.ratePercent, 1), "number"),
+    createCell(formatPercent(group.target?.ratePercent, 1), "number"),
   );
 
   const median = finite(group.outcome?.directionalReturnPercent?.median);
@@ -322,7 +327,12 @@ for (const button of elements.windowButtons) {
     render();
   });
 }
-for (const control of [elements.symbolFilter, elements.signalFilter, elements.horizonFilter]) {
+for (const control of [
+  elements.symbolFilter,
+  elements.signalFilter,
+  elements.horizonFilter,
+  elements.resultFilter,
+]) {
   control.addEventListener("input", render);
   control.addEventListener("change", render);
 }

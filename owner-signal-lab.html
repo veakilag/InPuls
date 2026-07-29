@@ -57,6 +57,8 @@
             <option value="knife">Классика · Нож</option>
             <option value="sharpening">Классика · Заточка</option>
             <option value="cascade">Классика · Каскад</option>
+            <option value="rearranger">Алгоритм · Переставляш</option>
+            <option value="size_supporter">Алгоритм · Подставляш</option>
             <option value="liquidation_cascade">Событие · Каскад ликвидаций</option>
             <option value="impulse">Событие · Импульс</option>
           </select>
@@ -69,6 +71,13 @@
             <option value="1m">1 минута</option>
             <option value="3m">3 минуты</option>
             <option value="5m">5 минут</option>
+          </select>
+        </label>
+        <label>
+          <span>Результат</span>
+          <select id="result-filter">
+            <option value="">Все случаи</option>
+            <option value="target">Отработали &gt;1%</option>
           </select>
         </label>
         <button id="refresh-report" class="refresh-button" type="button">Обновить</button>
@@ -99,6 +108,7 @@
                 <th>Горизонт</th>
                 <th class="number">N</th>
                 <th class="number">Продолжение</th>
+                <th class="number">&gt;1% MFE</th>
                 <th class="number">Медиана</th>
                 <th class="number">MFE</th>
                 <th class="number">MAE</th>

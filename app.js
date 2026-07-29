@@ -13,6 +13,10 @@ import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v
 import { SignalMemoryTracker } from "./market-memory.js?v=26-55-scalper-pattern-evidence-v1";
 import { SignalLabLocalStore } from "./signal-lab.js?v=signal-lab-analytics-v1";
 import { parseInPulsNavigation } from "./owner-navigation.js?v=owner-signal-lab-v1";
+import {
+  MarketwideSizeScanner,
+  detectMarketwideCascade,
+} from "./market-pattern-scanner.js?v=marketwide-patterns-v1";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -45,6 +49,9 @@ const SIGNAL_TYPES = new Set([
   "sharpening",
   "breakout_resistance",
   "breakout_support",
+  "cascade",
+  "rearranger",
+  "size_supporter",
   "impulse",
 ]);
 
@@ -219,7 +226,7 @@ class BinanceFeed {
       this.reconnectAttempt = 0;
       state.connectedAt = Date.now();
       setConnection("online", "Онлайн");
-      this.#send("SUBSCRIBE", ["!miniTicker@arr", "!markPrice@arr@1s", "!forceOrder@arr"]);
+      this.#send("SUBSCRIBE", ["!miniTicker@arr", "!markPrice@arr@1s", "!forceOrder@arr", "!bookTicker"]);
       if (this.trackedAggTrades.size) {
         this.#send("SUBSCRIBE", [...this.trackedAggTrades].flatMap((symbol) => [`${symbol.toLowerCase()}@aggTrade`, `${symbol.toLowerCase()}@bookTicker`]));
       }
@@ -268,6 +275,10 @@ class BinanceFeed {
   #handle(data) {
     if (Array.isArray(data)) {
       for (const ticker of data) {
+        if (ticker?.e === "bookTicker" && isUsdtPerpetualSymbol(ticker.s)) {
+          marketSizeScanner.ingestBookTicker(ticker);
+          continue;
+        }
         if (ticker?.e === "markPriceUpdate" && isUsdtPerpetualSymbol(ticker.s)) {
           getSymbol(ticker.s, Number(ticker.E) || Date.now())?.updateFunding(ticker);
           continue;
@@ -279,8 +290,11 @@ class BinanceFeed {
       return;
     }
     if (!data || typeof data !== "object") return;
-    if (data.e === "bookTicker" && isUsdtPerpetualSymbol(data.s) && this.trackedAggTrades.has(data.s)) {
-      getSymbol(data.s, Number(data.E) || Date.now())?.updateBookTicker(data);
+    if (data.e === "bookTicker" && isUsdtPerpetualSymbol(data.s)) {
+      marketSizeScanner.ingestBookTicker(data);
+      if (this.trackedAggTrades.has(data.s)) {
+        getSymbol(data.s, Number(data.E) || Date.now())?.updateBookTicker(data);
+      }
       scheduleRender();
       return;
     }
@@ -299,6 +313,7 @@ class BinanceFeed {
   }
 }
 
+const marketSizeScanner = new MarketwideSizeScanner();
 const feed = new BinanceFeed();
 let scheduledMarketRender = null;
 function scheduleRender() {
@@ -653,7 +668,6 @@ function getSymbol(symbol, now) {
 
 function getMetrics(now = Date.now()) {
   const metrics = [...state.symbols.values()]
-    .filter((item) => item.quoteVolume24h >= state.settings.minTurnover24h)
     .map((item) => item.metrics(state.settings, now));
   const bitcoinReturns = metrics.find((item) => item.symbol === "BTCUSDT")?.minuteReturns ?? [];
   return metrics
@@ -680,8 +694,20 @@ function latestOrderBookForSignalMemory(symbol) {
 }
 
 function updateSignalMemory(metrics, now) {
+  const enrichedMetrics = metrics.map((item) => {
+    const marketwideSignals = marketSizeScanner.signalsFor(item.symbol, now);
+    const cascade = detectMarketwideCascade(item);
+    return {
+      ...item,
+      signals: [
+        ...(Array.isArray(item.signals) ? item.signals : []),
+        ...marketwideSignals,
+        ...(cascade ? [cascade] : []),
+      ],
+    };
+  });
   const created = signalMemory.ingest({
-    metrics,
+    metrics: enrichedMetrics,
     settings: state.settings,
     now,
     contextForSymbol: latestOrderBookForSignalMemory,
@@ -739,9 +765,12 @@ function render() {
   const renderStartedAt = observability.enabled ? performance.now() : 0;
   let phaseStartedAt = renderStartedAt;
   const now = Date.now();
-  const metrics = getMetrics(now);
+  const marketwideMetrics = getMetrics(now);
+  const metrics = marketwideMetrics.filter(
+    (item) => item.quoteVolume24h >= state.settings.minTurnover24h,
+  );
   state.lastMetrics = metrics;
-  updateSignalMemory(metrics, now);
+  updateSignalMemory(marketwideMetrics, now);
   updateAlerts(metrics, now);
   if (observability.enabled) {
     observability.record("app.render.metrics", performance.now() - phaseStartedAt, {
