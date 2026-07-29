@@ -321,7 +321,7 @@ test("browser lab keeps RAW isolated from production and uses routed multi-strea
   assert.match(html, /raw-stability-lab\.js\?v=3/);
   assert.match(worker, /return \[`\$\{name\}@aggTrade`\];/);
   assert.doesNotMatch(worker, /return \[`\$\{name\}@trade`\];/);
-  assert.match(serviceWorker, /inpuls-26-42-orderbook-scroll-theme-v1/);
+  assert.match(serviceWorker, /inpuls-26-43-orderbook-visual-priority-v1/);
   assert.match(serviceWorker, /raw-stability-lab\.html/);
   assert.match(serviceWorker, /raw-stability-lab\.js\?v=3/);
   assert.match(serviceWorker, /raw-stability-core\.js\?v=3/);
