@@ -1,0 +1,1938 @@
+===== app_patch =====
+exit_code=0
+
+===== orderbook_patch =====
+exit_code=0
+
+===== flow_data_patch =====
+exit_code=0
+
+===== flow_render_patch =====
+exit_code=0
+
+===== finalize_patch =====
+exit_code=0
+
+===== check_app =====
+exit_code=0
+
+===== check_orderbook =====
+exit_code=0
+
+===== check_flow =====
+exit_code=0
+
+===== check_sw =====
+exit_code=0
+
+===== orderbook_tests =====
+TAP version 13
+# Subtest: files keep correct identities
+ok 1 - files keep correct identities
+  ---
+  duration_ms: 1.35568
+  type: 'test'
+  ...
+# Subtest: background return reuses Worker with guarded staggered recovery
+ok 2 - background return reuses Worker with guarded staggered recovery
+  ---
+  duration_ms: 0.424102
+  type: 'test'
+  ...
+# Subtest: normalizes and deduplicates trade history
+ok 3 - normalizes and deduplicates trade history
+  ---
+  duration_ms: 18.540465
+  type: 'test'
+  ...
+# Subtest: footprint columns preserve time, price and aggressor totals
+ok 4 - footprint columns preserve time, price and aggressor totals
+  ---
+  duration_ms: 0.677335
+  type: 'test'
+  ...
+# Subtest: flow window and visible count stay independent from pane width
+ok 5 - flow window and visible count stay independent from pane width
+  ---
+  duration_ms: 0.696764
+  type: 'test'
+  ...
+# Subtest: footprint tone reports buy and sell dominance
+ok 6 - footprint tone reports buy and sell dominance
+  ---
+  duration_ms: 0.353525
+  type: 'test'
+  ...
+# Subtest: 1M and 5M clusters use aligned live intervals without delta
+ok 7 - 1M and 5M clusters use aligned live intervals without delta
+  ---
+  duration_ms: 2.413561
+  type: 'test'
+  ...
+# Subtest: a live reset clears both cluster timeframes
+ok 8 - a live reset clears both cluster timeframes
+  ---
+  duration_ms: 0.302247
+  type: 'test'
+  ...
+# Subtest: cluster history keeps aligned 1M and 5M columns
+ok 9 - cluster history keeps aligned 1M and 5M columns
+  ---
+  duration_ms: 0.868965
+  type: 'test'
+  ...
+# Subtest: Flow Workspace redraw observer cannot trigger itself
+not ok 10 - Flow Workspace redraw observer cannot trigger itself
+  ---
+  duration_ms: 6.040248
+  type: 'test'
+  location: '/home/runner/work/InPuls/InPuls/test-orderbook-flow-workspace.mjs:116:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /sellLabelLeft - sellWidth/. Input:
+    
+    'import { observability } from "./observability.js?v=render-scheduler-v1";\n' +
+      '\n' +
+      'export const FLOW_WORKSPACE = Object.freeze({\n' +
+      '  historyMs: 5 * 60_000,\n' +
+      '  minimumBucketMs: 250,\n' +
+      '  maximumColumns: 28,\n' +
+      '  maximumTrades: 6_000,\n' +
+      '  minimumPanePx: 108,\n' +
+      '  minimumTapePx: 160,\n' +
+      '  minimumBookPx: 104,\n' +
+      '});\n' +
+      '\n' +
+      'export const FOOTPRINT_TIMEFRAMES = Object.freeze([60_000, 5 * 60_000]);\n' +
+      'const FOOTPRINT_TIMEFRAME_KEY = "inpuls-footprint-timeframe-v1";\n' +
+      'const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";\n' +
+      'const FOOTPRINT_MINUTE_MS = 60_000;\n' +
+      'const FOOTPRINT_RETAIN_MINUTES = 30;\n' +
+      'const FOOTPRINT_MIN_COLUMN_PX = 82;\n' +
+      'const FOOTPRINT_MAX_VISIBLE_COLUMNS = 8;\n' +
+      '\n' +
+      'function clamp(value, minimum, maximum) {\n' +
+      '  return Math.max(minimum, Math.min(maximum, value));\n' +
+      '}\n' +
+      '\n' +
+      'export function normalizeFlowTrade(trade) {\n' +
+      '  const price = Number(trade?.price);\n' +
+      '  const quantity = Number(trade?.quantity);\n' +
+      '  const quote = Number(trade?.quote ?? price * quantity);\n' +
+      '  const time = Number(trade?.time ?? trade?.tradeTime ?? trade?.eventTime);\n' +
+      '  if (![price, quantity, quote, time].every(Number.isFinite) || price <= 0 || quantity <= 0 || quote <= 0) {\n' +
+      '    return null;\n' +
+      '  }\n' +
+      '  return {\n' +
+      '    id: trade?.id ?? `${time}:${price}:${quantity}`,\n' +
+      '    price,\n' +
+      '    quantity,\n' +
+      '    quote,\n' +
+      '    time,\n' +
+      '    side: trade?.side === "sell" ? "sell" : "buy",\n' +
+      '  };\n' +
+      '}\n' +
+      '\n' +
+      'function flowTradeKey(trade) {\n' +
+      '  return `${String(trade.id)}:${trade.time}:${trade.price}:${trade.quantity}`;\n' +
+      '}\n' +
+      '\n' +
+      'function compareFlowTrades(left, right) {\n' +
+      '  return right.time - left.time || String(right.id).localeCompare(String(left.id));\n' +
+      '}\n' +
+      '\n' +
+      'function mergeSortedFlowTrades(current, incoming, limit) {\n' +
+      '  const seen = new Set();\n' +
+      '  const result = [];\n' +
+      '  let currentIndex = 0;\n' +
+      '  let incomingIndex = 0;\n' +
+      '\n' +
+      '  while (\n' +
+      '    result.length < limit\n' +
+      '    && (currentIndex < current.length || incomingIndex < incoming.length)\n' +
+      '  ) {\n' +
+      '    const currentTrade = current[currentIndex];\n' +
+      '    const incomingTrade = incoming[incomingIndex];\n' +
+      '    const takeIncoming = currentTrade === undefined\n' +
+      '      || (incomingTrade !== undefined && compareFlowTrades(incomingTrade, currentTrade) <= 0);\n' +
+      '    const trade = takeIncoming ? incomingTrade : currentTrade;\n' +
+      '    if (takeIncoming) incomingIndex += 1;\n' +
+      '    else currentIndex += 1;\n' +
+      '    if (!trade) continue;\n' +
+      '    const key = flowTradeKey(trade);\n' +
+      '    if (seen.has(key)) continue;\n' +
+      '    seen.add(key);\n' +
+      '    result.push(trade);\n' +
+      '  }\n' +
+      '  return result;\n' +
+      '}\n' +
+      '\n' +
+      'export function mergeFlowTrades(current, incoming, limit = FLOW_WORKSPACE.maximumTrades, replace = false) {\n' +
+      '  const safeLimit = Math.max(1, Math.floor(Number(limit) || FLOW_WORKSPACE.maximumTrades));\n' +
+      '  const normalizedIncoming = (incoming ?? [])\n' +
+      '    .map(normalizeFlowTrade)\n' +
+      '    .filter(Boolean)\n' +
+      '    .sort(compareFlowTrades);\n' +
+      '  const normalizedCurrent = replace\n' +
+      '    ? []\n' +
+      '    : (current ?? []).map(normalizeFlowTrade).filter(Boolean).sort(compareFlowTrades);\n' +
+      '  return mergeSortedFlowTrades(normalizedCurrent, normalizedIncoming, safeLimit);\n' +
+      '}\n' +
+      '\n' +
+      'function mergeLiveFlowTrades(current, incoming, limit = FLOW_WORKSPACE.maximumTrades, replace = false) {\n' +
+      '  const safeLimit = Math.max(1, Math.floor(Number(limit) || FLOW_WORKSPACE.maximumTrades));\n' +
+      '  const normalizedIncoming = (incoming ?? [])\n' +
+      '    .map(normalizeFlowTrade)\n' +
+      '    .filter(Boolean)\n' +
+      '    .sort(compareFlowTrades);\n' +
+      '  return mergeSortedFlowTrades(replace ? [] : (current ?? []), normalizedIncoming, safeLimit);\n' +
+      '}\n' +
+      '\n' +
+      'export function flowWindow(endTime, durationMs = FLOW_WORKSPACE.historyMs) {\n' +
+      '  const end = Number(endTime) || Date.now();\n' +
+      '  const duration = Math.max(1_000, Number(durationMs) || FLOW_WORKSPACE.historyMs);\n' +
+      '  return { startTime: end - duration, endTime: end, duration };\n' +
+      '}\n' +
+      '\n' +
+      'export function footprintBucketMs(width, durationMs = FLOW_WORKSPACE.historyMs) {\n' +
+      '  const safeWidth = Math.max(1, Number(width) || 1);\n' +
+      '  const targetColumns = clamp(Math.floor(safeWidth / 34), 6, FLOW_WORKSPACE.maximumColumns);\n' +
+      '  const raw = Math.max(FLOW_WORKSPACE.minimumBucketMs, Number(durationMs) / targetColumns);\n' +
+      '  return Math.ceil(raw / FLOW_WORKSPACE.minimumBucketMs) * FLOW_WORKSPACE.minimumBucketMs;\n' +
+      '}\n' +
+      '\n' +
+      'export function buildFootprintColumns(trades, options = {}) {\n' +
+      '  const startTime = Number(options.startTime);\n' +
+      '  const endTime = Number(options.endTime);\n' +
+      '  const priceStep = Math.max(Number.EPSILON, Number(options.priceStep) || .01);\n' +
+      '  const bucketMs = Math.max(\n' +
+      '    FLOW_WORKSPACE.minimumBucketMs,\n' +
+      '    Number(options.bucketMs) || FLOW_WORKSPACE.minimumBucketMs,\n' +
+      '  );\n' +
+      '  if (![startTime, endTime].every(Number.isFinite) || endTime <= startTime) return [];\n' +
+      '\n' +
+      '  const cells = new Map();\n' +
+      '  for (const rawTrade of trades ?? []) {\n' +
+      '    const trade = normalizeFlowTrade(rawTrade);\n' +
+      '    if (!trade || trade.time < startTime || trade.time > endTime) continue;\n' +
+      '    const timeIndex = Math.floor((trade.time - startTime) / bucketMs);\n' +
+      '    const priceIndex = Math.round(trade.price / priceStep);\n' +
+      '    const key = `${timeIndex}:${priceIndex}`;\n' +
+      '    const cell = cells.get(key) ?? {\n' +
+      '      timeIndex,\n' +
+      '      priceIndex,\n' +
+      '      time: startTime + timeIndex * bucketMs,\n' +
+      '      price: Number((priceIndex * priceStep).toPrecision(15)),\n' +
+      '      buyQuote: 0,\n' +
+      '      sellQuote: 0,\n' +
+      '      quote: 0,\n' +
+      '      count: 0,\n' +
+      '    };\n' +
+      '    cell[trade.side === "sell" ? "sellQuote" : "buyQuote"] += trade.quote;\n' +
+      '    cell.quote += trade.quote;\n' +
+      '    cell.count += 1;\n' +
+      '    cells.set(key, cell);\n' +
+      '  }\n' +
+      '\n' +
+      '  const columns = new Map();\n' +
+      '  for (const cell of cells.values()) {\n' +
+      '    const column = columns.get(cell.timeIndex) ?? {\n' +
+      '      timeIndex: cell.timeIndex,\n' +
+      '      time: cell.time,\n' +
+      '      quote: 0,\n' +
+      '      count: 0,\n' +
+      '      cells: [],\n' +
+      '    };\n' +
+      '    column.quote += cell.quote;\n' +
+      '    column.count += cell.count;\n' +
+      '    column.cells.push(cell);\n' +
+      '    columns.set(cell.timeIndex, column);\n' +
+      '  }\n' +
+      '\n' +
+      '  return [...columns.values()]\n' +
+      '    .sort((left, right) => left.timeIndex - right.timeIndex)\n' +
+      '    .map((column) => ({\n' +
+      '      ...column,\n' +
+      '      cells: column.cells.sort((left, right) => right.price - left.price),\n' +
+      '    }));\n' +
+      '}\n' +
+      '\n' +
+      'export function footprintTone(cell) {\n' +
+      '  const buy = Math.max(0, Number(cell?.buyQuote) || 0);\n' +
+      '  const sell = Math.max(0, Number(cell?.sellQuote) || 0);\n' +
+      '  const total = Math.max(1, buy + sell);\n' +
+      '  return clamp((buy - sell) / total, -1, 1);\n' +
+      '}\n' +
+      '\n' +
+      'export function footprintCellIntensity(value, maximum) {\n' +
+      '  const amount = Math.max(0, Number(value) || 0);\n' +
+      '  const peak = Math.max(1, Number(maximum) || 1);\n' +
+      '  return clamp(Math.sqrt(amount / peak), 0, 1);\n' +
+      '}\n' +
+      '\n' +
+      'export function visibleFlowCount(trades, startTime, endTime) {\n' +
+      '  let count = 0;\n' +
+      '  for (const trade of trades ?? []) {\n' +
+      '    const time = Number(trade?.time);\n' +
+      '    if (Number.isFinite(time) && time >= startTime && time <= endTime) count += 1;\n' +
+      '  }\n' +
+      '  return count;\n' +
+      '}\n' +
+      '\n' +
+      'export function footprintIntervalStart(time, timeframeMs = FOOTPRINT_TIMEFRAMES[0]) {\n' +
+      '  const at = Number(time) || Date.now();\n' +
+      '  const timeframe = FOOTPRINT_TIMEFRAMES.includes(Number(timeframeMs))\n' +
+      '    ? Number(timeframeMs)\n' +
+      '    : FOOTPRINT_TIMEFRAMES[0];\n' +
+      '  return Math.floor(at / timeframe) * timeframe;\n' +
+      '}\n' +
+      '\n' +
+      'export function createFootprintAccumulator() {\n' +
+      '  return { minutes: new Map() };\n' +
+      '}\n' +
+      '\n' +
+      'function minuteBucket(accumulator, startTime) {\n' +
+      '  const bucket = accumulator.minutes.get(startTime) ?? {\n' +
+      '    startTime,\n' +
+      '    endTime: startTime + FOOTPRINT_MINUTE_MS,\n' +
+      '    count: 0,\n' +
+      '    quote: 0,\n' +
+      '    firstTradeTime: Infinity,\n' +
+      '    lastTradeTime: -Infinity,\n' +
+      '    openPrice: null,\n' +
+      '    closePrice: null,\n' +
+      '    highPrice: null,\n' +
+      '    lowPrice: null,\n' +
+      '    cells: new Map(),\n' +
+      '  };\n' +
+      '  accumulator.minutes.set(startTime, bucket);\n' +
+      '  return bucket;\n' +
+      '}\n' +
+      '\n' +
+      'function pruneFootprintAccumulator(accumulator, referenceTime = Date.now()) {\n' +
+      '  const currentMinute = footprintIntervalStart(referenceTime, FOOTPRINT_MINUTE_MS);\n' +
+      '  const minimum = currentMinute - (FOOTPRINT_RETAIN_MINUTES - 1) * FOOTPRINT_MINUTE_MS;\n' +
+      '  for (const startTime of accumulator.minutes.keys()) {\n' +
+      '    if (startTime < minimum || startTime > currentMinute) {\n' +
+      '      accumulator.minutes.delete(startTime);\n' +
+      '    }\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'export function ingestFootprintTrades(accumulator, incoming, { replace = false } = {}) {\n' +
+      '  const target = accumulator?.minutes instanceof Map\n' +
+      '    ? accumulator\n' +
+      '    : createFootprintAccumulator();\n' +
+      '  if (replace) target.minutes.clear();\n' +
+      '  let latestTime = 0;\n' +
+      '\n' +
+      '  for (const rawTrade of incoming ?? []) {\n' +
+      '    const trade = normalizeFlowTrade(rawTrade);\n' +
+      '    if (!trade) continue;\n' +
+      '    latestTime = Math.max(latestTime, trade.time);\n' +
+      '    const startTime = footprintIntervalStart(trade.time, FOOTPRINT_MINUTE_MS);\n' +
+      '    const bucket = minuteBucket(target, startTime);\n' +
+      '    const priceKey = Number(trade.price).toPrecision(15);\n' +
+      '    const cell = bucket.cells.get(priceKey) ?? {\n' +
+      '      price: trade.price,\n' +
+      '      buyQuote: 0,\n' +
+      '      sellQuote: 0,\n' +
+      '      quote: 0,\n' +
+      '      count: 0,\n' +
+      '    };\n' +
+      '    cell[trade.side === "sell" ? "sellQuote" : "buyQuote"] += trade.quote;\n' +
+      '    cell.quote += trade.quote;\n' +
+      '    cell.count += 1;\n' +
+      '    bucket.cells.set(priceKey, cell);\n' +
+      '    bucket.quote += trade.quote;\n' +
+      '    bucket.count += 1;\n' +
+      '    if (trade.time < bucket.firstTradeTime) {\n' +
+      '      bucket.firstTradeTime = trade.time;\n' +
+      '      bucket.openPrice = trade.price;\n' +
+      '    }\n' +
+      '    if (trade.time >= bucket.lastTradeTime) {\n' +
+      '      bucket.lastTradeTime = trade.time;\n' +
+      '      bucket.closePrice = trade.price;\n' +
+      '    }\n' +
+      '    bucket.highPrice = bucket.highPrice === null\n' +
+      '      ? trade.price\n' +
+      '      : Math.max(bucket.highPrice, trade.price);\n' +
+      '    bucket.lowPrice = bucket.lowPrice === null\n' +
+      '      ? trade.price\n' +
+      '      : Math.min(bucket.lowPrice, trade.price);\n' +
+      '  }\n' +
+      '\n' +
+      '  pruneFootprintAccumulator(target, latestTime || Date.now());\n' +
+      '  return target;\n' +
+      '}\n' +
+      '\n' +
+      'function footprintSnapshotAt(\n' +
+      '  accumulator,\n' +
+      '  timeframe,\n' +
+      '  startTime,\n' +
+      '  now,\n' +
+      ') {\n' +
+      '  const endTime = startTime + timeframe;\n' +
+      '  const cells = new Map();\n' +
+      '  let count = 0;\n' +
+      '  let quote = 0;\n' +
+      '  let firstTradeTime = Infinity;\n' +
+      '  let lastTradeTime = -Infinity;\n' +
+      '  let openPrice = null;\n' +
+      '  let closePrice = null;\n' +
+      '  let highPrice = null;\n' +
+      '  let lowPrice = null;\n' +
+      '\n' +
+      '  for (const bucket of accumulator?.minutes?.values?.() ?? []) {\n' +
+      '    if (bucket.startTime < startTime || bucket.startTime >= endTime) continue;\n' +
+      '    count += bucket.count;\n' +
+      '    quote += bucket.quote;\n' +
+      '    if (Number.isFinite(bucket.firstTradeTime) && bucket.firstTradeTime < firstTradeT'... 26998 more characters
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: |-
+    import { observability } from "./observability.js?v=render-scheduler-v1";
+    
+    export const FLOW_WORKSPACE = Object.freeze({
+      historyMs: 5 * 60_000,
+      minimumBucketMs: 250,
+      maximumColumns: 28,
+      maximumTrades: 6_000,
+      minimumPanePx: 108,
+      minimumTapePx: 160,
+      minimumBookPx: 104,
+    });
+    
+    export const FOOTPRINT_TIMEFRAMES = Object.freeze([60_000, 5 * 60_000]);
+    const FOOTPRINT_TIMEFRAME_KEY = "inpuls-footprint-timeframe-v1";
+    const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
+    const FOOTPRINT_MINUTE_MS = 60_000;
+    const FOOTPRINT_RETAIN_MINUTES = 30;
+    const FOOTPRINT_MIN_COLUMN_PX = 82;
+    const FOOTPRINT_MAX_VISIBLE_COLUMNS = 8;
+    
+    function clamp(value, minimum, maximum) {
+      return Math.max(minimum, Math.min(maximum, value));
+    }
+    
+    export function normalizeFlowTrade(trade) {
+      const price = Number(trade?.price);
+      const quantity = Number(trade?.quantity);
+      const quote = Number(trade?.quote ?? price * quantity);
+      const time = Number(trade?.time ?? trade?.tradeTime ?? trade?.eventTime);
+      if (![price, quantity, quote, time].every(Number.isFinite) || price <= 0 || quantity <= 0 || quote <= 0) {
+        return null;
+      }
+      return {
+        id: trade?.id ?? `${time}:${price}:${quantity}`,
+        price,
+        quantity,
+        quote,
+        time,
+        side: trade?.side === "sell" ? "sell" : "buy",
+      };
+    }
+    
+    function flowTradeKey(trade) {
+      return `${String(trade.id)}:${trade.time}:${trade.price}:${trade.quantity}`;
+    }
+    
+    function compareFlowTrades(left, right) {
+      return right.time - left.time || String(right.id).localeCompare(String(left.id));
+    }
+    
+    function mergeSortedFlowTrades(current, incoming, limit) {
+      const seen = new Set();
+      const result = [];
+      let currentIndex = 0;
+      let incomingIndex = 0;
+    
+      while (
+        result.length < limit
+        && (currentIndex < current.length || incomingIndex < incoming.length)
+      ) {
+        const currentTrade = current[currentIndex];
+        const incomingTrade = incoming[incomingIndex];
+        const takeIncoming = currentTrade === undefined
+          || (incomingTrade !== undefined && compareFlowTrades(incomingTrade, currentTrade) <= 0);
+        const trade = takeIncoming ? incomingTrade : currentTrade;
+        if (takeIncoming) incomingIndex += 1;
+        else currentIndex += 1;
+        if (!trade) continue;
+        const key = flowTradeKey(trade);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        result.push(trade);
+      }
+      return result;
+    }
+    
+    export function mergeFlowTrades(current, incoming, limit = FLOW_WORKSPACE.maximumTrades, replace = false) {
+      const safeLimit = Math.max(1, Math.floor(Number(limit) || FLOW_WORKSPACE.maximumTrades));
+      const normalizedIncoming = (incoming ?? [])
+        .map(normalizeFlowTrade)
+        .filter(Boolean)
+        .sort(compareFlowTrades);
+      const normalizedCurrent = replace
+        ? []
+        : (current ?? []).map(normalizeFlowTrade).filter(Boolean).sort(compareFlowTrades);
+      return mergeSortedFlowTrades(normalizedCurrent, normalizedIncoming, safeLimit);
+    }
+    
+    function mergeLiveFlowTrades(current, incoming, limit = FLOW_WORKSPACE.maximumTrades, replace = false) {
+      const safeLimit = Math.max(1, Math.floor(Number(limit) || FLOW_WORKSPACE.maximumTrades));
+      const normalizedIncoming = (incoming ?? [])
+        .map(normalizeFlowTrade)
+        .filter(Boolean)
+        .sort(compareFlowTrades);
+      return mergeSortedFlowTrades(replace ? [] : (current ?? []), normalizedIncoming, safeLimit);
+    }
+    
+    export function flowWindow(endTime, durationMs = FLOW_WORKSPACE.historyMs) {
+      const end = Number(endTime) || Date.now();
+      const duration = Math.max(1_000, Number(durationMs) || FLOW_WORKSPACE.historyMs);
+      return { startTime: end - duration, endTime: end, duration };
+    }
+    
+    export function footprintBucketMs(width, durationMs = FLOW_WORKSPACE.historyMs) {
+      const safeWidth = Math.max(1, Number(width) || 1);
+      const targetColumns = clamp(Math.floor(safeWidth / 34), 6, FLOW_WORKSPACE.maximumColumns);
+      const raw = Math.max(FLOW_WORKSPACE.minimumBucketMs, Number(durationMs) / targetColumns);
+      return Math.ceil(raw / FLOW_WORKSPACE.minimumBucketMs) * FLOW_WORKSPACE.minimumBucketMs;
+    }
+    
+    export function buildFootprintColumns(trades, options = {}) {
+      const startTime = Number(options.startTime);
+      const endTime = Number(options.endTime);
+      const priceStep = Math.max(Number.EPSILON, Number(options.priceStep) || .01);
+      const bucketMs = Math.max(
+        FLOW_WORKSPACE.minimumBucketMs,
+        Number(options.bucketMs) || FLOW_WORKSPACE.minimumBucketMs,
+      );
+      if (![startTime, endTime].every(Number.isFinite) || endTime <= startTime) return [];
+    
+      const cells = new Map();
+      for (const rawTrade of trades ?? []) {
+        const trade = normalizeFlowTrade(rawTrade);
+        if (!trade || trade.time < startTime || trade.time > endTime) continue;
+        const timeIndex = Math.floor((trade.time - startTime) / bucketMs);
+        const priceIndex = Math.round(trade.price / priceStep);
+        const key = `${timeIndex}:${priceIndex}`;
+        const cell = cells.get(key) ?? {
+          timeIndex,
+          priceIndex,
+          time: startTime + timeIndex * bucketMs,
+          price: Number((priceIndex * priceStep).toPrecision(15)),
+          buyQuote: 0,
+          sellQuote: 0,
+          quote: 0,
+          count: 0,
+        };
+        cell[trade.side === "sell" ? "sellQuote" : "buyQuote"] += trade.quote;
+        cell.quote += trade.quote;
+        cell.count += 1;
+        cells.set(key, cell);
+      }
+    
+      const columns = new Map();
+      for (const cell of cells.values()) {
+        const column = columns.get(cell.timeIndex) ?? {
+          timeIndex: cell.timeIndex,
+          time: cell.time,
+          quote: 0,
+          count: 0,
+          cells: [],
+        };
+        column.quote += cell.quote;
+        column.count += cell.count;
+        column.cells.push(cell);
+        columns.set(cell.timeIndex, column);
+      }
+    
+      return [...columns.values()]
+        .sort((left, right) => left.timeIndex - right.timeIndex)
+        .map((column) => ({
+          ...column,
+          cells: column.cells.sort((left, right) => right.price - left.price),
+        }));
+    }
+    
+    export function footprintTone(cell) {
+      const buy = Math.max(0, Number(cell?.buyQuote) || 0);
+      const sell = Math.max(0, Number(cell?.sellQuote) || 0);
+      const total = Math.max(1, buy + sell);
+      return clamp((buy - sell) / total, -1, 1);
+    }
+    
+    export function footprintCellIntensity(value, maximum) {
+      const amount = Math.max(0, Number(value) || 0);
+      const peak = Math.max(1, Number(maximum) || 1);
+      return clamp(Math.sqrt(amount / peak), 0, 1);
+    }
+    
+    export function visibleFlowCount(trades, startTime, endTime) {
+      let count = 0;
+      for (const trade of trades ?? []) {
+        const time = Number(trade?.time);
+        if (Number.isFinite(time) && time >= startTime && time <= endTime) count += 1;
+      }
+      return count;
+    }
+    
+    export function footprintIntervalStart(time, timeframeMs = FOOTPRINT_TIMEFRAMES[0]) {
+      const at = Number(time) || Date.now();
+      const timeframe = FOOTPRINT_TIMEFRAMES.includes(Number(timeframeMs))
+        ? Number(timeframeMs)
+        : FOOTPRINT_TIMEFRAMES[0];
+      return Math.floor(at / timeframe) * timeframe;
+    }
+    
+    export function createFootprintAccumulator() {
+      return { minutes: new Map() };
+    }
+    
+    function minuteBucket(accumulator, startTime) {
+      const bucket = accumulator.minutes.get(startTime) ?? {
+        startTime,
+        endTime: startTime + FOOTPRINT_MINUTE_MS,
+        count: 0,
+        quote: 0,
+        firstTradeTime: Infinity,
+        lastTradeTime: -Infinity,
+        openPrice: null,
+        closePrice: null,
+        highPrice: null,
+        lowPrice: null,
+        cells: new Map(),
+      };
+      accumulator.minutes.set(startTime, bucket);
+      return bucket;
+    }
+    
+    function pruneFootprintAccumulator(accumulator, referenceTime = Date.now()) {
+      const currentMinute = footprintIntervalStart(referenceTime, FOOTPRINT_MINUTE_MS);
+      const minimum = currentMinute - (FOOTPRINT_RETAIN_MINUTES - 1) * FOOTPRINT_MINUTE_MS;
+      for (const startTime of accumulator.minutes.keys()) {
+        if (startTime < minimum || startTime > currentMinute) {
+          accumulator.minutes.delete(startTime);
+        }
+      }
+    }
+    
+    export function ingestFootprintTrades(accumulator, incoming, { replace = false } = {}) {
+      const target = accumulator?.minutes instanceof Map
+        ? accumulator
+        : createFootprintAccumulator();
+      if (replace) target.minutes.clear();
+      let latestTime = 0;
+    
+      for (const rawTrade of incoming ?? []) {
+        const trade = normalizeFlowTrade(rawTrade);
+        if (!trade) continue;
+        latestTime = Math.max(latestTime, trade.time);
+        const startTime = footprintIntervalStart(trade.time, FOOTPRINT_MINUTE_MS);
+        const bucket = minuteBucket(target, startTime);
+        const priceKey = Number(trade.price).toPrecision(15);
+        const cell = bucket.cells.get(priceKey) ?? {
+          price: trade.price,
+          buyQuote: 0,
+          sellQuote: 0,
+          quote: 0,
+          count: 0,
+        };
+        cell[trade.side === "sell" ? "sellQuote" : "buyQuote"] += trade.quote;
+        cell.quote += trade.quote;
+        cell.count += 1;
+        bucket.cells.set(priceKey, cell);
+        bucket.quote += trade.quote;
+        bucket.count += 1;
+        if (trade.time < bucket.firstTradeTime) {
+          bucket.firstTradeTime = trade.time;
+          bucket.openPrice = trade.price;
+        }
+        if (trade.time >= bucket.lastTradeTime) {
+          bucket.lastTradeTime = trade.time;
+          bucket.closePrice = trade.price;
+        }
+        bucket.highPrice = bucket.highPrice === null
+          ? trade.price
+          : Math.max(bucket.highPrice, trade.price);
+        bucket.lowPrice = bucket.lowPrice === null
+          ? trade.price
+          : Math.min(bucket.lowPrice, trade.price);
+      }
+    
+      pruneFootprintAccumulator(target, latestTime || Date.now());
+      return target;
+    }
+    
+    function footprintSnapshotAt(
+      accumulator,
+      timeframe,
+      startTime,
+      now,
+    ) {
+      const endTime = startTime + timeframe;
+      const cells = new Map();
+      let count = 0;
+      let quote = 0;
+      let firstTradeTime = Infinity;
+      let lastTradeTime = -Infinity;
+      let openPrice = null;
+      let closePrice = null;
+      let highPrice = null;
+      let lowPrice = null;
+    
+      for (const bucket of accumulator?.minutes?.values?.() ?? []) {
+        if (bucket.startTime < startTime || bucket.startTime >= endTime) continue;
+        count += bucket.count;
+        quote += bucket.quote;
+        if (Number.isFinite(bucket.firstTradeTime) && bucket.firstTradeTime < firstTradeTime) {
+          firstTradeTime = bucket.firstTradeTime;
+          openPrice = bucket.openPrice;
+        }
+        if (Number.isFinite(bucket.lastTradeTime) && bucket.lastTradeTime >= lastTradeTime) {
+          lastTradeTime = bucket.lastTradeTime;
+          closePrice = bucket.closePrice;
+        }
+        if (Number.isFinite(bucket.highPrice)) {
+          highPrice = highPrice === null ? bucket.highPrice : Math.max(highPrice, bucket.highPrice);
+        }
+        if (Number.isFinite(bucket.lowPrice)) {
+          lowPrice = lowPrice === null ? bucket.lowPrice : Math.min(lowPrice, bucket.lowPrice);
+        }
+        for (const source of bucket.cells.values()) {
+          const priceKey = Number(source.price).toPrecision(15);
+          const cell = cells.get(priceKey) ?? {
+            price: source.price,
+            buyQuote: 0,
+            sellQuote: 0,
+            quote: 0,
+            count: 0,
+          };
+          cell.buyQuote += source.buyQuote;
+          cell.sellQuote += source.sellQuote;
+          cell.quote += source.quote;
+          cell.count += source.count;
+          cells.set(priceKey, cell);
+        }
+      }
+    
+      return {
+        timeframe,
+        startTime,
+        endTime,
+        partial: Number(now) < endTime,
+        count,
+        quote,
+        openPrice,
+        closePrice,
+        highPrice,
+        lowPrice,
+        cells: [...cells.values()].sort((left, right) => right.price - left.price),
+      };
+    }
+    
+    export function footprintIntervalSnapshot(
+      accumulator,
+      timeframeMs = FOOTPRINT_TIMEFRAMES[0],
+      now = Date.now(),
+    ) {
+      const timeframe = FOOTPRINT_TIMEFRAMES.includes(Number(timeframeMs))
+        ? Number(timeframeMs)
+        : FOOTPRINT_TIMEFRAMES[0];
+      const startTime = footprintIntervalStart(now, timeframe);
+      return footprintSnapshotAt(accumulator, timeframe, startTime, now);
+    }
+    
+    export function footprintIntervalHistory(
+      accumulator,
+      timeframeMs = FOOTPRINT_TIMEFRAMES[0],
+      now = Date.now(),
+      limit = FOOTPRINT_MAX_VISIBLE_COLUMNS,
+    ) {
+      const timeframe = FOOTPRINT_TIMEFRAMES.includes(Number(timeframeMs))
+        ? Number(timeframeMs)
+        : FOOTPRINT_TIMEFRAMES[0];
+      const maximum = Math.max(
+        1,
+        Math.min(FOOTPRINT_MAX_VISIBLE_COLUMNS, Math.floor(Number(limit) || 1)),
+      );
+      const currentStart = footprintIntervalStart(now, timeframe);
+      const earliestMinute = Math.min(
+        currentStart,
+        ...[...(accumulator?.minutes?.keys?.() ?? [])].map(Number).filter(Number.isFinite),
+      );
+      const earliestInterval = footprintIntervalStart(earliestMinute, timeframe);
+      const available = Math.max(
+        1,
+        Math.floor((currentStart - earliestInterval) / timeframe) + 1,
+      );
+      const count = Math.min(maximum, available);
+    
+      return Array.from({ length: count }, (_, index) => {
+        const startTime = currentStart - (count - index - 1) * timeframe;
+        return footprintSnapshotAt(accumulator, timeframe, startTime, now);
+      });
+    }
+    
+    const footprintBySymbol = new Map();
+    const statusBySymbol = new Map();
+    const cardStates = new WeakMap();
+    const dirtyCards = new Set();
+    let drawFrame = 0;
+    let drawAllRequested = true;
+    let flowDocumentHidden = typeof document !== "undefined" ? document.hidden : false;
+    const FLOW_DRAW_BUDGET_MS = 8;
+    const FLOW_DRAW_MAX_CARDS = 2;
+    
+    function cardSymbol(card) {
+      const text = String(
+        card?.querySelector?.("[data-book-ticker]")?.textContent
+          ?? card?.querySelector?.("h2")?.textContent
+          ?? "",
+      );
+      const pair = text.split("·")[0].replace("/", "").trim().toUpperCase();
+      return pair.endsWith("USDT") ? pair : null;
+    }
+    
+    function parseNumber(text) {
+      const normalized = String(text ?? "")
+        .replace(/[\s\u00a0\u202f']/g, "")
+        .replace(",", ".")
+        .replace(/[^0-9.+-]/g, "");
+      const value = Number(normalized);
+      return Number.isFinite(value) ? value : null;
+    }
+    
+    function formatUsd(value) {
+      const amount = Math.max(0, Number(value) || 0);
+      if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(amount >= 10_000_000 ? 0 : 1)}M`;
+      if (amount >= 1_000) return `${(amount / 1_000).toFixed(amount >= 100_000 ? 0 : 1)}K`;
+      return amount >= 100 ? String(Math.round(amount)) : amount.toFixed(amount >= 10 ? 0 : 1);
+    }
+    
+    function formatIntervalClock(time) {
+      const date = new Date(Number(time));
+      return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+    }
+    
+    function flowRecoveryFrozen(symbol) {
+      const status = statusBySymbol.get(symbol);
+      if (!status) return false;
+      const state = String(status.state ?? "").toLowerCase();
+      const text = String(status.text ?? "").toUpperCase();
+      const tapeStateKnown = text.includes("RAW") || text.includes("AGG") || text.includes("TAPE");
+      const tapeLive = text.includes("RAW SHADOW") || text.includes("AGG LIVE");
+      return state !== "online" || (tapeStateKnown && !tapeLive);
+    }
+    
+    function visibleRows(card, pane) {
+      const paneRect = pane.getBoundingClientRect();
+      return [...card.querySelectorAll(".orderbook-rows .book-ladder-row")]
+        .map((row, index) => {
+          const price = parseNumber(row.querySelector("strong")?.textContent);
+          const rect = row.getBoundingClientRect();
+          return {
+            index,
+            price,
+            y: rect.top + rect.height / 2 - paneRect.top - 23,
+            height: rect.height,
+            visible: rect.bottom >= paneRect.top && rect.top <= paneRect.bottom,
+          };
+        })
+        .filter((row) => row.visible && Number.isFinite(row.price));
+    }
+    
+    function rowStep(rows) {
+      const prices = [...new Set(rows.map((row) => row.price))].sort((a, b) => a - b);
+      let step = Infinity;
+      for (let index = 1; index < prices.length; index += 1) {
+        const gap = prices[index] - prices[index - 1];
+        if (gap > Number.EPSILON && gap < step) step = gap;
+      }
+      return Number.isFinite(step) ? step : .01;
+    }
+    
+    function nearestRow(rows, price) {
+      if (!rows.length) return null;
+      let best = rows[0];
+      let distance = Math.abs(price - best.price);
+      for (let index = 1; index < rows.length; index += 1) {
+        const nextDistance = Math.abs(price - rows[index].price);
+        if (nextDistance < distance) {
+          best = rows[index];
+          distance = nextDistance;
+        }
+      }
+      return best;
+    }
+    
+    function injectStyles() {
+      if (document.getElementById("inpuls-flow-workspace-v1")) return;
+      const style = document.createElement("style");
+      style.id = "inpuls-flow-workspace-v1";
+      style.textContent = `
+        .orderbook-card .orderbook-stage.inpuls-flow-workspace {
+          display: grid !important;
+          grid-template-columns:
+            minmax(${FLOW_WORKSPACE.minimumPanePx}px, var(--flow-cluster-width, 24%))
+            7px
+            minmax(${FLOW_WORKSPACE.minimumTapePx}px, 1fr)
+            7px
+            minmax(${FLOW_WORKSPACE.minimumBookPx}px, var(--flow-book-width, 22%)) !important;
+          grid-template-areas: "clusters split-a tape split-b book" !important;
+          min-width: 0;
+        }
+        .orderbook-card.is-clusters-hidden .orderbook-stage.inpuls-flow-workspace {
+          grid-template-columns:
+            0
+            0
+            minmax(${FLOW_WORKSPACE.minimumTapePx}px, 1fr)
+            7px
+            minmax(${FLOW_WORKSPACE.minimumBookPx}px, var(--flow-book-width, 22%)) !important;
+        }
+        .orderbook-card.is-tape-hidden .orderbook-stage.inpuls-flow-workspace {
+          grid-template-columns:
+            minmax(${FLOW_WORKSPACE.minimumPanePx}px, var(--flow-cluster-width, 24%))
+            7px
+            0
+            0
+            minmax(${FLOW_WORKSPACE.minimumBookPx}px, 1fr) !important;
+        }
+        .orderbook-card.is-clusters-hidden.is-tape-hidden .orderbook-stage.inpuls-flow-workspace {
+          grid-template-columns: 0 0 0 0 minmax(0, 1fr) !important;
+        }
+        .orderbook-card .inpuls-footprint-pane {
+          grid-area: clusters;
+          position: relative;
+          min-width: 0;
+          overflow: hidden;
+          border-right: 1px solid rgba(111, 82, 168, .24);
+          background: rgba(4, 7, 10, .72);
+        }
+        .orderbook-card .inpuls-footprint-toolbar {
+          position: absolute;
+          z-index: 8;
+          inset: 0 0 auto 0;
+          height: 23px;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 0 5px;
+          border-bottom: 1px solid rgba(98, 126, 139, .18);
+          background: rgba(7, 10, 14, .9);
+          color: #8299a4;
+          font: 800 8px/1 Inter, system-ui, sans-serif;
+        }
+        .orderbook-card .inpuls-footprint-toolbar button {
+          min-width: 28px;
+          height: 18px;
+          padding: 0 5px;
+          border: 1px solid rgba(105, 132, 145, .28);
+          border-radius: 4px;
+          background: rgba(12, 17, 22, .88);
+          color: #8ba1ac;
+          font: inherit;
+          cursor: pointer;
+        }
+        .orderbook-card .inpuls-footprint-toolbar button.is-active {
+          color: #5de1b5;
+          border-color: rgba(93, 225, 181, .45);
+          background: rgba(45, 179, 132, .1);
+        }
+        .orderbook-card .inpuls-footprint-toolbar strong {
+          margin-left: auto;
+          color: #a8bbc3;
+          white-space: nowrap;
+        }
+        .orderbook-card .inpuls-footprint-canvas {
+          position: absolute;
+          inset: 23px 0 0;
+          width: 100%;
+          height: calc(100% - 23px);
+          pointer-events: none;
+        }
+        .orderbook-card .orderbook-ladder { grid-area: book !important; }
+        .orderbook-card .orderbook-tape { grid-area: tape !important; }
+        .orderbook-card .inpuls-flow-splitter {
+          position: relative;
+          z-index: 80;
+          width: 7px;
+          min-width: 7px;
+          cursor: ew-resize;
+          touch-action: none;
+          border: 0;
+          padding: 0;
+          background: rgba(92, 70, 135, .08);
+        }
+        .orderbook-card .inpuls-flow-splitter::before {
+          content: "";
+          position: absolute;
+          inset: 0 -4px;
+        }
+        .orderbook-card .inpuls-flow-splitter[data-flow-split="clusters"] { grid-area: split-a; }
+        .orderbook-card .inpuls-flow-splitter[data-flow-split="tape"] { grid-area: split-b; }
+        .orderbook-card .book-splitter { display: none !important; }
+        .orderbook-card [data-book-clusters] { display: none !important; }
+        .orderbook-card.is-clusters-hidden .inpuls-footprint-pane,
+        .orderbook-card.is-clusters-hidden .inpuls-flow-splitter[data-flow-split="clusters"],
+        .orderbook-card.is-tape-hidden .orderbook-tape,
+        .orderbook-card.is-tape-hidden .inpuls-flow-splitter[data-flow-split="tape"] {
+          display: none !important;
+        }
+        .orderbook-card .inpuls-flow-count {
+          flex: 0 0 auto;
+          color: #8fa5af;
+          font: 800 8px/1 Inter, system-ui, sans-serif;
+          white-space: nowrap;
+        }
+        .orderbook-card .book-ladder-row .book-size::before {
+          left: 0 !important;
+          right: auto !important;
+          transform-origin: left center !important;
+        }
+      `;
+      document.head.append(style);
+    }
+    
+    function runDrawFrame() {
+      drawFrame = 0;
+      if (flowDocumentHidden) return;
+      if (drawAllRequested) {
+        document.querySelectorAll(".orderbook-card").forEach((card) => dirtyCards.add(card));
+        drawAllRequested = false;
+      }
+    
+      const drawStartedAt = performance.now();
+      let cardCount = 0;
+      let disconnected = 0;
+      for (const card of dirtyCards) {
+        dirtyCards.delete(card);
+        if (!card?.isConnected) {
+          disconnected += 1;
+          continue;
+        }
+        const state = ensureCard(card);
+        if (state) {
+          renderCard(card, state);
+          cardCount += 1;
+        }
+        if (
+          cardCount >= FLOW_DRAW_MAX_CARDS
+          || performance.now() - drawStartedAt >= FLOW_DRAW_BUDGET_MS
+        ) break;
+      }
+    
+      if (observability.enabled) {
+        observability.record("footprint.draw-all", performance.now() - drawStartedAt, {
+          cardCount,
+          remaining: dirtyCards.size,
+          yielded: dirtyCards.size > 0,
+          disconnected,
+        });
+        observability.record("footprint.cards-per-draw", cardCount);
+        if (dirtyCards.size) observability.increment("footprint.scheduler-yield");
+      }
+      if (dirtyCards.size) drawFrame = requestAnimationFrame(runDrawFrame);
+    }
+    
+    function requestDraw(card = null) {
+      if (card?.isConnected) dirtyCards.add(card);
+      else drawAllRequested = true;
+      if (flowDocumentHidden || drawFrame) return;
+      drawFrame = requestAnimationFrame(runDrawFrame);
+    }
+    
+    function bindSplitter(card, splitter, side) {
+      splitter.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const stage = card.querySelector(".orderbook-stage");
+        if (!stage) return;
+        const startX = event.clientX;
+        const stageRect = stage.getBoundingClientRect();
+        const clusterWidth = card.querySelector(".inpuls-footprint-pane")?.getBoundingClientRect().width
+          || stageRect.width * .24;
+        const bookWidth = card.querySelector(".orderbook-ladder")?.getBoundingClientRect().width
+          || stageRect.width * .22;
+    
+        const move = (moveEvent) => {
+          const delta = moveEvent.clientX - startX;
+          if (side === "clusters") {
+            stage.style.setProperty(
+              "--flow-cluster-width",
+              `${clamp(clusterWidth + delta, FLOW_WORKSPACE.minimumPanePx, stageRect.width * .48)}px`,
+            );
+          } else {
+            stage.style.setProperty(
+              "--flow-book-width",
+              `${clamp(bookWidth - delta, FLOW_WORKSPACE.minimumBookPx, stageRect.width * .48)}px`,
+            );
+          }
+          requestDraw(card);
+        };
+        const stop = () => {
+          document.removeEventListener("pointermove", move, true);
+          document.removeEventListener("pointerup", stop, true);
+          document.removeEventListener("pointercancel", stop, true);
+        };
+        document.addEventListener("pointermove", move, true);
+        document.addEventListener("pointerup", stop, true);
+        document.addEventListener("pointercancel", stop, true);
+      });
+    }
+    
+    function ensureCard(card) {
+      if (cardStates.has(card)) return cardStates.get(card);
+      const stage = card.querySelector(".orderbook-stage");
+      const tape = card.querySelector(".orderbook-tape");
+      const book = card.querySelector(".orderbook-ladder");
+      if (!stage || !tape || !book) return null;
+    
+      stage.classList.add("inpuls-flow-workspace");
+    
+      const pane = document.createElement("section");
+      pane.className = "inpuls-footprint-pane";
+      pane.setAttribute("aria-label", "Footprint-кластеры исполненных сделок");
+      pane.innerHTML = `
+        <div class="inpuls-footprint-toolbar">
+          <button type="button" data-footprint-timeframe="60000" class="is-active" aria-pressed="true">1М</button>
+          <button type="button" data-footprint-timeframe="300000" aria-pressed="false">5М</button>
+        </div>
+        <canvas class="inpuls-footprint-canvas"></canvas>
+      `;
+    
+      const splitClusters = document.createElement("button");
+      splitClusters.type = "button";
+      splitClusters.className = "inpuls-flow-splitter";
+      splitClusters.dataset.flowSplit = "clusters";
+      splitClusters.title = "Изменить ширину кластеров";
+    
+      const splitTape = document.createElement("button");
+      splitTape.type = "button";
+      splitTape.className = "inpuls-flow-splitter";
+      splitTape.dataset.flowSplit = "tape";
+      splitTape.title = "Изменить ширину стакана";
+    
+      stage.prepend(pane);
+      pane.after(splitClusters);
+      book.after(splitTape);
+      splitTape.after(tape);
+    
+      const toolbar = tape.querySelector(".trade-tape-toolbar");
+      const flowCount = document.createElement("span");
+      flowCount.className = "inpuls-flow-count";
+      flowCount.textContent = "0 trades";
+      toolbar?.append(flowCount);
+    
+      const canvas = pane.querySelector("canvas");
+      const state = {
+        pane,
+        canvas,
+        context: canvas.getContext("2d"),
+        flowCount,
+        visible: true,
+        timeframeMs: FOOTPRINT_TIMEFRAMES.includes(
+          Number(localStorage.getItem(FOOTPRINT_TIMEFRAME_KEY)),
+        )
+          ? Number(localStorage.getItem(FOOTPRINT_TIMEFRAME_KEY))
+          : FOOTPRINT_TIMEFRAMES[0],
+        hasFrame: false,
+        lastSymbol: null,
+      };
+      cardStates.set(card, state);
+    
+      const syncTimeframes = () => {
+        pane.querySelectorAll("[data-footprint-timeframe]").forEach((button) => {
+          const active = Number(button.dataset.footprintTimeframe) === state.timeframeMs;
+          button.classList.toggle("is-active", active);
+          button.setAttribute("aria-pressed", String(active));
+        });
+      };
+      pane.querySelectorAll("[data-footprint-timeframe]").forEach((button) => {
+        button.addEventListener("click", () => {
+          state.timeframeMs = Number(button.dataset.footprintTimeframe);
+          localStorage.setItem(FOOTPRINT_TIMEFRAME_KEY, String(state.timeframeMs));
+          syncTimeframes();
+          state.hasFrame = false;
+          requestDraw(card);
+        });
+      });
+      syncTimeframes();
+    
+      bindSplitter(card, splitClusters, "clusters");
+      bindSplitter(card, splitTape, "tape");
+    
+      const bookRows = card.querySelector(".orderbook-rows");
+      const observer = new MutationObserver(() => requestDraw(card));
+      if (bookRows) {
+        observer.observe(bookRows, {
+          childList: true,
+        });
+      }
+      state.observer = observer;
+      return state;
+    }
+    
+    function renderCard(card, state) {
+      const renderStartedAt = observability.enabled ? performance.now() : 0;
+      const symbol = cardSymbol(card);
+      const skip = (reason, tags = null) => observability.skipRender("footprint", reason, {
+        symbol: symbol || null,
+        ...(tags ?? {}),
+      });
+      if (!symbol || !state.context) {
+        skip(!symbol ? "missing-symbol" : "missing-context");
+        return;
+      }
+      state.visible = !card.classList.contains("is-clusters-hidden");
+      if (!state.visible) {
+        skip("layer-hidden");
+        return;
+      }
+      if (state.lastSymbol !== symbol) {
+        state.lastSymbol = symbol;
+        state.hasFrame = false;
+      }
+      const frozen = flowRecoveryFrozen(symbol);
+      if (frozen && state.hasFrame) {
+        skip("recovery-frozen");
+        return;
+      }
+      const paneRect = state.pane.getBoundingClientRect();
+      const width = Math.max(1, paneRect.width);
+      const height = Math.max(1, paneRect.height - 23);
+      if (width <= 2 || height <= 2) {
+        skip("zero-size");
+        return;
+      }
+    
+      const rows = visibleRows(card, state.pane);
+      if (!rows.length) {
+        skip("missing-ladder-rows");
+        return;
+      }
+    
+      const accumulator = footprintBySymbol.get(symbol) ?? createFootprintAccumulator();
+      const visibleColumnLimit = Math.max(
+        1,
+        Math.min(
+          FOOTPRINT_MAX_VISIBLE_COLUMNS,
+          Math.floor(width / FOOTPRINT_MIN_COLUMN_PX),
+        ),
+      );
+      const intervals = footprintIntervalHistory(
+        accumulator,
+        state.timeframeMs,
+        Date.now(),
+        visibleColumnLimit,
+      );
+      const columns = intervals.map((interval) => {
+        const clustersByRow = new Map();
+        for (const source of interval.cells) {
+          const row = nearestRow(rows, source.price);
+          if (!row) continue;
+          const cluster = clustersByRow.get(row.index) ?? {
+            row,
+            buyQuote: 0,
+            sellQuote: 0,
+            quote: 0,
+            count: 0,
+          };
+          cluster.buyQuote += source.buyQuote;
+          cluster.sellQuote += source.sellQuote;
+          cluster.quote += source.quote;
+          cluster.count += source.count;
+          clustersByRow.set(row.index, cluster);
+        }
+        return { interval, clusters: [...clustersByRow.values()] };
+      });
+    
+      const dpr = Math.max(1, Math.min(1.5, globalThis.devicePixelRatio || 1));
+      const pixelWidth = Math.max(1, Math.round(width * dpr));
+      const pixelHeight = Math.max(1, Math.round(height * dpr));
+      if (state.canvas.width !== pixelWidth || state.canvas.height !== pixelHeight) {
+        state.canvas.width = pixelWidth;
+        state.canvas.height = pixelHeight;
+      }
+      state.context.setTransform(dpr, 0, 0, dpr, 0, 0);
+      state.context.clearRect(0, 0, width, height);
+    
+      const maximumSide = Math.max(
+        1,
+        ...columns.flatMap(({ clusters }) => (
+          clusters.flatMap((cluster) => [cluster.sellQuote, cluster.buyQuote])
+        )),
+      );
+      const columnWidth = width / Math.max(1, columns.length);
+    
+      state.context.font = "800 7px Inter, system-ui, sans-serif";
+      state.context.textBaseline = "middle";
+    
+      if (state.visible) {
+        columns.forEach(({ interval, clusters }, columnIndex) => {
+          const columnLeft = columnIndex * columnWidth;
+          const columnRight = columnLeft + columnWidth;
+          const centerX = columnLeft + columnWidth / 2;
+    
+          for (const cluster of clusters) {
+            const sellLabel = cluster.sellQuote > 0 ? formatUsd(cluster.sellQuote) : "";
+            const buyLabel = cluster.buyQuote > 0 ? formatUsd(cluster.buyQuote) : "";
+            const sellStrength = footprintCellIntensity(cluster.sellQuote, maximumSide);
+            const buyStrength = footprintCellIntensity(cluster.buyQuote, maximumSide);
+            const cellHeight = Math.max(3, Math.min(cluster.row.height * .92, 14));
+            const cellTop = cluster.row.y - cellHeight / 2;
+            const halfWidth = Math.max(1, columnWidth / 2 - 1.5);
+    
+            state.context.fillStyle = `rgba(226, 58, 78, ${.08 + sellStrength * .82})`;
+            state.context.fillRect(columnLeft + 1, cellTop, halfWidth, cellHeight);
+            state.context.fillStyle = `rgba(71, 210, 39, ${.08 + buyStrength * .82})`;
+            state.context.fillRect(centerX + .5, cellTop, halfWidth, cellHeight);
+    
+            state.context.strokeStyle = "rgba(225, 233, 238, .18)";
+            state.context.lineWidth = .5;
+            state.context.strokeRect(columnLeft + 1, cellTop, Math.max(1, columnWidth - 2), cellHeight);
+    
+            state.context.textAlign = "center";
+            state.context.fillStyle = sellStrength > .52
+              ? "rgba(255,255,255,.98)"
+              : "rgba(255,174,183,.98)";
+            state.context.fillText(sellLabel, columnLeft + columnWidth * .25, cluster.row.y);
+            state.context.fillStyle = buyStrength > .52
+              ? "rgba(255,255,255,.98)"
+              : "rgba(154,246,132,.98)";
+            state.context.fillText(buyLabel, columnLeft + columnWidth * .75, cluster.row.y);
+          }
+    
+          const highRow = nearestRow(rows, interval.highPrice);
+          const lowRow = nearestRow(rows, interval.lowPrice);
+          const openRow = nearestRow(rows, interval.openPrice);
+          const closeRow = nearestRow(rows, interval.closePrice);
+          if (highRow && lowRow && openRow && closeRow) {
+            const rising = Number(interval.closePrice) >= Number(interval.openPrice);
+            state.context.strokeStyle = rising
+              ? "rgba(122, 255, 74, .98)"
+              : "rgba(255, 68, 83, .98)";
+            state.context.fillStyle = rising
+              ? "rgba(79, 224, 50, .94)"
+              : "rgba(239, 54, 72, .94)";
+            state.context.lineWidth = 1;
+            state.context.beginPath();
+            state.context.moveTo(centerX, highRow.y);
+            state.context.lineTo(centerX, lowRow.y);
+            state.context.stroke();
+            const bodyTop = Math.min(openRow.y, closeRow.y);
+            const bodyHeight = Math.max(2, Math.abs(closeRow.y - openRow.y));
+            state.context.fillRect(centerX - 2, bodyTop, 4, bodyHeight);
+            state.context.strokeRect(centerX - 2, bodyTop, 4, bodyHeight);
+          }
+    
+          state.context.strokeStyle = "rgba(222, 231, 236, .28)";
+          state.context.lineWidth = .65;
+          state.context.beginPath();
+          state.context.moveTo(centerX, 0);
+          state.context.lineTo(centerX, height);
+          state.context.stroke();
+    
+          if (columnIndex > 0) {
+            state.context.strokeStyle = "rgba(111, 82, 168, .28)";
+            state.context.beginPath();
+            state.context.moveTo(columnLeft + .5, 0);
+            state.context.lineTo(columnLeft + .5, height);
+            state.context.stroke();
+          }
+    
+          state.context.fillStyle = "rgba(4, 7, 10, .86)";
+          state.context.fillRect(columnLeft + 1, height - 11, Math.max(0, columnWidth - 2), 11);
+          state.context.textAlign = "center";
+          state.context.fillStyle = interval.partial
+            ? "rgba(93, 225, 181, .92)"
+            : "rgba(145, 165, 175, .78)";
+          state.context.font = "700 6.5px Inter, system-ui, sans-serif";
+          state.context.fillText(
+            `${formatIntervalClock(interval.startTime)}${interval.partial ? " · LIVE" : ""}`,
+            centerX,
+            height - 5,
+          );
+          state.context.font = "800 7px Inter, system-ui, sans-serif";
+        });
+      }
+    
+      const totalCount = intervals.reduce((sum, interval) => sum + interval.count, 0);
+      const flowCountText = `${totalCount} trades`;
+      if (state.flowCount.textContent !== flowCountText) {
+        state.flowCount.textContent = flowCountText;
+      }
+      state.hasFrame = true;
+      if (observability.enabled) {
+        observability.rendered(symbol, "footprint");
+        observability.record("footprint.render-card", performance.now() - renderStartedAt, {
+          symbol,
+          trades: totalCount,
+          timeframeMs: state.timeframeMs,
+          columns: columns.length,
+          rows: columns.reduce((sum, column) => sum + column.clusters.length, 0),
+          ladderRows: rows.length,
+        });
+      }
+    }
+    
+    function acceptTape(event) {
+      const detail = event?.detail;
+      const symbol = String(detail?.symbol ?? "").toUpperCase();
+      if (!symbol.endsWith("USDT")) return;
+      if (!detail?.replace && !detail?.live) return;
+      const incoming = detail?.live && Array.isArray(detail?.trades) ? detail.trades : [];
+      const accumulator = footprintBySymbol.get(symbol) ?? createFootprintAccumulator();
+      footprintBySymbol.set(
+        symbol,
+        ingestFootprintTrades(
+          accumulator,
+          incoming,
+          { replace: Boolean(detail?.replace) },
+        ),
+      );
+      document.querySelectorAll(".orderbook-card").forEach((card) => {
+        if (cardSymbol(card) !== symbol) return;
+        if (detail?.replace) {
+          const state = cardStates.get(card);
+          if (state) state.hasFrame = false;
+        }
+        requestDraw(card);
+      });
+    }
+    
+    function acceptBookStatus(event) {
+      const symbol = String(event?.detail?.symbol ?? "").toUpperCase();
+      const status = event?.detail?.status;
+      if (!symbol.endsWith("USDT") || !status) return;
+      statusBySymbol.set(symbol, status);
+      document.querySelectorAll(".orderbook-card").forEach((card) => {
+        if (cardSymbol(card) === symbol) requestDraw(card);
+      });
+    }
+    
+    function install() {
+      if (typeof document === "undefined") return;
+      injectStyles();
+      globalThis.addEventListener("inpuls:tape-data", acceptTape);
+      globalThis.addEventListener("inpuls:book-status", acceptBookStatus);
+      globalThis.addEventListener(FLOW_LAYER_VISIBILITY_EVENT, (event) => {
+        const card = event?.detail?.card;
+        if (!(card instanceof Element) || !card.matches(".orderbook-card")) return;
+        requestDraw(card);
+      });
+      document.querySelectorAll(".orderbook-card").forEach(ensureCard);
+    
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const node of mutation.addedNodes) {
+            if (!(node instanceof Element)) continue;
+            if (node.matches(".orderbook-card")) {
+              ensureCard(node);
+              requestDraw(node);
+            }
+            node.querySelectorAll?.(".orderbook-card").forEach((card) => {
+              ensureCard(card);
+              requestDraw(card);
+            });
+          }
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    
+      window.addEventListener("resize", requestDraw, { passive: true });
+      window.addEventListener("orientationchange", requestDraw, { passive: true });
+      document.addEventListener("scroll", requestDraw, true);
+      document.addEventListener("visibilitychange", () => {
+        flowDocumentHidden = document.hidden;
+        if (flowDocumentHidden) {
+          if (drawFrame) cancelAnimationFrame(drawFrame);
+          drawFrame = 0;
+          drawAllRequested = true;
+          return;
+        }
+        requestDraw();
+      });
+      requestDraw();
+    }
+    
+    if (typeof document !== "undefined") {
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", install, { once: true });
+      } else {
+        install();
+      }
+    }
+    
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/InPuls/InPuls/test-orderbook-flow-workspace.mjs:139:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: starts on aggregate live and promotes raw only inside the shadow guard
+ok 11 - starts on aggregate live and promotes raw only inside the shadow guard
+  ---
+  duration_ms: 1.610386
+  type: 'test'
+  ...
+# Subtest: raw sequence gap immediately falls back without emitting the broken trade
+ok 12 - raw sequence gap immediately falls back without emitting the broken trade
+  ---
+  duration_ms: 0.448819
+  type: 'test'
+  ...
+# Subtest: aggregate fallback waits for a fully new range to avoid double volume
+ok 13 - aggregate fallback waits for a fully new range to avoid double volume
+  ---
+  duration_ms: 1.990031
+  type: 'test'
+  ...
+# Subtest: recovery to raw requires consecutive IDs beyond the aggregate boundary
+ok 14 - recovery to raw requires consecutive IDs beyond the aggregate boundary
+  ---
+  duration_ms: 0.317621
+  type: 'test'
+  ...
+# Subtest: invalid, duplicate and out-of-order events never reach the tape
+ok 15 - invalid, duplicate and out-of-order events never reach the tape
+  ---
+  duration_ms: 0.424762
+  type: 'test'
+  ...
+# Subtest: production worker keeps aggregate live while the isolated guard retains RAW shadow checks
+ok 16 - production worker keeps aggregate live while the isolated guard retains RAW shadow checks
+  ---
+  duration_ms: 1.161678
+  type: 'test'
+  ...
+# Subtest: manual orderbook scroll remains authoritative
+ok 17 - manual orderbook scroll remains authoritative
+  ---
+  duration_ms: 2.397096
+  type: 'test'
+  ...
+# Subtest: Ctrl+wheel changes a fixed 1/2/5 price-step multiplier
+ok 18 - Ctrl+wheel changes a fixed 1/2/5 price-step multiplier
+  ---
+  duration_ms: 0.635402
+  type: 'test'
+  ...
+# Subtest: short background switches use a grace period
+ok 19 - short background switches use a grace period
+  ---
+  duration_ms: 1.503224
+  type: 'test'
+  ...
+# Subtest: healthy sockets resume without REST backfill
+ok 20 - healthy sockets resume without REST backfill
+  ---
+  duration_ms: 0.87887
+  type: 'test'
+  ...
+# Subtest: long background keeps a frozen Tape frame
+ok 21 - long background keeps a frozen Tape frame
+  ---
+  duration_ms: 0.412755
+  type: 'test'
+  ...
+# Subtest: Tape window stays at the latest real trade instead of drawing future emptiness
+ok 22 - Tape window stays at the latest real trade instead of drawing future emptiness
+  ---
+  duration_ms: 2.593664
+  type: 'test'
+  ...
+# Subtest: footprint preserves its canvas while the feed recovers
+ok 23 - footprint preserves its canvas while the feed recovers
+  ---
+  duration_ms: 0.385874
+  type: 'test'
+  ...
+# Subtest: a delayed feed retries independently
+ok 24 - a delayed feed retries independently
+  ---
+  duration_ms: 1.936239
+  type: 'test'
+  ...
+# Subtest: Resume v2 ships one consistent runtime
+ok 25 - Resume v2 ships one consistent runtime
+  ---
+  duration_ms: 0.281286
+  type: 'test'
+  ...
+# Subtest: manager hard restart preserves frozen symbol frames
+ok 26 - manager hard restart preserves frozen symbol frames
+  ---
+  duration_ms: 0.320635
+  type: 'test'
+  ...
+# Subtest: normal reload keeps one consistent runtime build
+ok 27 - normal reload keeps one consistent runtime build
+  ---
+  duration_ms: 1.436563
+  type: 'test'
+  ...
+# Subtest: worker-unavailable fallback does not leave a health interval open
+ok 28 - worker-unavailable fallback does not leave a health interval open
+  ---
+  duration_ms: 0.382799
+  type: 'test'
+  ...
+# Subtest: hidden tabs close sockets instead of accumulating a stale queue
+ok 29 - hidden tabs close sockets instead of accumulating a stale queue
+  ---
+  duration_ms: 0.422659
+  type: 'test'
+  ...
+# Subtest: workspace order is footprint then Tape then book
+ok 30 - workspace order is footprint then Tape then book
+  ---
+  duration_ms: 0.344882
+  type: 'test'
+  ...
+# Subtest: Tape and footprint visibility controls stay independent
+ok 31 - Tape and footprint visibility controls stay independent
+  ---
+  duration_ms: 0.403951
+  type: 'test'
+  ...
+# Subtest: RX uses calibrated Binance server time
+ok 32 - RX uses calibrated Binance server time
+  ---
+  duration_ms: 0.389309
+  type: 'test'
+  ...
+# Subtest: multi-book worker prioritizes UI without truncating local depth
+ok 33 - multi-book worker prioritizes UI without truncating local depth
+  ---
+  duration_ms: 0.659948
+  type: 'test'
+  ...
+# Subtest: background return reuses the existing worker before a guarded restart
+ok 34 - background return reuses the existing worker before a guarded restart
+  ---
+  duration_ms: 1.587872
+  type: 'test'
+  ...
+# Subtest: last rendered book remains visible while strict resync happens
+ok 35 - last rendered book remains visible while strict resync happens
+  ---
+  duration_ms: 0.545806
+  type: 'test'
+  ...
+# Subtest: resume prioritizes the last selected symbol and staggers other feeds
+ok 36 - resume prioritizes the last selected symbol and staggers other feeds
+  ---
+  duration_ms: 0.261566
+  type: 'test'
+  ...
+# Subtest: every resume starts a clean live-only Tape without REST history
+ok 37 - every resume starts a clean live-only Tape without REST history
+  ---
+  duration_ms: 0.713169
+  type: 'test'
+  ...
+# Subtest: cache versions keep seamless resume while shipping Resume v2
+ok 38 - cache versions keep seamless resume while shipping Resume v2
+  ---
+  duration_ms: 0.375127
+  type: 'test'
+  ...
+# Subtest: latency helper keeps exchange and browser timestamps separate
+ok 39 - latency helper keeps exchange and browser timestamps separate
+  ---
+  duration_ms: 2.015259
+  type: 'test'
+  ...
+# Subtest: REST timing stays without a fake receive timestamp
+ok 40 - REST timing stays without a fake receive timestamp
+  ---
+  duration_ms: 0.338052
+  type: 'test'
+  ...
+# Subtest: latency helper rejects clock outliers
+ok 41 - latency helper rejects clock outliers
+  ---
+  duration_ms: 0.180192
+  type: 'test'
+  ...
+# Subtest: RX display is a rolling short-window median
+ok 42 - RX display is a rolling short-window median
+  ---
+  duration_ms: 0.574339
+  type: 'test'
+  ...
+# Subtest: worker records receive time and exposes RX in live status
+ok 43 - worker records receive time and exposes RX in live status
+  ---
+  duration_ms: 0.479175
+  type: 'test'
+  ...
+# Subtest: UI preserves timing fields for future hover and replay
+ok 44 - UI preserves timing fields for future hover and replay
+  ---
+  duration_ms: 0.3504
+  type: 'test'
+  ...
+# Subtest: Tape v2.1 keeps RAW default and AGG explicit
+ok 45 - Tape v2.1 keeps RAW default and AGG explicit
+  ---
+  duration_ms: 0.975746
+  type: 'test'
+  ...
+# Subtest: renderer uses readable layout and removes RAW labels
+ok 46 - renderer uses readable layout and removes RAW labels
+  ---
+  duration_ms: 0.788403
+  type: 'test'
+  ...
+# Subtest: Flow Workspace cache and reset page point to the new runtime
+not ok 47 - Flow Workspace cache and reset page point to the new runtime
+  ---
+  duration_ms: 3.125127
+  type: 'test'
+  location: '/home/runner/work/InPuls/InPuls/test-orderbook-tape-v2-core.mjs:36:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /26-43-orderbook-visual-priority-v1/. Input:
+    
+    'import { clearInPulsRuntime } from "./pwa-reset.js";\n' +
+      '\n' +
+      'const BUILD = "26-42-orderbook-scroll-theme-v1";\n' +
+      'const WORKER_URL = `./sw.js?v=${BUILD}`;\n' +
+      'const APP_URL = `./?build=${BUILD}`;\n' +
+      'const button = document.getElementById("reset");\n' +
+      'const status = document.getElementById("status");\n' +
+      '\n' +
+      'const expectedController = () => (\n' +
+      '  navigator.serviceWorker.controller?.scriptURL.includes(BUILD)\n' +
+      ');\n' +
+      '\n' +
+      'const waitForExpectedController = async (registration) => {\n' +
+      '  const startedAt = Date.now();\n' +
+      '  while (Date.now() - startedAt < 8_000) {\n' +
+      '    if (registration.active?.scriptURL.includes(BUILD) && expectedController()) return true;\n' +
+      '    await new Promise((resolve) => setTimeout(resolve, 100));\n' +
+      '  }\n' +
+      '  return false;\n' +
+      '};\n' +
+      '\n' +
+      'button.addEventListener("click", async () => {\n' +
+      '  button.disabled = true;\n' +
+      '  try {\n' +
+      '    status.textContent = "Удаляю кеши и Service Worker InPuls…";\n' +
+      '    await clearInPulsRuntime();\n' +
+      '\n' +
+      '    if ("serviceWorker" in navigator) {\n' +
+      '      status.textContent = "Подключаю защищённую сборку…";\n' +
+      '      const registration = await navigator.serviceWorker.register(\n' +
+      '        WORKER_URL,\n' +
+      '        { scope: "./", updateViaCache: "none" },\n' +
+      '      );\n' +
+      '      await registration.update();\n' +
+      '\n' +
+      '      if (!expectedController()) {\n' +
+      '        await new Promise((resolve) => {\n' +
+      '          const timeout = setTimeout(resolve, 8_000);\n' +
+      '          navigator.serviceWorker.addEventListener("controllerchange", () => {\n' +
+      '            clearTimeout(timeout);\n' +
+      '            resolve();\n' +
+      '          }, { once: true });\n' +
+      '        });\n' +
+      '      }\n' +
+      '\n' +
+      '      const ready = await waitForExpectedController(registration);\n' +
+      '      if (!ready) {\n' +
+      '        status.textContent = "Активирую новую сборку повторной загрузкой…";\n' +
+      '        sessionStorage.setItem("inpuls-runtime-reset", BUILD);\n' +
+      '        location.reload();\n' +
+      '        return;\n' +
+      '      }\n' +
+      '    }\n' +
+      '\n' +
+      '    status.textContent = "Готово. Открываю InPuls…";\n' +
+      '    location.replace(`${APP_URL}&t=${Date.now()}`);\n' +
+      '  } catch (error) {\n' +
+      '    status.textContent = `Не удалось очистить автоматически: ${error?.message || error}`;\n' +
+      '    button.disabled = false;\n' +
+      '  }\n' +
+      '});\n' +
+      '\n' +
+      'if (sessionStorage.getItem("inpuls-runtime-reset") === BUILD && expectedController()) {\n' +
+      '  sessionStorage.removeItem("inpuls-runtime-reset");\n' +
+      '  location.replace(`${APP_URL}&t=${Date.now()}`);\n' +
+      '}\n'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: |-
+    import { clearInPulsRuntime } from "./pwa-reset.js";
+    
+    const BUILD = "26-42-orderbook-scroll-theme-v1";
+    const WORKER_URL = `./sw.js?v=${BUILD}`;
+    const APP_URL = `./?build=${BUILD}`;
+    const button = document.getElementById("reset");
+    const status = document.getElementById("status");
+    
+    const expectedController = () => (
+      navigator.serviceWorker.controller?.scriptURL.includes(BUILD)
+    );
+    
+    const waitForExpectedController = async (registration) => {
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 8_000) {
+        if (registration.active?.scriptURL.includes(BUILD) && expectedController()) return true;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return false;
+    };
+    
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        status.textContent = "Удаляю кеши и Service Worker InPuls…";
+        await clearInPulsRuntime();
+    
+        if ("serviceWorker" in navigator) {
+          status.textContent = "Подключаю защищённую сборку…";
+          const registration = await navigator.serviceWorker.register(
+            WORKER_URL,
+            { scope: "./", updateViaCache: "none" },
+          );
+          await registration.update();
+    
+          if (!expectedController()) {
+            await new Promise((resolve) => {
+              const timeout = setTimeout(resolve, 8_000);
+              navigator.serviceWorker.addEventListener("controllerchange", () => {
+                clearTimeout(timeout);
+                resolve();
+              }, { once: true });
+            });
+          }
+    
+          const ready = await waitForExpectedController(registration);
+          if (!ready) {
+            status.textContent = "Активирую новую сборку повторной загрузкой…";
+            sessionStorage.setItem("inpuls-runtime-reset", BUILD);
+            location.reload();
+            return;
+          }
+        }
+    
+        status.textContent = "Готово. Открываю InPuls…";
+        location.replace(`${APP_URL}&t=${Date.now()}`);
+      } catch (error) {
+        status.textContent = `Не удалось очистить автоматически: ${error?.message || error}`;
+        button.disabled = false;
+      }
+    });
+    
+    if (sessionStorage.getItem("inpuls-runtime-reset") === BUILD && expectedController()) {
+      sessionStorage.removeItem("inpuls-runtime-reset");
+      location.replace(`${APP_URL}&t=${Date.now()}`);
+    }
+    
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/InPuls/InPuls/test-orderbook-tape-v2-core.mjs:49:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: production TAPE accepts only live packets and starts from an empty frame
+ok 48 - production TAPE accepts only live packets and starts from an empty frame
+  ---
+  duration_ms: 0.300054
+  type: 'test'
+  ...
+# Subtest: sparse trades stay on real time
+ok 49 - sparse trades stay on real time
+  ---
+  duration_ms: 1.680302
+  type: 'test'
+  ...
+# Subtest: same-time packet remains local and chronological
+ok 50 - same-time packet remains local and chronological
+  ---
+  duration_ms: 6.972519
+  type: 'test'
+  ...
+# Subtest: continuous flow is split into local groups
+ok 51 - continuous flow is split into local groups
+  ---
+  duration_ms: 10.407875
+  type: 'test'
+  ...
+# Subtest: past trades never receive density-dependent vertical offsets
+ok 52 - past trades never receive density-dependent vertical offsets
+  ---
+  duration_ms: 0.531394
+  type: 'test'
+  ...
+# Subtest: neighboring dense groups never cross chronological order
+ok 53 - neighboring dense groups never cross chronological order
+  ---
+  duration_ms: 0.775053
+  type: 'test'
+  ...
+# Subtest: dense raw dots shrink while large sparse dots stay visible
+ok 54 - dense raw dots shrink while large sparse dots stay visible
+  ---
+  duration_ms: 0.280654
+  type: 'test'
+  ...
+# Subtest: agg labels are selective and non-overlapping
+ok 55 - agg labels are selective and non-overlapping
+  ---
+  duration_ms: 0.877568
+  type: 'test'
+  ...
+# Subtest: current price has protected right spacing and a dedicated marker
+ok 56 - current price has protected right spacing and a dedicated marker
+  ---
+  duration_ms: 1.392988
+  type: 'test'
+  ...
+# Subtest: ordinary sizes are neutral and anomalies have three tiers
+ok 57 - ordinary sizes are neutral and anomalies have three tiers
+  ---
+  duration_ms: 0.52199
+  type: 'test'
+  ...
+# Subtest: footprint uses split rectangular cells and interval candles
+ok 58 - footprint uses split rectangular cells and interval candles
+  ---
+  duration_ms: 0.312012
+  type: 'test'
+  ...
+# Subtest: visual priority ships one consistent runtime
+ok 59 - visual priority ships one consistent runtime
+  ---
+  duration_ms: 0.196327
+  type: 'test'
+  ...
+1..59
+# tests 59
+# suites 0
+# pass 57
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 371.824216
+exit_code=1
+
