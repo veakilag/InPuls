@@ -1,4 +1,4 @@
-const BUILD = "26-60-signal-lab-chart-context-v1";
+const BUILD = "26-61-signal-lab-manual-refresh-v1";
 const BOOT_TIMEOUT_MS = 12_000;
 const REPORT_TIMEOUT_MS = 10_000;
 const STARTED_EVENT = "inpuls:owner-signal-lab-started";
@@ -931,15 +931,5 @@ elements.refresh.addEventListener("click", () => {
 });
 elements.exportJson.addEventListener("click", () => exportReviews("json"));
 elements.exportCsv.addEventListener("click", () => exportReviews("csv"));
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) {
-    if (store) refreshReport();
-    else boot();
-  }
-});
-
 updateOwnerRuntime().catch(() => null);
 boot();
-setInterval(() => {
-  if (store) refreshReport();
-}, 30_000);
