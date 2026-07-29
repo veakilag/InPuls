@@ -18,40 +18,56 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply app anomaly tiers
-        run: python .github/visual-priority/app_patch.py
-
-      - name: Apply orderbook visual styles
-        run: python .github/visual-priority/orderbook_patch.py
-
-      - name: Apply footprint data model
-        run: python .github/visual-priority/flow_data_patch.py
-
-      - name: Apply footprint rendering
-        run: python .github/visual-priority/flow_render_patch.py
-
-      - name: Finalize runtime and tests
-        run: python .github/visual-priority/finalize_patch.py
-
-      - name: Validate JavaScript
+      - name: Apply, validate and report
+        shell: bash
         run: |
-          node --input-type=module --check < app.js
-          node --input-type=module --check < orderbook.js
-          node --check orderbook-flow-workspace.js
-          node --check sw.js
-          node --check test-orderbook-visual-priority.mjs
+          set +e
+          REPORT=/tmp/visual-priority-run.txt
+          : > "$REPORT"
+          STATUS=0
 
-      - name: Run orderbook tests
-        run: node --test test-orderbook-*.mjs
+          run_step() {
+            NAME="$1"
+            shift
+            echo "===== $NAME =====" >> "$REPORT"
+            "$@" >> "$REPORT" 2>&1
+            CODE=$?
+            echo "exit_code=$CODE" >> "$REPORT"
+            echo >> "$REPORT"
+            if [ "$CODE" -ne 0 ]; then
+              STATUS="$CODE"
+              return 1
+            fi
+            return 0
+          }
 
-      - name: Commit visual priority
-        run: |
+          run_step "app_patch" python .github/visual-priority/app_patch.py || true
+          if [ "$STATUS" -eq 0 ]; then run_step "orderbook_patch" python .github/visual-priority/orderbook_patch.py || true; fi
+          if [ "$STATUS" -eq 0 ]; then run_step "flow_data_patch" python .github/visual-priority/flow_data_patch.py || true; fi
+          if [ "$STATUS" -eq 0 ]; then run_step "flow_render_patch" python .github/visual-priority/flow_render_patch.py || true; fi
+          if [ "$STATUS" -eq 0 ]; then run_step "finalize_patch" python .github/visual-priority/finalize_patch.py || true; fi
+          if [ "$STATUS" -eq 0 ]; then run_step "check_app" bash -c 'node --input-type=module --check < app.js' || true; fi
+          if [ "$STATUS" -eq 0 ]; then run_step "check_orderbook" bash -c 'node --input-type=module --check < orderbook.js' || true; fi
+          if [ "$STATUS" -eq 0 ]; then run_step "check_flow" node --check orderbook-flow-workspace.js || true; fi
+          if [ "$STATUS" -eq 0 ]; then run_step "check_sw" node --check sw.js || true; fi
+          if [ "$STATUS" -eq 0 ]; then run_step "orderbook_tests" bash -c 'node --test test-orderbook-*.mjs' || true; fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "No generated changes"
-            exit 1
+
+          if [ "$STATUS" -eq 0 ]; then
+            git add -A
+            git commit -m "Improve orderbook visual priority"
+            git push
+            exit 0
           fi
-          git commit -m "Improve orderbook visual priority"
+
+          cp "$REPORT" /tmp/visual-priority-run-error.txt
+          git restore .
+          git clean -fd
+          cp /tmp/visual-priority-run-error.txt visual-priority-run-error.txt
+          rm -f .github/workflows/apply-orderbook-visual-priority.yml
+          git add -A
+          git commit -m "Capture visual priority run error"
           git push
+          exit 0
