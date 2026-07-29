@@ -21,6 +21,22 @@ for path in Path(".").glob("test-orderbook-*.mjs"):
     source = path.read_text(encoding="utf-8")
     path.write_text(source.replace(OLD, NEW), encoding="utf-8")
 
+flow_contract = Path("test-orderbook-flow-workspace.mjs")
+flow_contract_source = flow_contract.read_text(encoding="utf-8")
+old_contract = '''  assert.match(source, /sellLabelLeft - sellWidth/);
+  assert.match(source, /buyLabelRight,/);'''
+new_contract = '''  assert.match(source, /columnLeft \+ columnWidth \* \.25/);
+  assert.match(source, /columnLeft \+ columnWidth \* \.75/);
+  assert.match(source, /const highRow = nearestRow\(rows, interval\.highPrice\)/);'''
+if flow_contract_source.count(old_contract) != 1:
+    raise RuntimeError(
+        f"Expected one legacy footprint render contract, got {flow_contract_source.count(old_contract)}"
+    )
+flow_contract.write_text(
+    flow_contract_source.replace(old_contract, new_contract, 1),
+    encoding="utf-8",
+)
+
 test_source = r'''import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -66,6 +82,7 @@ test("visual priority ships one consistent runtime", () => {
 Path("test-orderbook-visual-priority.mjs").write_text(test_source, encoding="utf-8")
 
 Path("visual-priority-diagnostics.txt").unlink(missing_ok=True)
+Path("visual-priority-run-error.txt").unlink(missing_ok=True)
 for path in Path(".github/visual-priority").glob("*.py"):
     path.unlink(missing_ok=True)
 Path(".github/workflows/apply-orderbook-visual-priority.yml").unlink(missing_ok=True)
