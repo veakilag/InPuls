@@ -49,6 +49,9 @@ const REVIEW_REASONS = Object.freeze([
 ]);
 
 const MINI_CHART_INTERVALS = Object.freeze({
+  "1s": { label: "1 сек", intervalMs: 1_000, localOnly: true },
+  "5s": { label: "5 сек", intervalMs: 5_000, localOnly: true },
+  "15s": { label: "15 сек", intervalMs: 15_000, localOnly: true },
   "1m": { label: "1 мин", intervalMs: 60_000 },
   "5m": { label: "5 мин", intervalMs: 300_000 },
   "1h": { label: "1 час", intervalMs: 3_600_000 },
@@ -178,8 +181,7 @@ function shortEventId(id) {
 }
 
 function candleSeriesForEvent(event, intervalMs = 60_000, sourceCandles = null) {
-  const candles = (event?.context?.chartContext?.candles ?? [])
-    .concat(sourceCandles ?? [])
+  const candles = (sourceCandles ?? event?.context?.chartContext?.candles ?? [])
     .map((candle) => ({
       time: Number(candle.time),
       open: Number(candle.open),
@@ -218,6 +220,26 @@ function candleSeriesForEvent(event, intervalMs = 60_000, sourceCandles = null) 
   return [...byTime.values()].sort((left, right) => left.time - right.time);
 }
 
+function localPathCandles(event, intervalMs) {
+  const points = [
+    ...(event?.context?.chartContext?.seconds ?? []),
+    ...(event?.observation?.pricePath ?? []),
+  ];
+  const buckets = new Map();
+  for (const point of points) {
+    const time = Math.floor(Number(point?.at) / intervalMs) * intervalMs;
+    const price = Number(point?.price);
+    if (!Number.isFinite(time) || !Number.isFinite(price) || price <= 0) continue;
+    const current = buckets.get(time);
+    if (current) {
+      current.high = Math.max(current.high, price);
+      current.low = Math.min(current.low, price);
+      current.close = price;
+    } else buckets.set(time, { time, open: price, high: price, low: price, close: price });
+  }
+  return [...buckets.values()].sort((left, right) => left.time - right.time);
+}
+
 function aggregateCandles(candles, intervalMs) {
   const buckets = new Map();
   candles.forEach((candle) => {
@@ -239,14 +261,22 @@ async function loadMiniChartCandles(event, timeframe) {
   const key = `${event.symbol}:${timeframe}:${Math.floor(event.triggeredAt / config.intervalMs)}`;
   const cached = miniChartCache.get(key);
   if (cached) return cached;
+  if (config.localOnly) {
+    const local = localPathCandles(event, config.intervalMs);
+    miniChartCache.set(key, local);
+    return local;
+  }
   const promise = (async () => {
-    const endTime = Math.min(Date.now(), Number(event.triggeredAt) + config.intervalMs * 20);
+    const before = config.intervalMs * 240;
+    const startTime = Math.max(0, Number(event.triggeredAt) - before);
+    const endTime = Date.now();
     const url = new URL("https://fapi.binance.com/fapi/v1/klines");
     url.search = new URLSearchParams({
       symbol: event.symbol,
       interval: timeframe,
+      startTime: String(startTime),
       endTime: String(endTime),
-      limit: "100",
+      limit: "1500",
     }).toString();
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
