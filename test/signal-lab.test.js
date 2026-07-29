@@ -14,7 +14,7 @@ const NOW = 40 * DAY;
 function signalEvent({
   id,
   symbol = "ETHUSDT",
-  signalType = "impulse",
+  signalType = "knife",
   direction = "up",
   triggeredAt = NOW - 10_000,
   formulaVersion = "radar-signals-v1",
@@ -143,6 +143,20 @@ test("event review rows keep unique IDs, real chart evidence and manual verdicts
   assert.equal(row.review.verdict, "bad");
   assert.equal(row.review.reason, "weak-extremes");
   assert.equal(row.review.comment, "Второй хай не относится к структуре");
+});
+
+test("impulses stay in raw memory but are excluded from the current Pattern Lab", () => {
+  const impulse = signalEvent({ id: "raw-impulse", signalType: "impulse" });
+  const knife = signalEvent({ id: "lab-knife", signalType: "knife" });
+  const report = reportFor(
+    [impulse, knife],
+    [observation(impulse), observation(knife)],
+    [signalContext(impulse), signalContext(knife)],
+  );
+
+  assert.equal(report.source.eventCount, 1);
+  assert.equal(report.source.observationCount, 1);
+  assert.equal(report.windows[0].events[0].id, knife.id);
 });
 
 test("primary statistics use only complete live observations and expose every exclusion", () => {
