@@ -77,6 +77,36 @@ test("SignalEvent is an immutable formula-versioned snapshot without future resu
   }, TypeError);
 });
 
+test("marketwide pattern events preserve detector evidence and formula identity", () => {
+  const source = metrics(1_000, [{
+    type: "cascade",
+    label: "КАСКАД",
+    direction: "up",
+    reason: "два хая сняты импульсом",
+    priority: 82,
+    formulaVersion: "marketwide-patterns-v1",
+    evidence: {
+      scope: "marketwide-minute-candles",
+      zoneWidthPercent: 1,
+      extremaCount: 2,
+    },
+  }]);
+  const event = createSignalEvent({
+    id: "binance-usdm:ETHUSDT:cascade:1000:1",
+    metrics: source,
+    signal: source.signals[0],
+    settings: {},
+    now: 1_000,
+  });
+
+  assert.equal(event.formula.name, "marketwide-pattern-scanner");
+  assert.equal(event.detectorEvidence.zoneWidthPercent, 1);
+  assert.equal(event.detectorEvidence.extremaCount, 2);
+  assert.throws(() => {
+    event.detectorEvidence.extremaCount = 3;
+  }, TypeError);
+});
+
 test("SignalContext keeps current facts separate and marks unavailable inputs partial", () => {
   const event = eventFixture();
   const context = createSignalContext({

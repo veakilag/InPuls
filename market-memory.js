@@ -448,6 +448,10 @@ export function createSignalEvent({
   }
   const detectedAt = positiveTimestamp(now);
   const pattern = patternDefinition(signal.type);
+  const detectorEvidence = signal.evidence && typeof signal.evidence === "object"
+    ? JSON.parse(JSON.stringify(signal.evidence))
+    : null;
+  const marketwideFormula = String(signal.formulaVersion || "").startsWith("marketwide-patterns-");
   return deepFreeze({
     schemaVersion: MARKET_MEMORY_SCHEMA_VERSION,
     entity: "SignalEvent",
@@ -469,8 +473,9 @@ export function createSignalEvent({
       group: pattern.group,
       detectorState: pattern.detectorState,
     } : null,
+    detectorEvidence,
     formula: {
-      name: "radar-signal-classifier",
+      name: marketwideFormula ? "marketwide-pattern-scanner" : "radar-signal-classifier",
       version: safeText(signal.formulaVersion || formulaVersion, 80),
       settings: numericSettingsSnapshot(settings),
     },

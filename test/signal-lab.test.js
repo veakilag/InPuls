@@ -178,6 +178,13 @@ test("primary statistics use only complete live observations and expose every ex
     adverse: 1,
     ratePercent: 66.6667,
   });
+  assert.deepEqual(group.target, {
+    definition: "mfePercent > 1",
+    thresholdPercent: 1,
+    hits: 2,
+    misses: 1,
+    ratePercent: 66.6667,
+  });
   assert.equal(group.outcome.directionalReturnPercent.mean, 1);
   assert.equal(group.outcome.directionalReturnPercent.median, 1);
   assert.equal(group.outcome.mfePercent.mean, 7 / 3);
