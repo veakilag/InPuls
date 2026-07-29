@@ -464,6 +464,10 @@ function formatUsd(value) {
   return amount >= 100 ? String(Math.round(amount)) : amount.toFixed(amount >= 10 ? 0 : 1);
 }
 
+function formatQuoteVolume(value) {
+  return `$${formatUsd(value)}`;
+}
+
 function formatIntervalClock(time) {
   const date = new Date(Number(time));
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
@@ -510,6 +514,10 @@ function footprintTheme() {
     muted: readThemeColor("--muted", "#9ba4ad"),
     green: mixHex(panel2, green, .55),
     red: mixHex(panel2, red, .55),
+    bullFill: readThemeColor("--chart-bull-fill", green),
+    bullStroke: readThemeColor("--chart-bull-stroke", green),
+    bearFill: readThemeColor("--chart-bear-fill", panel2),
+    bearStroke: readThemeColor("--chart-bear-stroke", red),
   };
 }
 
@@ -605,7 +613,7 @@ function injectStyles() {
       min-width: 0;
       overflow: hidden;
       border-right: 1px solid color-mix(in srgb, var(--violet) 22%, var(--line));
-      background: color-mix(in srgb, var(--chart-bg) 72%, var(--panel));
+      background: color-mix(in srgb, var(--panel) 78%, var(--panel-2));
       cursor: grab;
       touch-action: none;
     }
@@ -677,7 +685,7 @@ function injectStyles() {
     .orderbook-card .book-splitter { display: none !important; }
     .orderbook-card .orderbook-tape,
     .orderbook-card .trade-flow {
-      background: color-mix(in srgb, var(--chart-bg) 72%, var(--panel)) !important;
+      background: color-mix(in srgb, var(--panel) 78%, var(--panel-2)) !important;
     }
     .orderbook-card [data-book-clusters] { display: none !important; }
     .orderbook-card.is-clusters-hidden .inpuls-footprint-pane,
@@ -1041,7 +1049,6 @@ function renderCard(card, state) {
         const sellShare = Math.max(0, cluster.sellQuote) / totalQuote;
         const buyShare = Math.max(0, cluster.buyQuote) / totalQuote;
         const dominantSide = buyShare > sellShare ? "B" : sellShare > buyShare ? "S" : "·";
-        const dominantShare = Math.max(buyShare, sellShare);
         const clusterStrength = footprintCellIntensity(cluster.quote, maximumCluster);
         const cellHeight = Math.max(3, Math.min(cluster.row.height * .92, 14));
         const cellTop = cluster.row.y - cellHeight / 2;
@@ -1073,7 +1080,7 @@ function renderCard(card, state) {
         state.context.textAlign = "center";
         state.context.fillStyle = theme.text;
         state.context.fillText(
-          `${dominantSide} ${Math.round(dominantShare * 100)}% · ${formatUsd(cluster.quote)}`,
+          formatQuoteVolume(cluster.quote),
           centerX,
           cluster.row.y,
         );
@@ -1086,11 +1093,11 @@ function renderCard(card, state) {
       if (highRow && lowRow && openRow && closeRow) {
         const rising = Number(interval.closePrice) >= Number(interval.openPrice);
         state.context.strokeStyle = rising
-          ? rgbaHex(theme.green, .94)
-          : rgbaHex(theme.red, .94);
+          ? theme.bullStroke
+          : theme.bearStroke;
         state.context.fillStyle = rising
-          ? rgbaHex(theme.green, .9)
-          : rgbaHex(theme.red, .9);
+          ? theme.bullFill
+          : theme.bearFill;
         state.context.lineWidth = 1;
         state.context.beginPath();
         state.context.moveTo(centerX, highRow.y);
@@ -1098,8 +1105,9 @@ function renderCard(card, state) {
         state.context.stroke();
         const bodyTop = Math.min(openRow.y, closeRow.y);
         const bodyHeight = Math.max(2, Math.abs(closeRow.y - openRow.y));
-        state.context.fillRect(centerX - 2, bodyTop, 4, bodyHeight);
-        state.context.strokeRect(centerX - 2, bodyTop, 4, bodyHeight);
+        const bodyWidth = Math.max(2, Math.min(8, columnWidth * .16));
+        state.context.fillRect(centerX - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight);
+        state.context.strokeRect(centerX - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight);
       }
 
       state.context.fillStyle = theme.panel;
@@ -1150,9 +1158,12 @@ function acceptTape(event) {
   );
   document.querySelectorAll(".orderbook-card").forEach((card) => {
     if (cardSymbol(card) !== symbol) return;
-    if (detail?.replace) {
-      const state = cardStates.get(card);
-      if (state) state.hasFrame = false;
+    const state = cardStates.get(card);
+    if (
+      state
+      && (detail?.replace || (incoming.length && state.historyOffset === 0))
+    ) {
+      state.hasFrame = false;
     }
     requestDraw(card);
   });
