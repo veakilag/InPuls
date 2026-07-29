@@ -17,6 +17,18 @@
     summaryLimit: 12,
     closedSummaryLimit: 6,
     closedRetentionMs: 15_000,
+    correlationWindowMs: 750,
+    settlementDelayMs: 1_000,
+    consumedCoverageRatio: 0.75,
+    priceToleranceBps: 0.001,
+    reactionWindowMs: 5_000,
+    moveWindowMs: 1_500,
+    moveLeadGraceMs: 150,
+    moveMaxDistanceBps: 25,
+    moveQuoteRatioMin: 0.65,
+    moveQuoteRatioMax: 1.55,
+    maxTradeEvidencePerDensity: 128,
+    maxPendingReductionsPerDensity: 32,
   });
 
   const DENSITY_STATES = Object.freeze({
@@ -27,6 +39,26 @@
     REPLENISHED: "replenished",
     REMOVED: "removed",
     FADED: "faded",
+  });
+  const INTERACTION_STATES = Object.freeze({
+    UNOBSERVED: "unobserved",
+    TOUCHED: "touched",
+    PARTIALLY_FILLED: "partially_filled",
+    CONSUMED: "consumed",
+  });
+  const DENSITY_RESOLUTIONS = Object.freeze({
+    ACTIVE: "active",
+    UNKNOWN: "unknown",
+    PULLED: "pulled",
+    CONSUMED: "consumed",
+    MOVED: "moved",
+    FADED: "faded",
+  });
+  const INTERACTION_PRIORITY = Object.freeze({
+    unobserved: 0,
+    touched: 1,
+    partially_filled: 2,
+    consumed: 3,
   });
 
   function finitePositive(value, fallback) {
@@ -51,6 +83,10 @@
 
   function normalizeSide(value) {
     return value === "ask" ? "ask" : value === "bid" ? "bid" : null;
+  }
+
+  function normalizeTradeSide(value) {
+    return value === "buy" ? "buy" : value === "sell" ? "sell" : null;
   }
 
   function normalizeConfig(options = {}) {
@@ -97,6 +133,53 @@
       closedRetentionMs: finiteNonNegative(
         options.closedRetentionMs,
         DEFAULT_CONFIG.closedRetentionMs,
+      ),
+      correlationWindowMs: finiteNonNegative(
+        options.correlationWindowMs,
+        DEFAULT_CONFIG.correlationWindowMs,
+      ),
+      settlementDelayMs: finiteNonNegative(
+        options.settlementDelayMs,
+        DEFAULT_CONFIG.settlementDelayMs,
+      ),
+      consumedCoverageRatio: Math.min(
+        1,
+        finitePositive(options.consumedCoverageRatio, DEFAULT_CONFIG.consumedCoverageRatio),
+      ),
+      priceToleranceBps: finiteNonNegative(
+        options.priceToleranceBps,
+        DEFAULT_CONFIG.priceToleranceBps,
+      ),
+      reactionWindowMs: finiteNonNegative(
+        options.reactionWindowMs,
+        DEFAULT_CONFIG.reactionWindowMs,
+      ),
+      moveWindowMs: finiteNonNegative(options.moveWindowMs, DEFAULT_CONFIG.moveWindowMs),
+      moveLeadGraceMs: finiteNonNegative(
+        options.moveLeadGraceMs,
+        DEFAULT_CONFIG.moveLeadGraceMs,
+      ),
+      moveMaxDistanceBps: finiteNonNegative(
+        options.moveMaxDistanceBps,
+        DEFAULT_CONFIG.moveMaxDistanceBps,
+      ),
+      moveQuoteRatioMin: Math.min(
+        1,
+        finitePositive(options.moveQuoteRatioMin, DEFAULT_CONFIG.moveQuoteRatioMin),
+      ),
+      moveQuoteRatioMax: Math.max(
+        1,
+        finitePositive(options.moveQuoteRatioMax, DEFAULT_CONFIG.moveQuoteRatioMax),
+      ),
+      maxTradeEvidencePerDensity: safeInteger(
+        options.maxTradeEvidencePerDensity,
+        DEFAULT_CONFIG.maxTradeEvidencePerDensity,
+        1,
+      ),
+      maxPendingReductionsPerDensity: safeInteger(
+        options.maxPendingReductionsPerDensity,
+        DEFAULT_CONFIG.maxPendingReductionsPerDensity,
+        1,
       ),
     });
   }
@@ -217,6 +300,9 @@
       };
       this.active = new Map();
       this.closed = [];
+      this.interactedRecords = new Set();
+      this.lastTradeAt = null;
+      this.tradeSources = new Set();
       this.epochCounts = emptyCounts();
       this.totalCounts = emptyCounts();
     }
@@ -244,6 +330,51 @@
       return Number.isFinite(middlePrice) && middlePrice > 0
         ? Math.abs(price - middlePrice) / middlePrice * 10_000
         : null;
+    }
+
+    #pricesMatch(left, right) {
+      const price = Number(left);
+      const candidate = Number(right);
+      if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(candidate)) return false;
+      return Math.abs(candidate - price) / price * 10_000 <= this.config.priceToleranceBps;
+    }
+
+    #tradeKey(trade) {
+      const first = trade?.firstTradeId ?? trade?.id ?? "";
+      const last = trade?.lastTradeId ?? trade?.id ?? "";
+      return `${trade?.source ?? "trade"}:${first}:${last}:${trade?.time ?? trade?.eventTime ?? ""}:${trade?.price}:${trade?.quantity}`;
+    }
+
+    #setInteraction(record, state) {
+      const currentPriority = INTERACTION_PRIORITY[record.interactionState] ?? 0;
+      const nextPriority = INTERACTION_PRIORITY[state] ?? 0;
+      if (nextPriority > currentPriority) record.interactionState = state;
+    }
+
+    #evidenceTier(record) {
+      if (
+        record.interactionState === INTERACTION_STATES.CONSUMED
+        || record.interactionState === INTERACTION_STATES.PARTIALLY_FILLED
+      ) return "correlated";
+      if (
+        record.interactionState === INTERACTION_STATES.TOUCHED
+        || record.resolution === DENSITY_RESOLUTIONS.PULLED
+        || record.resolution === DENSITY_RESOLUTIONS.MOVED
+      ) return "observed";
+      return "candidate";
+    }
+
+    #evidenceQuality(record) {
+      if (record.resolution === DENSITY_RESOLUTIONS.MOVED) return "low";
+      if (record.interactionState === INTERACTION_STATES.CONSUMED) {
+        return record.maxExecutionCoverageRatio >= 0.9 && record.continuity === "live"
+          ? "strong"
+          : "medium";
+      }
+      if (record.interactionState === INTERACTION_STATES.PARTIALLY_FILLED) return "medium";
+      if (record.resolution === DENSITY_RESOLUTIONS.PULLED) return "low";
+      if (record.interactionState === INTERACTION_STATES.TOUCHED) return "low";
+      return "none";
     }
 
     #open({
@@ -297,10 +428,220 @@
         belowThresholdSince: null,
         closedAt: null,
         closeReason: null,
+        initialQuantity: quantity,
+        initialQuote: quote,
+        interactionState: INTERACTION_STATES.UNOBSERVED,
+        resolution: DENSITY_RESOLUTIONS.ACTIVE,
+        resolutionAt: null,
+        firstTouchedAt: null,
+        lastTouchedAt: null,
+        touchCount: 0,
+        matchedTradeCount: 0,
+        matchedTradeQuantity: 0,
+        matchedTradeQuote: 0,
+        correlatedFillQuantity: 0,
+        correlatedFillQuote: 0,
+        totalReducedQuantity: 0,
+        settledReductionQuantity: 0,
+        unmatchedReductionQuantity: 0,
+        lastExecutionCoverageRatio: null,
+        maxExecutionCoverageRatio: null,
+        lastMatchedTradeSource: null,
+        matchedTradeKeys: new Set(),
+        tradeEvidence: [],
+        pendingReductions: [],
+        reactionLatestBps: null,
+        reactionMaxAboveBps: null,
+        reactionMaxBelowBps: null,
+        reactionLastAt: null,
+        movedFromId: null,
+        movedFromPrice: null,
+        movedToId: null,
+        movedToPrice: null,
+        moveDistanceBps: null,
+        moveMatchedAt: null,
       };
       this.active.set(this.#key(side, price), record);
       this.#count("detected");
       return record;
+    }
+
+    #allocationCandidates(record, at) {
+      return record.tradeEvidence
+        .filter((sample) => (
+          sample.remainingQuantity > 0
+          && Math.abs(sample.at - at) <= this.config.correlationWindowMs
+        ))
+        .sort((left, right) => Math.abs(left.at - at) - Math.abs(right.at - at));
+    }
+
+    #allocateTradeEvidence(record, reduction) {
+      for (const sample of this.#allocationCandidates(record, reduction.at)) {
+        if (reduction.remainingQuantity <= 0) break;
+        const allocated = Math.min(sample.remainingQuantity, reduction.remainingQuantity);
+        if (!(allocated > 0)) continue;
+        sample.remainingQuantity -= allocated;
+        reduction.remainingQuantity -= allocated;
+        reduction.matchedQuantity += allocated;
+        record.correlatedFillQuantity += allocated;
+        record.correlatedFillQuote += allocated * record.price;
+      }
+      if (reduction.matchedQuantity > 0) {
+        this.#setInteraction(record, INTERACTION_STATES.PARTIALLY_FILLED);
+      }
+    }
+
+    #recordReduction(record, event, at) {
+      const previousQuantity = Math.max(0, Number(event?.previousQuantity) || 0);
+      const quantity = Math.max(0, Number(event?.quantity) || 0);
+      const reducedQuantity = Math.max(0, previousQuantity - quantity);
+      if (!(reducedQuantity > 0)) return null;
+      const reduction = {
+        id: `${record.id}:reduction:${event?.sequence ?? at}:${record.pendingReductions.length}`,
+        at,
+        quantity: reducedQuantity,
+        remainingQuantity: reducedQuantity,
+        matchedQuantity: 0,
+        quantityAfter: quantity,
+        removed: event?.type === "removed" || quantity === 0,
+        settled: false,
+      };
+      record.totalReducedQuantity += reducedQuantity;
+      record.pendingReductions.push(reduction);
+      if (record.pendingReductions.length > this.config.maxPendingReductionsPerDensity) {
+        record.pendingReductions.splice(
+          0,
+          record.pendingReductions.length - this.config.maxPendingReductionsPerDensity,
+        );
+      }
+      this.#allocateTradeEvidence(record, reduction);
+      return reduction;
+    }
+
+    #settleReduction(record, reduction, now) {
+      if (
+        reduction.settled
+        || now < reduction.at + Math.max(
+          this.config.settlementDelayMs,
+          this.config.correlationWindowMs,
+        )
+      ) return false;
+      reduction.settled = true;
+      const matchedQuantity = Math.min(reduction.quantity, reduction.matchedQuantity);
+      const unmatchedQuantity = Math.max(0, reduction.quantity - matchedQuantity);
+      const coverage = reduction.quantity > 0 ? matchedQuantity / reduction.quantity : 0;
+      record.settledReductionQuantity += reduction.quantity;
+      record.unmatchedReductionQuantity += unmatchedQuantity;
+      record.lastExecutionCoverageRatio = coverage;
+      record.maxExecutionCoverageRatio = record.maxExecutionCoverageRatio === null
+        ? coverage
+        : Math.max(record.maxExecutionCoverageRatio, coverage);
+
+      if (matchedQuantity > 0) {
+        const consumed = reduction.removed
+          && coverage >= this.config.consumedCoverageRatio;
+        this.#setInteraction(
+          record,
+          consumed
+            ? INTERACTION_STATES.CONSUMED
+            : INTERACTION_STATES.PARTIALLY_FILLED,
+        );
+        if (reduction.removed) {
+          record.resolution = consumed
+            ? DENSITY_RESOLUTIONS.CONSUMED
+            : DENSITY_RESOLUTIONS.PULLED;
+          record.resolutionAt = now;
+        }
+      } else if (reduction.removed) {
+        record.resolution = DENSITY_RESOLUTIONS.PULLED;
+        record.resolutionAt = now;
+      }
+      return true;
+    }
+
+    #updateReaction(record, tradePrice, at) {
+      if (
+        !Number.isFinite(record.firstTouchedAt)
+        || at < record.firstTouchedAt
+        || at - record.firstTouchedAt > this.config.reactionWindowMs
+      ) return;
+      const reactionBps = (tradePrice - record.price) / record.price * 10_000;
+      record.reactionMaxAboveBps = record.reactionMaxAboveBps === null
+        ? reactionBps
+        : Math.max(record.reactionMaxAboveBps, reactionBps);
+      record.reactionMaxBelowBps = record.reactionMaxBelowBps === null
+        ? reactionBps
+        : Math.min(record.reactionMaxBelowBps, reactionBps);
+      if (record.reactionLastAt === null || at >= record.reactionLastAt) {
+        record.reactionLatestBps = reactionBps;
+        record.reactionLastAt = at;
+      }
+    }
+
+    #tryResolveMove(record, now) {
+      if (
+        record.resolution !== DENSITY_RESOLUTIONS.PULLED
+        || !Number.isFinite(record.closedAt)
+        || record.correlatedFillQuantity > 0
+        || record.movedToId
+      ) return false;
+      const originQuote = record.price * Math.max(
+        0,
+        Number(record.pendingReductions.findLast?.((item) => item.removed)?.quantity)
+          || Number(record.maxQuantity)
+          || 0,
+      );
+      if (!(originQuote > 0)) return false;
+      const earliest = record.closedAt - this.config.moveLeadGraceMs;
+      const latest = record.closedAt + this.config.moveWindowMs;
+      const candidates = [...this.active.values(), ...this.closed]
+        .filter((candidate) => (
+          candidate !== record
+          && candidate.side === record.side
+          && !candidate.movedFromId
+          && candidate.price !== record.price
+          && candidate.firstObservedAt >= earliest
+          && candidate.firstObservedAt <= latest
+        ))
+        .map((candidate) => {
+          const candidateQuote = candidate.initialQuote || candidate.currentQuote;
+          const quoteRatio = candidateQuote / originQuote;
+          const distanceBps = Math.abs(candidate.price - record.price) / record.price * 10_000;
+          return { candidate, quoteRatio, distanceBps };
+        })
+        .filter(({ quoteRatio, distanceBps }) => (
+          quoteRatio >= this.config.moveQuoteRatioMin
+          && quoteRatio <= this.config.moveQuoteRatioMax
+          && distanceBps <= this.config.moveMaxDistanceBps
+        ))
+        .sort((left, right) => (
+          Math.abs(left.candidate.firstObservedAt - record.closedAt)
+          - Math.abs(right.candidate.firstObservedAt - record.closedAt)
+          || left.distanceBps - right.distanceBps
+        ));
+      const match = candidates[0];
+      if (!match) return false;
+      record.resolution = DENSITY_RESOLUTIONS.MOVED;
+      record.resolutionAt = now;
+      record.movedToId = match.candidate.id;
+      record.movedToPrice = match.candidate.price;
+      record.moveDistanceBps = match.distanceBps;
+      record.moveMatchedAt = now;
+      match.candidate.movedFromId = record.id;
+      match.candidate.movedFromPrice = record.price;
+      match.candidate.moveDistanceBps = match.distanceBps;
+      match.candidate.moveMatchedAt = now;
+      return true;
+    }
+
+    #settleCorrelations(now) {
+      const records = [...this.active.values(), ...this.closed];
+      for (const record of records) {
+        for (const reduction of record.pendingReductions) {
+          this.#settleReduction(record, reduction, now);
+        }
+      }
+      for (const record of this.closed) this.#tryResolveMove(record, now);
     }
 
     #close(record, reason, at) {
@@ -313,9 +654,14 @@
       record.stateChangedAt = at;
       if (reason === "removed") {
         record.state = DENSITY_STATES.REMOVED;
+        if (record.resolution === DENSITY_RESOLUTIONS.ACTIVE) {
+          record.resolution = DENSITY_RESOLUTIONS.UNKNOWN;
+        }
         this.#count("removed");
       } else {
         record.state = DENSITY_STATES.FADED;
+        record.resolution = DENSITY_RESOLUTIONS.FADED;
+        record.resolutionAt = at;
         this.#count(reason === "capacity" ? "capacity" : "faded");
       }
       this.closed.unshift(record);
@@ -326,9 +672,14 @@
 
     #pruneClosed(now) {
       const cutoff = now - this.config.closedRetentionMs;
-      this.closed = this.closed
+      const retained = this.closed
         .filter((record) => Number(record.closedAt) >= cutoff)
         .slice(0, this.config.maxClosed);
+      const retainedSet = new Set(retained);
+      for (const record of this.closed) {
+        if (!retainedSet.has(record)) this.interactedRecords.delete(record);
+      }
+      this.closed = retained;
     }
 
     #enforceCapacity(now) {
@@ -419,6 +770,9 @@
       };
       this.active.clear();
       this.closed = [];
+      this.interactedRecords.clear();
+      this.lastTradeAt = null;
+      this.tradeSources.clear();
       this.epochCounts = emptyCounts();
       return this.bookEpoch;
     }
@@ -465,12 +819,111 @@
       };
       this.active.clear();
       this.closed = [];
+      this.interactedRecords.clear();
+      this.lastTradeAt = null;
+      this.tradeSources.clear();
       this.epochCounts = emptyCounts();
+    }
+
+    ingestTrades(trades) {
+      if (this.state !== "live") return [];
+      const matched = [];
+      for (const trade of trades ?? []) {
+        const side = normalizeTradeSide(trade?.side);
+        const price = Number(trade?.price);
+        const quantity = Number(trade?.quantity);
+        const quote = Number(trade?.quote);
+        const at = safeTimestamp(
+          trade?.receivedAt ?? trade?.eventTime ?? trade?.tradeTime ?? trade?.time,
+          null,
+        );
+        if (
+          !side
+          || !Number.isFinite(price)
+          || price <= 0
+          || !Number.isFinite(quantity)
+          || quantity <= 0
+          || !Number.isFinite(at)
+        ) continue;
+        this.lastTradeAt = this.lastTradeAt === null ? at : Math.max(this.lastTradeAt, at);
+        this.tradeSources.add(String(trade?.source ?? "agg"));
+
+        for (const record of this.interactedRecords) {
+          this.#updateReaction(record, price, at);
+        }
+
+        const key = this.#tradeKey(trade);
+        const densitySide = side === "buy" ? "ask" : "bid";
+        const exactActive = this.active.get(this.#key(densitySide, price));
+        const activeRecords = exactActive
+          ? [exactActive]
+          : [...this.active.values()].filter((record) => (
+            record.side === densitySide && this.#pricesMatch(record.price, price)
+          ));
+        const recentlyClosed = this.closed.filter((record) => (
+          record.side === densitySide
+          && Number.isFinite(record.closedAt)
+          && at <= record.closedAt + this.config.correlationWindowMs
+          && this.#pricesMatch(record.price, price)
+        ));
+        const records = [...activeRecords, ...recentlyClosed];
+        for (const record of records) {
+          const expectedSide = record.side === "ask" ? "buy" : "sell";
+          if (
+            side !== expectedSide
+            || !this.#pricesMatch(record.price, price)
+            || at < record.firstObservedAt - this.config.correlationWindowMs
+            || (
+              Number.isFinite(record.closedAt)
+              && at > record.closedAt + this.config.correlationWindowMs
+            )
+            || record.matchedTradeKeys.has(key)
+          ) continue;
+
+          record.matchedTradeKeys.add(key);
+          record.touchCount += 1;
+          record.matchedTradeCount += 1;
+          record.matchedTradeQuantity += quantity;
+          record.matchedTradeQuote += Number.isFinite(quote) && quote > 0
+            ? quote
+            : price * quantity;
+          record.firstTouchedAt ??= at;
+          record.lastTouchedAt = at;
+          record.lastMatchedTradeSource = String(trade?.source ?? "agg");
+          this.#setInteraction(record, INTERACTION_STATES.TOUCHED);
+          this.interactedRecords.add(record);
+
+          const sample = {
+            key,
+            at,
+            quantity,
+            remainingQuantity: quantity,
+          };
+          record.tradeEvidence.push(sample);
+          if (record.tradeEvidence.length > this.config.maxTradeEvidencePerDensity) {
+            const removedEvidence = record.tradeEvidence.splice(
+              0,
+              record.tradeEvidence.length - this.config.maxTradeEvidencePerDensity,
+            );
+            for (const removed of removedEvidence) record.matchedTradeKeys.delete(removed.key);
+          }
+          for (const reduction of record.pendingReductions) {
+            if (!reduction.settled && reduction.remainingQuantity > 0) {
+              this.#allocateTradeEvidence(record, reduction);
+            }
+          }
+          this.#updateReaction(record, price, at);
+          matched.push(record);
+        }
+      }
+      this.#settleCorrelations(this.lastTradeAt ?? Date.now());
+      return matched;
     }
 
     ingest(events) {
       if (this.state === "partial" || this.state === "idle") return [];
       const changed = [];
+      let latestEventAt = null;
       for (const event of events ?? []) {
         const side = normalizeSide(event?.side);
         const price = Number(event?.price);
@@ -484,6 +937,7 @@
           || Number(event?.bookEpoch) !== this.bookEpoch
         ) continue;
         const at = safeTimestamp(event?.receivedAt ?? event?.eventTime);
+        latestEventAt = latestEventAt === null ? at : Math.max(latestEventAt, at);
         const key = this.#key(side, price);
         let record = this.active.get(key);
         const quote = price * quantity;
@@ -525,12 +979,14 @@
         record.currentQuote = quote;
 
         if (event.type === "removed" || quantity === 0) {
+          this.#recordReduction(record, event, at);
           changed.push(record);
           this.#close(record, "removed", at);
           continue;
         }
 
         if (event.type === "decreased") {
+          this.#recordReduction(record, event, at);
           record.state = DENSITY_STATES.WEAKENING;
           record.decreaseCount += 1;
           record.lastDecreaseAt = at;
@@ -574,7 +1030,9 @@
         }
         changed.push(record);
       }
-      this.#enforceCapacity(Date.now());
+      const correlationNow = latestEventAt ?? Date.now();
+      this.#settleCorrelations(correlationNow);
+      this.#enforceCapacity(correlationNow);
       return changed;
     }
 
@@ -633,6 +1091,9 @@
     }
 
     #publicRecord(record, now) {
+      const executionCoverageRatio = record.settledReductionQuantity > 0
+        ? record.correlatedFillQuantity / record.settledReductionQuantity
+        : null;
       return {
         id: record.id,
         side: record.side,
@@ -660,11 +1121,52 @@
         lastReplenishedAt: record.lastReplenishedAt,
         closedAt: record.closedAt,
         closeReason: record.closeReason,
+        interaction: record.interactionState,
+        resolution: record.resolution,
+        importance: "unrated",
+        evidenceTier: this.#evidenceTier(record),
+        evidenceQuality: this.#evidenceQuality(record),
+        firstTouchedAt: record.firstTouchedAt,
+        lastTouchedAt: record.lastTouchedAt,
+        touchCount: record.touchCount,
+        matchedTradeCount: record.matchedTradeCount,
+        matchedTradeQuantity: record.matchedTradeQuantity,
+        matchedTradeQuote: record.matchedTradeQuote,
+        correlatedFillQuantity: record.correlatedFillQuantity,
+        correlatedFillQuote: record.correlatedFillQuote,
+        totalReducedQuantity: record.totalReducedQuantity,
+        settledReductionQuantity: record.settledReductionQuantity,
+        unmatchedReductionQuantity: record.unmatchedReductionQuantity,
+        executionCoverageRatio,
+        lastExecutionCoverageRatio: record.lastExecutionCoverageRatio,
+        maxExecutionCoverageRatio: record.maxExecutionCoverageRatio,
+        lastMatchedTradeSource: record.lastMatchedTradeSource,
+        priceReaction: record.firstTouchedAt === null
+          ? null
+          : {
+            windowMs: this.config.reactionWindowMs,
+            latestBps: record.reactionLatestBps,
+            maxAboveBps: record.reactionMaxAboveBps,
+            maxBelowBps: record.reactionMaxBelowBps,
+            lastAt: record.reactionLastAt,
+          },
+        move: record.movedFromId || record.movedToId
+          ? {
+            fromId: record.movedFromId,
+            fromPrice: record.movedFromPrice,
+            toId: record.movedToId,
+            toPrice: record.movedToPrice,
+            distanceBps: record.moveDistanceBps,
+            matchedAt: record.moveMatchedAt,
+            confidence: "low",
+          }
+          : null,
       };
     }
 
     summary(now = Date.now()) {
       const at = safeTimestamp(now);
+      this.#settleCorrelations(at);
       this.#pruneClosed(at);
       const densities = [...this.active.values()]
         .sort((left, right) => {
@@ -676,8 +1178,31 @@
       const recentlyClosed = this.closed
         .slice(0, this.config.closedSummaryLimit)
         .map((record) => this.#publicRecord(record, at));
+      const retainedRecords = [...this.active.values(), ...this.closed];
+      const correlationCounts = {
+        unobserved: 0,
+        touched: 0,
+        partiallyFilled: 0,
+        consumed: 0,
+        pulled: 0,
+        moved: 0,
+      };
+      for (const record of retainedRecords) {
+        if (record.interactionState === INTERACTION_STATES.UNOBSERVED) {
+          correlationCounts.unobserved += 1;
+        } else if (record.interactionState === INTERACTION_STATES.TOUCHED) {
+          correlationCounts.touched += 1;
+        } else if (record.interactionState === INTERACTION_STATES.PARTIALLY_FILLED) {
+          correlationCounts.partiallyFilled += 1;
+        } else if (record.interactionState === INTERACTION_STATES.CONSUMED) {
+          correlationCounts.consumed += 1;
+        }
+        if (record.resolution === DENSITY_RESOLUTIONS.PULLED) correlationCounts.pulled += 1;
+        if (record.resolution === DENSITY_RESOLUTIONS.MOVED) correlationCounts.moved += 1;
+      }
       return {
         version: 1,
+        correlationVersion: 1,
         symbol: this.symbol,
         venue: this.venue,
         state: this.state,
@@ -696,12 +1221,23 @@
         recentlyClosed,
         epochCounts: { ...this.epochCounts },
         totalCounts: { ...this.totalCounts },
+        correlationCounts,
         quality: {
           complete: this.state === "live"
             && this.references.bid.available
             && this.references.ask.available,
           depth: this.state,
-          causality: "depth-only",
+          trades: this.lastTradeAt ? "observed" : "none",
+          tradeSources: [...this.tradeSources].sort(),
+          lastTradeAt: this.lastTradeAt,
+          causality: "probabilistic-depth-trade-correlation",
+          attribution: "aggregate-price-level-not-order-id",
+          importance: "not-scored-from-size",
+          correlationWindowMs: this.config.correlationWindowMs,
+          settlementDelayMs: Math.max(
+            this.config.settlementDelayMs,
+            this.config.correlationWindowMs,
+          ),
           age: "observed-since-detection",
         },
       };
@@ -711,6 +1247,8 @@
   scope.InPulsOrderBookDensity = Object.freeze({
     DEFAULT_CONFIG,
     DENSITY_STATES,
+    INTERACTION_STATES,
+    DENSITY_RESOLUTIONS,
     DensityLifecycleTracker,
     computeSideReference,
     percentileSorted,

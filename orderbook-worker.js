@@ -4,7 +4,7 @@ importScripts("./orderbook-network.js?v=obs-pr1-1");
 importScripts("./orderbook-worker-buffers.js?v=worker-bp-v1");
 importScripts("./orderbook-depth-projection.js?v=deep-book-v1");
 importScripts("./orderbook-events.js?v=orderbook-events-core-v1");
-importScripts("./orderbook-density.js?v=density-lifecycle-v1");
+importScripts("./orderbook-density.js?v=density-trades-correlation-v1");
 
 const MAX_BOOK_LEVELS_PER_SIDE = 20_000;
 const MAX_EMITTED_LEVELS_PER_SIDE = 4_000;
@@ -1383,6 +1383,8 @@ class SymbolFeed {
         const decision = this.tapeGuard.ingest(trade, this.lastTradeAt);
         this.publishLiveStatus();
         if (!decision.emit || !this.insertTrade(trade, true)) return;
+        const matchedDensities = this.densityLifecycle.ingestTrades([trade]);
+        if (matchedDensities.length) this.markDirty();
         this.queueTape(trade);
       } finally {
         this.recordFlow("trade", processStartedAt);
