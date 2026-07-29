@@ -1,4 +1,4 @@
-const BUILD = "26-62-signal-lab-local-tagging-v1";
+const BUILD = "26-63-signal-lab-tagging-snapshot-v1";
 const BOOT_TIMEOUT_MS = 12_000;
 const REPORT_TIMEOUT_MS = 10_000;
 const STARTED_EVENT = "inpuls:owner-signal-lab-started";
@@ -91,6 +91,7 @@ let report = null;
 let loading = false;
 let booting = null;
 let lastError = null;
+let localReviews = new Map();
 
 function normalizedError(error, fallback = "unknown-owner-signal-lab-error") {
   const message = String(error?.message || error || fallback).slice(0, 240);
@@ -401,10 +402,15 @@ function detectorExplanation(event) {
 }
 
 function eventReviewData(event, overrides = {}) {
+  const review = currentEventReview(event);
   return {
-    reason: overrides.reason ?? event.review?.reason ?? "",
-    comment: overrides.comment ?? event.review?.comment ?? "",
+    reason: overrides.reason ?? review?.reason ?? "",
+    comment: overrides.comment ?? review?.comment ?? "",
   };
+}
+
+function currentEventReview(event) {
+  return localReviews.has(event.id) ? localReviews.get(event.id) : event.review;
 }
 
 async function saveEventReview(event, verdict, overrides = {}) {
@@ -415,9 +421,11 @@ async function saveEventReview(event, verdict, overrides = {}) {
   // Разметка должна оставаться локальным действием. Полный report() здесь
   // пересоздавал все карточки и сбрасывал открытые/перетянутые мини-графики.
   // Свежую сводку пользователь получает только по явной кнопке «Обновить».
-  event.review = verdict
+  // Report rows are deliberately immutable snapshots. Keep the immediate
+  // visual choice separately until the next explicit manual refresh.
+  localReviews.set(event.id, verdict
     ? { verdict, ...review, reviewedAt: Date.now() }
-    : null;
+    : null);
   return true;
 }
 
@@ -553,7 +561,7 @@ function renderEvent(event) {
   let reviewSaving = false;
   const syncReviewControls = () => {
     for (const [verdict, button] of verdictButtons) {
-      button.classList.toggle("is-active", event.review?.verdict === verdict);
+      button.classList.toggle("is-active", currentEventReview(event)?.verdict === verdict);
     }
     const visibleEvents = (selectedReportWindow()?.events ?? []).filter((item) => {
       const symbolQuery = elements.symbolFilter.value.trim().toUpperCase();
@@ -565,7 +573,7 @@ function renderEvent(event) {
       if (selectedView === "winners" && Number(item.observation?.mfePercent || 0) <= 1) return false;
       return true;
     }).slice(0, 100);
-    elements.reviewProgress.textContent = `${visibleEvents.filter((item) => item.review?.verdict).length} из ${visibleEvents.length} отмечено`;
+    elements.reviewProgress.textContent = `${visibleEvents.filter((item) => currentEventReview(item)?.verdict).length} из ${visibleEvents.length} отмечено`;
   };
   const persistReview = async (verdict, overrides) => {
     if (reviewSaving) return false;
@@ -589,9 +597,9 @@ function renderEvent(event) {
     button.type = "button";
     button.textContent = label;
     button.dataset.verdict = verdict;
-    button.classList.toggle("is-active", event.review?.verdict === verdict);
+    button.classList.toggle("is-active", currentEventReview(event)?.verdict === verdict);
     button.addEventListener("click", async () => {
-      const next = event.review?.verdict === verdict ? null : verdict;
+      const next = currentEventReview(event)?.verdict === verdict ? null : verdict;
       await persistReview(next, {
         reason: reason.value,
         comment: comment.value,
@@ -608,15 +616,16 @@ function renderEvent(event) {
     option.textContent = label;
     reason.append(option);
   }
-  reason.value = event.review?.reason || "";
+  reason.value = currentEventReview(event)?.reason || "";
   const comment = document.createElement("textarea");
   comment.rows = 2;
   comment.maxLength = 1_000;
   comment.placeholder = "Твой комментарий: что именно детектор увидел неправильно?";
-  comment.value = event.review?.comment || "";
+  comment.value = currentEventReview(event)?.comment || "";
   const saveDetails = async () => {
-    if (!event.review?.verdict) return;
-    await persistReview(event.review.verdict, {
+    const activeReview = currentEventReview(event);
+    if (!activeReview?.verdict) return;
+    await persistReview(activeReview.verdict, {
       reason: reason.value,
       comment: comment.value,
     });
@@ -645,7 +654,7 @@ function renderEvents(windowReport) {
   for (const event of events) fragment.append(renderEvent(event));
   elements.eventList.replaceChildren(fragment);
   elements.eventEmpty.hidden = events.length > 0;
-  const reviewed = events.filter((event) => event.review?.verdict).length;
+  const reviewed = events.filter((event) => currentEventReview(event)?.verdict).length;
   elements.reviewProgress.textContent = `${reviewed} из ${events.length} отмечено`;
 }
 
@@ -888,6 +897,7 @@ async function refreshReport() {
       REPORT_TIMEOUT_MS,
       "signal-lab-report-timeout",
     );
+    localReviews = new Map();
     lastError = null;
   } catch (error) {
     report = null;
