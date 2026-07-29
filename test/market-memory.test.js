@@ -348,7 +348,10 @@ test("the price path stays alive until later horizons resolve", () => {
 });
 
 test("tracker emits once for a continuous signal and rearms only after a real absence", () => {
-  const tracker = new SignalMemoryTracker({ releaseAfterMs: 2_000 });
+  const tracker = new SignalMemoryTracker({
+    releaseAfterMs: 2_000,
+    episodeCooldownMs: 5_000,
+  });
 
   const first = tracker.ingest({ metrics: [metrics(1_000)], now: 1_000 });
   const duplicate = tracker.ingest({ metrics: [metrics(1_500)], now: 1_500 });
@@ -375,6 +378,78 @@ test("tracker emits once for a continuous signal and rearms only after a real ab
     activeSignals: 1,
     formulaVersion: SIGNAL_FORMULA_VERSION,
   });
+});
+
+test("tracker stores one card for overlapping detectors in the same market episode", () => {
+  const tracker = new SignalMemoryTracker({ episodeCooldownMs: 60_000 });
+  const overlapping = [
+    {
+      type: "knife",
+      label: "НОЖ",
+      direction: "down",
+      reason: "-3.93% за 15с",
+      priority: 90,
+    },
+    {
+      type: "impulse",
+      label: "ИМПУЛЬС",
+      direction: "down",
+      reason: "-0.51% за 15с",
+      priority: 70,
+    },
+    {
+      type: "breakout-support",
+      label: "ПРОБОЙ УП",
+      direction: "down",
+      reason: "Лой 5м пробит",
+      priority: 80,
+    },
+  ];
+
+  const first = tracker.ingest({
+    metrics: [metrics(1_000, overlapping)],
+    now: 1_000,
+  });
+  const continuedMove = tracker.ingest({
+    metrics: [metrics(10_000, [overlapping[1]])],
+    now: 10_000,
+  });
+  const stillContinuous = tracker.ingest({
+    metrics: [metrics(70_000, [overlapping[1]])],
+    now: 70_000,
+  });
+
+  assert.equal(first.events.length, 1);
+  assert.equal(first.events[0].signalType, "knife");
+  assert.equal(continuedMove.events.length, 0);
+  assert.equal(stillContinuous.events.length, 0);
+  assert.equal(tracker.summary().events, 1);
+});
+
+test("tracker allows the opposite direction and a genuinely later episode", () => {
+  const tracker = new SignalMemoryTracker({
+    releaseAfterMs: 2_000,
+    episodeCooldownMs: 60_000,
+  });
+  const down = {
+    type: "impulse",
+    label: "ИМПУЛЬС",
+    direction: "down",
+    reason: "-0.50% за 15с",
+    priority: 70,
+  };
+  const up = { ...down, direction: "up", reason: "+0.50% за 15с" };
+
+  const first = tracker.ingest({ metrics: [metrics(1_000, [down])], now: 1_000 });
+  tracker.ingest({ metrics: [metrics(4_000, [])], now: 4_000 });
+  const opposite = tracker.ingest({ metrics: [metrics(10_000, [up])], now: 10_000 });
+  tracker.ingest({ metrics: [metrics(62_000, [])], now: 62_000 });
+  const later = tracker.ingest({ metrics: [metrics(65_000, [down])], now: 65_000 });
+
+  assert.equal(first.events.length, 1);
+  assert.equal(opposite.events.length, 1);
+  assert.equal(later.events.length, 1);
+  assert.equal(tracker.summary().events, 3);
 });
 
 test("a long render pause does not fabricate an absence or duplicate a continuous signal", () => {

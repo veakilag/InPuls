@@ -35,6 +35,7 @@ export const SIGNAL_OBSERVATION_HORIZONS = Object.freeze([
 
 const SYMBOL_PATTERN = /^[A-Z0-9]{1,20}USDT$/;
 const DEFAULT_RELEASE_AFTER_MS = 2_000;
+const DEFAULT_EPISODE_COOLDOWN_MS = 60_000;
 const DEFAULT_MAX_EVENTS = 1_000;
 const DEFAULT_FINAL_SAMPLE_MAX_DELAY_MS = 5_000;
 const DEFAULT_MAX_LIVE_SAMPLE_GAP_MS = 5_000;
@@ -729,6 +730,7 @@ export function createPendingSignalObservations({
 export class SignalMemoryTracker {
   constructor({
     releaseAfterMs = DEFAULT_RELEASE_AFTER_MS,
+    episodeCooldownMs = DEFAULT_EPISODE_COOLDOWN_MS,
     maxEvents = DEFAULT_MAX_EVENTS,
     venue = "binance-usdm",
     formulaVersion = SIGNAL_FORMULA_VERSION,
@@ -736,6 +738,10 @@ export class SignalMemoryTracker {
     maxLiveSampleGapMs = DEFAULT_MAX_LIVE_SAMPLE_GAP_MS,
   } = {}) {
     this.releaseAfterMs = Math.max(250, Number(releaseAfterMs) || DEFAULT_RELEASE_AFTER_MS);
+    this.episodeCooldownMs = Math.max(
+      1_000,
+      Number(episodeCooldownMs) || DEFAULT_EPISODE_COOLDOWN_MS,
+    );
     this.maxEvents = Math.max(1, Math.floor(Number(maxEvents) || DEFAULT_MAX_EVENTS));
     this.venue = safeText(venue, 40);
     this.formulaVersion = safeText(formulaVersion, 80);
@@ -749,6 +755,7 @@ export class SignalMemoryTracker {
     );
     this.sequence = 0;
     this.activeSignals = new Map();
+    this.recentEpisodes = new Map();
     this.signalEvents = [];
     this.signalContexts = [];
     this.signalObservations = [];
@@ -763,6 +770,13 @@ export class SignalMemoryTracker {
       settingsFingerprint,
       symbol,
       safeText(signal?.type, 40),
+      signal?.direction === "up" ? "up" : signal?.direction === "down" ? "down" : "neutral",
+    ].join(":");
+  }
+
+  #episodeKey(symbol, signal) {
+    return [
+      symbol,
       signal?.direction === "up" ? "up" : signal?.direction === "down" ? "down" : "neutral",
     ].join(":");
   }
@@ -945,11 +959,36 @@ export class SignalMemoryTracker {
       observations: [],
       resolvedObservations,
     };
+    for (const [episodeKey, episode] of this.recentEpisodes) {
+      if (capturedAt - episode.triggeredAt >= this.episodeCooldownMs) {
+        this.recentEpisodes.delete(episodeKey);
+      }
+    }
 
-    for (const [key, { metricsItem, signal, symbol }] of currentSignals) {
+    const rankedSignals = [...currentSignals.entries()]
+      .sort(([, left], [, right]) => (
+        Number(right.signal?.priority || 0) - Number(left.signal?.priority || 0)
+      ));
+    for (const [key, { metricsItem, signal, symbol }] of rankedSignals) {
       const active = this.activeSignals.get(key);
       if (active) {
         active.lastSeenAt = capturedAt;
+        continue;
+      }
+
+      const episodeKey = this.#episodeKey(symbol, signal);
+      const recentEpisode = this.recentEpisodes.get(episodeKey);
+      const sameSettings = recentEpisode?.settingsFingerprint === settingsFingerprint;
+      if (
+        sameSettings
+        && capturedAt - recentEpisode.triggeredAt < this.episodeCooldownMs
+      ) {
+        this.activeSignals.set(key, {
+          eventId: recentEpisode.eventId,
+          symbol,
+          lastSeenAt: capturedAt,
+          missingSince: null,
+        });
         continue;
       }
 
@@ -992,6 +1031,11 @@ export class SignalMemoryTracker {
         symbol,
         lastSeenAt: capturedAt,
         missingSince: null,
+      });
+      this.recentEpisodes.set(episodeKey, {
+        eventId: event.id,
+        triggeredAt: capturedAt,
+        settingsFingerprint,
       });
       this.signalEvents.push(event);
       this.signalContexts.push(context);
