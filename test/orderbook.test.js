@@ -22,6 +22,7 @@ import {
   depthView,
   inferPriceTick,
   maximumBookScaleIndex,
+  marketAnchoredBookViewCenter,
   maximumDepthQuote,
   normalizeBookDepthPercent,
   normalizeMarketTrade,
@@ -31,6 +32,7 @@ import {
   priceStepForScale,
   recoverBookScaleIndex,
   sessionBookAnomalyThreshold,
+  tapePricePosition,
   tradeTimeWindow,
 } from "../orderbook.js";
 
@@ -88,6 +90,15 @@ test("orderbook wheel uses the trader-facing step direction", () => {
   assert.equal(bookScaleIndexForWheel(maximumBookScaleIndex(), -120), maximumBookScaleIndex());
 });
 
+test("reducing the step converges a free viewport toward market and snaps at x1", () => {
+  const market = .08;
+  const current = .2;
+  const converged = marketAnchoredBookViewCenter(current, market, .05, .01, 7);
+  assert.ok(Math.abs(converged - market) < Math.abs(current - market));
+  assert.ok(converged >= .015);
+  assert.equal(marketAnchoredBookViewCenter(current, market, .01, .001, 7, true), .08);
+});
+
 test("price ladder cannot be scrolled below zero", () => {
   const center = clampDepthViewCenter(-100, .5, 7);
   const rows = buildDepthLadder([], [], 1, -100, .5, 7);
@@ -103,6 +114,7 @@ test("size bars use the complete projected book instead of the visible ladder", 
   assert.ok(Math.max(...visibleRows.map((row) => row.quote)) < 990);
   assert.equal(maximumDepthQuote(bids, asks, 1), 990);
   assert.equal(maximumDepthQuote(bids, asks, 1, 1_250), 1_250);
+  assert.equal(maximumDepthQuote([[99, 10], [98, 10]], [], 10, 1_000), 1_970);
 });
 
 test("automatic anomaly reference uses the complete book rather than the visible ladder", () => {
@@ -139,12 +151,24 @@ test("AUTO keeps one threshold per coin for the whole session", () => {
   assert.equal(sessionBookAnomalyThreshold(new Map(), "ADAUSDT", 100_000, false), 100_000);
 });
 
-test("hover distance from the current price is signed and compact", () => {
-  assert.equal(bookDistancePercentLabel(101, 100), "+1.00%");
-  assert.equal(bookDistancePercentLabel(99.75, 100), "-0.250%");
+test("hover distance uses color for direction and absolute compact text", () => {
+  assert.equal(bookDistancePercentLabel(101, 100), "1.00%");
+  assert.equal(bookDistancePercentLabel(99.75, 100), "0.250%");
   assert.equal(bookDistancePercentLabel(100, 100), "0.000%");
   assert.equal(bookDistancePercentLabel(null, 100), "");
   assert.equal(bookDistancePercentLabel(100, 0), "");
+});
+
+test("Tape maps every execution to its exact interpolated price coordinate", () => {
+  const rows = [
+    { price: 101, y: 10, height: 10 },
+    { price: 100, y: 20, height: 10 },
+    { price: 99, y: 30, height: 10 },
+  ];
+  assert.equal(tapePricePosition(rows, 100.25).y, 17.5);
+  assert.ok(Math.abs(tapePricePosition(rows, 100.24).y - 17.6) < 1e-9);
+  assert.notEqual(tapePricePosition(rows, 100.25).y, tapePricePosition(rows, 100).y);
+  assert.equal(tapePricePosition(rows, 98.4), null);
 });
 
 test("percent depth gives BTC and alt books the same visible range", () => {

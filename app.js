@@ -7,7 +7,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=26-65-structured-signal-collection-v1";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-66-orderbook-highlight-invariant-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-67-orderbook-static-tape-navigation-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -1646,12 +1646,11 @@ function mountOrderBook(model) {
           <button data-trade-window class="trade-window-button" type="button" title="Колесо над лентой также меняет масштаб времени">${formatTradeWindow(model.tradeWindowMs)}</button>
           <button data-trade-live class="trade-live-button is-active" type="button" title="Вернуться к текущим сделкам">LIVE</button>
         </div>
-        <div class="trade-tape-body"><div class="trade-flow"><div class="trade-flow-grid" aria-hidden="true"></div><svg class="trade-flow-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg><div class="trade-flow-nodes"><div class="orderbook-empty">Жду сделки…</div></div><div class="trade-price-axis" aria-hidden="true"></div><div class="trade-time-axis" aria-hidden="true"></div><div class="trade-flow-detail" hidden></div><span class="trade-flow-hint">Колесо — время · тяни — история</span></div></div>
+        <div class="trade-tape-body"><div class="trade-flow"><div class="trade-flow-grid" aria-hidden="true"></div><svg class="trade-flow-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg><div class="trade-flow-nodes"><div class="orderbook-empty">Жду сделки…</div></div><div class="trade-price-axis" aria-hidden="true"></div><div class="trade-time-axis" aria-hidden="true"></div><span class="book-hover-percent" hidden aria-hidden="true"></span><div class="trade-flow-detail" hidden></div><span class="trade-flow-hint">Колесо — время · тяни — история</span></div></div>
       </section>
       <button class="book-splitter" type="button" aria-label="Изменить ширину ленты сделок" title="Потяни влево или вправо"></button>
       <section class="orderbook-ladder" aria-label="Стакан заявок">
         <div class="book-pane-title"><span>САЙЗ</span><span data-book-scale>${bookScaleLabel(model.bookScaleIndex)}</span><span>ЦЕНА</span></div>
-        <span class="book-hover-percent" hidden aria-hidden="true"></span>
         <div class="orderbook-rows"><div class="orderbook-empty">Загружаю глубину Binance…</div></div>
       </section>
       <span class="book-wheel-hint">Колесо · глубина · Ctrl + колесо — шаг</span>
@@ -1703,7 +1702,6 @@ function mountOrderBook(model) {
   }, true);
   document.addEventListener("dragend", clearDropState);
   const stage = article.querySelector(".orderbook-stage");
-  const ladder = article.querySelector(".orderbook-ladder");
   const ladderRows = article.querySelector(".orderbook-rows");
   const hoverPercent = article.querySelector(".book-hover-percent");
   const hideHoverPercent = () => {
@@ -1718,9 +1716,9 @@ function mountOrderBook(model) {
       return;
     }
     const rowRect = row.getBoundingClientRect();
-    const ladderRect = ladder.getBoundingClientRect();
+    const hoverSurfaceRect = article.querySelector(".trade-flow").getBoundingClientRect();
     hoverPercent.textContent = label;
-    hoverPercent.style.top = `${rowRect.top + rowRect.height / 2 - ladderRect.top}px`;
+    hoverPercent.style.top = `${rowRect.top + rowRect.height / 2 - hoverSurfaceRect.top}px`;
     hoverPercent.classList.toggle("is-bid", price < panel.lastMiddle);
     hoverPercent.classList.toggle("is-ask", price > panel.lastMiddle);
     hoverPercent.hidden = false;
@@ -1874,9 +1872,29 @@ function mountOrderBook(model) {
     event.preventDefault();
     event.stopPropagation();
     if (event.ctrlKey || event.metaKey) {
-      model.bookScaleIndex = bookScaleIndexForWheel(model.bookScaleIndex, event.deltaY);
+      const previousScaleIndex = Math.max(0, Math.min(maximumBookScaleIndex(), Math.round(Number(model.bookScaleIndex) || 0)));
+      const nextScaleIndex = bookScaleIndexForWheel(previousScaleIndex, event.deltaY);
+      model.bookScaleIndex = nextScaleIndex;
       panel.autoCentering = false;
-      if (model.bookCentered !== false) panel.viewCenter = null;
+      if (model.bookCentered !== false) {
+        panel.viewCenter = null;
+      } else if (nextScaleIndex < previousScaleIndex && Number.isFinite(panel.lastMiddle)) {
+        const visibleRows = Math.max(
+          3,
+          article.querySelectorAll(".orderbook-rows .book-ladder-row").length,
+        );
+        const previousStep = priceStepForScale(panel.baseTick, previousScaleIndex);
+        const nextStep = priceStepForScale(panel.baseTick, nextScaleIndex);
+        panel.viewCenter = marketAnchoredBookViewCenter(
+          panel.viewCenter,
+          panel.lastMiddle,
+          previousStep,
+          nextStep,
+          visibleRows,
+          nextScaleIndex === 0,
+        );
+        panel.manualScrollAnchorPrice = panel.lastMiddle;
+      }
       persistWorkspace();
     } else {
       if (model.bookCentered !== false) {
@@ -1973,13 +1991,9 @@ function renderOrderBook(panel, data) {
     panel.priceStep,
     data.sizeScaleMaxQuote,
   );
-  // Highlight mode controls only anomaly classification. The visible size and
-  // its bar always use the same aggregated price-row total, so AUTO/manual
-  // switching can never rewrite liquidity values or rescale the ladder.
-  const maxSize = Math.max(
-    fullBookMaximum,
-    ...rows.map((row) => bookDisplayedQuote(row)),
-  );
+  // Size bars use the complete known book at the selected step.
+  // Scrolling the viewport must never rescale already visible liquidity.
+  const maxSize = fullBookMaximum;
   if (observability.enabled) {
     observability.record("orderbook.compute", performance.now() - phaseStartedAt, {
       symbol,
@@ -3114,7 +3128,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-66-orderbook-highlight-invariant-v1";
+const INPULS_RUNTIME_BUILD = "26-67-orderbook-static-tape-navigation-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

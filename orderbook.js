@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v3";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-66-orderbook-highlight-invariant-v1";
+import "./orderbook-flow-workspace.js?v=26-67-orderbook-static-tape-navigation-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -102,8 +102,7 @@ export function bookDistancePercentLabel(price, currentPrice) {
   const percent = ((level - current) / current) * 100;
   const absolute = Math.abs(percent);
   const digits = absolute >= 10 ? 1 : absolute >= 1 ? 2 : 3;
-  const prefix = percent > 0 ? "+" : "";
-  return `${prefix}${percent.toFixed(digits)}%`;
+  return `${absolute.toFixed(digits)}%`;
 }
 
 export function partialDepthView(event, limit = 20) {
@@ -486,12 +485,14 @@ export function buildDepthLadder(bids, asks, marketPrice, viewCenter, priceStep,
 
 export function maximumDepthQuote(bids, asks, priceStep, fullBookMaximum = null) {
   const stableMaximum = Number(fullBookMaximum);
-  if (Number.isFinite(stableMaximum) && stableMaximum > 0) return stableMaximum;
   const values = [
     ...aggregateDepthByStep(bids, "bid", priceStep),
     ...aggregateDepthByStep(asks, "ask", priceStep),
   ];
-  return Math.max(1, ...values.map((row) => Number(row.quote) || 0));
+  const aggregatedMaximum = Math.max(1, ...values.map((row) => Number(row.quote) || 0));
+  return Number.isFinite(stableMaximum) && stableMaximum > 0
+    ? Math.max(stableMaximum, aggregatedMaximum)
+    : aggregatedMaximum;
 }
 
 export function clampDepthViewCenter(viewCenter, priceStep, rowCount) {
@@ -503,6 +504,17 @@ export function clampDepthViewCenter(viewCenter, priceStep, rowCount) {
   const minimumAnchorIndex = Math.max(0, count - 1 - half);
   const anchorIndex = Math.max(minimumAnchorIndex, Math.round(center / step));
   return Number((anchorIndex * step).toPrecision(15));
+}
+
+export function marketAnchoredBookViewCenter(viewCenter, marketPrice, previousStep, nextStep, rowCount, snapToMarket = false) {
+  const market = Number(marketPrice);
+  const current = Number(viewCenter);
+  const before = Math.max(Number.EPSILON, Number(previousStep) || Number(nextStep) || .01);
+  const after = Math.max(Number.EPSILON, Number(nextStep) || before);
+  if (!Number.isFinite(market)) return clampDepthViewCenter(current, after, rowCount);
+  if (!Number.isFinite(current) || snapToMarket) return clampDepthViewCenter(market, after, rowCount);
+  const convergence = Math.max(0, Math.min(1, after / before));
+  return clampDepthViewCenter(market + (current - market) * convergence, after, rowCount);
 }
 
 export function aggregateTradeClusters(trades, minimumQuote = 0, priceStep = .01, limit = 40) {
@@ -1375,7 +1387,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-66-orderbook-highlight-invariant-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-67-orderbook-static-tape-navigation-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1789,7 +1801,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-66-orderbook-highlight-invariant-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-67-orderbook-static-tape-navigation-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -1938,6 +1950,15 @@ function installOrderBookStyles() {
       overflow: hidden !important;
       contain: layout paint style;
       background: var(--panel) !important;
+    }
+    .orderbook-card .trade-flow .book-hover-percent {
+      position: absolute !important;
+      z-index: 12 !important;
+      right: 2px !important;
+      left: auto !important;
+      transform: translateY(-50%) !important;
+      pointer-events: none !important;
+      white-space: nowrap;
     }
     .orderbook-card .orderbook-tape,
     .orderbook-card .trade-tape-body {
@@ -2673,8 +2694,8 @@ function ensureTapeUi(card) {
     const layerControls = document.createElement("div");
     layerControls.className = "inpuls-layer-dock";
     layerControls.innerHTML = `
-      <button data-inpuls-tape-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть ленту">ЛЕНТА</button>
-      <button data-inpuls-clusters-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть footprint-кластеры">КЛАСТЕРЫ</button>`;
+      <button data-inpuls-clusters-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть footprint-кластеры">КЛАСТЕРЫ</button>
+      <button data-inpuls-tape-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть ленту">ЛЕНТА</button>`;
     ticker.after(layerControls);
     state.layerControls = layerControls;
 
@@ -2923,6 +2944,39 @@ function visibleBookRows(card, flow) {
     .map(({ intersects, ...row }) => row);
 }
 
+export function tapePricePosition(rows, price) {
+  const target = Number(price);
+  const ordered = (rows ?? []).map((row) => ({
+    ...row,
+    price: Number(row?.price),
+    y: Number(row?.y),
+    height: Math.max(1, Number(row?.height) || 1),
+  })).filter((row) => Number.isFinite(row.price) && Number.isFinite(row.y))
+    .sort((left, right) => left.price - right.price);
+  if (!ordered.length || !Number.isFinite(target)) return null;
+  if (ordered.length === 1) return Math.abs(target - ordered[0].price) <= Number.EPSILON ? { ...ordered[0], price: target } : null;
+  let step = Infinity;
+  for (let index = 1; index < ordered.length; index += 1) {
+    const gap = ordered[index].price - ordered[index - 1].price;
+    if (gap > Number.EPSILON && gap < step) step = gap;
+  }
+  if (!Number.isFinite(step)) return null;
+  const low = ordered[0];
+  const high = ordered.at(-1);
+  if (target < low.price - step * .5 - Number.EPSILON || target > high.price + step * .5 + Number.EPSILON) return null;
+  const interpolate = (left, right) => {
+    const span = right.price - left.price;
+    const ratio = Math.abs(span) <= Number.EPSILON ? 0 : (target - left.price) / span;
+    return { price: target, y: left.y + (right.y - left.y) * ratio, height: left.height + (right.height - left.height) * ratio };
+  };
+  if (target <= low.price) return interpolate(low, ordered[1]);
+  if (target >= high.price) return interpolate(ordered.at(-2), high);
+  for (let index = 1; index < ordered.length; index += 1) {
+    if (target <= ordered[index].price) return interpolate(ordered[index - 1], ordered[index]);
+  }
+  return null;
+}
+
 function nearestVisibleRow(rows, price) {
   if (!rows.length || !Number.isFinite(price)) return null;
   let best = rows[0];
@@ -3031,14 +3085,14 @@ function rawTapeItemsContinuous(trades, rows, window) {
     .reverse()
     .filter((trade) => trade.time >= window.startTime && trade.time <= window.endTime)
     .map((trade) => {
-      const row = nearestVisibleRow(rows, trade.price);
-      if (!row) return null;
+      const position = tapePricePosition(rows, trade.price);
+      if (!position) return null;
       return {
         key: `raw:${String(trade.id)}:${trade.time}`,
         time: trade.time,
         lastTime: trade.time,
         price: trade.price,
-        row,
+        row: position,
         quote: trade.quote,
         buyQuote: trade.side === "buy" ? trade.quote : 0,
         sellQuote: trade.side === "sell" ? trade.quote : 0,
@@ -3057,8 +3111,8 @@ function aggregateTapeBurstsContinuous(trades, rows, window, step) {
     1,
   )
     .map((burst) => {
-      const row = nearestVisibleRow(rows, burst.price);
-      return row ? { ...burst, row } : null;
+      const position = tapePricePosition(rows, burst.price);
+      return position ? { ...burst, row: position } : null;
     })
     .filter(Boolean)
     .slice(-TAPE_MAX_AGG_VISIBLE);
@@ -3317,7 +3371,7 @@ function drawTapeCard(card) {
           ...item,
           label: formatTapeUsd(item.quote),
           height: clampTape(7 + strengthFor(item.quote) * 7, 7, 14),
-          y: item.row.y + (Number(item.yOffset) || 0),
+          y: item.row.y,
         })),
         (label) => context.measureText(label).width,
         { width: window.plotRight },
@@ -3340,7 +3394,7 @@ function drawTapeCard(card) {
         window,
         rect.width,
       );
-      const pathY = pathItem.row.y + (Number(pathItem.yOffset) || 0);
+      const pathY = pathItem.row.y;
       const pathTime = Number(pathItem.lastTime ?? pathItem.time);
       const previousTime = Number(previous?.lastTime ?? previous?.time);
       if (!previous || pathTime - previousTime > 1_500) {
@@ -3355,7 +3409,7 @@ function drawTapeCard(card) {
   }
 
   for (const item of drawItems) {
-    const y = item.row.y + (Number(item.yOffset) || 0);
+    const y = item.row.y;
     const buy = item.buyQuote >= item.sellQuote;
     const stroke = buy ? "rgba(88, 239, 184, .9)" : "rgba(255, 121, 137, .9)";
     const strength = strengthFor(item.quote);
