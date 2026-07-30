@@ -3218,7 +3218,7 @@ export function snapTapeWindowEnd(endTime, duration, width) {
   return Math.ceil(target / quantum) * quantum;
 }
 
-function buildContinuousTapeWindow(width, latestTime, requestedEndTime = null) {
+function buildContinuousTapeWindow(width, latestTime, requestedEndTime = null, dpr = 1) {
   const safeWidth = Math.max(1, Number(width) || 1);
   const seconds = clampTape(
     Math.floor(safeWidth / TAPE_MIN_SECOND_WIDTH),
@@ -3231,9 +3231,10 @@ function buildContinuousTapeWindow(width, latestTime, requestedEndTime = null) {
   const targetEndTime = Number.isFinite(requested)
     ? Math.max(latest + 1, requested)
     : Math.max(latest + 1, Date.now());
-  // The camera advances only by complete CSS pixels. Historical dots preserve
-  // their fractional pixel phase instead of shimmering on every execution.
-  const endTime = snapTapeWindowEnd(targetEndTime, duration, safeWidth);
+  // The camera advances only by complete physical pixels. Historical dots
+  // preserve their raster phase instead of shimmering on every execution.
+  const physicalWidth = safeWidth * Math.max(1, Number(dpr) || 1);
+  const endTime = snapTapeWindowEnd(targetEndTime, duration, physicalWidth);
   const plotRight = safeWidth;
   return {
     duration,
@@ -3548,7 +3549,7 @@ function drawTapeCard(card) {
     || Number(stored[0]?.time)
     || Date.now();
   const endTime = resolveTapeWindowEnd(latestTime, frozen);
-  const window = buildContinuousTapeWindow(rect.width, latestTime, endTime);
+  const window = buildContinuousTapeWindow(rect.width, latestTime, endTime, dpr);
   const recent = [];
   for (const trade of stored) {
     if (trade.time > window.endTime) continue;

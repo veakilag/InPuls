@@ -32,6 +32,7 @@ test("Tape camera advances on a complete CSS-pixel time grid", () => {
   assert.equal(tapeWindowPixelQuantum(duration, width), 20);
   assert.equal(snapTapeWindowEnd(10_001, duration, width), 10_020);
   assert.equal(snapTapeWindowEnd(10_019, duration, width), 10_020);
+  assert.equal(tapeWindowPixelQuantum(duration, width * 1.5), 40 / 3);
 });
 
 test("filter preserves all-trade path and labels every qualifying RAW marker", () => {
@@ -44,6 +45,13 @@ test("filter preserves all-trade path and labels every qualifying RAW marker", (
 test("footprint candle owns the left lane and data begins after its body", () => {
   assert.match(footprint, /const candleLeft = columnLeft \+ 2/);
   assert.match(footprint, /const dataLeft = candleLeft \+ candleBodyWidth \+ 2/);
-  assert.match(footprint, /formatSignedQuoteDelta\(cluster\.buyQuote - cluster\.sellQuote\)/);
+  assert.match(footprint, /const deltaText = formatSignedQuoteDelta\(cluster\.buyQuote - cluster\.sellQuote\)/);
+  assert.match(footprint, /const volumeText = formatQuoteVolume\(cluster\.quote\)/);
   assert.match(footprint, /state\.context\.moveTo\(candleX, highRow\.y\)/);
+});
+
+
+test("runtime passes DPR into the Tape camera", () => {
+  assert.match(orderbook, /buildContinuousTapeWindow\(rect\.width, latestTime, endTime, dpr\)/);
+  assert.match(orderbook, /const physicalWidth = safeWidth \* Math\.max\(1, Number\(dpr\) \|\| 1\)/);
 });

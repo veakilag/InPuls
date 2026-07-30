@@ -1218,15 +1218,21 @@ function renderCard(card, state) {
         state.context.lineWidth = .75;
         state.context.strokeRect(cellLeft, cellTop, cellWidth, cellHeight);
 
-        state.context.textAlign = "left";
+        const deltaText = formatSignedQuoteDelta(cluster.buyQuote - cluster.sellQuote);
+        const volumeText = formatQuoteVolume(cluster.quote);
+        const valueWidth = Math.max(1, dataWidth * .47);
         state.context.fillStyle = theme.text;
-        state.context.font = "800 6.5px Inter, system-ui, sans-serif";
+        state.context.font = "800 6.2px Inter, system-ui, sans-serif";
+        state.context.textAlign = "left";
+        state.context.fillText(deltaText, dataLeft + 2, cluster.row.y, valueWidth);
+        state.context.textAlign = "right";
         state.context.fillText(
-          `${formatSignedQuoteDelta(cluster.buyQuote - cluster.sellQuote)} · ${formatQuoteVolume(cluster.quote)}`,
-          dataLeft + 2,
+          volumeText,
+          dataLeft + dataWidth - 2,
           cluster.row.y,
-          Math.max(1, dataWidth - 4),
+          valueWidth,
         );
+        state.context.textAlign = "center";
         state.context.font = "800 7px Inter, system-ui, sans-serif";
       }
 
