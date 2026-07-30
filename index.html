@@ -42,7 +42,7 @@
           <span id="connection-text">Подключение…</span>
         </div>
         <time id="clock" class="clock">--:--:--</time>
-        <button id="install-app" class="install-button" type="button" hidden title="Установить InPuls на компьютер" aria-label="Установить InPuls на компьютер" style="display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:0 14px;border:1px solid rgba(79,255,176,.55);border-radius:10px;background:linear-gradient(180deg,rgba(46,214,142,.2),rgba(18,122,83,.18));color:#bfffe0;font:700 12px/1 system-ui,sans-serif;letter-spacing:.02em;white-space:nowrap;cursor:pointer;box-shadow:0 0 0 1px rgba(79,255,176,.08) inset,0 6px 18px rgba(0,0,0,.18);">
+        <button id="install-app" class="install-button" type="button" title="Установить InPuls на компьютер" aria-label="Установить InPuls на компьютер" style="display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:0 14px;border:1px solid rgba(79,255,176,.55);border-radius:10px;background:linear-gradient(180deg,rgba(46,214,142,.2),rgba(18,122,83,.18));color:#bfffe0;font:700 12px/1 system-ui,sans-serif;letter-spacing:.02em;white-space:nowrap;cursor:pointer;box-shadow:0 0 0 1px rgba(79,255,176,.08) inset,0 6px 18px rgba(0,0,0,.18);">
           <svg viewBox="0 0 24 24" aria-hidden="true" style="width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 17v3h14v-3"/></svg>
           <span>Установить на компьютер</span>
         </button>
@@ -303,6 +303,7 @@
     </dialog>
 
     <div id="alert-toast" class="alert-toast" role="status" aria-live="assertive" hidden></div>
+    <script src="./install-cta.js?v=pwa-install-cta-v2"></script>
     <script type="module" src="./app.js?v=26-55-scalper-pattern-evidence-v1"></script>
   </body>
 </html>
