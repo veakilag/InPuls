@@ -109,6 +109,9 @@ test("round prices affect only text and the liquidity meter stays readable", () 
 
 test("live trades invalidate the current footprint frame immediately", () => {
   assert.match(flow, /incoming\.length && state\.historyOffset === 0/);
+  assert.match(orderbook, /const y = item\.row\.y;/);
+  assert.match(orderbook, /const pathY = pathItem\.row\.y;/);
+  assert.doesNotMatch(orderbook, /row\.y \+ \(Number\([^)]*yOffset/);
   assert.match(flow, /state\.hasFrame = false/);
 });
 

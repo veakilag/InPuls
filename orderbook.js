@@ -3371,7 +3371,7 @@ function drawTapeCard(card) {
           ...item,
           label: formatTapeUsd(item.quote),
           height: clampTape(7 + strengthFor(item.quote) * 7, 7, 14),
-          y: item.row.y + (Number(item.yOffset) || 0),
+          y: item.row.y,
         })),
         (label) => context.measureText(label).width,
         { width: window.plotRight },
@@ -3394,7 +3394,7 @@ function drawTapeCard(card) {
         window,
         rect.width,
       );
-      const pathY = pathItem.row.y + (Number(pathItem.yOffset) || 0);
+      const pathY = pathItem.row.y;
       const pathTime = Number(pathItem.lastTime ?? pathItem.time);
       const previousTime = Number(previous?.lastTime ?? previous?.time);
       if (!previous || pathTime - previousTime > 1_500) {
@@ -3409,7 +3409,7 @@ function drawTapeCard(card) {
   }
 
   for (const item of drawItems) {
-    const y = item.row.y + (Number(item.yOffset) || 0);
+    const y = item.row.y;
     const buy = item.buyQuote >= item.sellQuote;
     const stroke = buy ? "rgba(88, 239, 184, .9)" : "rgba(255, 121, 137, .9)";
     const strength = strengthFor(item.quote);
