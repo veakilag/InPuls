@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: 22
       - name: Apply focused runtime changes
-        run: python .github/scripts/apply-smooth-tape-closed-agg-v2.py
+        run: python .github/scripts/apply-smooth-tape-closed-agg-v3.py
       - name: Syntax checks
         run: |
           node --check orderbook.js
@@ -36,6 +36,7 @@ jobs:
         run: |
           rm -f .github/scripts/apply-smooth-tape-closed-agg-v1.py
           rm -f .github/scripts/apply-smooth-tape-closed-agg-v2.py
+          rm -f .github/scripts/apply-smooth-tape-closed-agg-v3.py
           rm -f .github/workflows/apply-smooth-tape-closed-agg-v1.yml
           git config user.name "InPuls automation"
           git config user.email "actions@users.noreply.github.com"
