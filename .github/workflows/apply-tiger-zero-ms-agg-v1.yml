@@ -26,18 +26,27 @@ jobs:
           sed -i 's/expected 3/expected 4/' .github/scripts/apply-tiger-zero-ms-agg-v1.py
       - name: Apply Tiger zero-ms AGG source
         run: python .github/scripts/apply-tiger-zero-ms-agg-v1.py
+      - name: Align guard boundary and legacy contracts
+        run: python .github/scripts/update-tiger-zero-ms-contracts-v1.py
       - name: Syntax checks
         run: |
           node --check orderbook.js
           node --check orderbook-worker.js
           node --check app.js
           node --check test-tiger-zero-ms-agg-source-v1.mjs
+          node --check test-orderbook-guarded-raw-tape.mjs
+          node --check test-orderbook-tape-latency.mjs
+          node --check test-raw-stability-core.mjs
+          node --check test/connection-observability.test.js
+          node --check test/orderbook-backpressure.test.js
+          node --check test/orderbook-render-scheduler.test.js
       - name: Full test suite
         run: npm test
       - name: Commit verified implementation
         shell: bash
         run: |
           rm -f .github/scripts/apply-tiger-zero-ms-agg-v1.py
+          rm -f .github/scripts/update-tiger-zero-ms-contracts-v1.py
           rm -f .github/workflows/apply-tiger-zero-ms-agg-v1.yml
           git config user.name "InPuls automation"
           git config user.email "actions@users.noreply.github.com"
