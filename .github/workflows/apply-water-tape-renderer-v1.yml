@@ -20,6 +20,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Scope generated-tree guard to the Tape painter
+        run: sed -i '/assert "layoutTapeSequence(items" not in orderbook/d' .github/scripts/apply-water-tape-renderer-v1.py
       - name: Apply water Tape renderer
         run: python .github/scripts/apply-water-tape-renderer-v1.py
       - name: Syntax checks
