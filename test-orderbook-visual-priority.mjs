@@ -98,11 +98,13 @@ test("Tape paints the active panel theme instead of a black canvas", () => {
   assert.match(flow, /globalThis\.addEventListener\("inpuls:theme-change"/);
 });
 
-test("round prices affect only text and the liquidity meter stays readable", () => {
+test("only full round prices affect text and the liquidity meter stays readable", () => {
   assert.match(orderbook, /\.book-ladder-row\.is-price-round:not\(\.is-market\) \{[\s\S]*background: transparent !important/);
-  assert.match(orderbook, /\.book-ladder-row\.is-price-half:not\(\.is-market\) strong/);
+  assert.doesNotMatch(orderbook, /\.book-ladder-row\.is-price-half/);
   assert.match(orderbook, /\.book-ladder-row\.is-price-round:not\(\.is-market\) strong/);
   assert.match(orderbook, /function stableBookPsychologicalUnit\(card, referencePrice\)/);
+  assert.match(orderbook, /const majorUnit = bookPsychologicalPriceUnit\(market\)/);
+  assert.match(orderbook, /row\.classList\.remove\("is-price-half"\)/);
   assert.match(orderbook, /is-price-round:not\(\.is-market\) strong \{[\s\S]*font-size: inherit !important;[\s\S]*font-weight: 800 !important;/);
   assert.match(orderbook, /\.inpuls-liquidity-meter \{[\s\S]*height: 18px/);
   assert.match(orderbook, /font: 850 9px\/1 Inter/);
@@ -123,8 +125,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-73-water-tape-batched-v1/);
-  assert.match(app, /orderbook\.js\?v=26-73-water-tape-batched-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-73-water-tape-batched-v1/);
-  assert.match(sw, /26-73-water-tape-batched-v1/);
+  assert.match(index, /26-74-sealed-agg-round-levels-v1/);
+  assert.match(app, /orderbook\.js\?v=26-74-sealed-agg-round-levels-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-74-sealed-agg-round-levels-v1/);
+  assert.match(sw, /26-74-sealed-agg-round-levels-v1/);
 });
