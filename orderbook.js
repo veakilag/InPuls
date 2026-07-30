@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-72-water-tape-fast-v1";
+import "./orderbook-flow-workspace.js?v=26-73-water-tape-batched-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1416,7 +1416,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-72-water-tape-fast-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-73-water-tape-batched-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1830,7 +1830,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-72-water-tape-fast-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-73-water-tape-batched-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -1849,6 +1849,7 @@ const TAPE_AGG_WALL_CLOCK_GRACE_MS = 650;
 const TAPE_PRICE_VIEWPORT_TAU_MS = 90;
 const TAPE_CLOCK_CORRECTION_TAU_MS = 120;
 const TAPE_VIEWPORT_SAMPLE_MS = 50;
+const RAW_TAPE_MARKER_BUCKETS = 8;
 const TAPE_STALE_NOTICE_MS = 3_000;
 const TAPE_STATE_REFRESH_MS = 1_000;
 const TAPE_FREEZE_AFTER_MS = 2_500;
@@ -2821,6 +2822,17 @@ function ensureTapeUi(card) {
       rawRenderNodes: [],
       aggSourceBuckets: [],
       aggSnapshots: new Map(),
+      recentRawScratch: [],
+      finalizedAggScratch: [],
+      closedAggScratch: [],
+      candidateScratch: [],
+      pathProjectionScratch: [],
+      markerProjectionScratch: [],
+      rawMarkerBatches: Array.from({ length: RAW_TAPE_MARKER_BUCKETS * 2 }, () => []),
+      lastStatusText: null,
+      lastStatusTone: null,
+      lastRangeAbove: null,
+      lastRangeBelow: null,
     };
     tapeCardStates.set(card, state);
   }
@@ -2843,6 +2855,8 @@ function ensureTapeUi(card) {
     status.setAttribute("aria-live", "polite");
     flow.append(status);
     state.status = status;
+    state.lastStatusText = null;
+    state.lastStatusTone = null;
   }
 
   if (!state.rangeSummary?.isConnected || state.rangeSummary.parentElement !== flow) {
@@ -2852,6 +2866,8 @@ function ensureTapeUi(card) {
     summary.innerHTML = '<span data-inpuls-tape-above></span><span data-inpuls-tape-below></span>';
     flow.append(summary);
     state.rangeSummary = summary;
+    state.lastRangeAbove = null;
+    state.lastRangeBelow = null;
   }
 
   const nativeMinimum = toolbar.querySelector("[data-trade-min]");
@@ -3096,18 +3112,25 @@ function setTapeState(state, text = "", tone = "neutral") {
   const element = state?.status;
   if (!element) return;
   const value = String(text || "");
+  const nextTone = String(tone || "neutral");
+  if (state.lastStatusText === value && state.lastStatusTone === nextTone) return;
+  state.lastStatusText = value;
+  state.lastStatusTone = nextTone;
   if (element.textContent !== value) element.textContent = value;
-  element.dataset.tone = tone;
+  if (element.dataset.tone !== nextTone) element.dataset.tone = nextTone;
   element.classList.toggle("is-visible", Boolean(value));
 }
 
 function setTapeRangeSummary(state, above = 0, below = 0) {
   const summary = state?.rangeSummary;
   if (!summary) return;
-  const aboveElement = summary.querySelector("[data-inpuls-tape-above]");
-  const belowElement = summary.querySelector("[data-inpuls-tape-below]");
   const safeAbove = Math.max(0, Math.floor(Number(above) || 0));
   const safeBelow = Math.max(0, Math.floor(Number(below) || 0));
+  if (state.lastRangeAbove === safeAbove && state.lastRangeBelow === safeBelow) return;
+  state.lastRangeAbove = safeAbove;
+  state.lastRangeBelow = safeBelow;
+  const aboveElement = summary.querySelector("[data-inpuls-tape-above]");
+  const belowElement = summary.querySelector("[data-inpuls-tape-below]");
   if (aboveElement) {
     aboveElement.textContent = `↑ ${safeAbove} выше`;
     aboveElement.classList.toggle("is-visible", safeAbove > 0);
@@ -3319,7 +3342,7 @@ export function advanceTapePriceViewport(
   };
 }
 
-export function projectTapePrice(viewport, price) {
+function projectTapePriceInto(viewport, price, output) {
   const target = Number(price);
   if (!viewport || !Number.isFinite(target)) return null;
   const low = Number(viewport.lowPrice);
@@ -3329,11 +3352,15 @@ export function projectTapePrice(viewport, price) {
   if (!Number.isFinite(span) || span <= Number.EPSILON) return null;
   if (target < low - step * .65 || target > high + step * .65) return null;
   const ratio = (target - low) / span;
-  return {
-    price: target,
-    y: Number(viewport.lowY) + (Number(viewport.highY) - Number(viewport.lowY)) * ratio,
-    height: Math.max(1, Number(viewport.rowHeight) || 1),
-  };
+  const result = output ?? {};
+  result.price = target;
+  result.y = Number(viewport.lowY) + (Number(viewport.highY) - Number(viewport.lowY)) * ratio;
+  result.height = Math.max(1, Number(viewport.rowHeight) || 1);
+  return result;
+}
+
+export function projectTapePrice(viewport, price) {
+  return projectTapePriceInto(viewport, price, {});
 }
 
 export function advanceWaterTapeClock(
@@ -3519,9 +3546,9 @@ export function aggregateTapeBuckets(trades, priceStep = .01, levelIndex = 0, wi
   ));
 }
 
-function finalizedAggregateTapeBuckets(state, buckets, closedBefore) {
+function finalizedAggregateTapeBuckets(state, buckets, closedBefore, output = []) {
   if (!(state.aggSnapshots instanceof Map)) state.aggSnapshots = new Map();
-  const output = [];
+  output.length = 0;
   for (const bucket of buckets ?? []) {
     let snapshot = state.aggSnapshots.get(bucket.key);
     if (!snapshot && bucket.bucketEnd <= closedBefore) {
@@ -3689,20 +3716,86 @@ function refreshTapeRenderModel(state, symbol, stored, step) {
   );
 }
 
-function visibleWaterTapeNodes(nodes, window) {
-  return (nodes ?? []).filter((item) => (
-    Number(item.time) >= window.startTime
-    && Number(item.time) <= window.endTime
-  ));
+function visibleWaterTapeNodes(nodes, window, output = []) {
+  output.length = 0;
+  for (const item of nodes ?? []) {
+    const time = Number(item.time);
+    if (time < window.startTime) continue;
+    if (time > window.endTime) break;
+    output.push(item);
+  }
+  return output;
 }
 
-function projectWaterTapeNodes(nodes, viewport) {
-  const projected = [];
+function filterWaterTapeCandidates(nodes, minimum, output = []) {
+  output.length = 0;
   for (const item of nodes ?? []) {
-    const position = projectTapePrice(viewport, item.price);
-    if (position) projected.push({ ...item, position });
+    if (passesTapeFilter(item, minimum, 0)) output.push(item);
   }
-  return projected;
+  return output;
+}
+
+function projectWaterTapeNodes(nodes, viewport, output = []) {
+  let count = 0;
+  for (const source of nodes ?? []) {
+    const slot = output[count] ?? { source: null, position: {} };
+    const position = projectTapePriceInto(viewport, source.price, slot.position);
+    if (!position) continue;
+    slot.source = source;
+    slot.position = position;
+    output[count] = slot;
+    count += 1;
+  }
+  output.length = count;
+  return output;
+}
+
+function prepareRawTapeMarkerBatches(state) {
+  if (!Array.isArray(state.rawMarkerBatches)) {
+    state.rawMarkerBatches = Array.from(
+      { length: RAW_TAPE_MARKER_BUCKETS * 2 },
+      () => [],
+    );
+  }
+  for (const batch of state.rawMarkerBatches) batch.length = 0;
+  return state.rawMarkerBatches;
+}
+
+function rawTapeMarkerBucket(strength, buy) {
+  const normalized = clampTape(Number(strength) || 0, 0, 1.35) / 1.35;
+  const sizeIndex = Math.max(0, Math.min(
+    RAW_TAPE_MARKER_BUCKETS - 1,
+    Math.round(normalized * (RAW_TAPE_MARKER_BUCKETS - 1)),
+  ));
+  return (buy ? 0 : RAW_TAPE_MARKER_BUCKETS) + sizeIndex;
+}
+
+function drawRawTapeMarkerBatches(context, batches) {
+  for (let batchIndex = 0; batchIndex < (batches?.length ?? 0); batchIndex += 1) {
+    const batch = batches[batchIndex];
+    if (!batch?.length) continue;
+    const buy = batchIndex < RAW_TAPE_MARKER_BUCKETS;
+    const sizeIndex = batchIndex % RAW_TAPE_MARKER_BUCKETS;
+    const strength = sizeIndex / Math.max(1, RAW_TAPE_MARKER_BUCKETS - 1) * 1.35;
+    const diameter = clampTape(1.8 + strength * 7, 1.8, 10.8);
+    const radius = diameter / 2;
+    context.beginPath();
+    for (let index = 0; index < batch.length; index += 2) {
+      const x = batch[index];
+      const y = batch[index + 1];
+      context.moveTo(x + radius, y);
+      context.arc(x, y, radius, 0, Math.PI * 2);
+    }
+    context.fillStyle = buy
+      ? `rgba(50, 205, 151, ${clampTape(.32 + strength * .26, .32, .84)})`
+      : `rgba(238, 91, 108, ${clampTape(.32 + strength * .26, .32, .84)})`;
+    context.fill();
+    if (diameter >= 4.2) {
+      context.lineWidth = diameter >= 7 ? .95 : .6;
+      context.strokeStyle = buy ? "rgba(88, 239, 184, .9)" : "rgba(255, 121, 137, .9)";
+      context.stroke();
+    }
+  }
 }
 
 function drawTapeCard(card) {
@@ -3830,7 +3923,11 @@ function drawTapeCard(card) {
   const step = range?.step ?? .01;
   refreshTapeRenderModel(state, symbol, stored, step);
 
-  const recentRaw = visibleWaterTapeNodes(state.rawRenderNodes, window);
+  const recentRaw = visibleWaterTapeNodes(
+    state.rawRenderNodes,
+    window,
+    state.recentRawScratch,
+  );
   const aggregateClosedBefore = Math.max(
     latestTime - TAPE_AGG_EVENT_GRACE_MS,
     Number(endTime) - TAPE_AGG_WALL_CLOCK_GRACE_MS,
@@ -3840,26 +3937,32 @@ function drawTapeCard(card) {
       state,
       state.aggSourceBuckets,
       aggregateClosedBefore,
+      state.finalizedAggScratch,
     ),
     window,
+    state.closedAggScratch,
   );
 
   paintTapeSurface(context, rect);
   state.hasFrame = false;
-  setTapeRangeSummary(state, 0, 0);
   drawTapeTimeline(context, rect, window);
 
   const minQuote = Math.max(0, Number(state.minQuote) || 0);
-  const pathItems = projectWaterTapeNodes(recentRaw, state.priceViewport);
+  const pathItems = projectWaterTapeNodes(
+    recentRaw,
+    state.priceViewport,
+    state.pathProjectionScratch,
+  );
   if (pathItems.length > 1) {
     context.save();
     context.strokeStyle = "rgba(130, 151, 160, .34)";
     context.lineWidth = .7;
     context.beginPath();
     let previous = null;
-    for (const item of pathItems) {
+    for (const projected of pathItems) {
+      const item = projected.source;
       const x = tapeTimeX(item.time, window, rect.width);
-      const y = item.position.y;
+      const y = projected.position.y;
       if (!previous || item.time - previous.time > 1_500) context.moveTo(x, y);
       else context.lineTo(x, y);
       previous = item;
@@ -3869,10 +3972,18 @@ function drawTapeCard(card) {
   }
 
   const sourceItems = state.mode === "agg" ? closedAggregates : recentRaw;
-  const candidates = sourceItems.filter((item) => passesTapeFilter(item, minQuote, 0));
+  const candidates = filterWaterTapeCandidates(
+    sourceItems,
+    minQuote,
+    state.candidateScratch,
+  );
   const visibility = classifyTapeCandidates(candidates, range);
   setTapeRangeSummary(state, visibility.above, visibility.below);
-  const items = projectWaterTapeNodes(candidates, state.priceViewport);
+  const items = projectWaterTapeNodes(
+    candidates,
+    state.priceViewport,
+    state.markerProjectionScratch,
+  );
 
   if (!candidates.length) {
     setTapeState(state, "Линия всех сделок · нет маркеров по фильтру");
@@ -3902,8 +4013,13 @@ function drawTapeCard(card) {
   context.textBaseline = "middle";
   context.font = "800 8px Inter, system-ui, sans-serif";
 
-  for (const item of items) {
-    const y = item.position.y;
+  const rawMarkerBatches = state.mode === "raw" && minQuote === 0
+    ? prepareRawTapeMarkerBatches(state)
+    : null;
+
+  for (const projected of items) {
+    const item = projected.source;
+    const y = projected.position.y;
     const buy = item.buyQuote >= item.sellQuote;
     const stroke = buy ? "rgba(88, 239, 184, .9)" : "rgba(255, 121, 137, .9)";
     const strength = stableTapeQuoteStrength(item.quote);
@@ -3929,23 +4045,16 @@ function drawTapeCard(card) {
         context.fillStyle = "rgba(244, 250, 248, .99)";
         context.fillText(label, x, y + .2);
       } else {
-        const diameter = clampTape(1.8 + strength * 7, 1.8, 10.8);
+        const bucketIndex = rawTapeMarkerBucket(strength, buy);
+        const sizeIndex = bucketIndex % RAW_TAPE_MARKER_BUCKETS;
+        const bucketStrength = sizeIndex / Math.max(1, RAW_TAPE_MARKER_BUCKETS - 1) * 1.35;
+        const diameter = clampTape(1.8 + bucketStrength * 7, 1.8, 10.8);
         const x = clampTape(
           baseX,
           diameter / 2 + .5,
           Math.max(diameter / 2 + .5, window.plotRight - diameter / 2 - .5),
         );
-        context.beginPath();
-        context.arc(x, y, diameter / 2, 0, Math.PI * 2);
-        context.fillStyle = buy
-          ? `rgba(50, 205, 151, ${clampTape(.32 + strength * .26, .32, .84)})`
-          : `rgba(238, 91, 108, ${clampTape(.32 + strength * .26, .32, .84)})`;
-        context.fill();
-        if (diameter >= 4.2) {
-          context.lineWidth = diameter >= 7 ? .95 : .6;
-          context.strokeStyle = stroke;
-          context.stroke();
-        }
+        rawMarkerBatches[bucketIndex].push(x, y);
       }
       continue;
     }
@@ -3986,6 +4095,8 @@ function drawTapeCard(card) {
     context.fillStyle = "rgba(244, 250, 248, .98)";
     context.fillText(label, x, y + .2);
   }
+
+  if (rawMarkerBatches) drawRawTapeMarkerBatches(context, rawMarkerBatches);
 
   state.hasFrame = true;
   if (observability.enabled) {
@@ -4055,9 +4166,9 @@ function targetTapeFrameMs() {
   );
   const recentRate = [...symbols]
     .reduce((total, symbol) => total + (tapeRecentRateBySymbol.get(symbol) || 0), 0);
-  if (recentRate > 1_200) return Math.max(base, 66);
-  if (recentRate > 600) return Math.max(base, 48);
-  if (recentRate > 250) return Math.max(base, 32);
+  if (recentRate > 2_000) return Math.max(base, 32);
+  if (recentRate > 1_000) return Math.max(base, 24);
+  if (recentRate > 500) return Math.max(base, 20);
   return base;
 }
 

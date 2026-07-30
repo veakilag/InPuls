@@ -112,7 +112,7 @@ test("round prices affect only text and the liquidity meter stays readable", () 
 test("live flow invalidates footprint while Tape keeps one coherent viewport", () => {
   assert.match(flow, /incoming\.length && state\.historyOffset === 0/);
   assert.match(orderbook, /state\.priceViewport = advanceTapePriceViewport/);
-  assert.match(orderbook, /projectWaterTapeNodes\(recentRaw, state\.priceViewport\)/);
+  assert.match(orderbook, /projectWaterTapeNodes\([\s\S]*recentRaw,[\s\S]*state\.priceViewport,[\s\S]*state\.pathProjectionScratch/);
   assert.match(orderbook, /const baseX = tapeTimeX\(item\.time, window, rect\.width\)/);
   assert.doesNotMatch(orderbook, /row\.y \+ \(Number\([^)]*yOffset/);
   assert.match(flow, /state\.hasFrame = false/);
@@ -123,8 +123,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-72-water-tape-fast-v1/);
-  assert.match(app, /orderbook\.js\?v=26-72-water-tape-fast-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-72-water-tape-fast-v1/);
-  assert.match(sw, /26-72-water-tape-fast-v1/);
+  assert.match(index, /26-73-water-tape-batched-v1/);
+  assert.match(app, /orderbook\.js\?v=26-73-water-tape-batched-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-73-water-tape-batched-v1/);
+  assert.match(sw, /26-73-water-tape-batched-v1/);
 });
