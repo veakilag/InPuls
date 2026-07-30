@@ -22,6 +22,24 @@ jobs:
           node-version: 22
       - name: Apply focused runtime changes
         run: python .github/scripts/apply-tape-stable-pixels-cluster-lane-v1.py
+      - name: Refresh intentional visual assertions
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('test-orderbook-visual-priority.mjs')
+          text = path.read_text(encoding='utf-8')
+          replacements = {
+              r'assert.match(flow, /const bodyWidth = Math\.max\(2, Math\.min\(8, columnWidth \* \.16\)\)/);': r'assert.match(flow, /const bodyWidth = candleBodyWidth/);',
+              r'assert.match(orderbook, /const y = item\.row\.y;/);': r'assert.match(orderbook, /const y = snapTapeCoordinate\(item\.row\.y, dpr\)/);',
+              r'assert.match(orderbook, /const pathY = pathItem\.row\.y;/);': r'assert.match(orderbook, /const pathY = snapTapeCoordinate\(pathItem\.row\.y, dpr\)/);',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'visual assertion anchor not found: {old}')
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
       - name: Syntax checks
         run: |
           node --check orderbook.js
