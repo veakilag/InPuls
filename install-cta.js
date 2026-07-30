@@ -8,11 +8,18 @@
   const userAgent = navigator.userAgent.toLowerCase();
   const platform = String(navigator.userAgentData?.platform || navigator.platform || "").toLowerCase();
   const isAppleMobile = /iphone|ipad|ipod/.test(userAgent);
+  const isAndroid = userAgent.includes("android");
   const isMac = platform.includes("mac") || userAgent.includes("macintosh");
+  const isWindows = platform.includes("win") || userAgent.includes("windows");
+  const isYandex = userAgent.includes("yabrowser");
+  const isEdge = userAgent.includes("edg/");
+  const isFirefox = /firefox|fxios/.test(userAgent);
+  const isChrome = /(chrome|chromium|crios)/.test(userAgent)
+    && !isYandex
+    && !isEdge
+    && !userAgent.includes("opr/");
   const isSafari = userAgent.includes("safari")
     && !/(chrome|chromium|crios|edg|opr|yabrowser|firefox|fxios)/.test(userAgent);
-  const isFirefox = /firefox|fxios/.test(userAgent);
-  const isWindows = platform.includes("win") || userAgent.includes("windows");
 
   let deferredInstallPrompt = null;
   let installCompleted = false;
@@ -21,7 +28,7 @@
     const dialog = document.createElement("dialog");
     dialog.id = "pwa-install-dialog";
     dialog.setAttribute("aria-labelledby", "pwa-install-dialog-title");
-    dialog.style.cssText = "width:min(460px,calc(100vw - 32px));padding:0;border:1px solid rgba(79,255,176,.35);border-radius:16px;background:#12171b;color:#eefbf5;box-shadow:0 24px 80px rgba(0,0,0,.58);";
+    dialog.style.cssText = "width:min(480px,calc(100vw - 32px));padding:0;border:1px solid rgba(79,255,176,.35);border-radius:16px;background:#12171b;color:#eefbf5;box-shadow:0 24px 80px rgba(0,0,0,.58);";
 
     const card = document.createElement("section");
     card.style.cssText = "padding:24px;display:grid;gap:14px;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;";
@@ -72,26 +79,120 @@
     if (!installDialog.open) installDialog.showModal();
   }
 
+  function successInstructions() {
+    if (isAppleMobile) {
+      return {
+        badge: "Готово",
+        title: "InPuls добавлен на экран Домой",
+        message: "Скринер установлен как отдельное приложение.",
+        detail: "Открывай InPuls по новой иконке на экране Домой — обычная вкладка Safari больше не нужна.",
+      };
+    }
+
+    if (isAndroid) {
+      return {
+        badge: "Готово",
+        title: "InPuls добавлен на главный экран",
+        message: "Скринер установлен как отдельное приложение.",
+        detail: "Открывай InPuls по иконке на главном экране или в списке приложений.",
+      };
+    }
+
+    if (isMac && isSafari) {
+      return {
+        badge: "Готово",
+        title: "InPuls добавлен в Dock",
+        message: "Скринер установлен как отдельное приложение на Mac.",
+        detail: "Открывай InPuls из Dock, Launchpad, Spotlight или папки «Программы».",
+      };
+    }
+
+    if (isMac) {
+      return {
+        badge: "Готово",
+        title: "InPuls установлен на Mac",
+        message: "Скринер установлен как отдельное приложение.",
+        detail: "Открывай InPuls из Launchpad, Spotlight или папки «Программы». При закреплении иконка также будет в Dock.",
+      };
+    }
+
+    if (isWindows && isFirefox) {
+      return {
+        badge: "Готово",
+        title: "InPuls установлен на компьютер",
+        message: "Скринер установлен как отдельное приложение.",
+        detail: "Открывай InPuls через меню «Пуск». Firefox добавляет туда ярлык веб-приложения.",
+      };
+    }
+
+    if (isWindows && isEdge) {
+      return {
+        badge: "Готово",
+        title: "InPuls установлен — ищи на рабочем столе",
+        message: "Скринер установлен как отдельное приложение на компьютер.",
+        detail: "Edge может предложить создать ярлык, закрепить InPuls в меню «Пуск» или на панели задач. Если ярлыка на рабочем столе нет, открывай приложение из меню «Пуск».",
+      };
+    }
+
+    if (isWindows && isYandex) {
+      return {
+        badge: "Готово",
+        title: "InPuls установлен — ищи на рабочем столе",
+        message: "Скринер установлен как отдельное приложение на компьютер.",
+        detail: "Открывай InPuls по ярлыку на рабочем столе. Если браузер не создал его автоматически, найди InPuls в меню «Пуск» или разделе приложений Яндекс Браузера.",
+      };
+    }
+
+    if (isWindows && isChrome) {
+      return {
+        badge: "Готово",
+        title: "InPuls установлен — ищи на рабочем столе",
+        message: "Скринер установлен как отдельное приложение на компьютер.",
+        detail: "Ищи ярлык InPuls на рабочем столе или в меню «Пуск». Точное место зависит от настроек Chrome.",
+      };
+    }
+
+    if (isWindows) {
+      return {
+        badge: "Готово",
+        title: "InPuls установлен на компьютер",
+        message: "Скринер установлен как отдельное приложение.",
+        detail: "Ищи InPuls на рабочем столе, в меню «Пуск» или в списке приложений.",
+      };
+    }
+
+    return {
+      badge: "Готово",
+      title: "InPuls установлен",
+      message: "Скринер установлен как отдельное приложение.",
+      detail: "Открывай InPuls по новой иконке среди приложений устройства.",
+    };
+  }
+
   function showInstallSuccess() {
     if (installCompleted) return;
     installCompleted = true;
     deferredInstallPrompt = null;
     installButton.hidden = true;
-    showInstallDialog({
-      badge: "Готово",
-      title: "InPuls установлен",
-      message: "Скринер установлен как отдельное приложение и теперь запускается без обычной вкладки браузера.",
-      detail: "Ищи InPuls на рабочем столе, в меню «Пуск», на панели задач, в Dock или среди приложений — точное место зависит от браузера и операционной системы.",
-    });
+    showInstallDialog(successInstructions());
   }
 
   function fallbackInstructions() {
     if (isAppleMobile) {
       return {
         badge: "iPhone / iPad",
-        title: "Добавить InPuls на экран",
+        title: "Добавить InPuls на экран Домой",
         message: "Safari не открывает установку сайта программно.",
         detail: "Нажми «Поделиться», затем выбери «На экран Домой» и подтверди добавление.",
+      };
+    }
+
+    if (isAndroid) {
+      return {
+        badge: "Android",
+        title: "Установить InPuls",
+        message: "Браузер не открыл системное окно установки.",
+        detail: "Открой меню браузера и выбери «Установить приложение» или «Добавить на главный экран».",
       };
     }
 
@@ -109,7 +210,7 @@
         badge: "Firefox на Windows",
         title: "Установить через адресную строку",
         message: "Firefox управляет установкой через собственную кнопку веб-приложений.",
-        detail: "Нажми значок веб-приложения в адресной строке. Если значка нет, обнови Firefox или используй Chrome, Edge либо Яндекс Браузер.",
+        detail: "Нажми значок веб-приложения в адресной строке. После установки открывай InPuls через меню «Пуск».",
       };
     }
 
@@ -119,6 +220,33 @@
         title: "Установка недоступна из сайта",
         message: "В этой версии Firefox системное окно установки не поддерживается.",
         detail: "Открой InPuls в Chrome, Edge, Яндекс Браузере или Safari на Mac и повтори установку.",
+      };
+    }
+
+    if (isEdge) {
+      return {
+        badge: "Microsoft Edge",
+        title: "Установить InPuls через Edge",
+        message: "Edge не выдал сайту системное окно установки.",
+        detail: "Открой меню «… → Приложения → Установить InPuls». После установки Edge предложит варианты ярлыка и закрепления.",
+      };
+    }
+
+    if (isYandex) {
+      return {
+        badge: "Яндекс Браузер",
+        title: "Установить InPuls через браузер",
+        message: "Яндекс Браузер не выдал сайту системное окно установки.",
+        detail: "Открой меню браузера и выбери «Установить приложение» или раздел «Приложения». Возможно, InPuls уже установлен.",
+      };
+    }
+
+    if (isChrome) {
+      return {
+        badge: "Google Chrome",
+        title: "Установить InPuls через Chrome",
+        message: "Chrome не выдал сайту системное окно установки.",
+        detail: "Нажми значок установки в адресной строке или открой меню Chrome и выбери «Установить InPuls». Возможно, приложение уже установлено.",
       };
     }
 
