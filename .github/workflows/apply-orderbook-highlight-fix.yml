@@ -48,12 +48,6 @@ jobs:
               "aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote,",
               "app.js import",
           )
-          text = replace_once(
-              text,
-              f'./orderbook.js?v={OLD_BUILD}',
-              f'./orderbook.js?v={NEW_BUILD}',
-              "app.js orderbook cache key",
-          )
           scale_pattern = re.compile(
               r'  // AUTO shows the largest real order inside an aggregated row, so its bar\n'
               r'  // uses the full-book real-order maximum\. Manual ≥ \$ keeps the band total\.\n'
@@ -94,12 +88,6 @@ jobs:
               'const sizeText = anomalyReference > 0 ? formatCompactUsd(anomalyReference) : "";',
               'const sizeText = displayedQuote > 0 ? formatCompactUsd(displayedQuote) : "";',
               "app.js size label",
-          )
-          text = replace_once(
-              text,
-              f'const INPULS_RUNTIME_BUILD = "{OLD_BUILD}";',
-              f'const INPULS_RUNTIME_BUILD = "{NEW_BUILD}";',
-              "app.js runtime build",
           )
           app.write_text(text, encoding="utf-8")
 
@@ -149,18 +137,31 @@ jobs:
           )
           tests.write_text(text, encoding="utf-8")
 
-          for file_name in ("index.html", "sw.js"):
-              file = Path(file_name)
-              text = file.read_text(encoding="utf-8")
-              if OLD_BUILD not in text:
-                  raise SystemExit(f"{file_name}: build anchor missing")
-              file.write_text(text.replace(OLD_BUILD, NEW_BUILD), encoding="utf-8")
+          visual = Path("test-orderbook-visual-priority.mjs")
+          text = visual.read_text(encoding="utf-8")
+          text = replace_once(
+              text,
+              "  assert.match(app, /bookDisplayedQuote\\(source, automatic\\)/);\n  assert.match(app, /const automaticHighlight = panel\\.model\\.highlightMode !== \"manual\"/);\n  assert.match(app, /rows\\.map\\(\\(row\\) => Math\\.max\\(0, Number\\(row\\.quote\\) \\|\\| 0\\)\\)/);",
+              "  assert.match(app, /const displayedQuote = bookDisplayedQuote\\(source\\)/);\n  assert.match(app, /const anomalyReference = bookAnomalyQuote\\(source, automatic\\)/);\n  assert.match(app, /rows\\.map\\(\\(row\\) => bookDisplayedQuote\\(row\\)\\)/);\n  assert.match(app, /const sizeText = displayedQuote > 0/);\n  assert.doesNotMatch(app, /const sizeText = anomalyReference > 0/);",
+              "visual priority invariant assertions",
+          )
+          visual.write_text(text, encoding="utf-8")
+
+          text_suffixes = {".js", ".mjs", ".html", ".css", ".txt", ".json", ".webmanifest", ".md"}
+          for file in Path(".").rglob("*"):
+              if not file.is_file() or ".git" in file.parts or ".github" in file.parts:
+                  continue
+              if file.suffix.lower() not in text_suffixes:
+                  continue
+              try:
+                  text = file.read_text(encoding="utf-8")
+              except UnicodeDecodeError:
+                  continue
+              if OLD_BUILD in text:
+                  file.write_text(text.replace(OLD_BUILD, NEW_BUILD), encoding="utf-8")
 
           version = Path("VERSION.txt")
           text = version.read_text(encoding="utf-8")
-          if OLD_BUILD not in text:
-              raise SystemExit("VERSION.txt: build anchor missing")
-          text = text.replace(OLD_BUILD, NEW_BUILD)
           if "highlight-display-invariant-v1" not in text:
               text = text.rstrip() + ", highlight-display-invariant-v1\n"
           version.write_text(text, encoding="utf-8")
@@ -175,6 +176,6 @@ jobs:
           rm .github/workflows/apply-orderbook-highlight-fix.yml
           git config user.name "InPuls automation"
           git config user.email "actions@users.noreply.github.com"
-          git add app.js orderbook.js test/orderbook.test.js index.html sw.js VERSION.txt .github/workflows/apply-orderbook-highlight-fix.yml
+          git add -A
           git commit -m "fix: keep orderbook sizes stable across highlight modes"
           git push origin HEAD:${{ github.head_ref }}
