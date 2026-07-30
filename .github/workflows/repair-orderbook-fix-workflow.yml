@@ -1,0 +1,44 @@
+name: Repair orderbook fix workflow anchor
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.head_ref == 'agent/orderbook-static-tape-navigation'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Replace fragile button-order anchor
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          path = Path('.github/workflows/apply-orderbook-static-tape-navigation-v2.yml')
+          text = path.read_text(encoding='utf-8')
+          pattern = r'''\n\s*text = once\(text,\n\s*''' + "'''" + r'''\s*<button data-inpuls-tape-visible[\s\S]*?"button order"\)'''
+          replacement = '''
+              text = sub1(text,
+                  r'<button data-inpuls-tape-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть ленту">ЛЕНТА</button>\\s*<button data-inpuls-clusters-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть footprint-кластеры">КЛАСТЕРЫ</button>',
+                  '<button data-inpuls-clusters-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть footprint-кластеры">КЛАСТЕРЫ</button>\\n      <button data-inpuls-tape-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть ленту">ЛЕНТА</button>',
+                  "button order")'''
+          updated, count = re.subn(pattern, replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'button workflow anchor: {count} matches')
+          path.write_text(updated, encoding='utf-8')
+          PY
+          rm .github/workflows/repair-orderbook-fix-workflow.yml
+          git config user.name "InPuls automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: make orderbook fix workflow anchor robust"
+          git push origin HEAD:${{ github.head_ref }}
