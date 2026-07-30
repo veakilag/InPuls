@@ -1,0 +1,312 @@
+name: Apply orderbook static tape and navigation fix v2
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    if: github.head_ref == 'agent/orderbook-static-tape-navigation'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+
+          OLD = "26-66-orderbook-highlight-invariant-v1"
+          NEW = "26-67-orderbook-static-tape-navigation-v1"
+
+          def edit(path, fn):
+              p = Path(path)
+              old = p.read_text(encoding="utf-8")
+              new = fn(old)
+              if new == old:
+                  raise SystemExit(f"{path}: no change")
+              p.write_text(new, encoding="utf-8")
+
+          def once(text, old, new, label):
+              n = text.count(old)
+              if n != 1:
+                  raise SystemExit(f"{label}: {n} matches")
+              return text.replace(old, new, 1)
+
+          def sub1(text, pattern, replacement, label):
+              new, n = re.subn(pattern, replacement, text, count=1, flags=re.S)
+              if n != 1:
+                  raise SystemExit(f"{label}: {n} matches")
+              return new
+
+          def patch_app(text):
+              text = once(text,
+                  "maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed",
+                  "maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed",
+                  "app import")
+              text = once(text,
+                  '<div class="trade-flow-detail" hidden></div><span class="trade-flow-hint">',
+                  '<span class="book-hover-percent" hidden aria-hidden="true"></span><div class="trade-flow-detail" hidden></div><span class="trade-flow-hint">',
+                  "marker insert")
+              text = once(text,
+                  '        <span class="book-hover-percent" hidden aria-hidden="true"></span>\n',
+                  "", "marker remove")
+              text = once(text,
+                  '  const ladder = article.querySelector(".orderbook-ladder");\n  const ladderRows = article.querySelector(".orderbook-rows");',
+                  '  const ladderRows = article.querySelector(".orderbook-rows");',
+                  "ladder variable")
+              text = once(text,
+                  '    const ladderRect = ladder.getBoundingClientRect();\n    hoverPercent.textContent = label;\n    hoverPercent.style.top = `${rowRect.top + rowRect.height / 2 - ladderRect.top}px`;',
+                  '    const hoverSurfaceRect = article.querySelector(".trade-flow").getBoundingClientRect();\n    hoverPercent.textContent = label;\n    hoverPercent.style.top = `${rowRect.top + rowRect.height / 2 - hoverSurfaceRect.top}px`;',
+                  "marker coordinate")
+              wheel = '''    if (event.ctrlKey || event.metaKey) {
+                const previousScaleIndex = Math.max(0, Math.min(maximumBookScaleIndex(), Math.round(Number(model.bookScaleIndex) || 0)));
+                const nextScaleIndex = bookScaleIndexForWheel(previousScaleIndex, event.deltaY);
+                model.bookScaleIndex = nextScaleIndex;
+                panel.autoCentering = false;
+                if (model.bookCentered !== false) {
+                  panel.viewCenter = null;
+                } else if (nextScaleIndex < previousScaleIndex && Number.isFinite(panel.lastMiddle)) {
+                  const visibleRows = Math.max(
+                    3,
+                    article.querySelectorAll(".orderbook-rows .book-ladder-row").length,
+                  );
+                  const previousStep = priceStepForScale(panel.baseTick, previousScaleIndex);
+                  const nextStep = priceStepForScale(panel.baseTick, nextScaleIndex);
+                  panel.viewCenter = marketAnchoredBookViewCenter(
+                    panel.viewCenter,
+                    panel.lastMiddle,
+                    previousStep,
+                    nextStep,
+                    visibleRows,
+                    nextScaleIndex === 0,
+                  );
+                  panel.manualScrollAnchorPrice = panel.lastMiddle;
+                }
+                persistWorkspace();
+              } else {'''
+              text = sub1(text,
+                  r'    if \(event\.ctrlKey \|\| event\.metaKey\) \{\n\s*model\.bookScaleIndex = bookScaleIndexForWheel\(model\.bookScaleIndex, event\.deltaY\);\n\s*panel\.autoCentering = false;\n\s*if \(model\.bookCentered !== false\) panel\.viewCenter = null;\n\s*persistWorkspace\(\);\n\s*\} else \{',
+                  wheel, "wheel block")
+              text = sub1(text,
+                  r'  // Highlight mode controls only anomaly classification\.[\s\S]*?  const maxSize = Math\.max\(\n\s*fullBookMaximum,\n\s*\.\.\.rows\.map\(\(row\) => bookDisplayedQuote\(row\)\),\n\s*\);',
+                  '  // Size bars use the complete known book at the selected step.\n  // Scrolling the viewport must never rescale already visible liquidity.\n  const maxSize = fullBookMaximum;',
+                  "size denominator")
+              return text
+
+          edit("app.js", patch_app)
+
+          def patch_orderbook(text):
+              text = once(text,
+                  '  const prefix = percent > 0 ? "+" : "";\n  return `${prefix}${percent.toFixed(digits)}%`;',
+                  '  return `${absolute.toFixed(digits)}%`;', "unsigned percent")
+              text = sub1(text,
+                  r'export function maximumDepthQuote\(bids, asks, priceStep, fullBookMaximum = null\) \{\n\s*const stableMaximum = Number\(fullBookMaximum\);\n\s*if \(Number\.isFinite\(stableMaximum\) && stableMaximum > 0\) return stableMaximum;\n\s*const values = \[\n\s*\.\.\.aggregateDepthByStep\(bids, "bid", priceStep\),\n\s*\.\.\.aggregateDepthByStep\(asks, "ask", priceStep\),\n\s*\];\n\s*return Math\.max\(1, \.\.\.values\.map\(\(row\) => Number\(row\.quote\) \|\| 0\)\);\n\}',
+                  '''export function maximumDepthQuote(bids, asks, priceStep, fullBookMaximum = null) {
+            const stableMaximum = Number(fullBookMaximum);
+            const values = [
+              ...aggregateDepthByStep(bids, "bid", priceStep),
+              ...aggregateDepthByStep(asks, "ask", priceStep),
+            ];
+            const aggregatedMaximum = Math.max(1, ...values.map((row) => Number(row.quote) || 0));
+            return Number.isFinite(stableMaximum) && stableMaximum > 0
+              ? Math.max(stableMaximum, aggregatedMaximum)
+              : aggregatedMaximum;
+          }''', "maximum depth")
+              clamp = re.search(r'export function clampDepthViewCenter\(viewCenter, priceStep, rowCount\) \{[\s\S]*?\n\}', text)
+              if not clamp: raise SystemExit("clamp helper anchor missing")
+              helper = clamp.group(0) + '''
+
+          export function marketAnchoredBookViewCenter(viewCenter, marketPrice, previousStep, nextStep, rowCount, snapToMarket = false) {
+            const market = Number(marketPrice);
+            const current = Number(viewCenter);
+            const before = Math.max(Number.EPSILON, Number(previousStep) || Number(nextStep) || .01);
+            const after = Math.max(Number.EPSILON, Number(nextStep) || before);
+            if (!Number.isFinite(market)) return clampDepthViewCenter(current, after, rowCount);
+            if (!Number.isFinite(current) || snapToMarket) return clampDepthViewCenter(market, after, rowCount);
+            const convergence = Math.max(0, Math.min(1, after / before));
+            return clampDepthViewCenter(market + (current - market) * convergence, after, rowCount);
+          }'''
+              text = text[:clamp.start()] + helper + text[clamp.end():]
+              anchor = 'function nearestVisibleRow(rows, price) {\n  if (!rows.length || !Number.isFinite(price)) return null;'
+              position = '''export function tapePricePosition(rows, price) {
+            const target = Number(price);
+            const ordered = (rows ?? []).map((row) => ({
+              ...row,
+              price: Number(row?.price),
+              y: Number(row?.y),
+              height: Math.max(1, Number(row?.height) || 1),
+            })).filter((row) => Number.isFinite(row.price) && Number.isFinite(row.y))
+              .sort((left, right) => left.price - right.price);
+            if (!ordered.length || !Number.isFinite(target)) return null;
+            if (ordered.length === 1) return Math.abs(target - ordered[0].price) <= Number.EPSILON ? { ...ordered[0], price: target } : null;
+            let step = Infinity;
+            for (let index = 1; index < ordered.length; index += 1) {
+              const gap = ordered[index].price - ordered[index - 1].price;
+              if (gap > Number.EPSILON && gap < step) step = gap;
+            }
+            if (!Number.isFinite(step)) return null;
+            const low = ordered[0];
+            const high = ordered.at(-1);
+            if (target < low.price - step * .5 - Number.EPSILON || target > high.price + step * .5 + Number.EPSILON) return null;
+            const interpolate = (left, right) => {
+              const span = right.price - left.price;
+              const ratio = Math.abs(span) <= Number.EPSILON ? 0 : (target - left.price) / span;
+              return { price: target, y: left.y + (right.y - left.y) * ratio, height: left.height + (right.height - left.height) * ratio };
+            };
+            if (target <= low.price) return interpolate(low, ordered[1]);
+            if (target >= high.price) return interpolate(ordered.at(-2), high);
+            for (let index = 1; index < ordered.length; index += 1) {
+              if (target <= ordered[index].price) return interpolate(ordered[index - 1], ordered[index]);
+            }
+            return null;
+          }
+
+          function nearestVisibleRow(rows, price) {
+            if (!rows.length || !Number.isFinite(price)) return null;'''
+              text = once(text, anchor, position, "price position")
+              text = sub1(text,
+                  r'const row = nearestVisibleRow\(rows, trade\.price\);\n\s*if \(!row\) return null;([\s\S]*?price: trade\.price,)\n\s*row,',
+                  r'const position = tapePricePosition(rows, trade.price);\n      if (!position) return null;\1\n        row: position,',
+                  "raw position")
+              text = sub1(text,
+                  r'const row = nearestVisibleRow\(rows, burst\.price\);\n\s*return row \? \{ \.\.\.burst, row \} : null;',
+                  'const position = tapePricePosition(rows, burst.price);\n      return position ? { ...burst, row: position } : null;',
+                  "agg position")
+              text = once(text,
+                  '''    .orderbook-card .trade-flow {
+                position: relative !important;
+                overflow: hidden !important;
+                contain: layout paint style;
+                background: var(--panel) !important;
+              }''',
+                  '''    .orderbook-card .trade-flow {
+                position: relative !important;
+                overflow: hidden !important;
+                contain: layout paint style;
+                background: var(--panel) !important;
+              }
+              .orderbook-card .trade-flow .book-hover-percent {
+                position: absolute !important;
+                z-index: 12 !important;
+                right: 2px !important;
+                left: auto !important;
+                transform: translateY(-50%) !important;
+                pointer-events: none !important;
+                white-space: nowrap;
+              }''', "marker style")
+              text = once(text,
+                  '''      <button data-inpuls-tape-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть ленту">ЛЕНТА</button>
+              <button data-inpuls-clusters-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть footprint-кластеры">КЛАСТЕРЫ</button>''',
+                  '''      <button data-inpuls-clusters-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть footprint-кластеры">КЛАСТЕРЫ</button>
+              <button data-inpuls-tape-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть ленту">ЛЕНТА</button>''', "button order")
+              return text
+
+          edit("orderbook.js", patch_orderbook)
+
+          def patch_tests(text):
+              text = once(text, "  maximumBookScaleIndex,\n  maximumDepthQuote,", "  maximumBookScaleIndex,\n  marketAnchoredBookViewCenter,\n  maximumDepthQuote,", "zoom import")
+              text = once(text, "  sessionBookAnomalyThreshold,\n  tradeTimeWindow,", "  sessionBookAnomalyThreshold,\n  tapePricePosition,\n  tradeTimeWindow,", "position import")
+              anchor = '''test("orderbook wheel uses the trader-facing step direction", () => {
+            assert.equal(bookScaleIndexForWheel(0, -1), 1);
+            assert.equal(bookScaleIndexForWheel(4, -120), 5);
+            assert.equal(bookScaleIndexForWheel(5, 120), 4);
+            assert.equal(bookScaleIndexForWheel(0, 120), 0);
+            assert.equal(bookScaleIndexForWheel(maximumBookScaleIndex(), -120), maximumBookScaleIndex());
+          });'''
+              addition = anchor + '''
+
+          test("reducing the step converges a free viewport toward market and snaps at x1", () => {
+            const market = .08;
+            const current = .2;
+            const converged = marketAnchoredBookViewCenter(current, market, .05, .01, 7);
+            assert.ok(Math.abs(converged - market) < Math.abs(current - market));
+            assert.ok(converged >= .015);
+            assert.equal(marketAnchoredBookViewCenter(current, market, .01, .001, 7, true), .08);
+          });'''
+              text = once(text, anchor, addition, "zoom test")
+              text = once(text,
+                  '  assert.equal(maximumDepthQuote(bids, asks, 1, 1_250), 1_250);',
+                  '  assert.equal(maximumDepthQuote(bids, asks, 1, 1_250), 1_250);\n  assert.equal(maximumDepthQuote([[99, 10], [98, 10]], [], 10, 1_000), 1_970);',
+                  "scale test")
+              text = once(text,
+                  'test("hover distance from the current price is signed and compact", () => {\n  assert.equal(bookDistancePercentLabel(101, 100), "+1.00%");\n  assert.equal(bookDistancePercentLabel(99.75, 100), "-0.250%");',
+                  'test("hover distance uses color for direction and absolute compact text", () => {\n  assert.equal(bookDistancePercentLabel(101, 100), "1.00%");\n  assert.equal(bookDistancePercentLabel(99.75, 100), "0.250%");',
+                  "percent test")
+              anchor2 = 'test("percent depth gives BTC and alt books the same visible range", () => {'
+              addition2 = '''test("Tape maps every execution to its exact interpolated price coordinate", () => {
+            const rows = [
+              { price: 101, y: 10, height: 10 },
+              { price: 100, y: 20, height: 10 },
+              { price: 99, y: 30, height: 10 },
+            ];
+            assert.equal(tapePricePosition(rows, 100.25).y, 17.5);
+            assert.equal(tapePricePosition(rows, 100.24).y, 17.6);
+            assert.notEqual(tapePricePosition(rows, 100.25).y, tapePricePosition(rows, 100).y);
+            assert.equal(tapePricePosition(rows, 98.4), null);
+          });
+
+          ''' + anchor2
+              return once(text, anchor2, addition2, "position test")
+
+          edit("test/orderbook.test.js", patch_tests)
+
+          def patch_ui(text):
+              return sub1(text,
+                  r'  assert\.match\(app, /const maxSize = Math\\\.max\\\([\s\S]*?bookDisplayedQuote\\\(row\\\)\\\)/\);',
+                  '  assert.match(app, /const maxSize = fullBookMaximum/);\n  assert.doesNotMatch(app, /maxSize = Math\\.max\\([\\s\\S]*rows\\.map/);\n  assert.match(app, /marketAnchoredBookViewCenter\\(/);',
+                  "ui scale")
+          edit("test/ui.test.js", patch_ui)
+
+          def patch_visual(text):
+              text = once(text,
+                  '  assert.match(app, /rows\\.map\\(\\(row\\) => bookDisplayedQuote\\(row\\)\\)/);',
+                  '  assert.match(app, /const maxSize = fullBookMaximum/);\n  assert.doesNotMatch(app, /rows\\.map\\(\\(row\\) => bookDisplayedQuote\\(row\\)\\)/);',
+                  "visual scale")
+              text = once(text,
+                  '  assert.match(app, /<span class="book-hover-percent" hidden aria-hidden="true"><\\/span>/);',
+                  '  assert.match(app, /trade-flow[\\s\\S]*<span class="book-hover-percent" hidden aria-hidden="true"><\\/span>/);\n  assert.match(app, /hoverSurfaceRect = article\\.querySelector\\("\\.trade-flow"\\)/);\n  assert.ok(orderbook.indexOf("data-inpuls-clusters-visible") < orderbook.indexOf("data-inpuls-tape-visible"));',
+                  "visual marker")
+              return text
+          edit("test-orderbook-visual-priority.mjs", patch_visual)
+
+          for name in subprocess.check_output(["git", "ls-files", "-z"]).decode().split("\0"):
+              if not name or name.startswith(".github/workflows/"): continue
+              p = Path(name)
+              if not p.is_file(): continue
+              try: text = p.read_text(encoding="utf-8")
+              except UnicodeDecodeError: continue
+              if OLD in text: p.write_text(text.replace(OLD, NEW), encoding="utf-8")
+
+          p = Path("VERSION.txt")
+          text = p.read_text(encoding="utf-8").rstrip()
+          for feature in ["exact-execution-price-tape-v1", "viewport-independent-size-scale-v2", "market-anchored-book-zoom-v1", "tape-boundary-distance-marker-v1"]:
+              if feature not in text: text += ", " + feature
+          p.write_text(text + "\n", encoding="utf-8")
+          PY
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check orderbook.js
+      - name: Full tests
+        run: npm test
+      - name: Commit verified fix
+        shell: bash
+        run: |
+          rm .github/workflows/apply-orderbook-static-tape-navigation-v2.yml
+          git config user.name "InPuls automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: stabilize Tape prices and orderbook navigation"
+          git push origin HEAD:${{ github.head_ref }}
