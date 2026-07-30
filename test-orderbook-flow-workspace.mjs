@@ -80,7 +80,7 @@ test("1M and 5M clusters use aligned live intervals without delta", () => {
   const fiveMinutes = footprintIntervalSnapshot(accumulator, 300_000, 122_000);
   assert.equal(fiveMinutes.count, 3);
   assert.equal(fiveMinutes.cells.length, 2);
-  assert.deepEqual([...FOOTPRINT_TIMEFRAMES], [60_000, 300_000]);
+  assert.deepEqual([...FOOTPRINT_TIMEFRAMES], ["1s", "5s", "15s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "12h", "1d", "3d", "1w", "1M"]);
 });
 
 test("a live reset clears both cluster timeframes", () => {
@@ -144,10 +144,10 @@ test("Flow Workspace redraw observer cannot trigger itself", () => {
     source.match(/observer\.observe\(bookRows,[\s\S]*?\}\);/)?.[0] ?? "",
     /characterData/,
   );
-  assert.match(source, /data-footprint-timeframe="60000"/);
-  assert.match(source, /data-footprint-timeframe="300000"/);
+  assert.match(source, /data-footprint-select/);
+  assert.match(source, /data-footprint-favorite/);
   assert.doesNotMatch(source, /<span>Δ<\/span>/);
-  assert.doesNotMatch(source, /PARTIAL ·/);
+  assert.match(source, /sessionPartial/);
   assert.doesNotMatch(source, /content: "TAPE"/);
   assert.match(source, /FLOW_LAYER_VISIBILITY_EVENT/);
   assert.match(source, /skip\("layer-hidden"\)/);

@@ -62,79 +62,29 @@ export function buildReadableTapeLayout(items, window, width) {
     ));
   if (!ordered.length) return [];
 
-  const groups = splitCollisionGroups(ordered);
-  const ranges = groups.map((group) => ({
-    start: group[0].baseX,
-    end: group.at(-1).baseX,
-  }));
-  const laidOut = [];
+  // Density may change marker size, but never rewrites historical coordinates.
+  // This removes the former neighbour-dependent spreading that made old trades
+  // jump whenever a new execution entered the same collision group.
+  const bandSize = Math.max(1, TAPE_READABLE_LAYOUT.clusterGapPx);
+  const densityByBand = new Map();
+  for (const item of ordered) {
+    const band = Math.round(item.baseX / bandSize);
+    densityByBand.set(band, (densityByBand.get(band) || 0) + 1);
+  }
 
-  groups.forEach((group, groupIndex) => {
-    const density = group.length;
-    const naturalStart = ranges[groupIndex].start;
-    const naturalEnd = ranges[groupIndex].end;
-    const naturalSpan = Math.max(0, naturalEnd - naturalStart);
-    const previous = ranges[groupIndex - 1];
-    const next = ranges[groupIndex + 1];
-    const leftBoundary = previous
-      ? (previous.end + naturalStart) / 2
-      : leftEdge;
-    const rightBoundary = next
-      ? (naturalEnd + next.start) / 2
-      : rightEdge;
-    const availableLeft = Math.max(0, naturalStart - leftBoundary);
-    const availableRight = Math.max(0, rightBoundary - naturalEnd);
-    const desiredGap = density > 1
-      ? Math.min(2.2, TAPE_READABLE_LAYOUT.maxExtraSpanPx / (density - 1))
-      : 0;
-    const desiredSpan = Math.max(
-      naturalSpan,
-      desiredGap * Math.max(0, density - 1),
-    );
-    const requestedExtra = Math.min(
-      TAPE_READABLE_LAYOUT.maxExtraSpanPx,
-      Math.max(0, desiredSpan - naturalSpan),
-    );
-    const extraSpan = Math.min(
-      requestedExtra,
-      availableLeft + availableRight,
-    );
-
-    let leftExpansion = Math.min(availableLeft, extraSpan / 2);
-    let rightExpansion = Math.min(
-      availableRight,
-      extraSpan - leftExpansion,
-    );
-    let remaining = extraSpan - leftExpansion - rightExpansion;
-    if (remaining > 0) {
-      const addLeft = Math.min(
-        availableLeft - leftExpansion,
-        remaining,
-      );
-      leftExpansion += addLeft;
-      remaining -= addLeft;
-    }
-    if (remaining > 0) {
-      rightExpansion += Math.min(
-        availableRight - rightExpansion,
-        remaining,
-      );
-    }
-    const distributedExtra = leftExpansion + rightExpansion;
-
-    group.forEach((item, index) => {
-      const progress = density > 1 ? index / (density - 1) : 0;
-      const x = clamp(
-        item.baseX - leftExpansion + distributedExtra * progress,
-        leftEdge,
-        rightEdge,
-      );
-      const { sequenceIndex, ...rest } = item;
-      laidOut.push({ ...rest, x, density, yOffset: 0 });
-    });
+  return ordered.map(({ sequenceIndex, baseX, ...item }) => {
+    const band = Math.round(baseX / bandSize);
+    return {
+      ...item,
+      baseX,
+      x: clamp(baseX, leftEdge, rightEdge),
+      density: Math.min(
+        TAPE_READABLE_LAYOUT.maxClusterItems,
+        densityByBand.get(band) || 1,
+      ),
+      yOffset: 0,
+    };
   });
-
-  return laidOut;
 }
 
 export function adaptiveRawDiameter(strength, density, width) {
