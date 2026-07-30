@@ -73,7 +73,7 @@ test("footprint uses one proportional dominance cell and interval candles", () =
   assert.match(flow, /const rising = Number\(interval\.closePrice\) >= Number\(interval\.openPrice\)/);
   assert.match(flow, /rising[\s\S]*theme\.bullStroke[\s\S]*theme\.bearStroke/);
   assert.match(flow, /rising[\s\S]*theme\.bullFill[\s\S]*theme\.bearFill/);
-  assert.match(flow, /const bodyWidth = Math\.max\(2, Math\.min\(8, columnWidth \* \.16\)\)/);
+  assert.match(flow, /const bodyWidth = candleBodyWidth/);
   assert.match(flow, /const columnsLeft = Math\.max\(0, width - columns\.length \* columnWidth\)/);
   assert.doesNotMatch(flow, /moveTo\(centerX, 0\)/);
 });
@@ -109,8 +109,8 @@ test("round prices affect only text and the liquidity meter stays readable", () 
 
 test("live trades invalidate the current footprint frame immediately", () => {
   assert.match(flow, /incoming\.length && state\.historyOffset === 0/);
-  assert.match(orderbook, /const y = item\.row\.y;/);
-  assert.match(orderbook, /const pathY = pathItem\.row\.y;/);
+  assert.match(orderbook, /const y = snapTapeCoordinate\(item\.row\.y, dpr\)/);
+  assert.match(orderbook, /const pathY = snapTapeCoordinate\(pathItem\.row\.y, dpr\)/);
   assert.doesNotMatch(orderbook, /row\.y \+ \(Number\([^)]*yOffset/);
   assert.match(flow, /state\.hasFrame = false/);
 });
@@ -120,8 +120,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-68-tape-cluster-lifecycle-v1/);
-  assert.match(app, /orderbook\.js\?v=26-68-tape-cluster-lifecycle-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-68-tape-cluster-lifecycle-v1/);
-  assert.match(sw, /26-68-tape-cluster-lifecycle-v1/);
+  assert.match(index, /26-69-tape-stable-pixels-v1/);
+  assert.match(app, /orderbook\.js\?v=26-69-tape-stable-pixels-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-69-tape-stable-pixels-v1/);
+  assert.match(sw, /26-69-tape-stable-pixels-v1/);
 });

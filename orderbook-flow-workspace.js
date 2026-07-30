@@ -505,6 +505,12 @@ function formatQuoteVolume(value) {
   return `$${formatUsd(value)}`;
 }
 
+function formatSignedQuoteDelta(value) {
+  const amount = Number(value) || 0;
+  if (Math.abs(amount) < .5) return "±0";
+  return `${amount > 0 ? "+" : "−"}${formatUsd(Math.abs(amount))}`;
+}
+
 function formatIntervalClock(time) {
   const date = new Date(Number(time));
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
@@ -1172,7 +1178,12 @@ function renderCard(card, state) {
   if (state.visible) {
     columns.forEach(({ interval, clusters }, columnIndex) => {
       const columnLeft = columnsLeft + columnIndex * columnWidth;
-      const centerX = columnLeft + columnWidth / 2;
+      const labelX = columnLeft + columnWidth / 2;
+      const candleBodyWidth = Math.max(3, Math.min(7, columnWidth * .14));
+      const candleLeft = columnLeft + 2;
+      const candleX = candleLeft + candleBodyWidth / 2;
+      const dataLeft = candleLeft + candleBodyWidth + 2;
+      const dataWidth = Math.max(1, columnLeft + columnWidth - dataLeft - 1);
 
       for (const cluster of clusters) {
         const totalQuote = Math.max(Number.EPSILON, cluster.quote);
@@ -1182,8 +1193,8 @@ function renderCard(card, state) {
         const clusterStrength = footprintCellIntensity(cluster.quote, maximumCluster);
         const cellHeight = Math.max(3, Math.min(cluster.row.height * .92, 14));
         const cellTop = cluster.row.y - cellHeight / 2;
-        const cellLeft = columnLeft + 1;
-        const cellWidth = Math.max(1, columnWidth - 2);
+        const cellLeft = dataLeft;
+        const cellWidth = dataWidth;
         const sellWidth = cellWidth * sellShare;
         const buyWidth = Math.max(0, cellWidth - sellWidth);
         const alpha = .24 + clusterStrength * .42;
@@ -1207,13 +1218,22 @@ function renderCard(card, state) {
         state.context.lineWidth = .75;
         state.context.strokeRect(cellLeft, cellTop, cellWidth, cellHeight);
 
-        state.context.textAlign = "center";
+        const deltaText = formatSignedQuoteDelta(cluster.buyQuote - cluster.sellQuote);
+        const volumeText = formatQuoteVolume(cluster.quote);
+        const valueWidth = Math.max(1, dataWidth * .47);
         state.context.fillStyle = theme.text;
+        state.context.font = "800 6.2px Inter, system-ui, sans-serif";
+        state.context.textAlign = "left";
+        state.context.fillText(deltaText, dataLeft + 2, cluster.row.y, valueWidth);
+        state.context.textAlign = "right";
         state.context.fillText(
-          formatQuoteVolume(cluster.quote),
-          centerX,
+          volumeText,
+          dataLeft + dataWidth - 2,
           cluster.row.y,
+          valueWidth,
         );
+        state.context.textAlign = "center";
+        state.context.font = "800 7px Inter, system-ui, sans-serif";
       }
 
       const highRow = nearestRow(rows, interval.highPrice);
@@ -1230,14 +1250,14 @@ function renderCard(card, state) {
           : theme.bearFill;
         state.context.lineWidth = 1;
         state.context.beginPath();
-        state.context.moveTo(centerX, highRow.y);
-        state.context.lineTo(centerX, lowRow.y);
+        state.context.moveTo(candleX, highRow.y);
+        state.context.lineTo(candleX, lowRow.y);
         state.context.stroke();
         const bodyTop = Math.min(openRow.y, closeRow.y);
         const bodyHeight = Math.max(2, Math.abs(closeRow.y - openRow.y));
-        const bodyWidth = Math.max(2, Math.min(8, columnWidth * .16));
-        state.context.fillRect(centerX - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight);
-        state.context.strokeRect(centerX - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight);
+        const bodyWidth = candleBodyWidth;
+        state.context.fillRect(candleLeft, bodyTop, bodyWidth, bodyHeight);
+        state.context.strokeRect(candleLeft, bodyTop, bodyWidth, bodyHeight);
       }
 
       state.context.fillStyle = theme.panel;
@@ -1249,7 +1269,7 @@ function renderCard(card, state) {
       state.context.font = "700 6.5px Inter, system-ui, sans-serif";
       state.context.fillText(
         `${formatIntervalClock(interval.startTime)}${interval.partial ? " · LIVE" : ""}${interval.sessionPartial ? " · P" : ""}`,
-        centerX,
+        labelX,
         height - 5,
       );
       state.context.font = "800 7px Inter, system-ui, sans-serif";
