@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v3";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-55-scalper-pattern-evidence-v1";
+import "./orderbook-flow-workspace.js?v=26-66-orderbook-highlight-invariant-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -74,8 +74,12 @@ export function bookQuoteScale(bids, asks, sampleLimit = 2_048) {
   };
 }
 
-export function bookDisplayedQuote(row, automatic = false) {
-  const total = Math.max(0, Number(row?.quote) || 0);
+export function bookDisplayedQuote(row) {
+  return Math.max(0, Number(row?.quote) || 0);
+}
+
+export function bookAnomalyQuote(row, automatic = false) {
+  const total = bookDisplayedQuote(row);
   const largestRealLevel = Math.max(0, Number(row?.maxLevelQuote) || 0);
   return automatic && largestRealLevel > 0 ? largestRealLevel : total;
 }
@@ -1371,7 +1375,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-55-scalper-pattern-evidence-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-66-orderbook-highlight-invariant-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1785,7 +1789,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-55-scalper-pattern-evidence-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-66-orderbook-highlight-invariant-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";

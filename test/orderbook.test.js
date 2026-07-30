@@ -9,6 +9,7 @@ import {
   applyDepthUpdates,
   BOOK_DEPTH_PERCENT_PRESETS,
   BOOK_SCALE_MULTIPLIERS,
+  bookAnomalyQuote,
   bookDepthLabel,
   bookDisplayedQuote,
   bookDistancePercentLabel,
@@ -119,14 +120,15 @@ test("automatic anomaly reference uses the complete book rather than the visible
   assert.equal(scale.totalLevels, bids.length + asks.length);
 });
 
-test("AUTO can inspect the largest real order without treating an aggregated row as one order", () => {
+test("highlight modes preserve displayed size while AUTO inspects the largest real order", () => {
   const bids = Array.from({ length: 10 }, (_, index) => [100 - index * .01, 10]);
   const rows = buildDepthLadder(bids, [], 100.1, 99.95, 1, 3);
   const aggregated = rows.find((row) => row.levelCount > 1);
   assert.ok(aggregated.quote > aggregated.maxLevelQuote * 5);
   assert.ok(aggregated.maxLevelQuote >= 999 && aggregated.maxLevelQuote <= 1_000);
-  assert.equal(bookDisplayedQuote(aggregated, true), aggregated.maxLevelQuote);
-  assert.equal(bookDisplayedQuote(aggregated, false), aggregated.quote);
+  assert.equal(bookDisplayedQuote(aggregated), aggregated.quote);
+  assert.equal(bookAnomalyQuote(aggregated, true), aggregated.maxLevelQuote);
+  assert.equal(bookAnomalyQuote(aggregated, false), aggregated.quote);
 });
 
 test("AUTO keeps one threshold per coin for the whole session", () => {
