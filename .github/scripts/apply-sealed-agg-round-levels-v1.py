@@ -99,20 +99,25 @@ orderbook = replace_once(
     "AGG state tick fields",
 )
 
-reset_block = '''          state.rawRenderNodes = [];
-          state.aggSourceBuckets = [];
-          state.aggSnapshots?.clear?.();
-'''
-reset_replacement = '''          state.rawRenderNodes = [];
-          state.aggSourceBuckets = [];
-          state.aggBaseTick = null;
-          state.aggBaseTickSymbol = null;
-          state.aggSnapshots?.clear?.();
-'''
-reset_count = orderbook.count(reset_block)
+reset_pattern = re.compile(
+    r'(?P<indent> +)state\.rawRenderNodes = \[\];\n'
+    r'(?P=indent)state\.aggSourceBuckets = \[\];\n'
+    r'(?P=indent)state\.aggSnapshots\?\.clear\?\.\(\);\n'
+)
+
+def add_agg_tick_reset(match: re.Match[str]) -> str:
+    indent = match.group("indent")
+    return (
+        f"{indent}state.rawRenderNodes = [];\n"
+        f"{indent}state.aggSourceBuckets = [];\n"
+        f"{indent}state.aggBaseTick = null;\n"
+        f"{indent}state.aggBaseTickSymbol = null;\n"
+        f"{indent}state.aggSnapshots?.clear?.();\n"
+    )
+
+orderbook, reset_count = reset_pattern.subn(add_agg_tick_reset, orderbook)
 if reset_count != 2:
     raise AssertionError(f"symbol/replace AGG reset blocks: expected 2, found {reset_count}")
-orderbook = orderbook.replace(reset_block, reset_replacement)
 
 orderbook = replace_once(
     orderbook,
