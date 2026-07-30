@@ -34,7 +34,12 @@ jobs:
           script = textwrap.dedent(match.group(1))
           fallback = r'''
           def sub1(text, pattern, replacement, label):
-              new, count = re.subn(pattern, lambda _: replacement, text, count=1, flags=re.S)
+              def literal_with_captures(match):
+                  result = replacement
+                  for index, value in enumerate(match.groups(), start=1):
+                      result = result.replace(f"\\{index}", value or "")
+                  return result
+              new, count = re.subn(pattern, literal_with_captures, text, count=1, flags=re.S)
               if count != 1:
                   raise SystemExit(f"{label}: {count} matches")
               return new
