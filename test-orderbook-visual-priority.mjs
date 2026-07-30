@@ -30,7 +30,8 @@ test("ordinary sizes are neutral and full-book anomalies have three tiers", () =
   assert.match(app, /ask: automaticThreshold/);
   assert.match(app, /const displayedQuote = bookDisplayedQuote\(source\)/);
   assert.match(app, /const anomalyReference = bookAnomalyQuote\(source, automatic\)/);
-  assert.match(app, /rows\.map\(\(row\) => bookDisplayedQuote\(row\)\)/);
+  assert.match(app, /const maxSize = fullBookMaximum/);
+  assert.doesNotMatch(app, /rows\.map\(\(row\) => bookDisplayedQuote\(row\)\)/);
   assert.match(app, /const sizeText = displayedQuote > 0/);
   assert.doesNotMatch(app, /const sizeText = anomalyReference > 0/);
   assert.match(app, /function anomalyTierForQuote\(quote, threshold\)/);
@@ -51,7 +52,9 @@ test("ordinary sizes are neutral and full-book anomalies have three tiers", () =
 test("size labels stay readable and hover shows distance from current price", () => {
   assert.match(orderbook, /\.book-ladder-row\.is-anomaly \.book-size \{[\s\S]*color: #f4f8fa !important/);
   assert.match(orderbook, /\.book-ladder-row:not\(\.is-anomaly\) \.book-size \{[\s\S]*color: #e5edf1 !important/);
-  assert.match(app, /<span class="book-hover-percent" hidden aria-hidden="true"><\/span>/);
+  assert.match(app, /trade-flow[\s\S]*<span class="book-hover-percent" hidden aria-hidden="true"><\/span>/);
+  assert.match(app, /hoverSurfaceRect = article\.querySelector\("\.trade-flow"\)/);
+  assert.match(orderbook, /layerControls\.innerHTML = `[\s\S]*data-inpuls-clusters-visible[\s\S]*data-inpuls-tape-visible[\s\S]*`;/);
   assert.match(app, /bookDistancePercentLabel\(price, panel\.lastMiddle\)/);
   assert.match(app, /ladderRows\.addEventListener\("pointerleave", hideHoverPercent\)/);
   assert.match(orderbook, /\.book-hover-percent\.is-bid/);
@@ -114,8 +117,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-66-orderbook-highlight-invariant-v1/);
-  assert.match(app, /orderbook\.js\?v=26-66-orderbook-highlight-invariant-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-66-orderbook-highlight-invariant-v1/);
-  assert.match(sw, /26-66-orderbook-highlight-invariant-v1/);
+  assert.match(index, /26-67-orderbook-static-tape-navigation-v1/);
+  assert.match(app, /orderbook\.js\?v=26-67-orderbook-static-tape-navigation-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-67-orderbook-static-tape-navigation-v1/);
+  assert.match(sw, /26-67-orderbook-static-tape-navigation-v1/);
 });

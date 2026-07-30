@@ -57,7 +57,7 @@ test("Ctrl+wheel changes a fixed 1/2/5 price-step multiplier", () => {
   );
   assert.match(
     appSource,
-    /model\.bookScaleIndex = bookScaleIndexForWheel\(model\.bookScaleIndex, event\.deltaY\);/,
+    /const nextScaleIndex = bookScaleIndexForWheel\(previousScaleIndex, event\.deltaY\);[\s\S]*model\.bookScaleIndex = nextScaleIndex;/,
     "the selected fixed price step must be persisted",
   );
   assert.match(appSource, /panel\.priceStep = priceStepForScale\(panel\.baseTick, scaleIndex\);/);
