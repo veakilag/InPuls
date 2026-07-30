@@ -20,8 +20,39 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Align generator with both reset indentations
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/scripts/apply-sealed-agg-round-levels-v1.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('if reset_count != 2:', 'if reset_count != 1:', 1)
+          text = text.replace('symbol/replace AGG reset blocks: expected 2, found', 'symbol/replace AGG reset blocks: expected 1, found', 1)
+          path.write_text(text, encoding='utf-8')
+          PY
       - name: Apply sealed AGG and round-level fix
         run: python .github/scripts/apply-sealed-agg-round-levels-v1.py
+      - name: Complete the second AGG reset block
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('orderbook.js')
+          text = path.read_text(encoding='utf-8')
+          old = '''        state.rawRenderNodes = [];
+        state.aggSourceBuckets = [];
+        state.aggSnapshots?.clear?.();
+'''
+          new = '''        state.rawRenderNodes = [];
+        state.aggSourceBuckets = [];
+        state.aggBaseTick = null;
+        state.aggBaseTickSymbol = null;
+        state.aggSnapshots?.clear?.();
+'''
+          count = text.count(old)
+          if count != 1:
+              raise AssertionError(f'second AGG reset: expected 1, found {count}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
       - name: Syntax checks
         run: |
           node --check orderbook.js
