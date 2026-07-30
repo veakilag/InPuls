@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-74-sealed-agg-round-levels-v1";
+import "./orderbook-flow-workspace.js?v=26-75-zero-ms-live-agg-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1413,7 +1413,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-74-sealed-agg-round-levels-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-75-zero-ms-live-agg-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1827,22 +1827,19 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-74-sealed-agg-round-levels-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-75-zero-ms-live-agg-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
 const TAPE_MAX_STORED = 4_000;
 const TAPE_MAX_RAW_VISIBLE = TAPE_MAX_STORED;
-const TAPE_MAX_AGG_VISIBLE = 900;
+const TAPE_MAX_AGG_VISIBLE = 1_000;
 const TAPE_SECOND_MS = 1_000;
 const TAPE_LIVE_EDGE_LEAD_MS = 180;
 const TAPE_MIN_SECOND_WIDTH = 22;
 const TAPE_MIN_SECONDS = 12;
 const TAPE_MAX_SECONDS = 45;
 const TAPE_TIMELINE_MIN_LABEL_GAP_PX = 42;
-const TAPE_AGG_LABEL_QUANTILE = .95;
-const TAPE_AGG_EVENT_GRACE_MS = 180;
-const TAPE_AGG_WALL_CLOCK_GRACE_MS = 700;
 const TAPE_PRICE_VIEWPORT_TAU_MS = 90;
 const TAPE_CLOCK_CORRECTION_TAU_MS = 120;
 const TAPE_VIEWPORT_SAMPLE_MS = 50;
@@ -1851,18 +1848,10 @@ const TAPE_STALE_NOTICE_MS = 3_000;
 const TAPE_STATE_REFRESH_MS = 1_000;
 const TAPE_FREEZE_AFTER_MS = 2_500;
 const TAPE_MODE_KEY = "inpuls-tape-mode-v2";
-const TAPE_AGG_LEVEL_KEY = "inpuls-tape-aggregation-level-v1";
 const DENSITY_AGE_VISIBLE_KEY = "inpuls-density-age-visible-v1";
-export const TAPE_AGGREGATION_LEVELS = Object.freeze([
-  Object.freeze({ label: "×1", bucketMs: 180, priceSteps: 1 }),
-  Object.freeze({ label: "×2", bucketMs: 360, priceSteps: 1 }),
-  Object.freeze({ label: "×4", bucketMs: 720, priceSteps: 2 }),
-  Object.freeze({ label: "×8", bucketMs: 1_440, priceSteps: 4 }),
-  Object.freeze({ label: "×16", bucketMs: 2_880, priceSteps: 8 }),
-]);
+export const TAPE_AGGREGATION_PERIOD_MS = 0;
 const TAPE_VISIBLE_KEY = "inpuls-tape-visible-v1";
 const CLUSTERS_VISIBLE_KEY = "inpuls-clusters-visible-v1";
-const TAPE_MIN_FILTER_KEY = "inpuls-tape-min-filter-v3";
 
 const tapeTradesBySymbol = new Map();
 const latestBookDataBySymbol = new Map();
@@ -2656,29 +2645,14 @@ function handleRuntimeSplitter(event) {
   document.addEventListener("pointercancel", stop, true);
 }
 
-function aggregationLevel(state) {
-  const index = Math.max(
-    0,
-    Math.min(
-      TAPE_AGGREGATION_LEVELS.length - 1,
-      Math.floor(Number(state?.aggLevelIndex) || 0),
-    ),
-  );
-  return { index, ...TAPE_AGGREGATION_LEVELS[index] };
-}
-
 function syncTapeModeButton(button, state) {
   const aggregated = state.mode === "agg";
-  const level = aggregationLevel(state);
-  button.textContent = aggregated ? `AGG ${level.label}` : "RAW";
+  button.textContent = aggregated ? "AGG" : "RAW";
   button.classList.toggle("is-active", aggregated);
   button.setAttribute("aria-pressed", String(aggregated));
   button.title = aggregated
-    ? `Фиксированные бакеты ${level.bucketMs} мс · цена ×${level.priceSteps}. Позиция прошлых агрегатов не меняется.`
+    ? "AGG 0 мс: объединяются только последовательные исполнения с одинаковым биржевым временем и направлением. Текущий агрегат появляется сразу; история не пересчитывается."
     : "Каждое исполнение отображается отдельно по точному времени";
-  state.controls?.querySelectorAll?.("[data-inpuls-agg-step]").forEach((control) => {
-    control.disabled = !aggregated;
-  });
 }
 
 function formatObservedAge(value) {
@@ -2770,17 +2744,12 @@ function ensureTapeUi(card) {
 
   let state = tapeCardStates.get(card);
   if (!state) {
-    const savedMinimum = localStorage.getItem(TAPE_MIN_FILTER_KEY);
     state = {
       canvas: null,
       context: null,
       mode: localStorage.getItem(TAPE_MODE_KEY) === "agg" ? "agg" : "raw",
-      aggLevelIndex: Math.max(0, Math.min(
-        TAPE_AGGREGATION_LEVELS.length - 1,
-        Math.floor(Number(localStorage.getItem(TAPE_AGG_LEVEL_KEY)) || 0),
-      )),
       densityAgeVisible: localStorage.getItem(DENSITY_AGE_VISIBLE_KEY) === "1",
-      minQuote: savedMinimum === null ? 0 : Math.max(0, Number(savedMinimum) || 0),
+      minQuote: 0,
       tapeVisible: localStorage.getItem(TAPE_VISIBLE_KEY) !== "0",
       clustersVisible: localStorage.getItem(CLUSTERS_VISIBLE_KEY) !== "0",
       controls: null,
@@ -2810,8 +2779,6 @@ function ensureTapeUi(card) {
       rawRenderNodes: [],
       aggSourceBuckets: [],
       aggSnapshots: new Map(),
-      aggBaseTick: null,
-      aggBaseTickSymbol: null,
       recentRawScratch: [],
       finalizedAggScratch: [],
       closedAggScratch: [],
@@ -2866,48 +2833,16 @@ function ensureTapeUi(card) {
   if (!state.controls?.isConnected) {
     const controls = document.createElement("div");
     controls.className = "inpuls-tape-controls";
-    controls.innerHTML = `
-      <label class="inpuls-tape-filter" title="Показывать сделки или агрегаты не меньше суммы">
-        <span>ОТ $</span><input data-inpuls-trade-min type="number" min="0" step="100" value="${state.minQuote}" aria-label="Минимальный размер сделки или агрегата" />
-      </label>
-      <button data-inpuls-agg-step="down" class="inpuls-agg-step" type="button" title="Меньше агрегация">−</button>
-      <button data-inpuls-tape-mode class="inpuls-tape-mode" type="button"></button>
-      <button data-inpuls-agg-step="up" class="inpuls-agg-step" type="button" title="Больше агрегация">+</button>`;
+    controls.innerHTML = '<button data-inpuls-tape-mode class="inpuls-tape-mode" type="button"></button>';
     toolbar.append(controls);
     state.controls = controls;
 
-    const minInput = controls.querySelector("[data-inpuls-trade-min]");
     const modeButton = controls.querySelector("[data-inpuls-tape-mode]");
-
-    const applyMinimum = () => {
-      state.minQuote = Math.max(0, Number(minInput.value) || 0);
-      localStorage.setItem(TAPE_MIN_FILTER_KEY, String(state.minQuote));
-      scheduleTapeDraw(true);
-    };
-    minInput.addEventListener("input", applyMinimum);
-    minInput.addEventListener("change", applyMinimum);
     modeButton.addEventListener("click", () => {
       state.mode = state.mode === "agg" ? "raw" : "agg";
       localStorage.setItem(TAPE_MODE_KEY, state.mode);
       syncTapeModeButton(modeButton, state);
       scheduleTapeDraw(true, card);
-    });
-    controls.querySelectorAll("[data-inpuls-agg-step]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const direction = button.dataset.inpulsAggStep === "up" ? 1 : -1;
-        state.aggLevelIndex = Math.max(0, Math.min(
-          TAPE_AGGREGATION_LEVELS.length - 1,
-          state.aggLevelIndex + direction,
-        ));
-        state.mode = "agg";
-        localStorage.setItem(TAPE_MODE_KEY, state.mode);
-        localStorage.setItem(TAPE_AGG_LEVEL_KEY, String(state.aggLevelIndex));
-        state.renderModelKey = null;
-        state.aggSourceBuckets = [];
-        state.aggSnapshots?.clear?.();
-        syncTapeModeButton(modeButton, state);
-        scheduleTapeDraw(true, card);
-      });
     });
     syncTapeModeButton(modeButton, state);
     syncLayerButtons(card, state);
@@ -3013,9 +2948,7 @@ function ensureTapeUi(card) {
           state.rawNodeByKey?.clear?.();
           state.rawRenderNodes = [];
           state.aggSourceBuckets = [];
-          state.aggBaseTick = null;
-          state.aggBaseTickSymbol = null;
-          state.aggSnapshots?.clear?.();
+            state.aggSnapshots?.clear?.();
           scheduleTapeDraw(true, card);
         }
       });
@@ -3496,88 +3429,119 @@ export function stableTapeQuoteStrength(value) {
   return clampTape(Math.log10(1 + quote / 100) / 3, 0, 1.35);
 }
 
-export function aggregateTapeBuckets(trades, priceStep = .01, levelIndex = 0, window = null) {
-  const level = TAPE_AGGREGATION_LEVELS[Math.max(
-    0,
-    Math.min(TAPE_AGGREGATION_LEVELS.length - 1, Math.floor(Number(levelIndex) || 0)),
-  )];
-  const baseStep = Math.max(Number.EPSILON, Number(priceStep) || .01);
-  const aggregateStep = baseStep * level.priceSteps;
-  const aggregateStepKey = aggregateStep.toPrecision(12);
-  const buckets = new Map();
-  for (const trade of trades ?? []) {
-    const time = Number(trade?.time);
-    const price = Number(trade?.price);
-    const quote = Number(trade?.quote);
-    if (![time, price, quote].every(Number.isFinite) || quote <= 0) continue;
-    const bucketStart = Math.floor(time / level.bucketMs) * level.bucketMs;
-    const bucketEnd = bucketStart + level.bucketMs;
-    if (window && (
-      bucketEnd < Number(window.startTime)
-      || bucketStart > Number(window.endTime)
-    )) continue;
-    const priceIndex = Math.round(price / aggregateStep);
-    const key = `agg:${level.label}:${aggregateStepKey}:${bucketStart}:${priceIndex}`;
-    const item = buckets.get(key) ?? {
-      key,
-      time: bucketStart + level.bucketMs / 2,
-      lastTime: bucketStart + level.bucketMs / 2,
-      price: Number((priceIndex * aggregateStep).toPrecision(15)),
-      quote: 0,
-      buyQuote: 0,
-      sellQuote: 0,
-      count: 0,
-      bucketStart,
-      bucketEnd,
-      bucketMs: level.bucketMs,
-    };
-    item.quote += quote;
-    item[trade.side === "sell" ? "sellQuote" : "buyQuote"] += quote;
-    item.count += 1;
-    buckets.set(key, item);
+export function aggregateTapeZeroMs(trades) {
+  const ordered = [...(trades ?? [])]
+    .filter((trade) => {
+      const time = Number(trade?.time);
+      const price = Number(trade?.price);
+      const quote = Number(trade?.quote);
+      return [time, price, quote].every(Number.isFinite) && quote > 0;
+    })
+    .sort((left, right) => {
+      const timeDelta = Number(left.time) - Number(right.time);
+      if (timeDelta) return timeDelta;
+      const leftId = Number(left.id);
+      const rightId = Number(right.id);
+      if (Number.isFinite(leftId) && Number.isFinite(rightId) && leftId !== rightId) {
+        return leftId - rightId;
+      }
+      return String(left.id).localeCompare(String(right.id));
+    });
+
+  const groups = [];
+  let current = null;
+  const finish = () => {
+    if (!current) return;
+    current.vwapPrice = current.quantity > 0
+      ? current.quote / current.quantity
+      : current.firstPrice;
+    // The marker is anchored to the first execution. Its volume may grow while
+    // OPEN, but it never jumps between price rows.
+    current.price = current.firstPrice;
+    current.lastTime = current.eventTime;
+    current.bucketStart = current.eventTime;
+    current.bucketEnd = current.eventTime;
+    current.bucketMs = TAPE_AGGREGATION_PERIOD_MS;
+    current.showLabel = true;
+    groups.push(current);
+    current = null;
+  };
+
+  for (const trade of ordered) {
+    const eventTime = Number(trade.time);
+    const side = trade.side === "sell" ? "sell" : "buy";
+    const price = Number(trade.price);
+    const quote = Number(trade.quote);
+    const quantity = Number.isFinite(Number(trade.quantity)) && Number(trade.quantity) > 0
+      ? Number(trade.quantity)
+      : quote / price;
+    const continues = current
+      && current.eventTime === eventTime
+      && current.side === side;
+
+    if (!continues) {
+      finish();
+      current = {
+        key: `agg0:${eventTime}:${side}:${tapeTradeKey(trade)}`,
+        time: eventTime,
+        lastTime: eventTime,
+        eventTime,
+        side,
+        firstPrice: price,
+        lastPrice: price,
+        minPrice: price,
+        maxPrice: price,
+        price,
+        vwapPrice: price,
+        quantity: 0,
+        quote: 0,
+        buyQuote: 0,
+        sellQuote: 0,
+        count: 0,
+      };
+    }
+
+    current.lastPrice = price;
+    current.minPrice = Math.min(current.minPrice, price);
+    current.maxPrice = Math.max(current.maxPrice, price);
+    current.quantity += quantity;
+    current.quote += quote;
+    current[side === "sell" ? "sellQuote" : "buyQuote"] += quote;
+    current.count += 1;
   }
-  return [...buckets.values()].sort((left, right) => (
-    left.time - right.time || left.price - right.price || left.key.localeCompare(right.key)
-  ));
+  finish();
+  return groups;
 }
 
-function finalizedAggregateTapeBuckets(state, buckets, closedBefore, output = []) {
+export function materializeZeroMsAggregates(state, groups, output = []) {
   if (!(state.aggSnapshots instanceof Map)) state.aggSnapshots = new Map();
   output.length = 0;
-  for (const bucket of buckets ?? []) {
-    let snapshot = state.aggSnapshots.get(bucket.key);
-    if (!snapshot && bucket.bucketEnd <= closedBefore) {
-      snapshot = Object.freeze({
-        ...bucket,
-        status: "sealed",
-        sealedAt: Number(closedBefore),
-        showLabel: stableTapeQuoteStrength(bucket.quote) >= .62,
-      });
-      state.aggSnapshots.set(bucket.key, snapshot);
+  const lastIndex = Math.max(-1, (groups?.length ?? 0) - 1);
+
+  for (let index = 0; index <= lastIndex; index += 1) {
+    const group = groups[index];
+    if (index === lastIndex) {
+      // The right-most group is OPEN and is the only marker allowed to grow.
+      output.push(Object.freeze({ ...group, status: "open", showLabel: true }));
+      continue;
     }
-    if (snapshot) output.push(snapshot);
+    let snapshot = state.aggSnapshots.get(group.key);
+    if (!snapshot) {
+      snapshot = Object.freeze({
+        ...group,
+        status: "sealed",
+        sealedAt: Number(groups[index + 1]?.eventTime ?? group.eventTime),
+        showLabel: true,
+      });
+      state.aggSnapshots.set(group.key, snapshot);
+    }
+    output.push(snapshot);
   }
+
   while (state.aggSnapshots.size > 1_800) {
     state.aggSnapshots.delete(state.aggSnapshots.keys().next().value);
   }
   return output;
-}
-
-function positionAggregateTapeBuckets(buckets, rows) {
-  return (buckets ?? [])
-    .map((burst) => {
-      const position = tapePricePosition(rows, burst.price);
-      return position ? { ...burst, row: position } : null;
-    })
-    .filter(Boolean)
-    .slice(-TAPE_MAX_AGG_VISIBLE);
-}
-
-function aggregateTapeBurstsContinuous(trades, rows, window, step, levelIndex = 0) {
-  return positionAggregateTapeBuckets(
-    aggregateTapeBuckets(trades, step, levelIndex, window),
-    rows,
-  );
 }
 
 function aggregateVisibleRowClusters(trades, rows, window, minimumQuote = 0) {
@@ -3670,42 +3634,9 @@ function paintTapeSurface(context, rect) {
   context.fillRect(0, 0, rect.width, rect.height);
 }
 
-export function tapeAggregationTickFromBook(data, fallbackStep = .01) {
-  const bestBid = Number(data?.bids?.[0]?.[0]);
-  const bestAsk = Number(data?.asks?.[0]?.[0]);
-  const middle = Number.isFinite(bestBid) && Number.isFinite(bestAsk)
-    ? (bestBid + bestAsk) / 2
-    : null;
-  const inferred = Number.isFinite(middle)
-    ? inferPriceTick(data?.bids, data?.asks, middle)
-    : null;
-  if (Number.isFinite(inferred) && inferred > 0) return inferred;
-  return Math.max(Number.EPSILON, Number(fallbackStep) || .01);
-}
-
-function stableTapeAggregationTick(state, symbol, fallbackStep = .01) {
-  if (state.aggBaseTickSymbol !== symbol) {
-    state.aggBaseTickSymbol = symbol;
-    state.aggBaseTick = null;
-  }
-  const saved = Number(state.aggBaseTick);
-  if (Number.isFinite(saved) && saved > 0) return saved;
-  const tick = tapeAggregationTickFromBook(
-    latestBookDataBySymbol.get(symbol),
-    fallbackStep,
-  );
-  state.aggBaseTick = tick;
-  return tick;
-}
-
-function refreshTapeRenderModel(state, symbol, stored, aggregationTick) {
+function refreshTapeRenderModel(state, symbol, stored) {
   const version = Number(tapeDataVersionBySymbol.get(symbol)) || 0;
-  const modelKey = [
-    symbol,
-    version,
-    Number(aggregationTick).toPrecision(12),
-    state.aggLevelIndex,
-  ].join(":");
+  const modelKey = [symbol, version, "zero-ms"].join(":");
   if (state.renderModelKey === modelKey) return;
   state.renderModelKey = modelKey;
 
@@ -3733,12 +3664,7 @@ function refreshTapeRenderModel(state, symbol, stored, aggregationTick) {
   }
   state.rawNodeByKey = nextNodesByKey;
   state.rawRenderNodes = nextNodes;
-  state.aggSourceBuckets = aggregateTapeBuckets(
-    stored,
-    aggregationTick,
-    state.aggLevelIndex,
-    null,
-  );
+  state.aggSourceBuckets = aggregateTapeZeroMs(stored);
 }
 
 function visibleWaterTapeNodes(nodes, window, output = []) {
@@ -3945,30 +3871,17 @@ function drawTapeCard(card) {
   state.clockPerfAt = perfNow;
   const window = buildContinuousTapeWindow(rect.width, latestTime, endTime);
   const range = state.priceRange;
-  const visibleStep = range?.step ?? .01;
-  const aggregationTick = stableTapeAggregationTick(
-    state,
-    symbol,
-    visibleStep,
-  );
-  refreshTapeRenderModel(state, symbol, stored, aggregationTick);
+  refreshTapeRenderModel(state, symbol, stored);
 
   const recentRaw = visibleWaterTapeNodes(
     state.rawRenderNodes,
     window,
     state.recentRawScratch,
   );
-  // A bucket becomes visible only after both the event-time and wall-clock
-  // grace periods have elapsed. Once visible, its frozen snapshot never mutates.
-  const aggregateClosedBefore = Math.min(
-    latestTime - TAPE_AGG_EVENT_GRACE_MS,
-    Number(endTime) - TAPE_AGG_WALL_CLOCK_GRACE_MS,
-  );
-  const closedAggregates = visibleWaterTapeNodes(
-    finalizedAggregateTapeBuckets(
+  const liveAggregates = visibleWaterTapeNodes(
+    materializeZeroMsAggregates(
       state,
       state.aggSourceBuckets,
-      aggregateClosedBefore,
       state.finalizedAggScratch,
     ),
     window,
@@ -4003,7 +3916,7 @@ function drawTapeCard(card) {
     context.restore();
   }
 
-  const sourceItems = state.mode === "agg" ? closedAggregates : recentRaw;
+  const sourceItems = state.mode === "agg" ? liveAggregates : recentRaw;
   const candidates = filterWaterTapeCandidates(
     sourceItems,
     minQuote,
@@ -4018,13 +3931,13 @@ function drawTapeCard(card) {
   );
 
   if (!candidates.length) {
-    setTapeState(state, "Линия всех сделок · нет маркеров по фильтру");
+    setTapeState(state, state.mode === "agg" ? "Жду агрегированную сделку…" : "Жду сделку…");
     state.hasFrame = true;
     skip("filter-empty", { recent: recentRaw.length });
     return;
   }
   if (!items.length) {
-    setTapeState(state, "Линия всех сделок · маркеры вне видимой цены");
+    setTapeState(state, "Сделки находятся вне видимой ценовой шкалы");
     state.hasFrame = true;
     skip("no-visible-items", { candidates: candidates.length });
     return;
@@ -4091,7 +4004,8 @@ function drawTapeCard(card) {
       continue;
     }
 
-    const showLabel = minQuote > 0 || Boolean(item.showLabel);
+    const showLabel = Boolean(item.showLabel);
+    const openAggregate = item.status === "open";
     const label = formatTapeUsd(item.quote);
     const diameter = clampTape(4 + strength * 6, 4, 12);
     if (!showLabel) {
@@ -4119,7 +4033,9 @@ function drawTapeCard(card) {
       Math.max(width / 2 + .5, window.plotRight - width / 2 - .5),
     );
     roundedRectPath(context, x - width / 2, y - height / 2, width, height, height * .28);
-    context.fillStyle = buy ? "rgba(42, 191, 137, .76)" : "rgba(222, 70, 87, .78)";
+    context.fillStyle = buy
+      ? `rgba(42, 191, 137, ${openAggregate ? .66 : .76})`
+      : `rgba(222, 70, 87, ${openAggregate ? .68 : .78})`;
     context.fill();
     context.lineWidth = 1;
     context.strokeStyle = stroke;

@@ -504,6 +504,6 @@ test("browser runtime captures the contract and ships it in the atomic app shell
   assert.match(app, /contextForSymbol: latestOrderBookForSignalMemory/);
   assert.match(app, /market-memory\.signal-observations/);
   assert.match(serviceWorker, /market-memory\.js\?v=26-65-structured-signal-collection-v1/);
-  assert.match(serviceWorker, /pattern-catalog\.js\?v=26-74-sealed-agg-round-levels-v1/);
+  assert.match(serviceWorker, /pattern-catalog\.js\?v=26-75-zero-ms-live-agg-v1/);
   assert.match(version, /signal-observation-engine-v1/);
 });
