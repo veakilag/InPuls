@@ -1,0 +1,76 @@
+name: Finalize static Tape price rendering
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.head_ref == 'agent/orderbook-static-tape-navigation'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Lock Tape vertically to exact execution price
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              "orderbook.js",
+              "          y: item.row.y + (Number(item.yOffset) || 0),",
+              "          y: item.row.y,",
+              "aggregate label exact price",
+          )
+          replace_once(
+              "orderbook.js",
+              "      const pathY = pathItem.row.y + (Number(pathItem.yOffset) || 0);",
+              "      const pathY = pathItem.row.y;",
+              "path exact price",
+          )
+          replace_once(
+              "orderbook.js",
+              "    const y = item.row.y + (Number(item.yOffset) || 0);",
+              "    const y = item.row.y;",
+              "circle exact price",
+          )
+          replace_once(
+              "test-orderbook-visual-priority.mjs",
+              "  assert.match(flow, /incoming\\.length && state\\.historyOffset === 0/);",
+              "  assert.match(flow, /incoming\\.length && state\\.historyOffset === 0/);\n  assert.match(orderbook, /const y = item\\.row\\.y;/);\n  assert.match(orderbook, /const pathY = pathItem\\.row\\.y;/);\n  assert.doesNotMatch(orderbook, /row\\.y \\+ \\(Number\\([^)]*yOffset/);",
+              "static Tape vertical contract",
+          )
+          PY
+      - name: Syntax checks
+        run: |
+          node --check orderbook.js
+          node --check app.js
+      - name: Full tests
+        run: npm test
+      - name: Commit verified final fix
+        shell: bash
+        run: |
+          rm .github/workflows/finalize-static-tape-price.yml
+          git config user.name "InPuls automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: lock Tape points to exact execution prices"
+          git push origin HEAD:${{ github.head_ref }}
