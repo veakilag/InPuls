@@ -339,9 +339,11 @@ write("orderbook.js", orderbook)
 write("app.js", app)
 write("test-orderbook-visual-priority.mjs", visual_test)
 
-# Keep every runtime/cache reference on one build to force a clean browser refresh.
-for path in Path(".").iterdir():
+# Keep every runtime/cache and nested release test on one build.
+for path in Path(".").rglob("*"):
     if not path.is_file() or path.suffix.lower() not in {".js", ".mjs", ".html", ".txt"}:
+        continue
+    if ".git" in path.parts or ".github" in path.parts:
         continue
     text = path.read_text(encoding="utf-8")
     if OLD_BUILD in text:
