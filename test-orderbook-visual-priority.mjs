@@ -120,8 +120,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-67-orderbook-static-tape-navigation-v1/);
-  assert.match(app, /orderbook\.js\?v=26-67-orderbook-static-tape-navigation-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-67-orderbook-static-tape-navigation-v1/);
-  assert.match(sw, /26-67-orderbook-static-tape-navigation-v1/);
+  assert.match(index, /26-68-tape-cluster-lifecycle-v1/);
+  assert.match(app, /orderbook\.js\?v=26-68-tape-cluster-lifecycle-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-68-tape-cluster-lifecycle-v1/);
+  assert.match(sw, /26-68-tape-cluster-lifecycle-v1/);
 });

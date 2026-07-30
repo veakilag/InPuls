@@ -152,9 +152,9 @@ test("AUTO keeps one threshold per coin for the whole session", () => {
 });
 
 test("hover distance uses color for direction and absolute compact text", () => {
-  assert.equal(bookDistancePercentLabel(101, 100), "1.00%");
-  assert.equal(bookDistancePercentLabel(99.75, 100), "0.250%");
-  assert.equal(bookDistancePercentLabel(100, 100), "0.000%");
+  assert.equal(bookDistancePercentLabel(101, 100), "1.0%");
+  assert.equal(bookDistancePercentLabel(99.75, 100), "0.3%");
+  assert.equal(bookDistancePercentLabel(100, 100), "0.0%");
   assert.equal(bookDistancePercentLabel(null, 100), "");
   assert.equal(bookDistancePercentLabel(100, 0), "");
 });

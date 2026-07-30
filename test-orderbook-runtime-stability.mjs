@@ -12,12 +12,12 @@ const sw = readFileSync(new URL("./sw.js", import.meta.url), "utf8");
 const reset = readFileSync(new URL("./reset-v26.html", import.meta.url), "utf8");
 
 test("normal reload keeps one consistent runtime build", () => {
-  assert.match(index, /app\.js\?v=26-67-orderbook-static-tape-navigation-v1/);
-  assert.match(app, /orderbook\.js\?v=26-67-orderbook-static-tape-navigation-v1/);
+  assert.match(index, /app\.js\?v=26-68-tape-cluster-lifecycle-v1/);
+  assert.match(app, /orderbook\.js\?v=26-68-tape-cluster-lifecycle-v1/);
   assert.match(app, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-67-orderbook-static-tape-navigation-v1/);
-  assert.match(orderbook, /orderbook-worker\.js\?v=26-67-orderbook-static-tape-navigation-v1/);
-  assert.match(sw, /inpuls-26-67-orderbook-static-tape-navigation-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-68-tape-cluster-lifecycle-v1/);
+  assert.match(orderbook, /orderbook-worker\.js\?v=26-68-tape-cluster-lifecycle-v1/);
+  assert.match(sw, /inpuls-26-68-tape-cluster-lifecycle-v1/);
   assert.match(reset, /Resume v2/);
   assert.doesNotMatch(app, /getRegistrations\(\).*unregister/s);
 });
@@ -38,8 +38,8 @@ test("hidden tabs close sockets instead of accumulating a stale queue", () => {
 
 test("workspace order is footprint then Tape then book", () => {
   assert.match(flow, /grid-template-areas: "clusters split-a tape split-b book"/);
-  assert.match(flow, /data-footprint-timeframe="60000"/);
-  assert.match(flow, /data-footprint-timeframe="300000"/);
+  assert.match(flow, /data-footprint-select/);
+  assert.match(flow, /data-footprint-favorite/);
   assert.doesNotMatch(flow, /<span>Δ<\/span>/);
 });
 

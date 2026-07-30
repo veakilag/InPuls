@@ -2,10 +2,10 @@ import {
   adaptiveRawDiameter,
   buildReadableTapeLayout,
   selectReadableAggLabels,
-} from "./orderbook-tape-layout.js?v=stable-tape-v3";
+} from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-67-orderbook-static-tape-navigation-v1";
+import "./orderbook-flow-workspace.js?v=26-68-tape-cluster-lifecycle-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -99,10 +99,8 @@ export function bookDistancePercentLabel(price, currentPrice) {
   const level = Number(price);
   const current = Number(currentPrice);
   if (!Number.isFinite(level) || !Number.isFinite(current) || current <= 0) return "";
-  const percent = ((level - current) / current) * 100;
-  const absolute = Math.abs(percent);
-  const digits = absolute >= 10 ? 1 : absolute >= 1 ? 2 : 3;
-  return `${absolute.toFixed(digits)}%`;
+  const percent = Math.abs(((level - current) / current) * 100);
+  return `${percent.toFixed(1)}%`;
 }
 
 export function partialDepthView(event, limit = 20) {
@@ -1387,7 +1385,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-67-orderbook-static-tape-navigation-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-68-tape-cluster-lifecycle-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1801,7 +1799,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-67-orderbook-static-tape-navigation-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-68-tape-cluster-lifecycle-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -1819,6 +1817,15 @@ const TAPE_STALE_NOTICE_MS = 3_000;
 const TAPE_STATE_REFRESH_MS = 1_000;
 const TAPE_FREEZE_AFTER_MS = 2_500;
 const TAPE_MODE_KEY = "inpuls-tape-mode-v2";
+const TAPE_AGG_LEVEL_KEY = "inpuls-tape-aggregation-level-v1";
+const DENSITY_AGE_VISIBLE_KEY = "inpuls-density-age-visible-v1";
+export const TAPE_AGGREGATION_LEVELS = Object.freeze([
+  Object.freeze({ label: "×1", bucketMs: 180, priceSteps: 1 }),
+  Object.freeze({ label: "×2", bucketMs: 360, priceSteps: 1 }),
+  Object.freeze({ label: "×4", bucketMs: 720, priceSteps: 2 }),
+  Object.freeze({ label: "×8", bucketMs: 1_440, priceSteps: 4 }),
+  Object.freeze({ label: "×16", bucketMs: 2_880, priceSteps: 8 }),
+]);
 const TAPE_VISIBLE_KEY = "inpuls-tape-visible-v1";
 const CLUSTERS_VISIBLE_KEY = "inpuls-clusters-visible-v1";
 const TAPE_MIN_FILTER_KEY = "inpuls-tape-min-filter-v3";
@@ -1954,11 +1961,19 @@ function installOrderBookStyles() {
     .orderbook-card .trade-flow .book-hover-percent {
       position: absolute !important;
       z-index: 12 !important;
-      right: 2px !important;
+      right: 1px !important;
       left: auto !important;
+      width: 34px !important;
+      height: 18px !important;
+      box-sizing: border-box;
+      display: grid !important;
+      place-items: center;
+      padding: 0 !important;
+      border-radius: 2px !important;
       transform: translateY(-50%) !important;
       pointer-events: none !important;
       white-space: nowrap;
+      font-variant-numeric: tabular-nums;
     }
     .orderbook-card .orderbook-tape,
     .orderbook-card .trade-tape-body {
@@ -2071,6 +2086,52 @@ function installOrderBookStyles() {
       color: #42e1ad;
       border-color: rgba(66, 225, 173, .48);
       background: rgba(66, 225, 173, .09);
+    }
+    .orderbook-card .inpuls-agg-step {
+      width: 22px;
+      min-width: 22px;
+      height: 22px;
+      padding: 0;
+      border-radius: 4px;
+      font-weight: 900;
+    }
+    .orderbook-card .inpuls-agg-step:disabled {
+      opacity: .28;
+      cursor: default;
+    }
+    .orderbook-card .inpuls-density-age-toggle {
+      min-width: 38px;
+      height: 18px;
+      padding: 0 4px;
+      border: 1px solid var(--line-soft);
+      border-radius: 4px;
+      background: var(--panel-2);
+      color: var(--muted);
+      font: 800 8px/1 Inter, system-ui, sans-serif;
+      cursor: pointer;
+    }
+    .orderbook-card .inpuls-density-age-toggle.is-active {
+      color: #5de1b5;
+      border-color: rgba(93, 225, 181, .45);
+      background: rgba(45, 179, 132, .1);
+    }
+    .orderbook-card .book-size[data-density-age]::after {
+      content: attr(data-density-age);
+      position: absolute;
+      z-index: 3;
+      right: 2px;
+      top: 50%;
+      transform: translateY(-50%);
+      min-width: 27px;
+      padding: 1px 3px;
+      border: 1px solid rgba(224, 235, 239, .28);
+      border-radius: 3px;
+      background: rgba(4, 8, 11, .82);
+      color: #e7f0f3;
+      font: 800 7px/1 Inter, system-ui, sans-serif;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+      pointer-events: none;
     }
     .orderbook-card .orderbook-heading [data-book-ticker] {
       max-width: min(38%, 210px);
@@ -2553,14 +2614,84 @@ function handleRuntimeSplitter(event) {
   document.addEventListener("pointercancel", stop, true);
 }
 
+function aggregationLevel(state) {
+  const index = Math.max(
+    0,
+    Math.min(
+      TAPE_AGGREGATION_LEVELS.length - 1,
+      Math.floor(Number(state?.aggLevelIndex) || 0),
+    ),
+  );
+  return { index, ...TAPE_AGGREGATION_LEVELS[index] };
+}
+
 function syncTapeModeButton(button, state) {
   const aggregated = state.mode === "agg";
-  button.textContent = aggregated ? "AGG" : "RAW";
+  const level = aggregationLevel(state);
+  button.textContent = aggregated ? `AGG ${level.label}` : "RAW";
   button.classList.toggle("is-active", aggregated);
   button.setAttribute("aria-pressed", String(aggregated));
   button.title = aggregated
-    ? "Агрегация последовательного рыночного удара без секундных корзин"
+    ? `Фиксированные бакеты ${level.bucketMs} мс · цена ×${level.priceSteps}. Позиция прошлых агрегатов не меняется.`
     : "Каждое исполнение отображается отдельно по точному времени";
+  state.controls?.querySelectorAll?.("[data-inpuls-agg-step]").forEach((control) => {
+    control.disabled = !aggregated;
+  });
+}
+
+function formatObservedAge(value) {
+  const totalSeconds = Math.max(0, Math.floor((Number(value) || 0) / 1_000));
+  if (totalSeconds < 60) return `${totalSeconds}с`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return `${minutes}м${String(seconds).padStart(2, "0")}с`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}ч${String(minutes % 60).padStart(2, "0")}м`;
+}
+
+function decorateDensityAges(card, state = tapeCardStates.get(card)) {
+  const rows = [...card.querySelectorAll(".orderbook-rows .book-ladder-row")];
+  for (const row of rows) row.querySelector(".book-size")?.removeAttribute("data-density-age");
+  if (!state?.densityAgeVisible) return;
+  const symbol = cardSymbol(card);
+  const data = symbol ? latestBookDataBySymbol.get(symbol) : null;
+  const densities = data?.densityLifecycle?.densities;
+  if (!Array.isArray(densities) || !densities.length) return;
+  const step = Math.max(Number.EPSILON, runtimePriceStep(card) || 0);
+  const now = Date.now();
+  for (const row of rows) {
+    if (!row.classList.contains("is-anomaly")) continue;
+    const price = parseRuntimeNumber(row.querySelector("strong")?.textContent);
+    const side = row.classList.contains("is-ask") ? "ask" : "bid";
+    if (!Number.isFinite(price)) continue;
+    const matches = densities.filter((density) => (
+      density?.side === side
+      && Number.isFinite(Number(density?.price))
+      && Math.abs(Number(density.price) - price) <= Math.max(Number.EPSILON, step * .55)
+    ));
+    if (!matches.length) continue;
+    matches.sort((left, right) => Number(right.currentQuote) - Number(left.currentQuote));
+    const density = matches[0];
+    const observedAt = Number(density.firstObservedAt);
+    const age = Number.isFinite(observedAt)
+      ? Math.max(0, now - observedAt)
+      : Math.max(0, Number(density.ageMs) || 0);
+    const size = row.querySelector(".book-size");
+    if (size) {
+      size.dataset.densityAge = formatObservedAge(age);
+      size.title = `Наблюдаемый возраст плотности ${formatObservedAge(age)} · ${density.state || "active"}`;
+    }
+  }
+}
+
+function syncDensityAgeButton(button, state, card) {
+  if (!button) return;
+  button.classList.toggle("is-active", state.densityAgeVisible);
+  button.setAttribute("aria-pressed", String(state.densityAgeVisible));
+  button.title = state.densityAgeVisible
+    ? "Скрыть наблюдаемый возраст аномальных плотностей"
+    : "Показать наблюдаемый возраст аномальных плотностей";
+  card.classList.toggle("is-density-age-visible", state.densityAgeVisible);
 }
 
 function syncLayerButtons(card, state) {
@@ -2602,6 +2733,11 @@ function ensureTapeUi(card) {
       canvas: null,
       context: null,
       mode: localStorage.getItem(TAPE_MODE_KEY) === "agg" ? "agg" : "raw",
+      aggLevelIndex: Math.max(0, Math.min(
+        TAPE_AGGREGATION_LEVELS.length - 1,
+        Math.floor(Number(localStorage.getItem(TAPE_AGG_LEVEL_KEY)) || 0),
+      )),
+      densityAgeVisible: localStorage.getItem(DENSITY_AGE_VISIBLE_KEY) === "1",
       minQuote: savedMinimum === null ? 0 : Math.max(0, Number(savedMinimum) || 0),
       tapeVisible: localStorage.getItem(TAPE_VISIBLE_KEY) !== "0",
       clustersVisible: localStorage.getItem(CLUSTERS_VISIBLE_KEY) !== "0",
@@ -2618,6 +2754,7 @@ function ensureTapeUi(card) {
       titleTarget: null,
       lastSymbol: null,
       hasFrame: false,
+      lastRenderSignature: null,
     };
     tapeCardStates.set(card, state);
   }
@@ -2629,7 +2766,7 @@ function ensureTapeUi(card) {
     canvas.setAttribute("aria-label", "Лента рыночных сделок");
     flow.append(canvas);
     state.canvas = canvas;
-    state.context = canvas.getContext("2d", { alpha: true, desynchronized: true });
+    state.context = canvas.getContext("2d", { alpha: false, desynchronized: false });
   }
 
   if (!state.status?.isConnected || state.status.parentElement !== flow) {
@@ -2661,7 +2798,9 @@ function ensureTapeUi(card) {
       <label class="inpuls-tape-filter" title="Показывать сделки или агрегаты не меньше суммы">
         <span>ОТ $</span><input data-inpuls-trade-min type="number" min="0" step="100" value="${state.minQuote}" aria-label="Минимальный размер сделки или агрегата" />
       </label>
-      <button data-inpuls-tape-mode class="inpuls-tape-mode" type="button"></button>`;
+      <button data-inpuls-agg-step="down" class="inpuls-agg-step" type="button" title="Меньше агрегация">−</button>
+      <button data-inpuls-tape-mode class="inpuls-tape-mode" type="button"></button>
+      <button data-inpuls-agg-step="up" class="inpuls-agg-step" type="button" title="Больше агрегация">+</button>`;
     toolbar.append(controls);
     state.controls = controls;
 
@@ -2680,6 +2819,20 @@ function ensureTapeUi(card) {
       localStorage.setItem(TAPE_MODE_KEY, state.mode);
       syncTapeModeButton(modeButton, state);
       scheduleTapeDraw(true, card);
+    });
+    controls.querySelectorAll("[data-inpuls-agg-step]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const direction = button.dataset.inpulsAggStep === "up" ? 1 : -1;
+        state.aggLevelIndex = Math.max(0, Math.min(
+          TAPE_AGGREGATION_LEVELS.length - 1,
+          state.aggLevelIndex + direction,
+        ));
+        state.mode = "agg";
+        localStorage.setItem(TAPE_MODE_KEY, state.mode);
+        localStorage.setItem(TAPE_AGG_LEVEL_KEY, String(state.aggLevelIndex));
+        syncTapeModeButton(modeButton, state);
+        scheduleTapeDraw(true, card);
+      });
     });
     syncTapeModeButton(modeButton, state);
     syncLayerButtons(card, state);
@@ -2715,6 +2868,27 @@ function ensureTapeUi(card) {
     });
   }
   syncLayerButtons(card, state);
+
+  const bookActions = card.querySelector(".inpuls-book-pane-actions");
+  if (bookActions) {
+    let densityButton = bookActions.querySelector("[data-inpuls-density-age]");
+    if (!densityButton) {
+      densityButton = document.createElement("button");
+      densityButton.type = "button";
+      densityButton.className = "inpuls-density-age-toggle";
+      densityButton.dataset.inpulsDensityAge = "1";
+      densityButton.textContent = "ВОЗР";
+      bookActions.append(densityButton);
+      densityButton.addEventListener("click", () => {
+        state.densityAgeVisible = !state.densityAgeVisible;
+        localStorage.setItem(DENSITY_AGE_VISIBLE_KEY, state.densityAgeVisible ? "1" : "0");
+        syncDensityAgeButton(densityButton, state, card);
+        decorateDensityAges(card, state);
+      });
+    }
+    syncDensityAgeButton(densityButton, state, card);
+  }
+  decorateDensityAges(card, state);
 
   const rows = card.querySelector(".orderbook-rows");
   if (state.rowTarget !== rows) {
@@ -2818,6 +2992,11 @@ function acceptBookData(event) {
   if (!symbol.endsWith("USDT") || !data) return;
   latestBookDataBySymbol.set(symbol, data);
   scheduleLiquidityForSymbol(symbol);
+  requestAnimationFrame(() => {
+    document.querySelectorAll(".orderbook-card").forEach((card) => {
+      if (cardSymbol(card) === symbol) decorateDensityAges(card);
+    });
+  });
 }
 
 function acceptBookStatus(event) {
@@ -3102,14 +3281,47 @@ function rawTapeItemsContinuous(trades, rows, window) {
     .filter(Boolean);
 }
 
-function aggregateTapeBurstsContinuous(trades, rows, window, step) {
-  return aggregateTradeBursts(
-    trades.filter((trade) => trade.time >= window.startTime && trade.time <= window.endTime),
+export function aggregateTapeBuckets(trades, priceStep = .01, levelIndex = 0, window = null) {
+  const level = TAPE_AGGREGATION_LEVELS[Math.max(
     0,
-    step,
-    180,
-    1,
-  )
+    Math.min(TAPE_AGGREGATION_LEVELS.length - 1, Math.floor(Number(levelIndex) || 0)),
+  )];
+  const baseStep = Math.max(Number.EPSILON, Number(priceStep) || .01);
+  const aggregateStep = baseStep * level.priceSteps;
+  const buckets = new Map();
+  for (const trade of trades ?? []) {
+    const time = Number(trade?.time);
+    const price = Number(trade?.price);
+    const quote = Number(trade?.quote);
+    if (![time, price, quote].every(Number.isFinite) || quote <= 0) continue;
+    if (window && (time < window.startTime || time > window.endTime)) continue;
+    const bucketStart = Math.floor(time / level.bucketMs) * level.bucketMs;
+    const priceIndex = Math.round(price / aggregateStep);
+    const key = `agg:${level.label}:${bucketStart}:${priceIndex}`;
+    const item = buckets.get(key) ?? {
+      key,
+      time: bucketStart + level.bucketMs / 2,
+      lastTime: bucketStart + level.bucketMs / 2,
+      price: Number((priceIndex * aggregateStep).toPrecision(15)),
+      quote: 0,
+      buyQuote: 0,
+      sellQuote: 0,
+      count: 0,
+      bucketStart,
+      bucketMs: level.bucketMs,
+    };
+    item.quote += quote;
+    item[trade.side === "sell" ? "sellQuote" : "buyQuote"] += quote;
+    item.count += 1;
+    buckets.set(key, item);
+  }
+  return [...buckets.values()].sort((left, right) => (
+    left.time - right.time || left.price - right.price || left.key.localeCompare(right.key)
+  ));
+}
+
+function aggregateTapeBurstsContinuous(trades, rows, window, step, levelIndex = 0) {
+  return aggregateTapeBuckets(trades, step, levelIndex, window)
     .map((burst) => {
       const position = tapePricePosition(rows, burst.price);
       return position ? { ...burst, row: position } : null;
@@ -3239,6 +3451,7 @@ function drawTapeCard(card) {
     canvas.width = pixelWidth;
     canvas.height = pixelHeight;
     state.hasFrame = false;
+    state.lastRenderSignature = null;
   }
   context.setTransform(dpr, 0, 0, dpr, 0, 0);
 
@@ -3298,6 +3511,28 @@ function drawTapeCard(card) {
     if (trade.time < window.startTime) break;
     recent.push(trade);
   }
+  const latestTrade = recent[0];
+  const rowSignature = rows.map((row) => `${row.price}:${row.y.toFixed(2)}:${row.height.toFixed(2)}`).join("|");
+  const renderSignature = [
+    symbol,
+    state.mode,
+    state.aggLevelIndex,
+    state.minQuote,
+    pixelWidth,
+    pixelHeight,
+    latestTrade ? tapeTradeKey(latestTrade) : "empty",
+    window.startTime,
+    window.endTime,
+    rowSignature,
+    frozen ? "frozen" : "live",
+  ].join("::");
+  if (state.hasFrame && state.lastRenderSignature === renderSignature) {
+    decorateDensityAges(card, state);
+    skip("unchanged-frame");
+    return;
+  }
+  state.lastRenderSignature = renderSignature;
+
   if (!recent.length) {
     paintTapeSurface(context, rect);
     state.hasFrame = false;
@@ -3323,14 +3558,16 @@ function drawTapeCard(card) {
   }
 
   const rawCandidates = recent.filter((trade) => passesTapeFilter(trade, minQuote, 0));
+  const aggregatedCandidates = state.mode === "agg"
+    ? aggregateTapeBuckets(recent, step, state.aggLevelIndex, window)
+        .filter((item) => passesTapeFilter(item, minQuote, 0))
+    : [];
   const items = state.mode === "agg"
-    ? aggregateTapeBurstsContinuous(recent, rows, window, step)
+    ? aggregateTapeBurstsContinuous(recent, rows, window, step, state.aggLevelIndex)
         .filter((item) => passesTapeFilter(item, minQuote, 0))
     : rawTapeItemsContinuous(rawCandidates, rows, window);
 
-  const candidates = state.mode === "agg"
-    ? aggregateTradeBursts(recent, minQuote, step, 180, 1)
-    : rawCandidates;
+  const candidates = state.mode === "agg" ? aggregatedCandidates : rawCandidates;
 
   if (!candidates.length) {
     setTapeState(state, "Нет сделок по текущему фильтру");
@@ -3559,6 +3796,15 @@ function scheduleTapeDraw(force = false, card = null) {
   if (tapeDocumentHidden) return;
 
   if (force) {
+    if (card?.isConnected) {
+      const state = tapeCardStates.get(card);
+      if (state) state.lastRenderSignature = null;
+    } else {
+      document.querySelectorAll(".orderbook-card").forEach((target) => {
+        const state = tapeCardStates.get(target);
+        if (state) state.lastRenderSignature = null;
+      });
+    }
     tapeLastDrawAt = 0;
     if (tapeDrawTimer) clearTimeout(tapeDrawTimer);
     tapeDrawTimer = 0;
@@ -3842,10 +4088,17 @@ function installOrderBookRuntime() {
 
   clearInterval(tapeStateTimer);
   tapeStateTimer = setInterval(() => {
-    if (!tapeDocumentHidden) {
-      scanTapeCards(document);
-      scheduleTapeDraw();
-    }
+    if (tapeDocumentHidden) return;
+    scanTapeCards(document);
+    document.querySelectorAll(".orderbook-card").forEach((card) => {
+      const state = tapeCardStates.get(card);
+      if (!state) return;
+      decorateDensityAges(card, state);
+      const symbol = cardSymbol(card);
+      const suffix = staleTradeSuffix(symbol);
+      if (suffix) setTapeState(state, `НЕТ НОВЫХ СДЕЛОК${suffix}`, "attention");
+      else if (state.status?.textContent?.startsWith("НЕТ НОВЫХ СДЕЛОК")) setTapeState(state, "");
+    });
   }, TAPE_STATE_REFRESH_MS);
 
   scheduleTapeDraw(true);

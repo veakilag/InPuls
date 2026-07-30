@@ -9,11 +9,12 @@ const resetScript = readFileSync(new URL("./reset.js", import.meta.url), "utf8")
 
 test("Tape v2.1 keeps RAW default and AGG explicit", () => {
   assert.match(orderbook, /mode: localStorage\.getItem\(TAPE_MODE_KEY\) === "agg" \? "agg" : "raw"/);
-  assert.match(orderbook, /button\.textContent = aggregated \? "AGG" : "RAW"/);
+  assert.match(orderbook, /button\.textContent = aggregated/);
+  assert.match(orderbook, /TAPE_AGGREGATION_LEVELS/);
 });
 
 test("renderer uses readable layout and removes RAW labels", () => {
-  assert.match(orderbook, /from "\.\/orderbook-tape-layout\.js\?v=stable-tape-v3"/);
+  assert.match(orderbook, /from "\.\/orderbook-tape-layout\.js\?v=stable-tape-v4"/);
   assert.match(orderbook, /buildReadableTapeLayout/);
   assert.match(orderbook, /adaptiveRawDiameter/);
   assert.match(orderbook, /selectReadableAggLabels/);
@@ -35,19 +36,19 @@ test("renderer uses readable layout and removes RAW labels", () => {
 });
 
 test("Flow Workspace cache and reset page point to the new runtime", () => {
-  assert.match(orderbook, /inpuls-orderbook-runtime-26-67-orderbook-static-tape-navigation-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-67-orderbook-static-tape-navigation-v1/);
-  assert.match(serviceWorker, /inpuls-26-67-orderbook-static-tape-navigation-v1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=26-67-orderbook-static-tape-navigation-v1/);
+  assert.match(orderbook, /inpuls-orderbook-runtime-26-68-tape-cluster-lifecycle-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-68-tape-cluster-lifecycle-v1/);
+  assert.match(serviceWorker, /inpuls-26-68-tape-cluster-lifecycle-v1/);
+  assert.match(serviceWorker, /orderbook\.js\?v=26-68-tape-cluster-lifecycle-v1/);
   assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-67-orderbook-static-tape-navigation-v1/);
-  assert.match(serviceWorker, /orderbook-tape-layout\.js\?v=stable-tape-v3/);
+  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-68-tape-cluster-lifecycle-v1/);
+  assert.match(serviceWorker, /orderbook-tape-layout\.js\?v=stable-tape-v4/);
   assert.match(serviceWorker, /orderbook-tape-latency\.js\?v=worker-bp-v1/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-67-orderbook-static-tape-navigation-v1/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-68-tape-cluster-lifecycle-v1/);
   assert.match(resetPage, /Resume v2/);
-  assert.match(resetPage, /reset\.js\?v=26-67-orderbook-static-tape-navigation-v1/);
+  assert.match(resetPage, /reset\.js\?v=26-68-tape-cluster-lifecycle-v1/);
   assert.match(resetScript, /sw\.js\?v=\$\{BUILD\}/);
-  assert.match(resetScript, /26-67-orderbook-static-tape-navigation-v1/);
+  assert.match(resetScript, /26-68-tape-cluster-lifecycle-v1/);
 });
 
 test("production TAPE accepts only live packets and starts from an empty frame", () => {

@@ -10,11 +10,24 @@ export const FLOW_WORKSPACE = Object.freeze({
   minimumBookPx: 104,
 });
 
-export const FOOTPRINT_TIMEFRAMES = Object.freeze([60_000, 5 * 60_000]);
-const FOOTPRINT_TIMEFRAME_KEY = "inpuls-footprint-timeframe-v1";
+export const FOOTPRINT_TIMEFRAMES = Object.freeze([
+  "1s", "5s", "15s", "1m", "3m", "5m", "15m", "30m",
+  "1h", "2h", "4h", "12h", "1d", "3d", "1w", "1M",
+]);
+const FOOTPRINT_TIMEFRAME_KEY = "inpuls-footprint-timeframe-v2";
+const FOOTPRINT_FAVORITES_KEY = "inpuls-footprint-favorite-timeframes-v1";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
-const FOOTPRINT_MINUTE_MS = 60_000;
-const FOOTPRINT_RETAIN_MINUTES = 30;
+const FOOTPRINT_BASE_BUCKET_MS = 1_000;
+const FOOTPRINT_RETAIN_MS = 30 * 60_000;
+const FOOTPRINT_INTERVAL_MS = Object.freeze({
+  "1s": 1_000, "5s": 5_000, "15s": 15_000,
+  "1m": 60_000, "3m": 180_000, "5m": 300_000,
+  "15m": 900_000, "30m": 1_800_000,
+  "1h": 3_600_000, "2h": 7_200_000, "4h": 14_400_000,
+  "12h": 43_200_000, "1d": 86_400_000, "3d": 259_200_000,
+  "1w": 604_800_000,
+});
+const FOOTPRINT_DEFAULT_FAVORITES = Object.freeze(["1m", "5m", "15m"]);
 const FOOTPRINT_DEFAULT_COLUMN_PX = 54;
 const FOOTPRINT_MIN_COLUMN_PX = 34;
 const FOOTPRINT_MAX_COLUMN_PX = 90;
@@ -204,22 +217,53 @@ export function visibleFlowCount(trades, startTime, endTime) {
   return count;
 }
 
-export function footprintIntervalStart(time, timeframeMs = FOOTPRINT_TIMEFRAMES[0]) {
+export function normalizeFootprintTimeframe(value) {
+  const text = String(value ?? "");
+  if (FOOTPRINT_TIMEFRAMES.includes(text)) return text;
+  const legacy = Number(value);
+  if (legacy === 60_000) return "1m";
+  if (legacy === 300_000) return "5m";
+  return "1m";
+}
+
+export function footprintIntervalStart(time, timeframeValue = "1m") {
   const at = Number(time) || Date.now();
-  const timeframe = FOOTPRINT_TIMEFRAMES.includes(Number(timeframeMs))
-    ? Number(timeframeMs)
-    : FOOTPRINT_TIMEFRAMES[0];
-  return Math.floor(at / timeframe) * timeframe;
+  const timeframe = normalizeFootprintTimeframe(timeframeValue);
+  if (timeframe === "1M") {
+    const date = new Date(at);
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+  }
+  if (timeframe === "1w") {
+    const week = FOOTPRINT_INTERVAL_MS[timeframe];
+    const mondayEpoch = 4 * 86_400_000;
+    return Math.floor((at - mondayEpoch) / week) * week + mondayEpoch;
+  }
+  const duration = FOOTPRINT_INTERVAL_MS[timeframe] || 60_000;
+  return Math.floor(at / duration) * duration;
+}
+
+export function shiftFootprintInterval(startTime, timeframeValue, amount) {
+  const timeframe = normalizeFootprintTimeframe(timeframeValue);
+  const shift = Math.trunc(Number(amount) || 0);
+  if (timeframe === "1M") {
+    const date = new Date(Number(startTime));
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + shift, 1);
+  }
+  return Number(startTime) + (FOOTPRINT_INTERVAL_MS[timeframe] || 60_000) * shift;
+}
+
+export function footprintIntervalEnd(startTime, timeframeValue = "1m") {
+  return shiftFootprintInterval(startTime, timeframeValue, 1);
 }
 
 export function createFootprintAccumulator() {
-  return { minutes: new Map() };
+  return { seconds: new Map(), firstObservedAt: null, lastObservedAt: null };
 }
 
-function minuteBucket(accumulator, startTime) {
-  const bucket = accumulator.minutes.get(startTime) ?? {
+function footprintSecondBucket(accumulator, startTime) {
+  const bucket = accumulator.seconds.get(startTime) ?? {
     startTime,
-    endTime: startTime + FOOTPRINT_MINUTE_MS,
+    endTime: startTime + FOOTPRINT_BASE_BUCKET_MS,
     count: 0,
     quote: 0,
     firstTradeTime: Infinity,
@@ -230,33 +274,39 @@ function minuteBucket(accumulator, startTime) {
     lowPrice: null,
     cells: new Map(),
   };
-  accumulator.minutes.set(startTime, bucket);
+  accumulator.seconds.set(startTime, bucket);
   return bucket;
 }
 
 function pruneFootprintAccumulator(accumulator, referenceTime = Date.now()) {
-  const currentMinute = footprintIntervalStart(referenceTime, FOOTPRINT_MINUTE_MS);
-  const minimum = currentMinute - (FOOTPRINT_RETAIN_MINUTES - 1) * FOOTPRINT_MINUTE_MS;
-  for (const startTime of accumulator.minutes.keys()) {
-    if (startTime < minimum || startTime > currentMinute) {
-      accumulator.minutes.delete(startTime);
+  const cutoff = Number(referenceTime) - FOOTPRINT_RETAIN_MS;
+  for (const startTime of accumulator.seconds.keys()) {
+    if (startTime < cutoff || startTime > Number(referenceTime) + FOOTPRINT_BASE_BUCKET_MS) {
+      accumulator.seconds.delete(startTime);
     }
   }
 }
 
 export function ingestFootprintTrades(accumulator, incoming, { replace = false } = {}) {
-  const target = accumulator?.minutes instanceof Map
-    ? accumulator
-    : createFootprintAccumulator();
-  if (replace) target.minutes.clear();
+  const target = accumulator?.seconds instanceof Map ? accumulator : createFootprintAccumulator();
+  if (replace) {
+    target.seconds.clear();
+    target.firstObservedAt = null;
+    target.lastObservedAt = null;
+  }
   let latestTime = 0;
-
   for (const rawTrade of incoming ?? []) {
     const trade = normalizeFlowTrade(rawTrade);
     if (!trade) continue;
     latestTime = Math.max(latestTime, trade.time);
-    const startTime = footprintIntervalStart(trade.time, FOOTPRINT_MINUTE_MS);
-    const bucket = minuteBucket(target, startTime);
+    target.firstObservedAt = target.firstObservedAt === null
+      ? trade.time
+      : Math.min(target.firstObservedAt, trade.time);
+    target.lastObservedAt = target.lastObservedAt === null
+      ? trade.time
+      : Math.max(target.lastObservedAt, trade.time);
+    const startTime = Math.floor(trade.time / FOOTPRINT_BASE_BUCKET_MS) * FOOTPRINT_BASE_BUCKET_MS;
+    const bucket = footprintSecondBucket(target, startTime);
     const priceKey = Number(trade.price).toPrecision(15);
     const cell = bucket.cells.get(priceKey) ?? {
       price: trade.price,
@@ -279,25 +329,16 @@ export function ingestFootprintTrades(accumulator, incoming, { replace = false }
       bucket.lastTradeTime = trade.time;
       bucket.closePrice = trade.price;
     }
-    bucket.highPrice = bucket.highPrice === null
-      ? trade.price
-      : Math.max(bucket.highPrice, trade.price);
-    bucket.lowPrice = bucket.lowPrice === null
-      ? trade.price
-      : Math.min(bucket.lowPrice, trade.price);
+    bucket.highPrice = bucket.highPrice === null ? trade.price : Math.max(bucket.highPrice, trade.price);
+    bucket.lowPrice = bucket.lowPrice === null ? trade.price : Math.min(bucket.lowPrice, trade.price);
   }
-
   pruneFootprintAccumulator(target, latestTime || Date.now());
   return target;
 }
 
-function footprintSnapshotAt(
-  accumulator,
-  timeframe,
-  startTime,
-  now,
-) {
-  const endTime = startTime + timeframe;
+function footprintSnapshotAt(accumulator, timeframeValue, startTime, now) {
+  const timeframe = normalizeFootprintTimeframe(timeframeValue);
+  const endTime = footprintIntervalEnd(startTime, timeframe);
   const cells = new Map();
   let count = 0;
   let quote = 0;
@@ -307,8 +348,7 @@ function footprintSnapshotAt(
   let closePrice = null;
   let highPrice = null;
   let lowPrice = null;
-
-  for (const bucket of accumulator?.minutes?.values?.() ?? []) {
+  for (const bucket of accumulator?.seconds?.values?.() ?? []) {
     if (bucket.startTime < startTime || bucket.startTime >= endTime) continue;
     count += bucket.count;
     quote += bucket.quote;
@@ -320,21 +360,11 @@ function footprintSnapshotAt(
       lastTradeTime = bucket.lastTradeTime;
       closePrice = bucket.closePrice;
     }
-    if (Number.isFinite(bucket.highPrice)) {
-      highPrice = highPrice === null ? bucket.highPrice : Math.max(highPrice, bucket.highPrice);
-    }
-    if (Number.isFinite(bucket.lowPrice)) {
-      lowPrice = lowPrice === null ? bucket.lowPrice : Math.min(lowPrice, bucket.lowPrice);
-    }
+    if (Number.isFinite(bucket.highPrice)) highPrice = highPrice === null ? bucket.highPrice : Math.max(highPrice, bucket.highPrice);
+    if (Number.isFinite(bucket.lowPrice)) lowPrice = lowPrice === null ? bucket.lowPrice : Math.min(lowPrice, bucket.lowPrice);
     for (const source of bucket.cells.values()) {
       const priceKey = Number(source.price).toPrecision(15);
-      const cell = cells.get(priceKey) ?? {
-        price: source.price,
-        buyQuote: 0,
-        sellQuote: 0,
-        quote: 0,
-        count: 0,
-      };
+      const cell = cells.get(priceKey) ?? { price: source.price, buyQuote: 0, sellQuote: 0, quote: 0, count: 0 };
       cell.buyQuote += source.buyQuote;
       cell.sellQuote += source.sellQuote;
       cell.quote += source.quote;
@@ -342,12 +372,13 @@ function footprintSnapshotAt(
       cells.set(priceKey, cell);
     }
   }
-
+  const firstObservedAt = Number(accumulator?.firstObservedAt);
   return {
     timeframe,
     startTime,
     endTime,
     partial: Number(now) < endTime,
+    sessionPartial: !Number.isFinite(firstObservedAt) || firstObservedAt > startTime + FOOTPRINT_BASE_BUCKET_MS,
     count,
     quote,
     openPrice,
@@ -358,74 +389,49 @@ function footprintSnapshotAt(
   };
 }
 
-export function footprintIntervalSnapshot(
-  accumulator,
-  timeframeMs = FOOTPRINT_TIMEFRAMES[0],
-  now = Date.now(),
-) {
-  const timeframe = FOOTPRINT_TIMEFRAMES.includes(Number(timeframeMs))
-    ? Number(timeframeMs)
-    : FOOTPRINT_TIMEFRAMES[0];
+export function footprintIntervalSnapshot(accumulator, timeframeValue = "1m", now = Date.now()) {
+  const timeframe = normalizeFootprintTimeframe(timeframeValue);
   const startTime = footprintIntervalStart(now, timeframe);
   return footprintSnapshotAt(accumulator, timeframe, startTime, now);
 }
 
 export function footprintIntervalHistory(
   accumulator,
-  timeframeMs = FOOTPRINT_TIMEFRAMES[0],
+  timeframeValue = "1m",
   now = Date.now(),
   limit = FOOTPRINT_MAX_VISIBLE_COLUMNS,
   offset = 0,
 ) {
-  const timeframe = FOOTPRINT_TIMEFRAMES.includes(Number(timeframeMs))
-    ? Number(timeframeMs)
-    : FOOTPRINT_TIMEFRAMES[0];
-  const maximum = Math.max(
-    1,
-    Math.min(FOOTPRINT_MAX_VISIBLE_COLUMNS, Math.floor(Number(limit) || 1)),
-  );
+  const timeframe = normalizeFootprintTimeframe(timeframeValue);
+  const maximum = Math.max(1, Math.min(FOOTPRINT_MAX_VISIBLE_COLUMNS, Math.floor(Number(limit) || 1)));
+  const starts = [...(accumulator?.seconds?.keys?.() ?? [])].map(Number).filter(Number.isFinite);
   const currentStart = footprintIntervalStart(now, timeframe);
-  const earliestMinute = Math.min(
-    currentStart,
-    ...[...(accumulator?.minutes?.keys?.() ?? [])].map(Number).filter(Number.isFinite),
-  );
-  const earliestInterval = footprintIntervalStart(earliestMinute, timeframe);
-  const latestOffset = Math.max(
-    0,
-    Math.floor((currentStart - earliestInterval) / timeframe),
-  );
-  const safeOffset = Math.min(
-    latestOffset,
-    Math.max(0, Math.floor(Number(offset) || 0)),
-  );
-  const endStart = currentStart - safeOffset * timeframe;
-  const available = Math.max(
-    1,
-    Math.floor((endStart - earliestInterval) / timeframe) + 1,
-  );
-  const count = Math.min(maximum, available);
-
-  return Array.from({ length: count }, (_, index) => {
-    const startTime = endStart - (count - index - 1) * timeframe;
-    return footprintSnapshotAt(accumulator, timeframe, startTime, now);
-  });
+  const earliestStart = starts.length
+    ? footprintIntervalStart(Math.min(...starts), timeframe)
+    : currentStart;
+  const latestOffset = footprintHistoryOffsetLimit(accumulator, timeframe, now);
+  const safeOffset = Math.min(latestOffset, Math.max(0, Math.floor(Number(offset) || 0)));
+  let cursor = shiftFootprintInterval(currentStart, timeframe, -safeOffset);
+  const reversed = [];
+  while (reversed.length < maximum && cursor >= earliestStart) {
+    reversed.push(footprintSnapshotAt(accumulator, timeframe, cursor, now));
+    cursor = shiftFootprintInterval(cursor, timeframe, -1);
+  }
+  return reversed.reverse();
 }
 
-export function footprintHistoryOffsetLimit(
-  accumulator,
-  timeframeMs = FOOTPRINT_TIMEFRAMES[0],
-  now = Date.now(),
-) {
-  const timeframe = FOOTPRINT_TIMEFRAMES.includes(Number(timeframeMs))
-    ? Number(timeframeMs)
-    : FOOTPRINT_TIMEFRAMES[0];
-  const starts = [...(accumulator?.minutes?.keys?.() ?? [])]
-    .map(Number)
-    .filter(Number.isFinite);
+export function footprintHistoryOffsetLimit(accumulator, timeframeValue = "1m", now = Date.now()) {
+  const starts = [...(accumulator?.seconds?.keys?.() ?? [])].map(Number).filter(Number.isFinite);
   if (!starts.length) return 0;
+  const timeframe = normalizeFootprintTimeframe(timeframeValue);
   const earliest = footprintIntervalStart(Math.min(...starts), timeframe);
-  const latest = footprintIntervalStart(now, timeframe);
-  return Math.max(0, Math.floor((latest - earliest) / timeframe));
+  let cursor = footprintIntervalStart(now, timeframe);
+  let count = 0;
+  while (cursor > earliest && count < 10_000) {
+    cursor = shiftFootprintInterval(cursor, timeframe, -1);
+    count += 1;
+  }
+  return count;
 }
 
 const footprintBySymbol = new Map();
@@ -500,6 +506,50 @@ function rgbaHex(value, alpha = 1) {
   return `rgba(${Number.parseInt(value.slice(1, 3), 16)}, ${
     Number.parseInt(value.slice(3, 5), 16)
   }, ${Number.parseInt(value.slice(5, 7), 16)}, ${clamp(alpha, 0, 1)})`;
+}
+
+function footprintTimeframeLabel(value) {
+  return normalizeFootprintTimeframe(value)
+    .replace("1M", "1мес")
+    .replace("s", "с")
+    .replace("m", "м")
+    .replace("h", "ч")
+    .replace("d", "д")
+    .replace("w", "н");
+}
+
+function readFootprintFavorites() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FOOTPRINT_FAVORITES_KEY) || "null");
+    const values = Array.isArray(parsed) ? parsed : FOOTPRINT_DEFAULT_FAVORITES;
+    const normalized = [...new Set(values.map(normalizeFootprintTimeframe))]
+      .filter((item) => FOOTPRINT_TIMEFRAMES.includes(item))
+      .sort((left, right) => FOOTPRINT_TIMEFRAMES.indexOf(left) - FOOTPRINT_TIMEFRAMES.indexOf(right));
+    return normalized.length ? normalized.slice(0, 6) : [...FOOTPRINT_DEFAULT_FAVORITES];
+  } catch {
+    return [...FOOTPRINT_DEFAULT_FAVORITES];
+  }
+}
+
+function saveFootprintFavorites(values) {
+  localStorage.setItem(FOOTPRINT_FAVORITES_KEY, JSON.stringify(values));
+}
+
+function renderFootprintTimeframeControls(pane, state) {
+  const favorites = readFootprintFavorites();
+  const root = pane.querySelector("[data-footprint-favorites]");
+  const menu = pane.querySelector("[data-footprint-menu]");
+  if (root) {
+    root.innerHTML = favorites.map((timeframe) => (
+      `<button type="button" data-footprint-select="${timeframe}" class="${timeframe === state.timeframeMs ? "is-active" : ""}" aria-pressed="${timeframe === state.timeframeMs}">${footprintTimeframeLabel(timeframe)}</button>`
+    )).join("");
+  }
+  if (menu) {
+    menu.innerHTML = FOOTPRINT_TIMEFRAMES.map((timeframe) => {
+      const favorite = favorites.includes(timeframe);
+      return `<div><button type="button" data-footprint-select="${timeframe}" class="${timeframe === state.timeframeMs ? "is-active" : ""}">${footprintTimeframeLabel(timeframe)}</button><button type="button" data-footprint-favorite="${timeframe}" aria-label="${favorite ? "Убрать из избранного" : "Добавить в избранное"}">${favorite ? "★" : "☆"}</button></div>`;
+    }).join("");
+  }
 }
 
 function footprintTheme() {
@@ -655,6 +705,38 @@ function injectStyles() {
       color: var(--muted);
       white-space: nowrap;
     }
+    .orderbook-card .inpuls-footprint-favorites {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .orderbook-card .inpuls-footprint-more { flex: 0 0 auto; }
+    .orderbook-card .inpuls-footprint-menu {
+      position: absolute;
+      z-index: 20;
+      top: 22px;
+      left: 4px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(70px, 1fr));
+      gap: 2px;
+      width: min(210px, calc(100% - 8px));
+      max-height: 210px;
+      overflow: auto;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: color-mix(in srgb, var(--panel) 98%, #000);
+      box-shadow: 0 8px 22px rgba(0,0,0,.48);
+    }
+    .orderbook-card .inpuls-footprint-menu[hidden] { display: none !important; }
+    .orderbook-card .inpuls-footprint-menu > div {
+      display: grid;
+      grid-template-columns: 1fr 24px;
+      gap: 2px;
+    }
+    .orderbook-card .inpuls-footprint-menu button { min-width: 0; }
     .orderbook-card .inpuls-footprint-canvas {
       position: absolute;
       inset: 23px 0 0;
@@ -805,8 +887,9 @@ function ensureCard(card) {
   pane.setAttribute("aria-label", "Footprint-кластеры исполненных сделок");
   pane.innerHTML = `
     <div class="inpuls-footprint-toolbar">
-      <button type="button" data-footprint-timeframe="60000" class="is-active" aria-pressed="true">1М</button>
-      <button type="button" data-footprint-timeframe="300000" aria-pressed="false">5М</button>
+      <span class="inpuls-footprint-favorites" data-footprint-favorites></span>
+      <button type="button" class="inpuls-footprint-more" data-footprint-more aria-expanded="false" title="Все таймфреймы и избранное">⋯</button>
+      <div class="inpuls-footprint-menu" data-footprint-menu hidden></div>
       <strong data-footprint-navigation>LIVE</strong>
     </div>
     <canvas class="inpuls-footprint-canvas"></canvas>
@@ -835,11 +918,7 @@ function ensureCard(card) {
     canvas,
     context: canvas.getContext("2d"),
     visible: true,
-    timeframeMs: FOOTPRINT_TIMEFRAMES.includes(
-      Number(localStorage.getItem(FOOTPRINT_TIMEFRAME_KEY)),
-    )
-      ? Number(localStorage.getItem(FOOTPRINT_TIMEFRAME_KEY))
-      : FOOTPRINT_TIMEFRAMES[0],
+    timeframeMs: normalizeFootprintTimeframe(localStorage.getItem(FOOTPRINT_TIMEFRAME_KEY) || "1m"),
     columnWidthPx: FOOTPRINT_DEFAULT_COLUMN_PX,
     historyOffset: 0,
     hasFrame: false,
@@ -847,26 +926,42 @@ function ensureCard(card) {
   };
   cardStates.set(card, state);
 
-  const syncTimeframes = () => {
-    pane.querySelectorAll("[data-footprint-timeframe]").forEach((button) => {
-      const active = Number(button.dataset.footprintTimeframe) === state.timeframeMs;
-      button.classList.toggle("is-active", active);
-      button.setAttribute("aria-pressed", String(active));
-    });
-  };
-  pane.querySelectorAll("[data-footprint-timeframe]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.timeframeMs = Number(button.dataset.footprintTimeframe);
+  const syncTimeframes = () => renderFootprintTimeframeControls(pane, state);
+  pane.querySelector(".inpuls-footprint-toolbar").addEventListener("click", (event) => {
+    const select = event.target.closest("[data-footprint-select]");
+    const favorite = event.target.closest("[data-footprint-favorite]");
+    const more = event.target.closest("[data-footprint-more]");
+    const menu = pane.querySelector("[data-footprint-menu]");
+    if (more) {
+      const open = menu?.hidden !== false;
+      if (menu) menu.hidden = !open;
+      more.setAttribute("aria-expanded", String(open));
+      return;
+    }
+    if (favorite) {
+      const timeframe = normalizeFootprintTimeframe(favorite.dataset.footprintFavorite);
+      const favorites = readFootprintFavorites();
+      const next = favorites.includes(timeframe)
+        ? favorites.filter((item) => item !== timeframe)
+        : [...favorites, timeframe]
+            .sort((left, right) => FOOTPRINT_TIMEFRAMES.indexOf(left) - FOOTPRINT_TIMEFRAMES.indexOf(right))
+            .slice(0, 6);
+      saveFootprintFavorites(next.length ? next : [timeframe]);
+      syncTimeframes();
+      return;
+    }
+    if (select) {
+      state.timeframeMs = normalizeFootprintTimeframe(select.dataset.footprintSelect);
       state.historyOffset = 0;
-      localStorage.setItem(FOOTPRINT_TIMEFRAME_KEY, String(state.timeframeMs));
+      localStorage.setItem(FOOTPRINT_TIMEFRAME_KEY, state.timeframeMs);
+      if (menu) menu.hidden = true;
+      pane.querySelector("[data-footprint-more]")?.setAttribute("aria-expanded", "false");
       syncTimeframes();
       state.hasFrame = false;
       requestDraw(card);
-    });
+    }
   });
-  syncTimeframes();
-
-  pane.addEventListener("wheel", (event) => {
+  syncTimeframes();  pane.addEventListener("wheel", (event) => {
     if (!(event.ctrlKey || event.metaKey)) return;
     if (!Number.isFinite(event.deltaY) || event.deltaY === 0) return;
     event.preventDefault();
@@ -1031,9 +1126,13 @@ function renderCard(card, state) {
   const theme = footprintTheme();
   const navigation = state.pane.querySelector("[data-footprint-navigation]");
   if (navigation) {
+    const sessionPartial = intervals.some((interval) => interval.sessionPartial);
     navigation.textContent = state.historyOffset > 0
-      ? `−${state.historyOffset}`
-      : "LIVE";
+      ? `−${state.historyOffset}${sessionPartial ? " · P" : ""}`
+      : `LIVE${sessionPartial ? " · PARTIAL" : ""}`;
+    navigation.title = sessionPartial
+      ? "Кластеры выровнены по биржевым свечам, но поток до открытия InPuls отсутствует"
+      : "Кластеры полностью наблюдались в текущей сессии";
   }
 
   state.context.font = "800 7px Inter, system-ui, sans-serif";
@@ -1118,7 +1217,7 @@ function renderCard(card, state) {
         : rgbaHex(theme.muted, .82);
       state.context.font = "700 6.5px Inter, system-ui, sans-serif";
       state.context.fillText(
-        `${formatIntervalClock(interval.startTime)}${interval.partial ? " · LIVE" : ""}`,
+        `${formatIntervalClock(interval.startTime)}${interval.partial ? " · LIVE" : ""}${interval.sessionPartial ? " · P" : ""}`,
         centerX,
         height - 5,
       );
