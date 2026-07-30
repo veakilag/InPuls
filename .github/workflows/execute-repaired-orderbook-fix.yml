@@ -57,6 +57,32 @@ jobs:
           if count != 1:
               raise SystemExit('patch_app insertion point not found')
           exec(compile(script, '<repaired-orderbook-patch>', 'exec'), {'__name__': '__main__'})
+
+          def replace_test(path, old, new, label):
+              file = Path(path)
+              text = file.read_text(encoding='utf-8')
+              if text.count(old) != 1:
+                  raise SystemExit(f'{label}: expected one test anchor, found {text.count(old)}')
+              file.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_test(
+              'test-orderbook-manual-scroll.mjs',
+              '    /model\\.bookScaleIndex = bookScaleIndexForWheel\\(model\\.bookScaleIndex, event\\.deltaY\\);/,',
+              '    /const nextScaleIndex = bookScaleIndexForWheel\\(previousScaleIndex, event\\.deltaY\\);[\\s\\S]*model\\.bookScaleIndex = nextScaleIndex;_/,'.replace(';_/', ';/'),
+              'persisted market-anchored scale assertion',
+          )
+          replace_test(
+              'test-orderbook-visual-priority.mjs',
+              '  assert.ok(orderbook.indexOf("data-inpuls-clusters-visible") < orderbook.indexOf("data-inpuls-tape-visible"));',
+              '  assert.match(orderbook, /layerControls\\.innerHTML = `[\\s\\S]*data-inpuls-clusters-visible[\\s\\S]*data-inpuls-tape-visible[\\s\\S]*`;/);',
+              'header button order assertion',
+          )
+          replace_test(
+              'test/orderbook.test.js',
+              '  assert.equal(tapePricePosition(rows, 100.24).y, 17.6);',
+              '  assert.ok(Math.abs(tapePricePosition(rows, 100.24).y - 17.6) < 1e-9);',
+              'floating interpolation assertion',
+          )
           PY
       - name: Syntax checks
         run: |
