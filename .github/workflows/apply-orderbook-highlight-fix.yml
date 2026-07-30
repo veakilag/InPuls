@@ -147,6 +147,16 @@ jobs:
           )
           visual.write_text(text, encoding="utf-8")
 
+          ui = Path("test/ui.test.js")
+          text = ui.read_text(encoding="utf-8")
+          text = replace_once(
+              text,
+              "  assert.match(app, /const maxSize = automaticHighlight[\\s\\S]*\\? fullBookMaximum[\\s\\S]*rows\\.map\\(\\(row\\) => Math\\.max\\(0, Number\\(row\\.quote\\) \\|\\| 0\\)\\)/);",
+              "  assert.match(app, /const maxSize = Math\\.max\\([\\s\\S]*fullBookMaximum[\\s\\S]*rows\\.map\\(\\(row\\) => bookDisplayedQuote\\(row\\)\\)/);\n  assert.match(app, /const displayedQuote = bookDisplayedQuote\\(source\\)/);\n  assert.match(app, /const anomalyReference = bookAnomalyQuote\\(source, automatic\\)/);",
+              "DOM highlight invariant assertion",
+          )
+          ui.write_text(text, encoding="utf-8")
+
           text_suffixes = {".js", ".mjs", ".html", ".css", ".txt", ".json", ".webmanifest", ".md"}
           for file in Path(".").rglob("*"):
               if not file.is_file() or ".git" in file.parts or ".github" in file.parts:
