@@ -24,10 +24,13 @@ jobs:
         run: python .github/scripts/apply-water-tape-batching-v1.py
       - name: Repair generated AGG scratch function
         run: python .github/scripts/fix-water-tape-batching-generated-v1.py
+      - name: Align batched renderer tests
+        run: python .github/scripts/fix-water-tape-batching-tests-v1.py
       - name: Syntax checks
         run: |
           node --check orderbook.js
           node --check app.js
+          node --check test-orderbook-visual-priority.mjs
           node --check test-water-tape-batching-v1.mjs
       - name: Full test suite
         run: npm test
@@ -36,6 +39,7 @@ jobs:
         run: |
           rm -f .github/scripts/apply-water-tape-batching-v1.py
           rm -f .github/scripts/fix-water-tape-batching-generated-v1.py
+          rm -f .github/scripts/fix-water-tape-batching-tests-v1.py
           rm -f .github/workflows/apply-water-tape-batching-v1.yml
           git config user.name "InPuls automation"
           git config user.email "actions@users.noreply.github.com"
