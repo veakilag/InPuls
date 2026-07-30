@@ -505,11 +505,6 @@ function formatQuoteVolume(value) {
   return `$${formatUsd(value)}`;
 }
 
-function formatSignedQuoteDelta(value) {
-  const amount = Number(value) || 0;
-  if (Math.abs(amount) < .5) return "±0";
-  return `${amount > 0 ? "+" : "−"}${formatUsd(Math.abs(amount))}`;
-}
 
 function formatIntervalClock(time) {
   const date = new Date(Number(time));
@@ -1197,7 +1192,7 @@ function renderCard(card, state) {
         const cellWidth = dataWidth;
         const sellWidth = cellWidth * sellShare;
         const buyWidth = Math.max(0, cellWidth - sellWidth);
-        const alpha = .24 + clusterStrength * .42;
+        const alpha = .38 + clusterStrength * .5;
 
         state.context.fillStyle = theme.panel2;
         state.context.fillRect(cellLeft, cellTop, cellWidth, cellHeight);
@@ -1211,28 +1206,23 @@ function renderCard(card, state) {
         }
 
         state.context.strokeStyle = dominantSide === "B"
-          ? rgbaHex(theme.green, .82)
+          ? rgbaHex(theme.green, .98)
           : dominantSide === "S"
-            ? rgbaHex(theme.red, .82)
-            : rgbaHex(theme.muted, .36);
-        state.context.lineWidth = .75;
+            ? rgbaHex(theme.red, .98)
+            : rgbaHex(theme.muted, .52);
+        state.context.lineWidth = 1;
         state.context.strokeRect(cellLeft, cellTop, cellWidth, cellHeight);
 
-        const deltaText = formatSignedQuoteDelta(cluster.buyQuote - cluster.sellQuote);
         const volumeText = formatQuoteVolume(cluster.quote);
-        const valueWidth = Math.max(1, dataWidth * .47);
         state.context.fillStyle = theme.text;
-        state.context.font = "800 6.2px Inter, system-ui, sans-serif";
-        state.context.textAlign = "left";
-        state.context.fillText(deltaText, dataLeft + 2, cluster.row.y, valueWidth);
-        state.context.textAlign = "right";
+        state.context.font = "850 6.7px Inter, system-ui, sans-serif";
+        state.context.textAlign = "center";
         state.context.fillText(
           volumeText,
-          dataLeft + dataWidth - 2,
+          dataLeft + dataWidth / 2,
           cluster.row.y,
-          valueWidth,
+          Math.max(1, dataWidth - 4),
         );
-        state.context.textAlign = "center";
         state.context.font = "800 7px Inter, system-ui, sans-serif";
       }
 

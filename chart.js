@@ -708,7 +708,7 @@ export class CandlestickChart {
       const x = margins.left + (candleCenterSlot(globalIndex) - this.viewStart) * step;
       const bodyWidth = Math.max(1, Math.min(8, step * 0.68));
       const up = candle.close >= candle.open;
-      const fill = up ? this.theme.bullFill : this.theme.bearFill;
+      const fill = this.theme.bearFill;
       const stroke = up ? this.theme.bullStroke : this.theme.bearStroke;
       ctx.strokeStyle = stroke;
       ctx.fillStyle = fill;
