@@ -2100,7 +2100,7 @@ function installOrderBookStyles() {
       cursor: default;
     }
     .orderbook-card .inpuls-density-age-toggle {
-      min-width: 38px;
+      min-width: 42px;
       height: 18px;
       padding: 0 4px;
       border: 1px solid var(--line-soft);
@@ -2877,7 +2877,7 @@ function ensureTapeUi(card) {
       densityButton.type = "button";
       densityButton.className = "inpuls-density-age-toggle";
       densityButton.dataset.inpulsDensityAge = "1";
-      densityButton.textContent = "ВОЗР";
+      densityButton.textContent = "ВРЕМЯ";
       bookActions.append(densityButton);
       densityButton.addEventListener("click", () => {
         state.densityAgeVisible = !state.densityAgeVisible;

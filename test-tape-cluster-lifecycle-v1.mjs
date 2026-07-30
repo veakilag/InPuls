@@ -72,5 +72,7 @@ test("runtime ships aggregation controls, synchronized canvas and density age to
   assert.match(runtime, /data-inpuls-density-age/);
   assert.match(runtime, /densityLifecycle\?\.densities/);
   assert.match(workspace, /data-footprint-favorite/);
+  assert.match(workspace, /FOOTPRINT_MAX_RETAINED_CELLS/);
+  assert.match(workspace, /retainedFromAt/);
   assert.match(workspace, /LIVE\$\{sessionPartial \? " · PARTIAL"/);
 });

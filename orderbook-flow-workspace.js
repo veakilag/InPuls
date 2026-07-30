@@ -19,6 +19,7 @@ const FOOTPRINT_FAVORITES_KEY = "inpuls-footprint-favorite-timeframes-v1";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
 const FOOTPRINT_BASE_BUCKET_MS = 1_000;
 const FOOTPRINT_RETAIN_MS = 30 * 60_000;
+const FOOTPRINT_MAX_RETAINED_CELLS = 40_000;
 const FOOTPRINT_INTERVAL_MS = Object.freeze({
   "1s": 1_000, "5s": 5_000, "15s": 15_000,
   "1m": 60_000, "3m": 180_000, "5m": 300_000,
@@ -257,7 +258,13 @@ export function footprintIntervalEnd(startTime, timeframeValue = "1m") {
 }
 
 export function createFootprintAccumulator() {
-  return { seconds: new Map(), firstObservedAt: null, lastObservedAt: null };
+  return {
+    seconds: new Map(),
+    firstObservedAt: null,
+    lastObservedAt: null,
+    retainedFromAt: null,
+    cellCount: 0,
+  };
 }
 
 function footprintSecondBucket(accumulator, startTime) {
@@ -278,13 +285,30 @@ function footprintSecondBucket(accumulator, startTime) {
   return bucket;
 }
 
+function removeFootprintBucket(accumulator, startTime) {
+  const bucket = accumulator.seconds.get(startTime);
+  if (!bucket) return false;
+  accumulator.cellCount = Math.max(0, Number(accumulator.cellCount) - bucket.cells.size);
+  accumulator.seconds.delete(startTime);
+  return true;
+}
+
 function pruneFootprintAccumulator(accumulator, referenceTime = Date.now()) {
   const cutoff = Number(referenceTime) - FOOTPRINT_RETAIN_MS;
-  for (const startTime of accumulator.seconds.keys()) {
+  for (const startTime of [...accumulator.seconds.keys()]) {
     if (startTime < cutoff || startTime > Number(referenceTime) + FOOTPRINT_BASE_BUCKET_MS) {
-      accumulator.seconds.delete(startTime);
+      removeFootprintBucket(accumulator, startTime);
     }
   }
+  while (
+    Number(accumulator.cellCount) > FOOTPRINT_MAX_RETAINED_CELLS
+    && accumulator.seconds.size
+  ) {
+    const oldest = accumulator.seconds.keys().next().value;
+    if (!removeFootprintBucket(accumulator, oldest)) break;
+  }
+  const retained = accumulator.seconds.keys().next().value;
+  accumulator.retainedFromAt = Number.isFinite(Number(retained)) ? Number(retained) : null;
 }
 
 export function ingestFootprintTrades(accumulator, incoming, { replace = false } = {}) {
@@ -293,6 +317,8 @@ export function ingestFootprintTrades(accumulator, incoming, { replace = false }
     target.seconds.clear();
     target.firstObservedAt = null;
     target.lastObservedAt = null;
+    target.retainedFromAt = null;
+    target.cellCount = 0;
   }
   let latestTime = 0;
   for (const rawTrade of incoming ?? []) {
@@ -308,13 +334,15 @@ export function ingestFootprintTrades(accumulator, incoming, { replace = false }
     const startTime = Math.floor(trade.time / FOOTPRINT_BASE_BUCKET_MS) * FOOTPRINT_BASE_BUCKET_MS;
     const bucket = footprintSecondBucket(target, startTime);
     const priceKey = Number(trade.price).toPrecision(15);
-    const cell = bucket.cells.get(priceKey) ?? {
+    const existingCell = bucket.cells.get(priceKey);
+    const cell = existingCell ?? {
       price: trade.price,
       buyQuote: 0,
       sellQuote: 0,
       quote: 0,
       count: 0,
     };
+    if (!existingCell) target.cellCount = Math.max(0, Number(target.cellCount) || 0) + 1;
     cell[trade.side === "sell" ? "sellQuote" : "buyQuote"] += trade.quote;
     cell.quote += trade.quote;
     cell.count += 1;
@@ -373,12 +401,15 @@ function footprintSnapshotAt(accumulator, timeframeValue, startTime, now) {
     }
   }
   const firstObservedAt = Number(accumulator?.firstObservedAt);
+  const retainedFromAt = Number(accumulator?.retainedFromAt);
   return {
     timeframe,
     startTime,
     endTime,
     partial: Number(now) < endTime,
-    sessionPartial: !Number.isFinite(firstObservedAt) || firstObservedAt > startTime + FOOTPRINT_BASE_BUCKET_MS,
+    sessionPartial: !Number.isFinite(firstObservedAt)
+      || firstObservedAt > startTime + FOOTPRINT_BASE_BUCKET_MS
+      || (Number.isFinite(retainedFromAt) && retainedFromAt > startTime),
     count,
     quote,
     openPrice,
