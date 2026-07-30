@@ -42,7 +42,7 @@ jobs:
               return _strict_once(text, old, new, label)
 
           '''
-          script, count = re.subn(r'(?=def patch_app\(text\):)', fallback, script, count=1)
+          script, count = re.subn(r'(?=def patch_app\(text\):)', lambda _: fallback, script, count=1)
           if count != 1:
               raise SystemExit('patch_app insertion point not found')
           exec(compile(script, '<repaired-orderbook-patch>', 'exec'), {'__name__': '__main__'})
