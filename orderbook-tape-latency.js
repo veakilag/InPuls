@@ -8,8 +8,10 @@
     const rawLatency = calibrated && Number.isFinite(received) && Number.isFinite(eventTime)
       ? received + offset - eventTime
       : null;
-    const validLatency = Number.isFinite(rawLatency) && rawLatency >= -100 && rawLatency <= 10_000
-      ? Math.max(0, rawLatency)
+    // A negative value is clock-calibration uncertainty, not a real zero-latency packet.
+    // Do not clamp it to zero because that creates a convincing but false RX 0ms status.
+    const validLatency = Number.isFinite(rawLatency) && rawLatency >= 0 && rawLatency <= 10_000
+      ? rawLatency
       : null;
     return {
       tradeTime,
