@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-75-zero-ms-live-agg-v1";
+import "./orderbook-flow-workspace.js?v=26-76-zero-ms-threshold-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1413,7 +1413,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-75-zero-ms-live-agg-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-76-zero-ms-threshold-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1827,7 +1827,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-75-zero-ms-live-agg-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-76-zero-ms-threshold-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -1848,6 +1848,7 @@ const TAPE_STALE_NOTICE_MS = 3_000;
 const TAPE_STATE_REFRESH_MS = 1_000;
 const TAPE_FREEZE_AFTER_MS = 2_500;
 const TAPE_MODE_KEY = "inpuls-tape-mode-v2";
+const TAPE_MIN_FILTER_KEY = "inpuls-tape-min-filter-v3";
 const DENSITY_AGE_VISIBLE_KEY = "inpuls-density-age-visible-v1";
 export const TAPE_AGGREGATION_PERIOD_MS = 0;
 const TAPE_VISIBLE_KEY = "inpuls-tape-visible-v1";
@@ -2744,12 +2745,13 @@ function ensureTapeUi(card) {
 
   let state = tapeCardStates.get(card);
   if (!state) {
+    const savedMinimum = localStorage.getItem(TAPE_MIN_FILTER_KEY);
     state = {
       canvas: null,
       context: null,
       mode: localStorage.getItem(TAPE_MODE_KEY) === "agg" ? "agg" : "raw",
       densityAgeVisible: localStorage.getItem(DENSITY_AGE_VISIBLE_KEY) === "1",
-      minQuote: 0,
+      minQuote: savedMinimum === null ? 0 : Math.max(0, Number(savedMinimum) || 0),
       tapeVisible: localStorage.getItem(TAPE_VISIBLE_KEY) !== "0",
       clustersVisible: localStorage.getItem(CLUSTERS_VISIBLE_KEY) !== "0",
       controls: null,
@@ -2833,11 +2835,24 @@ function ensureTapeUi(card) {
   if (!state.controls?.isConnected) {
     const controls = document.createElement("div");
     controls.className = "inpuls-tape-controls";
-    controls.innerHTML = '<button data-inpuls-tape-mode class="inpuls-tape-mode" type="button"></button>';
+    controls.innerHTML = `
+      <label class="inpuls-tape-filter" title="Показывать маркеры RAW/AGG не меньше указанного объёма. Линия строится по всем сделкам.">
+        <span>ОТ $</span>
+        <input data-inpuls-trade-min type="number" min="0" step="100" value="${state.minQuote}" aria-label="Минимальный объём отображаемой сделки или агрегата" />
+      </label>
+      <button data-inpuls-tape-mode class="inpuls-tape-mode" type="button"></button>`;
     toolbar.append(controls);
     state.controls = controls;
 
+    const minInput = controls.querySelector("[data-inpuls-trade-min]");
     const modeButton = controls.querySelector("[data-inpuls-tape-mode]");
+    const applyMinimum = () => {
+      state.minQuote = Math.max(0, Number(minInput.value) || 0);
+      localStorage.setItem(TAPE_MIN_FILTER_KEY, String(state.minQuote));
+      scheduleTapeDraw(true, card);
+    };
+    minInput.addEventListener("input", applyMinimum);
+    minInput.addEventListener("change", applyMinimum);
     modeButton.addEventListener("click", () => {
       state.mode = state.mode === "agg" ? "raw" : "agg";
       localStorage.setItem(TAPE_MODE_KEY, state.mode);
@@ -2847,6 +2862,8 @@ function ensureTapeUi(card) {
     syncTapeModeButton(modeButton, state);
     syncLayerButtons(card, state);
   } else {
+    const minInput = state.controls.querySelector("[data-inpuls-trade-min]");
+    if (minInput && document.activeElement !== minInput) minInput.value = String(state.minQuote);
     syncTapeModeButton(state.controls.querySelector("[data-inpuls-tape-mode]"), state);
   }
 
@@ -3462,7 +3479,6 @@ export function aggregateTapeZeroMs(trades) {
     current.bucketStart = current.eventTime;
     current.bucketEnd = current.eventTime;
     current.bucketMs = TAPE_AGGREGATION_PERIOD_MS;
-    current.showLabel = true;
     groups.push(current);
     current = null;
   };
@@ -3522,7 +3538,11 @@ export function materializeZeroMsAggregates(state, groups, output = []) {
     const group = groups[index];
     if (index === lastIndex) {
       // The right-most group is OPEN and is the only marker allowed to grow.
-      output.push(Object.freeze({ ...group, status: "open", showLabel: true }));
+      output.push(Object.freeze({
+        ...group,
+        status: "open",
+        showLabel: stableTapeQuoteStrength(group.quote) >= .62,
+      }));
       continue;
     }
     let snapshot = state.aggSnapshots.get(group.key);
@@ -3531,7 +3551,7 @@ export function materializeZeroMsAggregates(state, groups, output = []) {
         ...group,
         status: "sealed",
         sealedAt: Number(groups[index + 1]?.eventTime ?? group.eventTime),
-        showLabel: true,
+        showLabel: stableTapeQuoteStrength(group.quote) >= .62,
       });
       state.aggSnapshots.set(group.key, snapshot);
     }
@@ -4004,7 +4024,7 @@ function drawTapeCard(card) {
       continue;
     }
 
-    const showLabel = Boolean(item.showLabel);
+    const showLabel = minQuote > 0 || Boolean(item.showLabel);
     const openAggregate = item.status === "open";
     const label = formatTapeUsd(item.quote);
     const diameter = clampTape(4 + strength * 6, 4, 12);

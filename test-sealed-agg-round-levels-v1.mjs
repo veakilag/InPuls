@@ -63,10 +63,10 @@ test("only the right-most aggregate is OPEN and sealed history keeps object iden
   assert.equal(updatedView[1].quote, 406, "only current OPEN aggregate grows immediately");
 });
 
-test("Tape UI has RAW/AGG only and no period, level or volume-filter controls", () => {
+test("Tape UI keeps zero-ms RAW/AGG and restores the marker threshold", () => {
   assert.doesNotMatch(orderbook, /TAPE_AGGREGATION_LEVELS|data-inpuls-agg-step|AGG ×/);
   assert.doesNotMatch(orderbook, /TAPE_AGG_EVENT_GRACE_MS|TAPE_AGG_WALL_CLOCK_GRACE_MS/);
-  assert.doesNotMatch(orderbook, /data-inpuls-trade-min|TAPE_MIN_FILTER_KEY/);
+  assert.match(orderbook, /data-inpuls-trade-min|TAPE_MIN_FILTER_KEY/);
   assert.match(orderbook, /button\.textContent = aggregated \? "AGG" : "RAW"/);
   assert.match(orderbook, /AGG 0 мс/);
   assert.match(orderbook, /status: "open"/);
