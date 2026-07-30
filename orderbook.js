@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-68-tape-cluster-lifecycle-v1";
+import "./orderbook-flow-workspace.js?v=26-69-tape-stable-pixels-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -101,6 +101,33 @@ export function bookDistancePercentLabel(price, currentPrice) {
   if (!Number.isFinite(level) || !Number.isFinite(current) || current <= 0) return "";
   const percent = Math.abs(((level - current) / current) * 100);
   return `${percent.toFixed(1)}%`;
+}
+
+export function bookPsychologicalPriceUnit(referencePrice) {
+  const reference = Math.abs(Number(referencePrice));
+  if (!Number.isFinite(reference) || reference <= 0) return null;
+  const target = reference * .01;
+  return 10 ** Math.round(Math.log10(target));
+}
+
+export function bookPriceEmphasis(price, referencePrice) {
+  const value = Number(price);
+  const majorUnit = bookPsychologicalPriceUnit(referencePrice);
+  if (!Number.isFinite(value) || !Number.isFinite(majorUnit) || majorUnit <= 0) {
+    return { round: false, half: false, majorUnit: null };
+  }
+  const halfUnit = majorUnit / 2;
+  const tolerance = Math.max(Number.EPSILON, majorUnit * 1e-8);
+  const nearMultiple = (unit) => {
+    const ratio = value / unit;
+    return Math.abs(value - Math.round(ratio) * unit) <= tolerance;
+  };
+  const round = nearMultiple(majorUnit);
+  return {
+    round,
+    half: !round && nearMultiple(halfUnit),
+    majorUnit,
+  };
 }
 
 export function partialDepthView(event, limit = 20) {
@@ -1385,7 +1412,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-68-tape-cluster-lifecycle-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-69-tape-stable-pixels-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1799,7 +1826,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-68-tape-cluster-lifecycle-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-69-tape-stable-pixels-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -2470,22 +2497,18 @@ function decorateRuntimeBookRows(card) {
     .map((row) => row.querySelector("strong"))
     .filter(Boolean);
 
-  const step = runtimePriceStep(card);
-  if (Number.isFinite(step) && step > 0) {
-    const majorUnit = 10 ** Math.ceil(Math.log10(step * 20));
-    const halfUnit = majorUnit / 2;
-    const nearMultiple = (price, unit) => {
-      const ratio = price / unit;
-      return Math.abs(ratio - Math.round(ratio)) <= 1e-6;
-    };
-
-    for (const row of rows) {
-      const price = parseRuntimeNumber(row.querySelector("strong")?.textContent);
-      const round = Number.isFinite(price) && nearMultiple(price, majorUnit);
-      const half = !round && Number.isFinite(price) && nearMultiple(price, halfUnit);
-      row.classList.toggle("is-price-round", round);
-      row.classList.toggle("is-price-half", half);
-    }
+  const prices = rows
+    .map((row) => parseRuntimeNumber(row.querySelector("strong")?.textContent))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  const referencePrice = prices.length
+    ? prices[Math.floor((prices.length - 1) / 2)]
+    : null;
+  for (const row of rows) {
+    const price = parseRuntimeNumber(row.querySelector("strong")?.textContent);
+    const emphasis = bookPriceEmphasis(price, referencePrice);
+    row.classList.toggle("is-price-round", emphasis.round);
+    row.classList.toggle("is-price-half", emphasis.half);
   }
 
   const maximumTextPixels = priceElements.reduce((maximum, element) => {
@@ -3182,6 +3205,19 @@ function nearestVisibleRow(rows, price) {
   return best;
 }
 
+export function tapeWindowPixelQuantum(duration, width) {
+  const safeDuration = Math.max(1, Number(duration) || 1);
+  const safeWidth = Math.max(1, Math.floor(Number(width) || 1));
+  return safeDuration / safeWidth;
+}
+
+export function snapTapeWindowEnd(endTime, duration, width) {
+  const target = Number(endTime);
+  const quantum = tapeWindowPixelQuantum(duration, width);
+  if (!Number.isFinite(target)) return Date.now();
+  return Math.ceil(target / quantum) * quantum;
+}
+
 function buildContinuousTapeWindow(width, latestTime, requestedEndTime = null) {
   const safeWidth = Math.max(1, Number(width) || 1);
   const seconds = clampTape(
@@ -3192,9 +3228,12 @@ function buildContinuousTapeWindow(width, latestTime, requestedEndTime = null) {
   const duration = seconds * TAPE_SECOND_MS;
   const latest = Number(latestTime) || Date.now();
   const requested = Number(requestedEndTime);
-  const endTime = Number.isFinite(requested)
+  const targetEndTime = Number.isFinite(requested)
     ? Math.max(latest + 1, requested)
     : Math.max(latest + 1, Date.now());
+  // The camera advances only by complete CSS pixels. Historical dots preserve
+  // their fractional pixel phase instead of shimmering on every execution.
+  const endTime = snapTapeWindowEnd(targetEndTime, duration, safeWidth);
   const plotRight = safeWidth;
   return {
     duration,
@@ -3215,6 +3254,11 @@ function tapeTimeX(time, window, width) {
 
 function layoutTapeSequence(items, window, width) {
   return buildReadableTapeLayout(items, window, width);
+}
+
+function snapTapeCoordinate(value, dpr = 1) {
+  const scale = Math.max(1, Number(dpr) || 1);
+  return Math.round(Number(value) * scale) / scale;
 }
 
 function formatTapeClock(time) {
@@ -3512,7 +3556,15 @@ function drawTapeCard(card) {
     recent.push(trade);
   }
   const latestTrade = recent[0];
-  const rowSignature = rows.map((row) => `${row.price}:${row.y.toFixed(2)}:${row.height.toFixed(2)}`).join("|");
+  const range = visiblePriceRange(rows);
+  const averageRowHeight = rows.reduce((sum, row) => sum + row.height, 0) / Math.max(1, rows.length);
+  const rowSignature = [
+    rows.length,
+    Number(range?.low).toPrecision(12),
+    Number(range?.high).toPrecision(12),
+    Number(range?.step).toPrecision(12),
+    snapTapeCoordinate(averageRowHeight, dpr),
+  ].join(":");
   const renderSignature = [
     symbol,
     state.mode,
@@ -3548,7 +3600,6 @@ function drawTapeCard(card) {
   drawTapeTimeline(context, rect, window);
 
   const minQuote = Math.max(0, Number(state.minQuote) || 0);
-  const range = visiblePriceRange(rows);
   const step = range?.step ?? .01;
 
   if (!state.tapeVisible) {
@@ -3557,6 +3608,9 @@ function drawTapeCard(card) {
     return;
   }
 
+  // The path is market context and always uses every execution. The threshold
+  // controls only visible markers and their amount labels.
+  const rawPathItems = rawTapeItemsContinuous(recent, rows, window);
   const rawCandidates = recent.filter((trade) => passesTapeFilter(trade, minQuote, 0));
   const aggregatedCandidates = state.mode === "agg"
     ? aggregateTapeBuckets(recent, step, state.aggLevelIndex, window)
@@ -3568,9 +3622,33 @@ function drawTapeCard(card) {
     : rawTapeItemsContinuous(rawCandidates, rows, window);
 
   const candidates = state.mode === "agg" ? aggregatedCandidates : rawCandidates;
+  const pathDrawItems = layoutTapeSequence(rawPathItems, window, rect.width);
+  if (pathDrawItems.length > 1) {
+    context.save();
+    context.strokeStyle = "rgba(130, 151, 160, .34)";
+    context.lineWidth = .7;
+    context.beginPath();
+    let previous = null;
+    for (const pathItem of pathDrawItems) {
+      const pathX = snapTapeCoordinate(pathItem.x ?? tapeTimeX(
+        pathItem.lastTime ?? pathItem.time,
+        window,
+        rect.width,
+      ), dpr);
+      const pathY = snapTapeCoordinate(pathItem.row.y, dpr);
+      const pathTime = Number(pathItem.lastTime ?? pathItem.time);
+      const previousTime = Number(previous?.lastTime ?? previous?.time);
+      if (!previous || pathTime - previousTime > 1_500) context.moveTo(pathX, pathY);
+      else context.lineTo(pathX, pathY);
+      previous = pathItem;
+    }
+    context.stroke();
+    context.restore();
+  }
 
   if (!candidates.length) {
-    setTapeState(state, "Нет сделок по текущему фильтру");
+    setTapeState(state, "Линия всех сделок · нет маркеров по фильтру");
+    state.hasFrame = true;
     skip("filter-empty", { recent: recent.length });
     return;
   }
@@ -3579,7 +3657,8 @@ function drawTapeCard(card) {
   setTapeRangeSummary(state, visibility.above, visibility.below);
 
   if (!items.length) {
-    setTapeState(state, "");
+    setTapeState(state, "Линия всех сделок · маркеры вне видимой цены");
+    state.hasFrame = true;
     skip("no-visible-items", { candidates: candidates.length });
     return;
   }
@@ -3603,69 +3682,68 @@ function drawTapeCard(card) {
 
   const drawItems = layoutTapeSequence(items, window, rect.width);
   const aggLabels = state.mode === "agg"
-    ? selectReadableAggLabels(
-        drawItems.map((item) => ({
-          ...item,
-          label: formatTapeUsd(item.quote),
-          height: clampTape(7 + strengthFor(item.quote) * 7, 7, 14),
-          y: item.row.y,
-        })),
-        (label) => context.measureText(label).width,
-        { width: window.plotRight },
-        {
-          quantile: TAPE_AGG_LABEL_QUANTILE,
-          maximum: Math.max(2, Math.floor(rect.width / 150)),
-        },
-      )
+    ? minQuote > 0
+      ? new Set(drawItems.map((item) => item.key))
+      : selectReadableAggLabels(
+          drawItems.map((item) => ({
+            ...item,
+            label: formatTapeUsd(item.quote),
+            height: clampTape(7 + strengthFor(item.quote) * 7, 7, 14),
+            y: item.row.y,
+          })),
+          (label) => context.measureText(label).width,
+          { width: window.plotRight },
+          {
+            quantile: TAPE_AGG_LABEL_QUANTILE,
+            maximum: Math.max(2, Math.floor(rect.width / 150)),
+          },
+        )
     : new Set();
 
-  if (drawItems.length > 1) {
-    context.save();
-    context.strokeStyle = "rgba(130, 151, 160, .28)";
-    context.lineWidth = .65;
-    context.beginPath();
-    let previous = null;
-    for (const pathItem of drawItems) {
-      const pathX = pathItem.x ?? tapeTimeX(
-        pathItem.lastTime ?? pathItem.time,
-        window,
-        rect.width,
-      );
-      const pathY = pathItem.row.y;
-      const pathTime = Number(pathItem.lastTime ?? pathItem.time);
-      const previousTime = Number(previous?.lastTime ?? previous?.time);
-      if (!previous || pathTime - previousTime > 1_500) {
-        context.moveTo(pathX, pathY);
-      } else {
-        context.lineTo(pathX, pathY);
-      }
-      previous = pathItem;
-    }
-    context.stroke();
-    context.restore();
-  }
-
   for (const item of drawItems) {
-    const y = item.row.y;
+    const y = snapTapeCoordinate(item.row.y, dpr);
     const buy = item.buyQuote >= item.sellQuote;
     const stroke = buy ? "rgba(88, 239, 184, .9)" : "rgba(255, 121, 137, .9)";
     const strength = strengthFor(item.quote);
-    const baseX = item.x ?? tapeTimeX(item.lastTime ?? item.time, window, rect.width);
+    const baseX = snapTapeCoordinate(
+      item.x ?? tapeTimeX(item.lastTime ?? item.time, window, rect.width),
+      dpr,
+    );
 
     if (state.mode === "raw") {
-      const diameter = adaptiveRawDiameter(strength, item.density, rect.width);
-      const rightEdge = Math.max(diameter / 2 + .5, window.plotRight - diameter / 2 - .5);
-      const x = clampTape(baseX, diameter / 2 + .5, rightEdge);
-      context.beginPath();
-      context.arc(x, y, diameter / 2, 0, Math.PI * 2);
-      context.fillStyle = buy
-        ? `rgba(50, 205, 151, ${clampTape(.3 + strength * .28, .3, .82)})`
-        : `rgba(238, 91, 108, ${clampTape(.3 + strength * .28, .3, .82)})`;
-      context.fill();
-      if (diameter >= 4.2) {
-        context.lineWidth = diameter >= 7 ? .95 : .6;
+      if (minQuote > 0) {
+        const label = formatTapeUsd(item.quote);
+        const measured = context.measureText(label).width;
+        const height = clampTape(9 + strength * 5, 9, 15);
+        const width = clampTape(measured + 9, 24, Math.min(88, rect.width * .28));
+        const x = clampTape(
+          baseX,
+          width / 2 + .5,
+          Math.max(width / 2 + .5, window.plotRight - width / 2 - .5),
+        );
+        roundedRectPath(context, x - width / 2, y - height / 2, width, height, 2);
+        context.fillStyle = buy ? "rgba(42, 191, 137, .82)" : "rgba(222, 70, 87, .84)";
+        context.fill();
+        context.lineWidth = 1;
         context.strokeStyle = stroke;
         context.stroke();
+        context.fillStyle = "rgba(244, 250, 248, .99)";
+        context.fillText(label, x, y + .2);
+      } else {
+        const diameter = adaptiveRawDiameter(strength, item.density, rect.width);
+        const rightEdge = Math.max(diameter / 2 + .5, window.plotRight - diameter / 2 - .5);
+        const x = clampTape(baseX, diameter / 2 + .5, rightEdge);
+        context.beginPath();
+        context.arc(x, y, diameter / 2, 0, Math.PI * 2);
+        context.fillStyle = buy
+          ? `rgba(50, 205, 151, ${clampTape(.3 + strength * .28, .3, .82)})`
+          : `rgba(238, 91, 108, ${clampTape(.3 + strength * .28, .3, .82)})`;
+        context.fill();
+        if (diameter >= 4.2) {
+          context.lineWidth = diameter >= 7 ? .95 : .6;
+          context.strokeStyle = stroke;
+          context.stroke();
+        }
       }
       continue;
     }
