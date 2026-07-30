@@ -1,0 +1,181 @@
+name: Apply orderbook highlight invariant fix
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    if: github.head_ref == 'agent/fix-orderbook-highlight-values'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out fix branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply focused orderbook fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          OLD_BUILD = "26-55-scalper-pattern-evidence-v1"
+          NEW_BUILD = "26-66-orderbook-highlight-invariant-v1"
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          app = Path("app.js")
+          app_text = app.read_text(encoding="utf-8")
+          import_old = "import { aggregateFootprintClusters, aggregateTradePath, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from \"./orderbook.js?v=26-55-scalper-pattern-evidence-v1\";"
+          import_new = "import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from \"./orderbook.js?v=26-66-orderbook-highlight-invariant-v1\";"
+          if app_text.count(import_old) != 1:
+              raise SystemExit("app.js: orderbook import anchor changed")
+          app_text = app_text.replace(import_old, import_new, 1)
+
+          scale_old = '''  // AUTO shows the largest real order inside an aggregated row, so its bar
+          // uses the full-book real-order maximum. Manual ≥ $ keeps the band total.
+          const automaticHighlight = panel.model.highlightMode !== "manual";
+          const maxSize = automaticHighlight
+            ? fullBookMaximum
+            : Math.max(
+              fullBookMaximum,
+              ...rows.map((row) => Math.max(0, Number(row.quote) || 0)),
+            );'''
+          scale_new = '''  // Highlight mode controls only anomaly classification. The visible size and
+          // its bar always use the same aggregated price-row total, so AUTO/manual
+          // switching can never rewrite liquidity values or rescale the ladder.
+          const maxSize = Math.max(
+            fullBookMaximum,
+            ...rows.map((row) => bookDisplayedQuote(row)),
+          );'''
+          if app_text.count(scale_old) != 1:
+              raise SystemExit("app.js: size-scale anchor changed")
+          app_text = app_text.replace(scale_old, scale_new, 1)
+
+          row_old = '''    const automatic = anomalyThreshold && typeof anomalyThreshold === "object";
+              const threshold = automatic ? anomalyThreshold[side] : anomalyThreshold;
+              const anomalyReference = bookDisplayedQuote(source, automatic);
+              const anomalyTier = anomalyTierForQuote(anomalyReference, threshold);'''
+          row_new = '''    const automatic = anomalyThreshold && typeof anomalyThreshold === "object";
+              const threshold = automatic ? anomalyThreshold[side] : anomalyThreshold;
+              const displayedQuote = bookDisplayedQuote(source);
+              const anomalyReference = bookAnomalyQuote(source, automatic);
+              const anomalyTier = anomalyTierForQuote(anomalyReference, threshold);'''
+          if app_text.count(row_old) != 1:
+              raise SystemExit("app.js: anomaly reference anchor changed")
+          app_text = app_text.replace(row_old, row_new, 1)
+
+          usage_old = '''    const size = `${Math.min(100, (anomalyReference / maxSize) * 100).toFixed(1)}%`;
+              if (element.style.getPropertyValue("--size") !== size) {
+                element.style.setProperty("--size", size);
+              }
+              const sizeText = anomalyReference > 0 ? formatCompactUsd(anomalyReference) : "";'''
+          usage_new = '''    const size = `${Math.min(100, (displayedQuote / maxSize) * 100).toFixed(1)}%`;
+              if (element.style.getPropertyValue("--size") !== size) {
+                element.style.setProperty("--size", size);
+              }
+              const sizeText = displayedQuote > 0 ? formatCompactUsd(displayedQuote) : "";'''
+          if app_text.count(usage_old) != 1:
+              raise SystemExit("app.js: displayed-size anchor changed")
+          app_text = app_text.replace(usage_old, usage_new, 1)
+          app_text = app_text.replace(f'const INPULS_RUNTIME_BUILD = "{OLD_BUILD}";', f'const INPULS_RUNTIME_BUILD = "{NEW_BUILD}";', 1)
+          app.write_text(app_text, encoding="utf-8")
+
+          orderbook = Path("orderbook.js")
+          orderbook_text = orderbook.read_text(encoding="utf-8")
+          helper_old = '''export function bookDisplayedQuote(row, automatic = false) {
+            const total = Math.max(0, Number(row?.quote) || 0);
+            const largestRealLevel = Math.max(0, Number(row?.maxLevelQuote) || 0);
+            return automatic && largestRealLevel > 0 ? largestRealLevel : total;
+          }'''
+          helper_new = '''export function bookDisplayedQuote(row) {
+            return Math.max(0, Number(row?.quote) || 0);
+          }
+
+          export function bookAnomalyQuote(row, automatic = false) {
+            const total = bookDisplayedQuote(row);
+            const largestRealLevel = Math.max(0, Number(row?.maxLevelQuote) || 0);
+            return automatic && largestRealLevel > 0 ? largestRealLevel : total;
+          }'''
+          if orderbook_text.count(helper_old) != 1:
+              raise SystemExit("orderbook.js: display helper anchor changed")
+          orderbook.write_text(orderbook_text.replace(helper_old, helper_new, 1), encoding="utf-8")
+
+          tests = Path("test/orderbook.test.js")
+          test_text = tests.read_text(encoding="utf-8")
+          test_text = test_text.replace("  bookDepthLabel,\n  bookDisplayedQuote,", "  bookAnomalyQuote,\n  bookDepthLabel,\n  bookDisplayedQuote,", 1)
+          test_old = '''test("AUTO can inspect the largest real order without treating an aggregated row as one order", () => {
+            const bids = Array.from({ length: 10 }, (_, index) => [100 - index * .01, 10]);
+            const rows = buildDepthLadder(bids, [], 100.1, 99.95, 1, 3);
+            const aggregated = rows.find((row) => row.levelCount > 1);
+            assert.ok(aggregated.quote > aggregated.maxLevelQuote * 5);
+            assert.ok(aggregated.maxLevelQuote >= 999 && aggregated.maxLevelQuote <= 1_000);
+            assert.equal(bookDisplayedQuote(aggregated, true), aggregated.maxLevelQuote);
+            assert.equal(bookDisplayedQuote(aggregated, false), aggregated.quote);
+          });'''
+          test_new = '''test("highlight modes preserve displayed size while AUTO inspects the largest real order", () => {
+            const bids = Array.from({ length: 10 }, (_, index) => [100 - index * .01, 10]);
+            const rows = buildDepthLadder(bids, [], 100.1, 99.95, 1, 3);
+            const aggregated = rows.find((row) => row.levelCount > 1);
+            assert.ok(aggregated.quote > aggregated.maxLevelQuote * 5);
+            assert.ok(aggregated.maxLevelQuote >= 999 && aggregated.maxLevelQuote <= 1_000);
+            assert.equal(bookDisplayedQuote(aggregated), aggregated.quote);
+            assert.equal(bookAnomalyQuote(aggregated, true), aggregated.maxLevelQuote);
+            assert.equal(bookAnomalyQuote(aggregated, false), aggregated.quote);
+          });'''
+          if test_text.count(test_old) != 1:
+              raise SystemExit("test/orderbook.test.js: regression-test anchor changed")
+          tests.write_text(test_text.replace(test_old, test_new, 1), encoding="utf-8")
+
+          index = Path("index.html")
+          index_text = index.read_text(encoding="utf-8")
+          if OLD_BUILD not in index_text:
+              raise SystemExit("index.html: build anchor missing")
+          index.write_text(index_text.replace(OLD_BUILD, NEW_BUILD), encoding="utf-8")
+
+          sw = Path("sw.js")
+          sw_text = sw.read_text(encoding="utf-8")
+          if OLD_BUILD not in sw_text:
+              raise SystemExit("sw.js: build anchor missing")
+          sw.write_text(sw_text.replace(OLD_BUILD, NEW_BUILD), encoding="utf-8")
+
+          version = Path("VERSION.txt")
+          version_text = version.read_text(encoding="utf-8")
+          if OLD_BUILD not in version_text:
+              raise SystemExit("VERSION.txt: build anchor missing")
+          version_text = version_text.replace(OLD_BUILD, NEW_BUILD)
+          feature = "highlight-display-invariant-v1"
+          if feature not in version_text:
+              version_text = version_text.rstrip() + ", " + feature + "\n"
+          version.write_text(version_text, encoding="utf-8")
+          PY
+
+      - name: Run test suite
+        run: npm test
+
+      - name: Commit verified fix and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/apply-orderbook-highlight-fix.yml
+          git config user.name "InPuls automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add app.js orderbook.js test/orderbook.test.js index.html sw.js VERSION.txt .github/workflows/apply-orderbook-highlight-fix.yml
+          git commit -m "fix: keep orderbook sizes stable across highlight modes"
+          git push origin HEAD:${{ github.head_ref }}
