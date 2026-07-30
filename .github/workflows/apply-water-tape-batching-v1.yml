@@ -22,6 +22,8 @@ jobs:
           node-version: 22
       - name: Apply batched frame changes
         run: python .github/scripts/apply-water-tape-batching-v1.py
+      - name: Repair generated AGG scratch function
+        run: python .github/scripts/fix-water-tape-batching-generated-v1.py
       - name: Syntax checks
         run: |
           node --check orderbook.js
@@ -33,6 +35,7 @@ jobs:
         shell: bash
         run: |
           rm -f .github/scripts/apply-water-tape-batching-v1.py
+          rm -f .github/scripts/fix-water-tape-batching-generated-v1.py
           rm -f .github/workflows/apply-water-tape-batching-v1.yml
           git config user.name "InPuls automation"
           git config user.email "actions@users.noreply.github.com"
