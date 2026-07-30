@@ -292,7 +292,9 @@ function depthTransports(symbol, mode) {
 
 function tradeStreams(symbol) {
   const name = symbol.toLowerCase();
-  return [`${name}@aggTrade`];
+  // @aggTrade remains the stable visual RAW feed. @trade is consumed only by
+  // the guarded Tiger-style 0 ms aggregation channel.
+  return [`${name}@aggTrade`, `${name}@trade`];
 }
 
 function tradeTransports(streams) {
@@ -345,6 +347,9 @@ class SymbolFeed {
     this.trades = new self.InPulsOrderBookBuffers.RecentRingBuffer(MAX_TRADE_HISTORY);
     this.tradeIds = new Set();
     this.tapeBatch = new self.InPulsOrderBookBuffers.LatestBatchQueue(MAX_PENDING_TAPE_TRADES);
+    this.aggregationTrades = new self.InPulsOrderBookBuffers.RecentRingBuffer(MAX_TRADE_HISTORY);
+    this.aggregationTradeIds = new Set();
+    this.aggregationTapeBatch = new self.InPulsOrderBookBuffers.LatestBatchQueue(MAX_PENDING_TAPE_TRADES);
     this.tapeTimer = 0;
     this.resumeTimer = 0;
     this.backgroundPaused = false;
@@ -389,6 +394,15 @@ class SymbolFeed {
     return this.trades.toArray(limit);
   }
 
+  aggregationBoundary() {
+    let boundary = null;
+    for (const trade of this.aggregationTrades) {
+      const value = Number(trade?.lastTradeId);
+      if (Number.isInteger(value) && value >= 0) boundary = boundary === null ? value : Math.max(boundary, value);
+    }
+    return boundary;
+  }
+
   tradeKey(trade) {
     const firstTradeId = Number.isInteger(Number(trade?.firstTradeId))
       ? Number(trade.firstTradeId)
@@ -400,7 +414,7 @@ class SymbolFeed {
   }
 
   resetTapeGuard() {
-    this.tapeGuard.reset({ lastOutputTradeId: this.tradeBoundary() });
+    this.tapeGuard.reset({ lastOutputTradeId: this.aggregationBoundary() });
   }
 
   addSubscriber() {
@@ -456,6 +470,8 @@ class SymbolFeed {
       replace: true,
       liveOnly: true,
       trades: [],
+      aggregationTrades: [],
+      aggregationSource: "agg",
     });
     this.connectDepth(generation);
     this.connectTrades(generation);
@@ -485,6 +501,7 @@ class SymbolFeed {
     clearTimeout(this.tapeTimer);
     clearTimeout(this.resumeTimer);
     this.tapeBatch.clear();
+    this.aggregationTapeBatch.clear();
   }
 
   resetBook(reason = "reset") {
@@ -562,6 +579,7 @@ class SymbolFeed {
     this.tradeLive = false;
     this.tradeLatency.reset();
     this.tapeBatch.clear();
+    this.aggregationTapeBatch.clear();
     clearTimeout(this.tapeTimer);
     clearTimeout(this.resumeTimer);
     this.tapeTimer = 0;
@@ -588,6 +606,8 @@ class SymbolFeed {
           replace: true,
           liveOnly: true,
           trades: [],
+      aggregationTrades: [],
+      aggregationSource: "agg",
         }, null, { sourceKind: "live-reset" });
         if (!tradeOpen && !this.tradeReconnectTimer) {
           this.connectTrades(this.generation);
@@ -635,6 +655,8 @@ class SymbolFeed {
       replace: true,
       liveOnly: true,
       trades: [],
+      aggregationTrades: [],
+      aggregationSource: "agg",
     }, null, { sourceKind: "live-reset" });
     this.connectDepth(generation);
     this.connectTrades(generation);
@@ -832,6 +854,8 @@ class SymbolFeed {
         bids: view.bids,
         asks: view.asks,
         trades: [],
+      aggregationTrades: [],
+      aggregationSource: "agg",
         bestBid,
         bestAsk,
         lastUpdateId: this.lastUpdateId,
@@ -1352,11 +1376,13 @@ class SymbolFeed {
         const update = payload.data;
         const eventType = String(update?.e ?? "").toLowerCase();
         const payloadStream = payload.stream.toLowerCase();
+        const rawEvent = eventType === "trade" || payloadStream.endsWith("@trade");
         const aggregateEvent = eventType === "aggtrade" || payloadStream.endsWith("@aggtrade");
-        if (!aggregateEvent) return;
+        if (!rawEvent && !aggregateEvent) return;
 
         const receivedAt = Date.now();
-        const trade = normalizeTrade(update, "agg", receivedAt);
+        const source = rawEvent ? "raw" : "agg";
+        const trade = normalizeTrade(update, source, receivedAt);
         if (!trade) return;
         const firstTradeMessage = !receivedTrade;
         receivedTrade = true;
@@ -1376,16 +1402,39 @@ class SymbolFeed {
             generation,
             transport: transportIndex,
             transportName: transport.name,
-            source: "agg",
+            source,
           });
         }
 
         const decision = this.tapeGuard.ingest(trade, this.lastTradeAt);
+        let changed = false;
+
+        // Preserve the visual RAW contract: it continues to receive only
+        // Binance @aggTrade events, exactly as before this feature.
+        if (aggregateEvent && this.insertTrade(trade, true)) {
+          const matchedDensities = this.densityLifecycle.ingestTrades([trade]);
+          if (matchedDensities.length) this.markDirty();
+          this.queueTape(trade);
+          changed = true;
+        }
+
+        // The second channel is sequence-guarded. It starts on @aggTrade,
+        // promotes to individual @trade after warm-up, and falls back without
+        // overlaps when raw IDs gap, reorder or go stale.
+        if (decision.emit && this.insertAggregationTrade(trade, true)) {
+          this.queueAggregationTape(trade);
+          changed = true;
+        }
+
         this.publishLiveStatus();
-        if (!decision.emit || !this.insertTrade(trade, true)) return;
-        const matchedDensities = this.densityLifecycle.ingestTrades([trade]);
-        if (matchedDensities.length) this.markDirty();
-        this.queueTape(trade);
+        if (!changed && rawEvent && decision.reason !== "raw-warmup") {
+          diagnose(this.symbol, "tape.aggregation-source", {
+            state: "skipped",
+            source,
+            reason: decision.reason,
+            mode: decision.mode,
+          });
+        }
       } finally {
         this.recordFlow("trade", processStartedAt);
       }
@@ -1435,13 +1484,8 @@ class SymbolFeed {
 
   insertTrade(trade, newestFirst = true) {
     if (!trade) return false;
-    const hasRawRange = Number.isInteger(Number(trade.firstTradeId))
-      && Number.isInteger(Number(trade.lastTradeId));
-    const firstTradeId = hasRawRange ? Number(trade.firstTradeId) : trade.id;
-    const lastTradeId = hasRawRange ? Number(trade.lastTradeId) : trade.id;
     const key = this.tradeKey(trade);
     if (this.tradeIds.has(key)) return false;
-    if (hasRawRange) this.tapeGuard.advanceBoundary(lastTradeId);
     this.tradeIds.add(key);
     const evicted = newestFirst
       ? this.trades.prepend(trade)
@@ -1454,28 +1498,58 @@ class SymbolFeed {
     return true;
   }
 
-  queueTape(trade) {
-    if (!trade || !tabVisible) return;
-    this.tapeBatch.push(trade);
+  insertAggregationTrade(trade, newestFirst = true) {
+    if (!trade) return false;
+    const key = this.tradeKey(trade);
+    if (this.aggregationTradeIds.has(key)) return false;
+    this.aggregationTradeIds.add(key);
+    const evicted = newestFirst
+      ? this.aggregationTrades.prepend(trade)
+      : this.aggregationTrades.append(trade);
+    if (evicted === trade) {
+      this.aggregationTradeIds.delete(key);
+      return false;
+    }
+    if (evicted) this.aggregationTradeIds.delete(this.tradeKey(evicted));
+    return true;
+  }
+
+  scheduleTapeFlush() {
     if (!this.tapeTimer) {
       this.tapeTimer = setTimeout(() => this.flushTapeBatch(), TAPE_FLUSH_MS);
     }
+  }
+
+  queueTape(trade) {
+    if (!trade || !tabVisible) return;
+    this.tapeBatch.push(trade);
+    this.scheduleTapeFlush();
+  }
+
+  queueAggregationTape(trade) {
+    if (!trade || !tabVisible) return;
+    this.aggregationTapeBatch.push(trade);
+    this.scheduleTapeFlush();
   }
 
   flushTapeBatch() {
     this.tapeTimer = 0;
     if (!tabVisible) {
       this.tapeBatch.clear();
+      this.aggregationTapeBatch.clear();
       return;
     }
     const latest = this.tapeBatch.takeLatest(MAX_TAPE_BATCH_PER_POST);
+    const aggregationLatest = this.aggregationTapeBatch.takeLatest(MAX_TAPE_BATCH_PER_POST);
     const trades = latest.items;
-    this.tapeDroppedInWindow += latest.dropped;
-    if (trades.length) {
-      const sourceEventTimeMs = trades.reduce(
-        (latest, trade) => Math.max(latest, Number(trade?.eventTime) || 0),
+    const aggregationTrades = aggregationLatest.items;
+    this.tapeDroppedInWindow += latest.dropped + aggregationLatest.dropped;
+    if (trades.length || aggregationTrades.length) {
+      const sourceEventTimeMs = [...trades, ...aggregationTrades].reduce(
+        (latestTime, trade) => Math.max(latestTime, Number(trade?.eventTime) || 0),
         0,
       );
+      const guard = this.tapeGuard.snapshot();
       post(
         "tape",
         this.symbol,
@@ -1484,13 +1558,16 @@ class SymbolFeed {
           live: true,
           liveOnly: true,
           trades,
+          aggregationTrades,
+          aggregationSource: guard.mode,
+          aggregationHealth: guard,
           backpressure: {
-            dropped: latest.dropped,
-            pending: this.tapeBatch.length,
+            dropped: latest.dropped + aggregationLatest.dropped,
+            pending: this.tapeBatch.length + this.aggregationTapeBatch.length,
           },
         },
         observabilityEnabled ? performance.now() : null,
-        { sourceEventTimeMs, sourceKind: "live-trade" },
+        { sourceEventTimeMs, sourceKind: "live-trade-dual" },
       );
     }
   }

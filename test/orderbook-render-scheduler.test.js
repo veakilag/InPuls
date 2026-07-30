@@ -36,9 +36,10 @@ test("Tape draw work yields across animation frames without dropping dirty cards
   assert.doesNotMatch(runtime, /dirtyTapeCards\.clear\(\)/);
 });
 
-test("Tape ingestion shares each frame between active symbols", () => {
+test("Tape ingestion shares each frame between symbols and both trade channels", () => {
   assert.match(runtime, /const liveShare = Math\.max\(1, Math\.floor\(budget \/ Math\.max\(1, pendingEntries\.length\)\)\)/);
-  assert.match(runtime, /Math\.min\(budget, liveShare, pending\.trades\.length\)/);
+  assert.match(runtime, /const allowance = pending\.resume[\s\S]*Math\.min\(budget, liveShare\)/);
+  assert.match(runtime, /pending\.aggregationTrades/);
   assert.match(runtime, /tapeRecentRateBySymbol\.set\(symbol/);
   assert.match(runtime, /tape\.ingest-frame/);
 });
@@ -65,5 +66,5 @@ test("render optimization leaves strict depth sequencing untouched", () => {
   assert.match(applyBlock, /this\.lastUpdateId = Number\(event\.u\)/);
   assert.doesNotMatch(applyBlock, /LatestFrameScheduler|TAPE_DRAW_BUDGET/);
   assert.match(serviceWorker, /render-scheduler\.js/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-76-zero-ms-threshold-v1/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-77-tiger-zero-ms-agg-v1/);
 });
