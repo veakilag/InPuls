@@ -1,6 +1,6 @@
 import { clearInPulsRuntime } from "./pwa-reset.js";
 
-const BUILD = "26-71-water-tape-v1";
+const BUILD = "26-72-water-tape-fast-v1";
 const WORKER_URL = `./sw.js?v=${BUILD}`;
 const APP_URL = `./?build=${BUILD}`;
 const button = document.getElementById("reset");

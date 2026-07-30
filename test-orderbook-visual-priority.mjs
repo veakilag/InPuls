@@ -123,8 +123,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-71-water-tape-v1/);
-  assert.match(app, /orderbook\.js\?v=26-71-water-tape-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-71-water-tape-v1/);
-  assert.match(sw, /26-71-water-tape-v1/);
+  assert.match(index, /26-72-water-tape-fast-v1/);
+  assert.match(app, /orderbook\.js\?v=26-72-water-tape-fast-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-72-water-tape-fast-v1/);
+  assert.match(sw, /26-72-water-tape-fast-v1/);
 });

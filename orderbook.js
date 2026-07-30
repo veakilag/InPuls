@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-71-water-tape-v1";
+import "./orderbook-flow-workspace.js?v=26-72-water-tape-fast-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1416,7 +1416,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-71-water-tape-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-72-water-tape-fast-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1830,7 +1830,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-71-water-tape-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-72-water-tape-fast-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -1848,6 +1848,7 @@ const TAPE_AGG_EVENT_GRACE_MS = 60;
 const TAPE_AGG_WALL_CLOCK_GRACE_MS = 650;
 const TAPE_PRICE_VIEWPORT_TAU_MS = 90;
 const TAPE_CLOCK_CORRECTION_TAU_MS = 120;
+const TAPE_VIEWPORT_SAMPLE_MS = 50;
 const TAPE_STALE_NOTICE_MS = 3_000;
 const TAPE_STATE_REFRESH_MS = 1_000;
 const TAPE_FREEZE_AFTER_MS = 2_500;
@@ -1896,6 +1897,7 @@ const BOOK_MIN_LADDER_PX = 96;
 const bookInteractionStates = new WeakMap();
 const dirtyTapeCards = new Set();
 let tapeDrawAllRequested = true;
+let cachedTapeSurfaceColor = null;
 
 export function parseRuntimeNumber(text) {
   let normalized = String(text ?? "")
@@ -2810,7 +2812,12 @@ function ensureTapeUi(card) {
       clockPerfAt: null,
       priceViewport: null,
       priceViewportAt: null,
+      targetPriceViewport: null,
+      priceRange: null,
+      viewportSampleAt: null,
+      viewportDirty: true,
       renderModelKey: null,
+      rawNodeByKey: new Map(),
       rawRenderNodes: [],
       aggSourceBuckets: [],
       aggSnapshots: new Map(),
@@ -2957,6 +2964,7 @@ function ensureTapeUi(card) {
     if (rows) {
       state.rowObserver = new MutationObserver(() => {
         decorateRuntimeBookRows(card);
+        state.viewportDirty = true;
         scheduleTapeDraw(false, card);
       });
       state.rowObserver.observe(rows, { childList: true });
@@ -2965,7 +2973,10 @@ function ensureTapeUi(card) {
 
   if (typeof ResizeObserver === "function" && state.resizeTarget !== flow) {
     state.resizeObserver?.disconnect();
-    state.resizeObserver = new ResizeObserver(() => scheduleTapeDraw(true, card));
+    state.resizeObserver = new ResizeObserver(() => {
+      state.viewportDirty = true;
+      scheduleTapeDraw(true, card);
+    });
     state.resizeObserver.observe(flow);
     state.resizeTarget = flow;
   }
@@ -2985,7 +2996,12 @@ function ensureTapeUi(card) {
           state.clockPerfAt = null;
           state.priceViewport = null;
           state.priceViewportAt = null;
+          state.targetPriceViewport = null;
+          state.priceRange = null;
+          state.viewportSampleAt = null;
+          state.viewportDirty = true;
           state.renderModelKey = null;
+          state.rawNodeByKey?.clear?.();
           state.rawRenderNodes = [];
           state.aggSourceBuckets = [];
           state.aggSnapshots?.clear?.();
@@ -3616,10 +3632,12 @@ function roundedRectPath(context, x, y, width, height, radius) {
 }
 
 function tapeSurfaceColor() {
+  if (cachedTapeSurfaceColor) return cachedTapeSurfaceColor;
   if (typeof document === "undefined") return "#181b20";
-  return getComputedStyle(document.documentElement)
+  cachedTapeSurfaceColor = getComputedStyle(document.documentElement)
     .getPropertyValue("--panel")
     .trim() || "#181b20";
+  return cachedTapeSurfaceColor;
 }
 
 function paintTapeSurface(context, rect) {
@@ -3638,9 +3656,17 @@ function refreshTapeRenderModel(state, symbol, stored, step) {
   ].join(":");
   if (state.renderModelKey === modelKey) return;
   state.renderModelKey = modelKey;
-  state.rawRenderNodes = [...stored]
-    .map((trade) => Object.freeze({
-      key: `raw:${String(trade.id)}:${trade.time}:${trade.price}:${trade.quantity}`,
+
+  const previousNodes = state.rawNodeByKey instanceof Map
+    ? state.rawNodeByKey
+    : new Map();
+  const nextNodesByKey = new Map();
+  const nextNodes = [];
+  for (let index = stored.length - 1; index >= 0; index -= 1) {
+    const trade = stored[index];
+    const key = `raw:${tapeTradeKey(trade)}`;
+    const node = previousNodes.get(key) ?? Object.freeze({
+      key,
       id: trade.id,
       time: Number(trade.time),
       lastTime: Number(trade.time),
@@ -3649,10 +3675,12 @@ function refreshTapeRenderModel(state, symbol, stored, step) {
       buyQuote: trade.side === "buy" ? Number(trade.quote) : 0,
       sellQuote: trade.side === "sell" ? Number(trade.quote) : 0,
       count: 1,
-    }))
-    .sort((left, right) => (
-      left.time - right.time || String(left.id).localeCompare(String(right.id))
-    ));
+    });
+    nextNodesByKey.set(key, node);
+    nextNodes.push(node);
+  }
+  state.rawNodeByKey = nextNodesByKey;
+  state.rawRenderNodes = nextNodes;
   state.aggSourceBuckets = aggregateTapeBuckets(
     stored,
     step,
@@ -3751,15 +3779,28 @@ function drawTapeCard(card) {
     return;
   }
 
-  const rows = visibleBookRows(card, flow);
-  const targetViewport = tapeViewportFromRows(rows);
+  const perfNow = performance.now();
+  const shouldSampleViewport = state.viewportDirty
+    || !state.targetPriceViewport
+    || state.viewportSampleAt === null
+    || perfNow - Number(state.viewportSampleAt) >= TAPE_VIEWPORT_SAMPLE_MS;
+  if (shouldSampleViewport) {
+    const sampledRows = visibleBookRows(card, flow);
+    const sampledViewport = tapeViewportFromRows(sampledRows);
+    if (sampledViewport) {
+      state.targetPriceViewport = sampledViewport;
+      state.priceRange = visiblePriceRange(sampledRows);
+      state.viewportSampleAt = perfNow;
+      state.viewportDirty = false;
+    }
+  }
+  const targetViewport = state.targetPriceViewport;
   if (!targetViewport) {
     setTapeState(state, "Жду ценовую шкалу стакана…", "attention");
     skip("missing-price-viewport");
     return;
   }
 
-  const perfNow = performance.now();
   const viewportElapsed = state.priceViewportAt === null
     ? 16
     : perfNow - Number(state.priceViewportAt);
@@ -3785,7 +3826,7 @@ function drawTapeCard(card) {
   state.clockEndTime = endTime;
   state.clockPerfAt = perfNow;
   const window = buildContinuousTapeWindow(rect.width, latestTime, endTime);
-  const range = visiblePriceRange(rows);
+  const range = state.priceRange;
   const step = range?.step ?? .01;
   refreshTapeRenderModel(state, symbol, stored, step);
 
@@ -4239,9 +4280,18 @@ function acceptTapeData(event) {
       const state = tapeCardStates.get(card);
       if (state) {
         state.hasFrame = false;
-        state.cameraEndTime = null;
-        state.cameraUpdatedAt = null;
-        state.cameraAnimating = false;
+        state.clockEndTime = null;
+        state.clockPerfAt = null;
+        state.priceViewport = null;
+        state.priceViewportAt = null;
+        state.targetPriceViewport = null;
+        state.priceRange = null;
+        state.viewportSampleAt = null;
+        state.viewportDirty = true;
+        state.renderModelKey = null;
+        state.rawNodeByKey?.clear?.();
+        state.rawRenderNodes = [];
+        state.aggSourceBuckets = [];
         state.aggSnapshots?.clear?.();
       }
     });
@@ -4304,7 +4354,10 @@ function installOrderBookRuntime() {
   window.addEventListener("focus", () => scheduleTapeDraw(true), { passive: true });
   window.addEventListener("pageshow", () => scheduleTapeDraw(true), { passive: true });
   window.addEventListener("orientationchange", () => scheduleTapeDraw(true), { passive: true });
-  globalThis.addEventListener("inpuls:theme-change", () => scheduleTapeDraw(true));
+  globalThis.addEventListener("inpuls:theme-change", () => {
+    cachedTapeSurfaceColor = null;
+    scheduleTapeDraw(true);
+  });
   document.addEventListener("fullscreenchange", () => scheduleTapeDraw(true));
   document.addEventListener("transitionend", (event) => {
     if (event.target?.closest?.(".orderbook-card")) scheduleTapeDraw(true);
@@ -4331,6 +4384,8 @@ function installOrderBookRuntime() {
     if (!card) return;
     // Центрирование удалено: обычный скролл остаётся там,
     // где его оставил пользователь. Ctrl + колесо меняет только шаг.
+    const state = tapeCardStates.get(card);
+    if (state) state.viewportDirty = true;
     setTimeout(() => scheduleTapeDraw(false, card), 0);
   }, { capture: true, passive: true });
 

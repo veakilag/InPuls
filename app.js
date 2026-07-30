@@ -7,7 +7,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=26-65-structured-signal-collection-v1";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-71-water-tape-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-72-water-tape-fast-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -3128,7 +3128,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-71-water-tape-v1";
+const INPULS_RUNTIME_BUILD = "26-72-water-tape-fast-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
