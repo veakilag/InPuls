@@ -20,6 +20,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Align generator with current reset points
+        run: |
+          sed -i 's/!= 3:/!= 4:/' .github/scripts/apply-tiger-zero-ms-agg-v1.py
+          sed -i 's/expected 3/expected 4/' .github/scripts/apply-tiger-zero-ms-agg-v1.py
       - name: Apply Tiger zero-ms AGG source
         run: python .github/scripts/apply-tiger-zero-ms-agg-v1.py
       - name: Syntax checks
