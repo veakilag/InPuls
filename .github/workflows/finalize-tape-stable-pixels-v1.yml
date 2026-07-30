@@ -1,0 +1,41 @@
+name: Finalize Tape physical pixel grid
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.head_ref == 'agent/tape-stable-pixels-cluster-lane-v1'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply final physical-pixel changes
+        run: python .github/scripts/finalize-tape-stable-pixels-v1.py
+      - name: Syntax checks
+        run: |
+          node --check orderbook.js
+          node --check orderbook-flow-workspace.js
+          node --check app.js
+      - name: Full test suite
+        run: npm test
+      - name: Commit verified finalization
+        shell: bash
+        run: |
+          rm -f .github/scripts/finalize-tape-stable-pixels-v1.py
+          rm -f .github/workflows/finalize-tape-stable-pixels-v1.yml
+          git config user.name "InPuls automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: anchor Tape to physical pixels"
+          git push origin HEAD:${{ github.head_ref }}
