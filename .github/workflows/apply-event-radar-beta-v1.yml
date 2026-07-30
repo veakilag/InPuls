@@ -10,17 +10,28 @@ on:
       - test-event-radar-beta-v1.mjs
       - scripts/apply-event-radar-beta-v1.mjs
       - .github/workflows/apply-event-radar-beta-v1.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - event-radar-beta.js
+      - event-radar-beta.css
+      - test-event-radar-beta-v1.mjs
+      - scripts/apply-event-radar-beta-v1.mjs
+      - .github/workflows/apply-event-radar-beta-v1.yml
 
 permissions:
   contents: write
 
 jobs:
   apply:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch
         uses: actions/checkout@v4
         with:
+          ref: agent/event-radar-beta-v1
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -52,4 +63,4 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           git add -A
           git commit -m "feat: add isolated event radar beta widget"
-          git push
+          git push origin HEAD:agent/event-radar-beta-v1
