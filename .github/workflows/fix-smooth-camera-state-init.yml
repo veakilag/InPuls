@@ -1,0 +1,42 @@
+name: Fix smooth camera state initialization
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    if: github.head_ref == 'agent/smooth-tape-closed-agg-v1'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply camera state fix
+        run: python .github/scripts/fix-smooth-camera-state-init.py
+      - name: Syntax checks
+        run: |
+          node --check orderbook.js
+          node --check orderbook-flow-workspace.js
+          node --check chart.js
+          node --check app.js
+      - name: Full test suite
+        run: npm test
+      - name: Commit verified fix
+        shell: bash
+        run: |
+          rm -f .github/scripts/fix-smooth-camera-state-init.py
+          rm -f .github/workflows/fix-smooth-camera-state-init.yml
+          git config user.name "InPuls automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: initialize smooth Tape camera from the first real frame"
+          git push origin HEAD:${{ github.head_ref }}
