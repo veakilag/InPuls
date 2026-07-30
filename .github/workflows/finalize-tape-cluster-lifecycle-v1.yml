@@ -1,0 +1,42 @@
+name: Finalize Tape cluster lifecycle v1
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.head_ref == 'agent/tape-cluster-lifecycle-v1'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply bounded footprint finalization
+        run: python .github/scripts/finalize-tape-cluster-lifecycle-v1.py
+      - name: Syntax checks
+        run: |
+          node --check orderbook.js
+          node --check orderbook-flow-workspace.js
+          node --check orderbook-tape-layout.js
+          node --check app.js
+      - name: Full test suite
+        run: npm test
+      - name: Commit verified finalization
+        shell: bash
+        run: |
+          rm -f .github/scripts/finalize-tape-cluster-lifecycle-v1.py
+          rm -f .github/workflows/finalize-tape-cluster-lifecycle-v1.yml
+          git config user.name "InPuls automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "perf: bound footprint session memory"
+          git push origin HEAD:${{ github.head_ref }}
