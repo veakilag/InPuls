@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-73-water-tape-batched-v1";
+import "./orderbook-flow-workspace.js?v=26-74-sealed-agg-round-levels-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -471,14 +471,10 @@ export function buildDepthLadder(bids, asks, marketPrice, viewCenter, priceStep,
   const half = Math.floor(count / 2);
   const topIndex = anchorIndex + half;
 
-  const majorUnit = 10 ** Math.ceil(Math.log10(step * 20));
-  const halfUnit = majorUnit / 2;
+  // Psychological levels are derived from the market price, never from the
+  // current display step. Zooming the ladder must not change row emphasis.
+  const majorUnit = bookPsychologicalPriceUnit(market);
   const normalizeGridPrice = (index) => Number((index * step).toPrecision(15));
-  const isMultiple = (price, unit) => {
-    if (!Number.isFinite(unit) || unit <= 0) return false;
-    const ratio = price / unit;
-    return Math.abs(ratio - Math.round(ratio)) <= 1e-7;
-  };
 
   return Array.from({ length: count }, (_, offset) => {
     const index = topIndex - offset;
@@ -489,8 +485,9 @@ export function buildDepthLadder(bids, asks, marketPrice, viewCenter, priceStep,
         ? bidBuckets.get(index)
         : (bidBuckets.get(index) ?? askBuckets.get(index));
 
-    const isRound = isMultiple(price, majorUnit);
-    const isHalfRound = !isRound && isMultiple(price, halfUnit);
+    const emphasis = bookPriceEmphasisForUnit(price, majorUnit);
+    const isRound = emphasis.round;
+    const isHalfRound = false;
     const base = source ?? {
       price,
       bidQuote: 0,
@@ -1416,7 +1413,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-73-water-tape-batched-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-74-sealed-agg-round-levels-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1830,7 +1827,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-73-water-tape-batched-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-74-sealed-agg-round-levels-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -1844,8 +1841,8 @@ const TAPE_MIN_SECONDS = 12;
 const TAPE_MAX_SECONDS = 45;
 const TAPE_TIMELINE_MIN_LABEL_GAP_PX = 42;
 const TAPE_AGG_LABEL_QUANTILE = .95;
-const TAPE_AGG_EVENT_GRACE_MS = 60;
-const TAPE_AGG_WALL_CLOCK_GRACE_MS = 650;
+const TAPE_AGG_EVENT_GRACE_MS = 180;
+const TAPE_AGG_WALL_CLOCK_GRACE_MS = 700;
 const TAPE_PRICE_VIEWPORT_TAU_MS = 90;
 const TAPE_CLOCK_CORRECTION_TAU_MS = 120;
 const TAPE_VIEWPORT_SAMPLE_MS = 50;
@@ -2279,18 +2276,9 @@ function installOrderBookStyles() {
     .orderbook-card .book-ladder-row.is-ask .book-size::before {
       background: var(--red) !important;
     }
-    .orderbook-card .book-ladder-row.is-price-half:not(.is-market),
     .orderbook-card .book-ladder-row.is-price-round:not(.is-market) {
       background: transparent !important;
       box-shadow: none !important;
-    }
-    .orderbook-card .book-ladder-row.is-price-half:not(.is-market) strong {
-      border-left: 1px solid rgba(190, 204, 214, .32);
-      color: inherit !important;
-      font-size: inherit !important;
-      font-weight: 800 !important;
-      text-shadow: none !important;
-      letter-spacing: 0 !important;
     }
     .orderbook-card .book-ladder-row.is-price-round:not(.is-market) strong {
       border-left: 2px solid color-mix(in srgb, var(--accent) 72%, #fff);
@@ -2539,7 +2527,7 @@ function decorateRuntimeBookRows(card) {
     const price = parseRuntimeNumber(row.querySelector("strong")?.textContent);
     const emphasis = bookPriceEmphasisForUnit(price, majorUnit);
     row.classList.toggle("is-price-round", emphasis.round);
-    row.classList.toggle("is-price-half", emphasis.half);
+    row.classList.remove("is-price-half");
   }
 
   const maximumTextPixels = priceElements.reduce((maximum, element) => {
@@ -2822,6 +2810,8 @@ function ensureTapeUi(card) {
       rawRenderNodes: [],
       aggSourceBuckets: [],
       aggSnapshots: new Map(),
+      aggBaseTick: null,
+      aggBaseTickSymbol: null,
       recentRawScratch: [],
       finalizedAggScratch: [],
       closedAggScratch: [],
@@ -2912,6 +2902,9 @@ function ensureTapeUi(card) {
         state.mode = "agg";
         localStorage.setItem(TAPE_MODE_KEY, state.mode);
         localStorage.setItem(TAPE_AGG_LEVEL_KEY, String(state.aggLevelIndex));
+        state.renderModelKey = null;
+        state.aggSourceBuckets = [];
+        state.aggSnapshots?.clear?.();
         syncTapeModeButton(modeButton, state);
         scheduleTapeDraw(true, card);
       });
@@ -3020,6 +3013,8 @@ function ensureTapeUi(card) {
           state.rawNodeByKey?.clear?.();
           state.rawRenderNodes = [];
           state.aggSourceBuckets = [];
+          state.aggBaseTick = null;
+          state.aggBaseTickSymbol = null;
           state.aggSnapshots?.clear?.();
           scheduleTapeDraw(true, card);
         }
@@ -3554,6 +3549,8 @@ function finalizedAggregateTapeBuckets(state, buckets, closedBefore, output = []
     if (!snapshot && bucket.bucketEnd <= closedBefore) {
       snapshot = Object.freeze({
         ...bucket,
+        status: "sealed",
+        sealedAt: Number(closedBefore),
         showLabel: stableTapeQuoteStrength(bucket.quote) >= .62,
       });
       state.aggSnapshots.set(bucket.key, snapshot);
@@ -3673,12 +3670,40 @@ function paintTapeSurface(context, rect) {
   context.fillRect(0, 0, rect.width, rect.height);
 }
 
-function refreshTapeRenderModel(state, symbol, stored, step) {
+export function tapeAggregationTickFromBook(data, fallbackStep = .01) {
+  const bestBid = Number(data?.bids?.[0]?.[0]);
+  const bestAsk = Number(data?.asks?.[0]?.[0]);
+  const middle = Number.isFinite(bestBid) && Number.isFinite(bestAsk)
+    ? (bestBid + bestAsk) / 2
+    : null;
+  const inferred = Number.isFinite(middle)
+    ? inferPriceTick(data?.bids, data?.asks, middle)
+    : null;
+  if (Number.isFinite(inferred) && inferred > 0) return inferred;
+  return Math.max(Number.EPSILON, Number(fallbackStep) || .01);
+}
+
+function stableTapeAggregationTick(state, symbol, fallbackStep = .01) {
+  if (state.aggBaseTickSymbol !== symbol) {
+    state.aggBaseTickSymbol = symbol;
+    state.aggBaseTick = null;
+  }
+  const saved = Number(state.aggBaseTick);
+  if (Number.isFinite(saved) && saved > 0) return saved;
+  const tick = tapeAggregationTickFromBook(
+    latestBookDataBySymbol.get(symbol),
+    fallbackStep,
+  );
+  state.aggBaseTick = tick;
+  return tick;
+}
+
+function refreshTapeRenderModel(state, symbol, stored, aggregationTick) {
   const version = Number(tapeDataVersionBySymbol.get(symbol)) || 0;
   const modelKey = [
     symbol,
     version,
-    Number(step).toPrecision(12),
+    Number(aggregationTick).toPrecision(12),
     state.aggLevelIndex,
   ].join(":");
   if (state.renderModelKey === modelKey) return;
@@ -3710,7 +3735,7 @@ function refreshTapeRenderModel(state, symbol, stored, step) {
   state.rawRenderNodes = nextNodes;
   state.aggSourceBuckets = aggregateTapeBuckets(
     stored,
-    step,
+    aggregationTick,
     state.aggLevelIndex,
     null,
   );
@@ -3920,15 +3945,22 @@ function drawTapeCard(card) {
   state.clockPerfAt = perfNow;
   const window = buildContinuousTapeWindow(rect.width, latestTime, endTime);
   const range = state.priceRange;
-  const step = range?.step ?? .01;
-  refreshTapeRenderModel(state, symbol, stored, step);
+  const visibleStep = range?.step ?? .01;
+  const aggregationTick = stableTapeAggregationTick(
+    state,
+    symbol,
+    visibleStep,
+  );
+  refreshTapeRenderModel(state, symbol, stored, aggregationTick);
 
   const recentRaw = visibleWaterTapeNodes(
     state.rawRenderNodes,
     window,
     state.recentRawScratch,
   );
-  const aggregateClosedBefore = Math.max(
+  // A bucket becomes visible only after both the event-time and wall-clock
+  // grace periods have elapsed. Once visible, its frozen snapshot never mutates.
+  const aggregateClosedBefore = Math.min(
     latestTime - TAPE_AGG_EVENT_GRACE_MS,
     Number(endTime) - TAPE_AGG_WALL_CLOCK_GRACE_MS,
   );
@@ -4403,6 +4435,8 @@ function acceptTapeData(event) {
         state.rawNodeByKey?.clear?.();
         state.rawRenderNodes = [];
         state.aggSourceBuckets = [];
+        state.aggBaseTick = null;
+        state.aggBaseTickSymbol = null;
         state.aggSnapshots?.clear?.();
       }
     });
@@ -4608,18 +4642,9 @@ function installOrderbookVisualPriorityStyles() {
       text-shadow: 0 0 5px color-mix(in srgb, var(--green) 52%, transparent);
       font-weight: 950 !important;
     }
-    .orderbook-card .book-ladder-row.is-price-half:not(.is-market),
     .orderbook-card .book-ladder-row.is-price-round:not(.is-market) {
       background: transparent !important;
       box-shadow: none !important;
-    }
-    .orderbook-card .book-ladder-row.is-price-half:not(.is-market) strong {
-      border-left: 1px solid rgba(190, 204, 214, .32);
-      color: inherit !important;
-      font-size: inherit !important;
-      font-weight: 800 !important;
-      text-shadow: none !important;
-      letter-spacing: 0 !important;
     }
     .orderbook-card .book-ladder-row.is-price-round:not(.is-market) strong {
       border-left: 2px solid color-mix(in srgb, var(--accent) 72%, #fff);
