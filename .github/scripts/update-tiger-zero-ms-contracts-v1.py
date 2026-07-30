@@ -19,7 +19,7 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 def replace_test(text: str, title: str, replacement: str, label: str) -> str:
     pattern = rf'test\("{re.escape(title)}",[\s\S]*?\n\}}\);'
-    updated, count = re.subn(pattern, replacement, text, count=1)
+    updated, count = re.subn(pattern, lambda _match: replacement, text, count=1)
     if count != 1:
         raise AssertionError(f"{label}: expected 1 test, found {count}")
     return updated
@@ -31,7 +31,7 @@ replacement = '''  insertTrade(trade, newestFirst = true) {
     if (!trade) return false;
     const key = this.tradeKey(trade);
     if (this.tradeIds.has(key)) return false;'''
-worker, count = re.subn(pattern, replacement, worker, count=1)
+worker, count = re.subn(pattern, lambda _match: replacement, worker, count=1)
 if count != 1:
     raise AssertionError(f"primary boundary: expected 1 block, found {count}")
 write("orderbook-worker.js", worker)
