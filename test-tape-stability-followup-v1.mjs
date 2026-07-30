@@ -31,6 +31,7 @@ test("Tape camera eases only toward the latest real-trade target", () => {
   assert.equal(advanceTapeCameraEnd(10_980, 11_000, 16, 4), 11_000);
   assert.doesNotMatch(orderbook, /snapTapeWindowEnd|tapeWindowPixelQuantum/);
   assert.match(orderbook, /function scheduleAnimatedTapeFrame\(\)/);
+  assert.match(orderbook, /const hasPrevious = state\?\.cameraEndTime !== null/);
   assert.match(orderbook, /const base = count >= 6 \? 64 : count >= 3 \? 32 : 16/);
   assert.match(orderbook, /const pathX = pathItem\.x \?\? tapeTimeX/);
 });

@@ -3256,9 +3256,16 @@ export function advanceTapeCameraEnd(previousEnd, targetEnd, elapsedMs, speed = 
 function smoothTapeWindowEnd(state, targetEnd, frozen, now = performance.now()) {
   const target = Number(targetEnd);
   const currentNow = Number(now) || performance.now();
-  const previous = Number(state?.cameraEndTime);
-  const previousAt = Number(state?.cameraUpdatedAt);
-  const reset = frozen || !Number.isFinite(previous) || target < previous;
+  const hasPrevious = state?.cameraEndTime !== null
+    && state?.cameraEndTime !== undefined
+    && state?.cameraEndTime !== ""
+    && Number.isFinite(Number(state.cameraEndTime));
+  const previous = hasPrevious ? Number(state.cameraEndTime) : null;
+  const hasPreviousAt = state?.cameraUpdatedAt !== null
+    && state?.cameraUpdatedAt !== undefined
+    && Number.isFinite(Number(state.cameraUpdatedAt));
+  const previousAt = hasPreviousAt ? Number(state.cameraUpdatedAt) : currentNow;
+  const reset = frozen || !hasPrevious || target < previous;
   const end = reset
     ? target
     : advanceTapeCameraEnd(previous, target, currentNow - previousAt);
