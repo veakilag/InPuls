@@ -7,7 +7,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=26-65-structured-signal-collection-v1";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-55-scalper-pattern-evidence-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-66-orderbook-highlight-invariant-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -1973,15 +1973,13 @@ function renderOrderBook(panel, data) {
     panel.priceStep,
     data.sizeScaleMaxQuote,
   );
-  // AUTO shows the largest real order inside an aggregated row, so its bar
-  // uses the full-book real-order maximum. Manual ≥ $ keeps the band total.
-  const automaticHighlight = panel.model.highlightMode !== "manual";
-  const maxSize = automaticHighlight
-    ? fullBookMaximum
-    : Math.max(
-      fullBookMaximum,
-      ...rows.map((row) => Math.max(0, Number(row.quote) || 0)),
-    );
+  // Highlight mode controls only anomaly classification. The visible size and
+  // its bar always use the same aggregated price-row total, so AUTO/manual
+  // switching can never rewrite liquidity values or rescale the ladder.
+  const maxSize = Math.max(
+    fullBookMaximum,
+    ...rows.map((row) => bookDisplayedQuote(row)),
+  );
   if (observability.enabled) {
     observability.record("orderbook.compute", performance.now() - phaseStartedAt, {
       symbol,
@@ -2062,7 +2060,8 @@ function patchBookLadderRows(body, rows, middle, maxSize, anomalyThreshold, base
           : "bid";
     const automatic = anomalyThreshold && typeof anomalyThreshold === "object";
     const threshold = automatic ? anomalyThreshold[side] : anomalyThreshold;
-    const anomalyReference = bookDisplayedQuote(source, automatic);
+    const displayedQuote = bookDisplayedQuote(source);
+    const anomalyReference = bookAnomalyQuote(source, automatic);
     const anomalyTier = anomalyTierForQuote(anomalyReference, threshold);
     const className = [
       "book-ladder-row",
@@ -2075,11 +2074,11 @@ function patchBookLadderRows(body, rows, middle, maxSize, anomalyThreshold, base
     ].filter(Boolean).join(" ");
     if (element.className !== className) element.className = className;
 
-    const size = `${Math.min(100, (anomalyReference / maxSize) * 100).toFixed(1)}%`;
+    const size = `${Math.min(100, (displayedQuote / maxSize) * 100).toFixed(1)}%`;
     if (element.style.getPropertyValue("--size") !== size) {
       element.style.setProperty("--size", size);
     }
-    const sizeText = anomalyReference > 0 ? formatCompactUsd(anomalyReference) : "";
+    const sizeText = displayedQuote > 0 ? formatCompactUsd(displayedQuote) : "";
     const priceText = formatBookPrice(source.isMarket ? middle : source.price, baseTick);
     if (element.firstElementChild.textContent !== sizeText) {
       element.firstElementChild.textContent = sizeText;
@@ -3115,7 +3114,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-55-scalper-pattern-evidence-v1";
+const INPULS_RUNTIME_BUILD = "26-66-orderbook-highlight-invariant-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

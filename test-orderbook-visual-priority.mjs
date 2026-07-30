@@ -28,9 +28,11 @@ test("ordinary sizes are neutral and full-book anomalies have three tiers", () =
   assert.match(app, /const orderBookAutoThresholds = new Map\(\)/);
   assert.match(app, /bid: automaticThreshold/);
   assert.match(app, /ask: automaticThreshold/);
-  assert.match(app, /bookDisplayedQuote\(source, automatic\)/);
-  assert.match(app, /const automaticHighlight = panel\.model\.highlightMode !== "manual"/);
-  assert.match(app, /rows\.map\(\(row\) => Math\.max\(0, Number\(row\.quote\) \|\| 0\)\)/);
+  assert.match(app, /const displayedQuote = bookDisplayedQuote\(source\)/);
+  assert.match(app, /const anomalyReference = bookAnomalyQuote\(source, automatic\)/);
+  assert.match(app, /rows\.map\(\(row\) => bookDisplayedQuote\(row\)\)/);
+  assert.match(app, /const sizeText = displayedQuote > 0/);
+  assert.doesNotMatch(app, /const sizeText = anomalyReference > 0/);
   assert.match(app, /function anomalyTierForQuote\(quote, threshold\)/);
   assert.match(app, /is-anomaly-tier-\$\{anomalyTier\}/);
   assert.match(orderbook, /is-anomaly-tier-1/);
@@ -112,8 +114,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-55-scalper-pattern-evidence-v1/);
-  assert.match(app, /orderbook\.js\?v=26-55-scalper-pattern-evidence-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-55-scalper-pattern-evidence-v1/);
-  assert.match(sw, /26-55-scalper-pattern-evidence-v1/);
+  assert.match(index, /26-66-orderbook-highlight-invariant-v1/);
+  assert.match(app, /orderbook\.js\?v=26-66-orderbook-highlight-invariant-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-66-orderbook-highlight-invariant-v1/);
+  assert.match(sw, /26-66-orderbook-highlight-invariant-v1/);
 });
