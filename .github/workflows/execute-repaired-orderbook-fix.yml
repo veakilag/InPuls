@@ -1,0 +1,66 @@
+name: Execute repaired orderbook fix
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'agent/orderbook-static-tape-navigation'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Execute repaired patch script
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, textwrap
+
+          source = Path('.github/workflows/apply-orderbook-static-tape-navigation-v2.yml').read_text(encoding='utf-8')
+          match = re.search(r"python - <<'PY'\n([\s\S]*?)\n          PY", source)
+          if not match:
+              raise SystemExit('embedded patch script not found')
+          script = textwrap.dedent(match.group(1))
+          fallback = r'''
+          _strict_once = once
+          def once(text, old, new, label):
+              if label == "button order" and text.count(old) != 1:
+                  pattern = r'<button data-inpuls-tape-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть ленту">ЛЕНТА</button>\s*<button data-inpuls-clusters-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть footprint-кластеры">КЛАСТЕРЫ</button>'
+                  replacement = '<button data-inpuls-clusters-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть footprint-кластеры">КЛАСТЕРЫ</button>\n      <button data-inpuls-tape-visible class="inpuls-layer-toggle" type="button" title="Показать или скрыть ленту">ЛЕНТА</button>'
+                  return sub1(text, pattern, replacement, label)
+              return _strict_once(text, old, new, label)
+
+          '''
+          script, count = re.subn(r'(?=def patch_app\(text\):)', fallback, script, count=1)
+          if count != 1:
+              raise SystemExit('patch_app insertion point not found')
+          exec(compile(script, '<repaired-orderbook-patch>', 'exec'), {'__name__': '__main__'})
+          PY
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check orderbook.js
+      - name: Full tests
+        run: npm test
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          rm -f .github/workflows/apply-orderbook-static-tape-navigation-v2.yml
+          rm -f .github/workflows/repair-orderbook-fix-workflow.yml
+          rm -f .github/workflows/execute-repaired-orderbook-fix.yml
+          git config user.name "InPuls automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: stabilize Tape prices and orderbook navigation"
+          git push origin HEAD:${{ github.head_ref }}
