@@ -4,7 +4,8 @@ import { readFileSync } from "node:fs";
 import {
   advanceTapePriceViewport,
   advanceWaterTapeClock,
-  aggregateTapeBuckets,
+  aggregateTapeZeroMs,
+  materializeZeroMsAggregates,
   bookPriceEmphasis,
   bookPriceEmphasisForUnit,
   bookPsychologicalPriceUnit,
@@ -57,15 +58,19 @@ test("all trades share one coherent affine price viewport", () => {
   assert.doesNotMatch(painter, /layoutTapeSequence|nearestVisibleRow|tapePricePosition/);
 });
 
-test("AGG buckets include the complete intersecting bucket", () => {
-  const buckets = aggregateTapeBuckets([
-    { id: 1, time: 920, price: 10, quote: 100, side: "buy" },
-    { id: 2, time: 1_000, price: 10, quote: 200, side: "sell" },
-  ], .01, 0, { startTime: 970, endTime: 1_100 });
-  assert.equal(buckets.length, 1);
-  assert.equal(buckets[0].quote, 300);
-  assert.match(orderbook, /snapshot = Object\.freeze/);
-  assert.match(orderbook, /state\.aggSourceBuckets/);
+test("zero-ms AGG groups exact event time and freezes completed history", () => {
+  const groups = aggregateTapeZeroMs([
+    { id: 1, time: 1_000, price: 10, quote: 100, quantity: 10, side: "buy" },
+    { id: 2, time: 1_000, price: 10.1, quote: 202, quantity: 20, side: "buy" },
+    { id: 3, time: 1_001, price: 10.2, quote: 204, quantity: 20, side: "sell" },
+  ]);
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].quote, 302);
+  assert.equal(groups[0].price, 10);
+  const view = materializeZeroMsAggregates({ aggSnapshots: new Map() }, groups, []);
+  assert.equal(view[0].status, "sealed");
+  assert.equal(view[1].status, "open");
+  assert.match(orderbook, /state\.aggSourceBuckets = aggregateTapeZeroMs/);
 });
 
 test("marker geometry is absolute and independent of visible neighbours", () => {
