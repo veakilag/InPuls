@@ -301,7 +301,7 @@ test("matching summary keeps exact totals and sampled distributions", () => {
   assert.ok(Math.abs(summary.volumeDifferenceP99 - .0198) < 1e-12);
 });
 
-test("browser lab keeps RAW isolated from production and uses routed multi-stream URLs", () => {
+test("browser lab stays isolated while production adds a guarded raw AGG channel", () => {
   const source = readFileSync(new URL("./raw-stability-lab.js", import.meta.url), "utf8");
   const html = readFileSync(new URL("./raw-stability-lab.html", import.meta.url), "utf8");
   const worker = readFileSync(new URL("./orderbook-worker.js", import.meta.url), "utf8");
@@ -319,9 +319,10 @@ test("browser lab keeps RAW isolated from production and uses routed multi-strea
   assert.match(source, /sequenceMarkerSamples/);
   assert.match(source, /invalidSamples/);
   assert.match(html, /raw-stability-lab\.js\?v=3/);
-  assert.match(worker, /return \[`\$\{name\}@aggTrade`\];/);
-  assert.doesNotMatch(worker, /return \[`\$\{name\}@trade`\];/);
-  assert.match(serviceWorker, /inpuls-26-76-zero-ms-threshold-v1/);
+  assert.match(worker, /return \[`\$\{name\}@aggTrade`, `\$\{name\}@trade`\];/);
+  assert.match(worker, /if \(aggregateEvent && this\.insertTrade\(trade, true\)\)/);
+  assert.match(worker, /if \(decision\.emit && this\.insertAggregationTrade\(trade, true\)\)/);
+  assert.match(serviceWorker, /inpuls-26-77-tiger-zero-ms-agg-v1/);
   assert.match(serviceWorker, /raw-stability-lab\.html/);
   assert.match(serviceWorker, /raw-stability-lab\.js\?v=3/);
   assert.match(serviceWorker, /raw-stability-core\.js\?v=3/);

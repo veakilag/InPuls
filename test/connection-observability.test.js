@@ -43,7 +43,7 @@ test("cross-context timing uses epoch timestamps and source kind", () => {
   assert.match(worker, /sourceClockOffsetMs/);
   assert.match(worker, /sourceEventTimeMs/);
   assert.match(worker, /sourceKind: this\.lastDepthEventTime \? "live-depth" : "snapshot-depth"/);
-  assert.match(worker, /sourceKind: "live-trade"/);
+  assert.match(worker, /sourceKind: "live-trade-dual"/);
   assert.doesNotMatch(worker, /sentAt: performance\.now\(\)/);
 });
 
@@ -63,5 +63,5 @@ test("new diagnostic runtime files are in the Service Worker release", () => {
   assert.match(serviceWorker, /observability\.js\?v=render-scheduler-v1/);
   assert.match(serviceWorker, /orderbook-worker-buffers\.js\?v=worker-bp-v1/);
   assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(serviceWorker, /inpuls-26-76-zero-ms-threshold-v1/);
+  assert.match(serviceWorker, /inpuls-26-77-tiger-zero-ms-agg-v1/);
 });

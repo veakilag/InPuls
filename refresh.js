@@ -1,6 +1,6 @@
 import { clearInPulsRuntime } from "./pwa-reset.js";
 
-const BUILD = "26-76-zero-ms-threshold-v1";
+const BUILD = "26-77-tiger-zero-ms-agg-v1";
 const button = document.getElementById("refresh");
 const status = document.getElementById("status");
 

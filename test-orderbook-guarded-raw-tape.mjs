@@ -100,28 +100,24 @@ test("invalid, duplicate and out-of-order events never reach the tape", () => {
   assert.equal(snapshot.rawOutOfOrderCount, 1);
 });
 
-test("production worker keeps aggregate live while the isolated guard retains RAW shadow checks", (context) => {
+test("production worker keeps visual RAW stable and routes guarded raw trades only to AGG", (context) => {
   const workerUrl = new URL("./orderbook-worker.js", import.meta.url);
   if (!existsSync(workerUrl)) { context.skip("worker is added by the branch transformer"); return; }
   const worker = readFileSync(workerUrl, "utf8");
   const guard = readFileSync(new URL("./orderbook-tape-guard.js", import.meta.url), "utf8");
   assert.match(worker, /importScripts\("\.\/orderbook-tape-guard\.js\?v=worker-bp-v1"\);/);
-  assert.match(worker, /`\$\{name\}@aggTrade`/);
-  assert.doesNotMatch(worker, /`\$\{name\}@trade`/);
+  assert.match(worker, /return \[`\$\{name\}@aggTrade`, `\$\{name\}@trade`\];/);
+  assert.match(worker, /if \(aggregateEvent && this\.insertTrade\(trade, true\)\)/);
+  assert.match(worker, /if \(decision\.emit && this\.insertAggregationTrade\(trade, true\)\)/);
+  assert.match(worker, /aggregationSource: guard\.mode/);
   assert.match(worker, /\/market\/stream\?streams=/);
   assert.match(worker, /new self\.InPulsTapeGuard/);
   assert.match(worker, /decision = this\.tapeGuard\.ingest/);
   assert.match(guard, /RAW SHADOW/);
   assert.match(guard, /AGG LIVE/);
   assert.match(worker, /tapeGuard\.label\(\)/);
-  assert.doesNotMatch(worker, /return \[`\$\{name\}@aggTrade`, `\$\{name\}@trade`\];/);
-    assert.match(worker, /const hasRawRange =/);
-  assert.match(
-    worker,
-    /if \(hasRawRange\) this\.tapeGuard\.advanceBoundary\(lastTradeId\);/,
-  );
-  assert.doesNotMatch(
-    worker,
-    /if \(Number\.isInteger\(Number\(lastTradeId\)\)\) this\.tapeGuard\.advanceBoundary/,
-  );
+  const insertStart = worker.indexOf("  insertTrade(trade");
+  const insertEnd = worker.indexOf("\n  insertAggregationTrade", insertStart);
+  const primaryInsert = worker.slice(insertStart, insertEnd);
+  assert.doesNotMatch(primaryInsert, /tapeGuard\.advanceBoundary/);
 });

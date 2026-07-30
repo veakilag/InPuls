@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-76-zero-ms-threshold-v1";
+import "./orderbook-flow-workspace.js?v=26-77-tiger-zero-ms-agg-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1413,7 +1413,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-76-zero-ms-threshold-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-77-tiger-zero-ms-agg-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1735,6 +1735,9 @@ class OrderBookWorkerManager {
           live: Boolean(message.live),
           liveOnly: Boolean(message.liveOnly),
           trades: Array.isArray(message.trades) ? message.trades : [],
+          aggregationTrades: Array.isArray(message.aggregationTrades) ? message.aggregationTrades : [],
+          aggregationSource: message.aggregationSource === "raw" ? "raw" : "agg",
+          aggregationHealth: message.aggregationHealth ?? null,
         },
       }));
     }
@@ -1827,7 +1830,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-76-zero-ms-threshold-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-77-tiger-zero-ms-agg-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -1855,6 +1858,7 @@ const TAPE_VISIBLE_KEY = "inpuls-tape-visible-v1";
 const CLUSTERS_VISIBLE_KEY = "inpuls-clusters-visible-v1";
 
 const tapeTradesBySymbol = new Map();
+const tapeAggregationTradesBySymbol = new Map();
 const latestBookDataBySymbol = new Map();
 const tapeMetaBySymbol = new Map();
 const bookStatusBySymbol = new Map();
@@ -2651,9 +2655,11 @@ function syncTapeModeButton(button, state) {
   button.textContent = aggregated ? "AGG" : "RAW";
   button.classList.toggle("is-active", aggregated);
   button.setAttribute("aria-pressed", String(aggregated));
+  const source = state.aggregationSource === "raw" ? "@trade RAW" : "@aggTrade fallback";
+  button.dataset.aggregationSource = state.aggregationSource === "raw" ? "raw" : "agg";
   button.title = aggregated
-    ? "AGG 0 мс: объединяются только последовательные исполнения с одинаковым биржевым временем и направлением. Текущий агрегат появляется сразу; история не пересчитывается."
-    : "Каждое исполнение отображается отдельно по точному времени";
+    ? `AGG 0 мс · ${source}: объединяются последовательные исполнения с одинаковым биржевым временем и направлением. Текущий агрегат появляется сразу; история не пересчитывается.`
+    : "Каждое исполнение отображается отдельно по стабильному @aggTrade-потоку";
 }
 
 function formatObservedAge(value) {
@@ -2752,6 +2758,7 @@ function ensureTapeUi(card) {
       mode: localStorage.getItem(TAPE_MODE_KEY) === "agg" ? "agg" : "raw",
       densityAgeVisible: localStorage.getItem(DENSITY_AGE_VISIBLE_KEY) === "1",
       minQuote: savedMinimum === null ? 0 : Math.max(0, Number(savedMinimum) || 0),
+      aggregationSource: "agg",
       tapeVisible: localStorage.getItem(TAPE_VISIBLE_KEY) !== "0",
       clustersVisible: localStorage.getItem(CLUSTERS_VISIBLE_KEY) !== "0",
       controls: null,
@@ -3654,7 +3661,7 @@ function paintTapeSurface(context, rect) {
   context.fillRect(0, 0, rect.width, rect.height);
 }
 
-function refreshTapeRenderModel(state, symbol, stored) {
+function refreshTapeRenderModel(state, symbol, stored, aggregationStored = stored) {
   const version = Number(tapeDataVersionBySymbol.get(symbol)) || 0;
   const modelKey = [symbol, version, "zero-ms"].join(":");
   if (state.renderModelKey === modelKey) return;
@@ -3684,7 +3691,8 @@ function refreshTapeRenderModel(state, symbol, stored) {
   }
   state.rawNodeByKey = nextNodesByKey;
   state.rawRenderNodes = nextNodes;
-  state.aggSourceBuckets = aggregateTapeZeroMs(stored);
+  const aggregationInput = aggregationStored?.length ? aggregationStored : stored;
+  state.aggSourceBuckets = aggregateTapeZeroMs(aggregationInput);
 }
 
 function visibleWaterTapeNodes(nodes, window, output = []) {
@@ -3824,7 +3832,8 @@ function drawTapeCard(card) {
   }
 
   const stored = tapeTradesBySymbol.get(symbol) ?? [];
-  if (!stored.length) {
+  const aggregationStored = tapeAggregationTradesBySymbol.get(symbol) ?? [];
+  if (!stored.length && !aggregationStored.length) {
     if (!state.hasFrame) paintTapeSurface(context, rect);
     const live = tapeStatusText(card).includes("TAPE");
     setTapeState(
@@ -3876,8 +3885,11 @@ function drawTapeCard(card) {
   state.priceViewportAt = perfNow;
 
   const meta = tapeMetaBySymbol.get(symbol) ?? {};
+  state.aggregationSource = meta.aggregationSource === "raw" ? "raw" : "agg";
+  syncTapeModeButton(state.controls?.querySelector("[data-inpuls-tape-mode]"), state);
   const latestTime = Number(meta.lastTradeTime)
     || Number(stored[0]?.time)
+    || Number(aggregationStored[0]?.time)
     || Date.now();
   const endTime = advanceWaterTapeClock(
     state.clockEndTime,
@@ -3891,7 +3903,7 @@ function drawTapeCard(card) {
   state.clockPerfAt = perfNow;
   const window = buildContinuousTapeWindow(rect.width, latestTime, endTime);
   const range = state.priceRange;
-  refreshTapeRenderModel(state, symbol, stored);
+  refreshTapeRenderModel(state, symbol, stored, aggregationStored);
 
   const recentRaw = visibleWaterTapeNodes(
     state.rawRenderNodes,
@@ -4290,16 +4302,38 @@ function drainTapeIngest() {
 
   for (const [symbol, pending] of pendingEntries) {
     if (budget <= 0) break;
-    const take = pending.resume
-      ? Math.min(TAPE_RESUME_MAX_PENDING, pending.trades.length)
-      : Math.min(budget, liveShare, pending.trades.length);
-    const chunk = pending.trades.splice(0, take);
+    const allowance = pending.resume
+      ? TAPE_RESUME_MAX_PENDING
+      : Math.min(budget, liveShare);
+    let primaryTake = Math.min(pending.trades.length, Math.ceil(allowance / 2));
+    let aggregationTake = Math.min(pending.aggregationTrades.length, allowance - primaryTake);
+    let unused = allowance - primaryTake - aggregationTake;
+    if (unused > 0) {
+      const extraPrimary = Math.min(unused, pending.trades.length - primaryTake);
+      primaryTake += extraPrimary;
+      unused -= extraPrimary;
+    }
+    if (unused > 0) {
+      aggregationTake += Math.min(unused, pending.aggregationTrades.length - aggregationTake);
+    }
+
+    const primaryChunk = pending.trades.splice(0, primaryTake);
+    const aggregationChunk = pending.aggregationTrades.splice(0, aggregationTake);
+    const changed = pending.replace || primaryChunk.length || aggregationChunk.length;
+    if (!changed) {
+      tapePendingBySymbol.delete(symbol);
+      continue;
+    }
+
     processedSymbols += 1;
-    processedTrades += chunk.length;
-    const current = tapeTradesBySymbol.get(symbol) ?? [];
+    processedTrades += primaryChunk.length + aggregationChunk.length;
     tapeTradesBySymbol.set(
       symbol,
-      mergeTapeHistory(current, chunk, pending.replace),
+      mergeTapeHistory(tapeTradesBySymbol.get(symbol) ?? [], primaryChunk, pending.replace),
+    );
+    tapeAggregationTradesBySymbol.set(
+      symbol,
+      mergeTapeHistory(tapeAggregationTradesBySymbol.get(symbol) ?? [], aggregationChunk, pending.replace),
     );
     tapeDataVersionBySymbol.set(
       symbol,
@@ -4310,17 +4344,23 @@ function drainTapeIngest() {
       pending.resume = false;
       budget = 0;
     } else {
-      budget -= take;
+      budget -= Math.max(1, primaryChunk.length + aggregationChunk.length);
     }
 
     const stored = tapeTradesBySymbol.get(symbol) ?? [];
-    const latestTime = stored[0]?.time || Date.now();
+    const aggregationStored = tapeAggregationTradesBySymbol.get(symbol) ?? [];
+    const latestTime = Math.max(
+      Number(stored[0]?.time) || 0,
+      Number(aggregationStored[0]?.time) || 0,
+    ) || Date.now();
     const previousMeta = tapeMetaBySymbol.get(symbol) ?? {};
     tapeMetaBySymbol.set(symbol, {
       lastPacketAt: Date.now(),
       lastPacketPerfAt: performance.now(),
       lastTradeTime: latestTime,
       packets: (Number(previousMeta.packets) || 0) + 1,
+      aggregationSource: pending.aggregationSource === "raw" ? "raw" : "agg",
+      aggregationHealth: pending.aggregationHealth ?? previousMeta.aggregationHealth ?? null,
     });
     tapeRecentRateBySymbol.set(symbol, stored.reduce(
       (count, trade) => count + (trade.time >= latestTime - 1_000 ? 1 : 0),
@@ -4331,7 +4371,9 @@ function drainTapeIngest() {
       .filter((card) => cardSymbol(card) === symbol && flowLayerVisible(card));
     cards.forEach((card) => scheduleTapeDraw(false, card));
 
-    if (!pending.trades.length) tapePendingBySymbol.delete(symbol);
+    if (!pending.trades.length && !pending.aggregationTrades.length) {
+      tapePendingBySymbol.delete(symbol);
+    }
   }
 
   if (observability.enabled) {
@@ -4352,7 +4394,10 @@ function acceptTapeData(event) {
   const incoming = detail?.live && Array.isArray(detail?.trades)
     ? detail.trades.map(normalizeTapeTrade).filter(Boolean)
     : [];
-  if (!detail?.replace && !incoming.length) return;
+  const incomingAggregation = detail?.live && Array.isArray(detail?.aggregationTrades)
+    ? detail.aggregationTrades.map(normalizeTapeTrade).filter(Boolean)
+    : [];
+  if (!detail?.replace && !incoming.length && !incomingAggregation.length) return;
   if (detail?.replace) {
     document.querySelectorAll(".orderbook-card").forEach((card) => {
       if (cardSymbol(card) !== symbol) return;
@@ -4371,8 +4416,6 @@ function acceptTapeData(event) {
         state.rawNodeByKey?.clear?.();
         state.rawRenderNodes = [];
         state.aggSourceBuckets = [];
-        state.aggBaseTick = null;
-        state.aggBaseTickSymbol = null;
         state.aggSnapshots?.clear?.();
       }
     });
@@ -4380,23 +4423,35 @@ function acceptTapeData(event) {
 
   const pending = tapePendingBySymbol.get(symbol) ?? {
     trades: [],
+    aggregationTrades: [],
+    aggregationSource: "agg",
+    aggregationHealth: null,
     replace: false,
     resume: false,
   };
+  pending.aggregationSource = detail?.aggregationSource === "raw" ? "raw" : "agg";
+  pending.aggregationHealth = detail?.aggregationHealth ?? pending.aggregationHealth;
   if (detail.resume) {
     pending.trades = incoming.slice(0, TAPE_RESUME_MAX_PENDING);
+    pending.aggregationTrades = incomingAggregation.slice(0, TAPE_RESUME_MAX_PENDING);
     pending.replace = false;
     pending.resume = true;
   } else if (detail.replace) {
     pending.trades = incoming.slice(0, TAPE_MAX_STORED);
+    pending.aggregationTrades = incomingAggregation.slice(0, TAPE_MAX_STORED);
     pending.replace = true;
     pending.resume = false;
-  } else if (incoming.length) {
-    pending.trades.push(...incoming);
-    if (pending.trades.length > TAPE_LIVE_MAX_PENDING) {
-      const dropped = pending.trades.length - TAPE_LIVE_MAX_PENDING;
-      pending.trades.splice(0, dropped);
-      observability.record("tape.main-dropped", dropped, { symbol });
+  } else {
+    if (incoming.length) pending.trades.push(...incoming);
+    if (incomingAggregation.length) pending.aggregationTrades.push(...incomingAggregation);
+    for (const [name, queue] of [
+      ["primary", pending.trades],
+      ["aggregation", pending.aggregationTrades],
+    ]) {
+      if (queue.length <= TAPE_LIVE_MAX_PENDING) continue;
+      const dropped = queue.length - TAPE_LIVE_MAX_PENDING;
+      queue.splice(0, dropped);
+      observability.record("tape.main-dropped", dropped, { symbol, channel: name });
     }
   }
   tapePendingBySymbol.set(symbol, pending);
