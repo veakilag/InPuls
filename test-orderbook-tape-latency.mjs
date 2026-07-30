@@ -44,8 +44,9 @@ test("worker records receive time and exposes RX in live status", () => {
   assert.match(worker, /importScripts\("\.\/orderbook-tape-latency\.js\?v=worker-bp-v1"\)/);
   assert.match(worker, /new self\.InPulsTapeLatency\.RollingLatency/);
   assert.match(worker, /normalizeTrade\(update, source, receivedAt\)/);
-  assert.match(worker, /this\.tradeLatency\.record\(trade\.rxLatencyMs, receivedAt\)/);
-  assert.match(worker, /RX \$\{Math\.round\(latency\)\}ms/);
+  assert.match(worker, /if \(aggregateEvent\) this\.tradeLatency\.record\(trade\.rxLatencyMs, receivedAt\)/);
+  assert.match(worker, /latency < 1\s*\? "<1"/);
+  assert.match(worker, /return ` · RX \$\{value\}ms`/);
 });
 
 test("UI preserves timing fields for future hover and replay", () => {

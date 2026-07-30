@@ -532,7 +532,13 @@ class SymbolFeed {
 
   latencyText() {
     const latency = this.tradeLatency.current();
-    return Number.isFinite(latency) ? ` · RX ${Math.round(latency)}ms` : "";
+    if (!Number.isFinite(latency)) return "";
+    const value = latency < 1
+      ? "<1"
+      : latency < 10
+        ? latency.toFixed(1)
+        : String(Math.round(latency));
+    return ` · RX ${value}ms`;
   }
 
   liveStatusText(tapeState = null) {
@@ -1391,7 +1397,9 @@ class SymbolFeed {
         this.lastTradeAt = receivedAt;
         this.lastTradeEventTime = trade.eventTime;
         this.lastTradeSourceLagMs = calibratedSourceLag(trade.eventTime, receivedAt);
-        this.tradeLatency.record(trade.rxLatencyMs, receivedAt);
+        // RX in the header describes the stable production Tape feed. The parallel
+        // experimental @trade channel must not double-weight or zero the rolling median.
+        if (aggregateEvent) this.tradeLatency.record(trade.rxLatencyMs, receivedAt);
         this.tradeTransportIndex = 0;
         this.tradeReconnectAttempt = 0;
         this.tradeLive = true;

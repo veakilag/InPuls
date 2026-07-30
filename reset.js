@@ -1,6 +1,6 @@
 import { clearInPulsRuntime } from "./pwa-reset.js";
 
-const BUILD = "26-77-tiger-zero-ms-agg-v1";
+const BUILD = "26-78-agg-range-rx-v1";
 const WORKER_URL = `./sw.js?v=${BUILD}`;
 const APP_URL = `./?build=${BUILD}`;
 const button = document.getElementById("reset");

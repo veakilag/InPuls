@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-77-tiger-zero-ms-agg-v1";
+import "./orderbook-flow-workspace.js?v=26-78-agg-range-rx-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1413,7 +1413,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-77-tiger-zero-ms-agg-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-78-agg-range-rx-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1830,7 +1830,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-77-tiger-zero-ms-agg-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-78-agg-range-rx-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -3749,6 +3749,40 @@ function rawTapeMarkerBucket(strength, buy) {
   return (buy ? 0 : RAW_TAPE_MARKER_BUCKETS) + sizeIndex;
 }
 
+function drawAggregatePriceRange(
+  context,
+  viewport,
+  item,
+  x,
+  buy,
+  stroke,
+  strength,
+  openAggregate = false,
+) {
+  const minimum = Number(item?.minPrice);
+  const maximum = Number(item?.maxPrice);
+  if (![minimum, maximum].every(Number.isFinite) || maximum - minimum <= Number.EPSILON) return false;
+  const low = projectTapePrice(viewport, minimum);
+  const high = projectTapePrice(viewport, maximum);
+  if (!low || !high) return false;
+  const top = Math.min(low.y, high.y);
+  const bottom = Math.max(low.y, high.y);
+  const height = Math.max(1, bottom - top);
+  const minimumVisibleSpan = Math.max(1.5, (Number(viewport?.rowHeight) || 1) * .38);
+  if (height < minimumVisibleSpan) return false;
+
+  const width = clampTape(4 + strength * 3.2, 4, 8.5);
+  roundedRectPath(context, x - width / 2, top, width, height, Math.min(2.5, width / 2));
+  context.fillStyle = buy
+    ? `rgba(42, 191, 137, ${openAggregate ? .22 : .30})`
+    : `rgba(222, 70, 87, ${openAggregate ? .23 : .31})`;
+  context.fill();
+  context.lineWidth = .8;
+  context.strokeStyle = stroke;
+  context.stroke();
+  return true;
+}
+
 function drawRawTapeMarkerBatches(context, batches) {
   for (let batchIndex = 0; batchIndex < (batches?.length ?? 0); batchIndex += 1) {
     const batch = batches[batchIndex];
@@ -4046,6 +4080,16 @@ function drawTapeCard(card) {
         diameter / 2 + .5,
         Math.max(diameter / 2 + .5, window.plotRight - diameter / 2 - .5),
       );
+      drawAggregatePriceRange(
+        context,
+        state.priceViewport,
+        item,
+        x,
+        buy,
+        stroke,
+        strength,
+        openAggregate,
+      );
       context.beginPath();
       context.arc(x, y, diameter / 2, 0, Math.PI * 2);
       context.fillStyle = buy ? "rgba(42, 191, 137, .68)" : "rgba(222, 70, 87, .7)";
@@ -4063,6 +4107,16 @@ function drawTapeCard(card) {
       baseX,
       width / 2 + .5,
       Math.max(width / 2 + .5, window.plotRight - width / 2 - .5),
+    );
+    drawAggregatePriceRange(
+      context,
+      state.priceViewport,
+      item,
+      x,
+      buy,
+      stroke,
+      strength,
+      openAggregate,
     );
     roundedRectPath(context, x - width / 2, y - height / 2, width, height, height * .28);
     context.fillStyle = buy
