@@ -22,6 +22,23 @@ jobs:
           node-version: 22
       - name: Apply AGG range and RX fix
         run: python .github/scripts/apply-agg-range-rx-fix-v1.py
+      - name: Align RX latency regression contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("test-orderbook-tape-latency.mjs")
+          text = path.read_text(encoding="utf-8")
+          old = '''  assert.match(worker, /this\\.tradeLatency\\.record\\(trade\\.rxLatencyMs, receivedAt\\)/);
+            assert.match(worker, /RX \\$\\{Math\\.round\\(latency\\)\\}ms/);
+          '''
+          new = '''  assert.match(worker, /if \\(aggregateEvent\\) this\\.tradeLatency\\.record\\(trade\\.rxLatencyMs, receivedAt\\)/);
+            assert.match(worker, /latency < 1\\s*\\? "<1"/);
+            assert.match(worker, /return ` · RX \\$\\{value\\}ms`/);
+          '''
+          if text.count(old) != 1:
+              raise AssertionError(f"RX legacy contract: expected 1 match, found {text.count(old)}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
       - name: Syntax checks
         run: |
           node --check orderbook.js
@@ -29,6 +46,7 @@ jobs:
           node --check orderbook-tape-latency.js
           node --check app.js
           node --check test-agg-range-rx-fix-v1.mjs
+          node --check test-orderbook-tape-latency.mjs
       - name: Full test suite
         run: npm test
       - name: Commit verified implementation
