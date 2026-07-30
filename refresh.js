@@ -1,6 +1,6 @@
 import { clearInPulsRuntime } from "./pwa-reset.js";
 
-const BUILD = "26-69-tape-stable-pixels-v1";
+const BUILD = "26-70-smooth-closed-agg-v1";
 const button = document.getElementById("refresh");
 const status = document.getElementById("status");
 
