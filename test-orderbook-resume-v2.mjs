@@ -41,23 +41,11 @@ test("long background keeps a frozen Tape frame", () => {
   assert.doesNotMatch(orderbook, /tapePendingBySymbol\.clear\(\);/);
 });
 
-test("Tape window stays at the latest real trade instead of drawing future emptiness", () => {
-  const functionSource = orderbook.match(
-    /export function resolveTapeWindowEnd\([\s\S]*?\n\}/,
-  )?.[0];
-  assert.ok(functionSource);
-  const sandbox = {};
-  vm.createContext(sandbox);
-  vm.runInContext(
-    `const TAPE_LIVE_EDGE_LEAD_MS = 180;
-     ${functionSource.replace("export ", "")}
-     result = [
-       resolveTapeWindowEnd(10_000, true, 20_000),
-       resolveTapeWindowEnd(10_000, false, 20_000),
-     ];`,
-    sandbox,
-  );
-  assert.deepEqual([...sandbox.result], [10_001, 10_180]);
+test("Tape clock advances continuously while the live stream is healthy", () => {
+  assert.match(orderbook, /export function advanceWaterTapeClock\(/);
+  assert.match(orderbook, /const packetAge = Number\.isFinite\(packet\)/);
+  assert.match(orderbook, /const base = previous \+ elapsed/);
+  assert.match(orderbook, /function activeTapeCards\(\)/);
 });
 
 test("footprint preserves its canvas while the feed recovers", () => {
@@ -77,13 +65,13 @@ test("a delayed feed retries independently", () => {
 });
 
 test("Resume v2 ships one consistent runtime", () => {
-  assert.match(index, /app\.js\?v=26-70-smooth-closed-agg-v1/);
-  assert.match(app, /orderbook\.js\?v=26-70-smooth-closed-agg-v1/);
+  assert.match(index, /app\.js\?v=26-73-water-tape-batched-v1/);
+  assert.match(app, /orderbook\.js\?v=26-73-water-tape-batched-v1/);
   assert.match(app, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(orderbook, /orderbook-worker\.js\?v=26-70-smooth-closed-agg-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-70-smooth-closed-agg-v1/);
+  assert.match(orderbook, /orderbook-worker\.js\?v=26-73-water-tape-batched-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-73-water-tape-batched-v1/);
   assert.match(worker, /orderbook-tape-latency\.js\?v=worker-bp-v1/);
-  assert.match(sw, /inpuls-26-70-smooth-closed-agg-v1/);
+  assert.match(sw, /inpuls-26-73-water-tape-batched-v1/);
   assert.match(reset, /Resume v2/);
 });
 

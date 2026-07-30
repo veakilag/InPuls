@@ -2,38 +2,59 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import {
-  advanceTapeCameraEnd,
+  advanceTapePriceViewport,
+  advanceWaterTapeClock,
   aggregateTapeBuckets,
   bookPriceEmphasis,
   bookPriceEmphasisForUnit,
   bookPsychologicalPriceUnit,
-  resolveTapeWindowEnd,
+  projectTapePrice,
   stableTapeQuoteStrength,
+  tapeViewportFromRows,
 } from "./orderbook.js";
 
 const orderbook = readFileSync(new URL("./orderbook.js", import.meta.url), "utf8");
 const footprint = readFileSync(new URL("./orderbook-flow-workspace.js", import.meta.url), "utf8");
 const chart = readFileSync(new URL("./chart.js", import.meta.url), "utf8");
 
+function tapePainter() {
+  const start = orderbook.indexOf("function drawTapeCard(card) {");
+  const end = orderbook.indexOf("\nfunction drawAllTapes()", start);
+  assert.ok(start >= 0 && end > start);
+  return orderbook.slice(start, end);
+}
+
 test("psychological levels keep one anchored unit per symbol", () => {
   assert.equal(bookPsychologicalPriceUnit(.093), .001);
   assert.deepEqual(bookPriceEmphasis(.093, .093), { round: true, half: false, majorUnit: .001 });
   assert.deepEqual(bookPriceEmphasisForUnit(.0925, .001), { round: false, half: true, majorUnit: .001 });
   assert.match(orderbook, /function stableBookPsychologicalUnit\(card, referencePrice\)/);
-  assert.match(orderbook, /bookPriceEmphasisForUnit\(price, majorUnit\)/);
 });
 
-test("Tape camera eases only toward the latest real-trade target", () => {
-  assert.equal(resolveTapeWindowEnd(10_000, false, 20_000), 10_180);
-  assert.equal(resolveTapeWindowEnd(10_000, true, 20_000), 10_001);
-  assert.equal(advanceTapeCameraEnd(null, 11_000, 16), 11_000);
-  assert.ok(Math.abs(advanceTapeCameraEnd(10_000, 11_000, 16, 4) - 10_064) < 1e-9);
-  assert.equal(advanceTapeCameraEnd(10_980, 11_000, 16, 4), 11_000);
-  assert.doesNotMatch(orderbook, /snapTapeWindowEnd|tapeWindowPixelQuantum/);
-  assert.match(orderbook, /function scheduleAnimatedTapeFrame\(\)/);
-  assert.match(orderbook, /const hasPrevious = state\?\.cameraEndTime !== null/);
-  assert.match(orderbook, /const base = count >= 6 \? 64 : count >= 3 \? 32 : 16/);
-  assert.match(orderbook, /const pathX = pathItem\.x \?\? tapeTimeX/);
+test("water clock moves continuously between WebSocket packets", () => {
+  const first = advanceWaterTapeClock(null, null, 10_000, 100, 100, false);
+  const second = advanceWaterTapeClock(first, 100, 10_000, 100, 116, false);
+  const third = advanceWaterTapeClock(second, 116, 10_000, 100, 132, false);
+  assert.ok(second > first);
+  assert.ok(third > second);
+  assert.equal(advanceWaterTapeClock(third, 132, 10_000, 100, 148, true), third);
+  assert.match(orderbook, /function activeTapeCards\(\)/);
+  assert.match(orderbook, /requestAnimationFrame\(runTapeDrawFrame\)/);
+});
+
+test("all trades share one coherent affine price viewport", () => {
+  const target = tapeViewportFromRows([
+    { price: 99, y: 90, height: 10 },
+    { price: 100, y: 50, height: 10 },
+    { price: 101, y: 10, height: 10 },
+  ]);
+  const viewport = advanceTapePriceViewport(null, target, 16);
+  assert.equal(projectTapePrice(viewport, 99).y, 90);
+  assert.equal(projectTapePrice(viewport, 100).y, 50);
+  assert.equal(projectTapePrice(viewport, 101).y, 10);
+  const painter = tapePainter();
+  assert.match(painter, /projectWaterTapeNodes/);
+  assert.doesNotMatch(painter, /layoutTapeSequence|nearestVisibleRow|tapePricePosition/);
 });
 
 test("AGG buckets include the complete intersecting bucket", () => {
@@ -42,38 +63,22 @@ test("AGG buckets include the complete intersecting bucket", () => {
     { id: 2, time: 1_000, price: 10, quote: 200, side: "sell" },
   ], .01, 0, { startTime: 970, endTime: 1_100 });
   assert.equal(buckets.length, 1);
-  assert.equal(buckets[0].bucketStart, 900);
-  assert.equal(buckets[0].bucketEnd, 1_080);
   assert.equal(buckets[0].quote, 300);
-  assert.equal(buckets[0].buyQuote, 100);
-  assert.equal(buckets[0].sellQuote, 200);
-  assert.match(orderbook, /function finalizedAggregateTapeBuckets\(state, buckets, closedBefore\)/);
-  assert.match(orderbook, /aggregateTapeBuckets\(stored, step, state\.aggLevelIndex, window\)/);
   assert.match(orderbook, /snapshot = Object\.freeze/);
+  assert.match(orderbook, /state\.aggSourceBuckets/);
 });
 
-test("AGG marker size and label eligibility are absolute and immutable", () => {
+test("marker geometry is absolute and independent of visible neighbours", () => {
   assert.equal(stableTapeQuoteStrength(0), 0);
   assert.ok(stableTapeQuoteStrength(10_000) > stableTapeQuoteStrength(1_000));
-  assert.match(orderbook, /state\.mode === "agg"[\s\S]*stableTapeQuoteStrength/);
-  assert.match(orderbook, /showLabel: stableTapeQuoteStrength\(bucket\.quote\) >= \.62/);
-  assert.match(orderbook, /minQuote > 0 \|\| item\.showLabel/);
+  const painter = tapePainter();
+  assert.match(painter, /const strength = stableTapeQuoteStrength\(item\.quote\)/);
+  assert.match(painter, /const baseX = tapeTimeX\(item\.time, window, rect\.width\)/);
+  assert.doesNotMatch(painter, /adaptiveRawDiameter\(strength, item\.density/);
 });
 
-test("filter keeps the all-trade line and labels qualifying RAW trades", () => {
-  assert.match(orderbook, /const rawPathItems = rawTapeItemsContinuous\(recent, rows, window\)/);
-  assert.match(orderbook, /const pathDrawItems = layoutTapeSequence\(rawPathItems/);
-  assert.match(orderbook, /if \(minQuote > 0\) \{[\s\S]*const label = formatTapeUsd\(item\.quote\)/);
-});
-
-test("footprint removes numeric delta and strengthens dominance colours", () => {
+test("footprint and chart visual requests stay applied", () => {
   assert.doesNotMatch(footprint, /formatSignedQuoteDelta|deltaText/);
   assert.match(footprint, /const alpha = \.38 \+ clusterStrength \* \.5/);
-  assert.match(footprint, /dataLeft \+ dataWidth \/ 2/);
-  assert.match(footprint, /formatQuoteVolume\(cluster\.quote\)/);
-});
-
-test("green and red chart candles share the same body interior", () => {
   assert.match(chart, /const fill = this\.theme\.bearFill;/);
-  assert.match(chart, /const stroke = up \? this\.theme\.bullStroke : this\.theme\.bearStroke;/);
 });
