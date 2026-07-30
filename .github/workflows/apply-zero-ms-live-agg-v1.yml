@@ -22,6 +22,23 @@ jobs:
           node-version: 22
       - name: Apply zero-ms live AGG
         run: python .github/scripts/apply-zero-ms-live-agg-v1.py
+      - name: Align legacy updater guards
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/scripts/update-zero-ms-tests-v1.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('''for path in [
+              "test-orderbook-tape-v2-core.mjs",
+              "test-tape-cluster-lifecycle-v1.mjs",
+              "test-tape-stability-followup-v1.mjs",
+          ]:
+              text = read(path)
+              assert "TAPE_AGGREGATION_LEVELS" not in text
+              assert "aggregateTapeBuckets" not in text
+          ''', '')
+          path.write_text(text, encoding='utf-8')
+          PY
       - name: Update legacy Tape contracts
         run: python .github/scripts/update-zero-ms-tests-v1.py
       - name: Syntax checks
