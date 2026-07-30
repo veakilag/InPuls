@@ -109,11 +109,11 @@ test("round prices affect only text and the liquidity meter stays readable", () 
   assert.match(orderbook, /\.orderbook-rows \{[\s\S]*padding-top: 19px/);
 });
 
-test("live trades invalidate the current footprint frame immediately", () => {
+test("live flow invalidates footprint while Tape keeps one coherent viewport", () => {
   assert.match(flow, /incoming\.length && state\.historyOffset === 0/);
-  assert.match(orderbook, /const y = snapTapeCoordinate\(item\.row\.y, dpr\)/);
-  assert.match(orderbook, /const pathY = snapTapeCoordinate\(pathItem\.row\.y, dpr\)/);
-  assert.match(orderbook, /const pathX = pathItem\.x \?\? tapeTimeX/);
+  assert.match(orderbook, /state\.priceViewport = advanceTapePriceViewport/);
+  assert.match(orderbook, /projectWaterTapeNodes\(recentRaw, state\.priceViewport\)/);
+  assert.match(orderbook, /const baseX = tapeTimeX\(item\.time, window, rect\.width\)/);
   assert.doesNotMatch(orderbook, /row\.y \+ \(Number\([^)]*yOffset/);
   assert.match(flow, /state\.hasFrame = false/);
 });
@@ -123,8 +123,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-70-smooth-closed-agg-v1/);
-  assert.match(app, /orderbook\.js\?v=26-70-smooth-closed-agg-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-70-smooth-closed-agg-v1/);
-  assert.match(sw, /26-70-smooth-closed-agg-v1/);
+  assert.match(index, /26-71-water-tape-v1/);
+  assert.match(app, /orderbook\.js\?v=26-71-water-tape-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-71-water-tape-v1/);
+  assert.match(sw, /26-71-water-tape-v1/);
 });
