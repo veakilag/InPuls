@@ -1,10 +1,15 @@
 import { renderSignalLabEventCard } from "./owner-signal-lab-v2-card.js";
 
-const BUILD = "26-80-signal-lab-v2-training-v1";
+const BUILD = "26-81-signal-lab-collector-status-v1";
 const WINDOWS = Object.freeze(["1d", "3d", "7d", "30d"]);
+const OWNER_SIGNAL_LAB_STARTED_EVENT = "inpuls:owner-signal-lab-started";
+const COLLECTOR_STATUS_MESSAGE = "inpuls:signal-lab-collector-status";
+const COLLECTOR_STATUS_TIMEOUT_MS = 2_500;
+const COLLECTOR_STATUS_POLL_MS = 5_000;
 
 const elements = {
   storage: document.querySelector("#storage-state"),
+  collectorOpen: document.querySelector("#collector-open"),
   refresh: document.querySelector("#refresh-report"),
   symbol: document.querySelector("#symbol-filter"),
   pattern: document.querySelector("#pattern-filter"),
@@ -30,6 +35,14 @@ let patternDefinitions = {};
 let patternStates = [];
 let localReviews = new Map();
 let loading = false;
+let storeStatus = null;
+let collectorStatus = Object.freeze({
+  active: false,
+  available: false,
+  checkedAt: null,
+  clients: [],
+  reason: "not-checked",
+});
 
 const finite = (value) => {
   const number = Number(value);
@@ -86,6 +99,126 @@ function filteredEvents() {
   }).slice(0, 120);
 }
 
+function totalStoredEvents() {
+  return Math.max(0, finite(report?.source?.eventCount) ?? 0);
+}
+
+function collectorWindow() {
+  return collectorStatus.clients?.find((client) => client.visibilityState === "visible")
+    ?? collectorStatus.clients?.[0]
+    ?? null;
+}
+
+function renderRuntimeStatus() {
+  if (!elements.storage) return;
+  const reviewStorageState = storeStatus?.reviewStorageState || storeStatus?.state || "available";
+  if (reviewStorageState === "error" || reviewStorageState === "unavailable") {
+    elements.storage.dataset.state = "error";
+    elements.storage.textContent = storeStatus?.lastError
+      ? `Ошибка локальной истории: ${String(storeStatus.lastError).slice(0, 120)}`
+      : "Локальная история недоступна";
+    return;
+  }
+
+  const eventCount = totalStoredEvents();
+  if (collectorStatus.active) {
+    const client = collectorWindow();
+    const inBackground = client?.visibilityState === "hidden";
+    elements.storage.dataset.state = inBackground ? "warning" : "available";
+    elements.storage.textContent = inBackground
+      ? `Сборщик открыт в фоне · история: ${formatInteger(eventCount)} событий`
+      : `Сборщик активен · история: ${formatInteger(eventCount)} событий`;
+    elements.storage.title = inBackground
+      ? "Основной InPuls открыт в фоновой вкладке. Браузер может замедлять WebSocket и таймеры."
+      : "Основной InPuls открыт и записывает найденные события в локальную историю.";
+    if (elements.collectorOpen) elements.collectorOpen.textContent = "Открыть InPuls";
+    return;
+  }
+
+  elements.storage.dataset.state = "warning";
+  elements.storage.textContent = eventCount
+    ? `Сбор остановлен · в истории ${formatInteger(eventCount)} событий`
+    : "Сбор не запущен · открой основной InPuls";
+  elements.storage.title = "Signal Lab анализирует локальную историю, но сам не подключается к Binance.";
+  if (elements.collectorOpen) elements.collectorOpen.textContent = "Запустить сбор";
+}
+
+function renderEmptyState(events) {
+  elements.empty.hidden = events.length > 0;
+  if (events.length) return;
+  const eventCount = totalStoredEvents();
+  if (!collectorStatus.active && eventCount === 0) {
+    elements.empty.textContent = "Сбор не запущен. Открой основной InPuls в соседней вкладке и оставь его работать — Signal Lab сам к Binance не подключается.";
+    return;
+  }
+  if (collectorStatus.active && eventCount === 0) {
+    elements.empty.textContent = "Сборщик работает. Подходящий паттерн появится здесь после первого реального срабатывания.";
+    return;
+  }
+  elements.empty.textContent = "В выбранном периоде или фильтре подходящих событий пока нет.";
+}
+
+async function serviceWorkerForCollectorStatus() {
+  if (!("serviceWorker" in navigator)) return null;
+  let registration = await navigator.serviceWorker.getRegistration();
+  if (!registration) {
+    registration = await navigator.serviceWorker.register("./sw.js");
+  }
+  const ready = await navigator.serviceWorker.ready;
+  return ready.active || registration.active || registration.waiting || null;
+}
+
+async function requestCollectorStatus() {
+  try {
+    const worker = await serviceWorkerForCollectorStatus();
+    if (!worker) {
+      return Object.freeze({
+        active: false,
+        available: false,
+        checkedAt: Date.now(),
+        clients: [],
+        reason: "service-worker-unavailable",
+      });
+    }
+    return await new Promise((resolve) => {
+      const channel = new MessageChannel();
+      const timer = setTimeout(() => resolve(Object.freeze({
+        active: false,
+        available: false,
+        checkedAt: Date.now(),
+        clients: [],
+        reason: "collector-status-timeout",
+      })), COLLECTOR_STATUS_TIMEOUT_MS);
+      channel.port1.onmessage = (event) => {
+        clearTimeout(timer);
+        const payload = event.data && typeof event.data === "object" ? event.data : {};
+        resolve(Object.freeze({
+          active: payload.active === true,
+          available: true,
+          checkedAt: finite(payload.checkedAt) ?? Date.now(),
+          clients: Array.isArray(payload.clients) ? payload.clients : [],
+          reason: payload.active === true ? "collector-client-found" : "collector-client-missing",
+        }));
+      };
+      worker.postMessage({ type: COLLECTOR_STATUS_MESSAGE }, [channel.port2]);
+    });
+  } catch (error) {
+    return Object.freeze({
+      active: false,
+      available: false,
+      checkedAt: Date.now(),
+      clients: [],
+      reason: String(error?.message || error).slice(0, 120),
+    });
+  }
+}
+
+async function refreshCollectorStatus() {
+  collectorStatus = await requestCollectorStatus();
+  renderRuntimeStatus();
+  renderEmptyState(filteredEvents());
+}
+
 async function saveReview(event, verdict, details) {
   await store.review(event.id, verdict, details);
   localReviews.set(event.id, verdict ? {
@@ -124,7 +257,7 @@ function renderEvents() {
     }));
   }
   elements.events.replaceChildren(fragment);
-  elements.empty.hidden = events.length > 0;
+  renderEmptyState(events);
   renderSummary();
 }
 
@@ -151,6 +284,7 @@ function renderGroups() {
 function render() {
   renderEvents();
   renderGroups();
+  renderRuntimeStatus();
   elements.generated.textContent = report?.generatedAt
     ? `Обновлено ${formatTime(report.generatedAt)}`
     : "—";
@@ -169,17 +303,15 @@ async function refresh() {
   try {
     report = await store.report();
     localReviews = new Map();
-    const status = store.status();
-    elements.storage.dataset.state = status.reviewStorageState || status.state || "available";
-    elements.storage.textContent = status.migratedLegacyReviews
-      ? `Signal Lab V2 подключён · перенесено старых оценок: ${status.migratedLegacyReviews}`
-      : "Signal Lab V2 подключён · данные остаются на этом устройстве";
+    storeStatus = store.status();
+    await refreshCollectorStatus();
     render();
   } catch (error) {
     report = null;
     elements.storage.dataset.state = "error";
     elements.storage.textContent = `Ошибка Signal Lab V2: ${String(error?.message || error).slice(0, 160)}`;
     elements.empty.hidden = false;
+    elements.empty.textContent = "Не удалось прочитать локальную историю. Обнови страницу — сохранённые данные удаляться не должны.";
   } finally {
     loading = false;
     elements.refresh.disabled = false;
@@ -269,6 +401,8 @@ async function boot() {
     elements.storage.dataset.state = "error";
     elements.storage.textContent = `Не удалось запустить Signal Lab V2: ${String(error?.message || error).slice(0, 160)}`;
     elements.refresh.disabled = false;
+  } finally {
+    window.dispatchEvent(new CustomEvent(OWNER_SIGNAL_LAB_STARTED_EVENT));
   }
 }
 
@@ -285,5 +419,14 @@ for (const control of [elements.symbol, elements.pattern, elements.verdict]) {
 elements.refresh.addEventListener("click", refresh);
 elements.exportJson.addEventListener("click", () => exportReviews("json"));
 elements.exportCsv.addEventListener("click", () => exportReviews("csv"));
+elements.collectorOpen?.addEventListener("click", () => {
+  elements.storage.dataset.state = "loading";
+  elements.storage.textContent = "Открываю основной InPuls…";
+  setTimeout(refreshCollectorStatus, 1_500);
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") refreshCollectorStatus();
+});
+setInterval(refreshCollectorStatus, COLLECTOR_STATUS_POLL_MS);
 
 boot();
