@@ -25,8 +25,10 @@ test("global feed separates Binance market and public namespaces", () => {
   const publicTransports = buildBinanceChannelTransports("public", publicStreams);
   assert.match(marketTransports[0].url, /fstream\.binance\.com\/market\/stream\?streams=/);
   assert.match(publicTransports[0].url, /fstream\.binance\.com\/public\/stream\?streams=/);
-  assert.equal(marketTransports[1].url, "wss://fstream.binance.com/market/stream");
-  assert.equal(publicTransports[1].url, "wss://fstream.binance.com/public/stream");
+  assert.equal(marketTransports[1].url, "wss://fstream.binance.com/market/ws");
+  assert.equal(publicTransports[1].url, "wss://fstream.binance.com/public/ws");
+  assert.equal(marketTransports[1].subscribeOnOpen, true);
+  assert.equal(publicTransports[1].subscribeOnOpen, true);
 });
 
 test("fallback transport advances exactly once before required data", () => {
