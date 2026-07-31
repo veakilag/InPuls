@@ -7,19 +7,20 @@
     <meta name="referrer" content="no-referrer" />
     <meta name="robots" content="noindex,nofollow,noarchive" />
     <meta name="theme-color" content="#0d1015" />
-    <meta name="inpuls-build" content="26-64-signal-lab-without-impulse-v1" />
+    <meta name="inpuls-build" content="26-80-signal-lab-v2-training-v1" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./owner-signal-lab.css?v=26-64-signal-lab-without-impulse-v1" />
-    <title>InPuls — Owner Signal Lab</title>
+    <link rel="stylesheet" href="./owner-signal-lab-v2.css?v=26-80-signal-lab-v2-training-v1" />
+    <title>InPuls — Signal Lab V2</title>
   </head>
   <body>
     <header class="owner-topbar">
       <a class="owner-brand" href="./" aria-label="Открыть InPuls">
         <span class="owner-brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span><strong>INPULS</strong><small>OWNER SIGNAL LAB</small></span>
+        <span><strong>INPULS</strong><small>SIGNAL LAB V2</small></span>
       </a>
       <div class="owner-status">
-        <span id="storage-state" data-state="loading">Подключаю локальную историю…</span>
+        <span id="storage-state" data-state="loading">Подключаю Signal Lab V2…</span>
         <a href="./" target="_blank" rel="noopener noreferrer">Открыть InPuls</a>
       </div>
     </header>
@@ -27,125 +28,58 @@
     <main>
       <section class="owner-intro" aria-labelledby="owner-title">
         <div>
-          <span class="eyebrow">SIGNAL LAB</span>
-          <h1 id="owner-title">Какие паттерны дали движение</h1>
-          <p>Сначала смотри долю движений больше 1%, затем выборку и риск. Это статистика прошлых событий, а не команда на сделку.</p>
+          <span class="eyebrow">РАЗМЕТКА РЫНОЧНЫХ ЭПИЗОДОВ</span>
+          <h1 id="owner-title">Какие паттерны действительно были</h1>
+          <p>Проверяй структуру, подтверждение, отмену и дубли. Отображаются наблюдаемые факты и фактический путь цены, а не команда на сделку.</p>
         </div>
         <div class="owner-privacy">
-          <strong>Данные остаются на этом устройстве</strong>
-          <span>Другой браузер или устройство эту историю не увидит.</span>
+          <strong>Разметка остаётся на этом устройстве</strong>
+          <span>Старые оценки автоматически переносятся в схему V2. Формулы прошлых событий не пересчитываются задним числом.</span>
         </div>
       </section>
 
-      <section class="owner-controls" aria-label="Фильтры Signal Lab">
+      <section class="owner-controls" aria-label="Фильтры Signal Lab V2">
         <div class="window-tabs" role="tablist" aria-label="Период">
-          <button type="button" data-window="1d" role="tab" aria-selected="false">1 день</button>
-          <button type="button" data-window="3d" role="tab" aria-selected="false">3 дня</button>
-          <button type="button" data-window="7d" role="tab" aria-selected="true" class="is-active">7 дней</button>
-          <button type="button" data-window="30d" role="tab" aria-selected="false">30 дней</button>
+          <button type="button" data-window="1d" role="tab">1 день</button>
+          <button type="button" data-window="3d" role="tab">3 дня</button>
+          <button type="button" data-window="7d" role="tab" class="is-active" aria-selected="true">7 дней</button>
+          <button type="button" data-window="30d" role="tab">30 дней</button>
         </div>
-        <label>
-          <span>Быстрый поиск</span>
-          <input id="symbol-filter" type="search" autocomplete="off" placeholder="Монета: BTC, ETH…" />
-        </label>
+        <label><span>Монета</span><input id="symbol-filter" type="search" autocomplete="off" placeholder="BTC, ETH…" /></label>
+        <label><span>Паттерн</span><select id="pattern-filter"><option value="">Все паттерны</option></select></label>
+        <label><span>Разметка</span><select id="verdict-filter"><option value="">Все события</option><option value="valid">Верный</option><option value="weak">Слабый</option><option value="false_positive">Ложный</option><option value="missed_pattern">Пропущен</option><option value="duplicate_episode">Дубль</option><option value="wrong_pattern">Другой тип</option><option value="insufficient_data">Мало данных</option></select></label>
         <button id="refresh-report" class="refresh-button" type="button">Обновить</button>
-        <details class="advanced-filters">
-          <summary>Доп. фильтры</summary>
-          <div>
-            <label>
-              <span>Паттерн</span>
-              <select id="signal-filter">
-                <option value="">Все паттерны</option>
-                <option value="breakout_resistance">Пробой УС</option>
-                <option value="breakout_support">Пробой УП</option>
-                <option value="knife">Нож</option>
-                <option value="sharpening">Заточка</option>
-                <option value="cascade">Каскад</option>
-                <option value="rearranger">Переставляш</option>
-                <option value="size_supporter">Подставляш</option>
-                <option value="liquidation_cascade">Каскад ликвидаций</option>
-              </select>
-            </label>
-            <label>
-              <span>После события</span>
-              <select id="horizon-filter">
-                <option value="">Любое время</option>
-                <option value="15s">15 секунд</option>
-                <option value="1m">1 минута</option>
-                <option value="3m">3 минуты</option>
-                <option value="5m">5 минут</option>
-              </select>
-            </label>
-            <label>
-              <span>Результат</span>
-              <select id="result-filter">
-                <option value="target">Есть движение &gt;1%</option>
-                <option value="">Все случаи</option>
-              </select>
-            </label>
-          </div>
-        </details>
       </section>
 
-      <nav class="view-tabs" aria-label="Быстрый выбор паттернов">
-        <button type="button" class="is-active" data-view="winners">Лучшие <span>&gt;1%</span></button>
-        <button type="button" data-view="cascades">Каскады</button>
-        <button type="button" data-view="algorithms">Сайзы и алгоритмы</button>
-        <button type="button" data-view="all">Все паттерны</button>
-      </nav>
-
-      <section class="owner-summary" aria-label="Сводка">
-        <article class="summary-primary"><span>Движение &gt;1%</span><strong id="summary-hits">—</strong><small id="summary-hits-note">успешных наблюдений</small></article>
-        <article><span>Доля с движением &gt;1%</span><strong id="summary-rate">—</strong><small>из полной выборки</small></article>
-        <article><span>Лучший паттерн</span><strong id="summary-best">—</strong><small id="summary-best-note">по выбранным фильтрам</small></article>
-        <article><span>Данных собрано</span><strong id="summary-coverage">—</strong><small>полных результатов</small></article>
+      <section class="owner-summary" aria-label="Сводка Signal Lab V2">
+        <article class="summary-primary"><span>Событий в фильтре</span><strong id="summary-events">—</strong><small>кандидаты и эпизоды</small></article>
+        <article><span>Размечено</span><strong id="summary-reviewed">—</strong><small>ручных оценок</small></article>
+        <article><span>Дубли</span><strong id="summary-duplicates">—</strong><small>повторы одного движения</small></article>
+        <article><span>LIVE-результатов</span><strong id="summary-live">—</strong><small>полных наблюдений</small></article>
       </section>
 
       <section class="owner-table-card event-review-card" aria-labelledby="event-review-title">
         <header>
-          <div>
-            <span class="eyebrow">СОБЫТИЯ ДЛЯ РАЗМЕТКИ</span>
-            <h2 id="event-review-title">Проверь паттерн на графике</h2>
-          </div>
-          <div class="event-export-actions">
-            <span id="review-progress">—</span>
-            <button id="export-json" type="button">Экспорт JSON</button>
-            <button id="export-csv" type="button">Экспорт CSV</button>
-          </div>
+          <div><span class="eyebrow">СОБЫТИЯ ДЛЯ ОБУЧЕНИЯ</span><h2 id="event-review-title">Проверь структуру и результат</h2></div>
+          <div class="event-export-actions"><span id="review-progress">—</span><button id="export-json" type="button">Экспорт JSON</button><button id="export-csv" type="button">Экспорт CSV</button></div>
         </header>
         <div class="owner-results">
           <div id="event-review-list" class="event-review-list"></div>
-          <div id="event-review-empty" class="owner-empty" hidden>
-            <strong>Подходящих событий пока нет</strong>
-            <p>Оставь InPuls открытым. Новые события появятся после завершения горизонта; старые записи без реального пути не дорисовываются.</p>
-          </div>
+          <div id="event-review-empty" class="owner-empty" hidden><strong>Подходящих событий пока нет</strong><p>Оставь InPuls открытым для накопления контекста и результата через 15с / 1м / 3м / 5м.</p></div>
         </div>
       </section>
 
       <details class="aggregate-results">
-        <summary>Общая статистика по паттернам</summary>
-        <section class="owner-table-card" aria-labelledby="table-title">
-        <header>
-          <div>
-            <span class="eyebrow">РЕЗУЛЬТАТЫ ПО МОНЕТАМ</span>
-            <h2 id="table-title">Что стоит изучить</h2>
-          </div>
-          <span id="generated-at">—</span>
-        </header>
-        <div class="owner-results">
-          <div id="signal-lab-body" class="pattern-grid"></div>
-          <div id="owner-empty" class="owner-empty" hidden>
-            <strong id="owner-empty-title">Подходящих наблюдений пока нет</strong>
-            <p id="owner-empty-message">Оставь InPuls открытым: статистика начнёт появляться после завершения горизонтов 15с / 1м / 3м / 5м.</p>
-          </div>
-        </div>
+        <summary>Общая статистика по формулам</summary>
+        <section class="owner-table-card">
+          <header><div><span class="eyebrow">ОПИСАТЕЛЬНАЯ ИСТОРИЯ</span><h2>Наблюдения по паттернам</h2></div><span id="generated-at">—</span></header>
+          <div class="owner-results"><div id="pattern-groups" class="pattern-groups"></div></div>
         </section>
       </details>
 
-      <p class="owner-note"><strong>Как читать:</strong> «Дали &gt;1%» — сколько раз цена прошла больше 1% в сторону паттерна. MFE — типичный лучший ход, MAE — типичное движение против сценария. Кнопка открывает текущую монету, а не исторический момент сигнала.</p>
+      <p class="owner-note"><strong>Важно:</strong> кандидат не считается подтверждённым автоматически. Большая заявка не доказывает наличие крупного игрока, а снятие ликвидности не доказывает спуфинг.</p>
     </main>
 
-    <script src="./owner-signal-lab-guard.js?v=26-64-signal-lab-without-impulse-v1"></script>
-    <script type="module" src="./owner-signal-lab.js?v=26-64-signal-lab-without-impulse-v1"></script>
+    <script type="module" src="./owner-signal-lab-v2.js?v=26-80-signal-lab-v2-training-v1"></script>
   </body>
 </html>
