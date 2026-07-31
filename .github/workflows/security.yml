@@ -37,28 +37,17 @@ jobs:
       - name: Check JavaScript syntax
         run: find . -type f -name '*.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
 
-      - name: Run focused regressions
-        shell: bash
-        run: |
-          set +e
-          failed=0
-          for file in \
-            test-market-feed-footprint-series-v1.mjs \
-            test-sweep-tape-clock-v1.mjs \
-            test-footprint-live-source-v1.mjs \
-            test-global-connection-radar-cleanup-v1.mjs
-          do
-            echo "===== $file ====="
-            node --test "$file" > "/tmp/$file.log" 2>&1
-            code=$?
-            if [ "$code" -ne 0 ]; then
-              failed=1
-              cat "/tmp/$file.log"
-            else
-              tail -n 8 "/tmp/$file.log"
-            fi
-          done
-          exit "$failed"
+      - name: Market feed and Series contract
+        run: node --test test-market-feed-footprint-series-v1.mjs
+
+      - name: Sweep Tape contract
+        run: node --test test-sweep-tape-clock-v1.mjs
+
+      - name: Footprint live source contract
+        run: node --test test-footprint-live-source-v1.mjs
+
+      - name: Global connection cleanup contract
+        run: node --test test-global-connection-radar-cleanup-v1.mjs
 
       - name: Run regression and security tests
         shell: bash
