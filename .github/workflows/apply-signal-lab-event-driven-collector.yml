@@ -6,6 +6,9 @@ on:
       - fix/signal-lab-event-driven-collector
     paths:
       - .github/workflows/apply-signal-lab-event-driven-collector.yml
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
