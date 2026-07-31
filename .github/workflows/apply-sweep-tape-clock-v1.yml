@@ -1,0 +1,52 @@
+name: Apply Sweep tape and clock fixes
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    if: github.event.pull_request.head.ref == 'agent/sweep-tape-clock-v1'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply Sweep tape implementation
+        run: python tools/apply_sweep_tape_clock_v1.py
+
+      - name: Syntax checks
+        run: |
+          node --check orderbook.js
+          node --check orderbook-flow-workspace.js
+          node --check app.js
+          node --check orderbook-worker.js
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Remove patch scaffolding
+        run: |
+          rm -f tools/apply_sweep_tape_clock_v1.py
+          rm -f .github/workflows/apply-sweep-tape-clock-v1.yml
+
+      - name: Commit verified implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Add Sweep tape mode and synchronize timeline"
+            git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          fi
