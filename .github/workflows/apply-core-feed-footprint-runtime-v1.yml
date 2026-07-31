@@ -1,0 +1,61 @@
+name: Apply core feed footprint runtime recovery
+
+on:
+  push:
+    branches:
+      - fix/core-feed-footprint-runtime-v1
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out recovery branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/core-feed-footprint-runtime-v1
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply runtime recovery
+        run: python .github/scripts/apply-core-feed-footprint-runtime-v1.py
+
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check binance-stream-routing.js
+          node --check chart.js
+          node --check orderbook-worker.js
+          node --check orderbook.js
+          node --check orderbook-flow-workspace.js
+          node --check sw.js
+
+      - name: Focused critical regressions
+        run: |
+          node --test test-global-connection-radar-cleanup-v1.mjs
+          node --test test-core-feed-footprint-runtime-v1.mjs
+          node --test test-market-feed-footprint-series-v1.mjs
+          node --test test-footprint-live-source-v1.mjs
+          node --test test-parallel-chart-phasing-v1.mjs
+          node --test test-orderbook-runtime-stability.mjs
+          node --test test-orderbook-flow-workspace.mjs
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Commit verified runtime
+        run: |
+          git rm .github/scripts/apply-core-feed-footprint-runtime-v1.py
+          git rm .github/workflows/apply-core-feed-footprint-runtime-v1.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Recover core market feed and Footprint runtime"
+          git push origin HEAD:fix/core-feed-footprint-runtime-v1
