@@ -25,6 +25,8 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
+
           path = Path("tools/apply_sweep_tape_clock_v1.py")
           text = path.read_text(encoding="utf-8")
           start_marker = "text = text.replace(\n    '''      drawAggregatePriceRange("
@@ -34,28 +36,33 @@ jobs:
           if start < 0 or end < 0:
               raise SystemExit(f"anchor block boundaries not found: start={start}, end={end}")
           end += len(end_marker)
-          replacement = '''text = replace_once(
+          replacement = r'''text, unlabelled_anchor_count = re.subn(
+              r"(?m)^(\s{6})drawAggregatePriceRange\(\n(\s{8})context,\n(\s{8})state\.priceViewport,",
+              lambda match: (
+                  f"{match.group(1)}drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);\n"
+                  f"{match.group(1)}drawAggregatePriceRange(\n"
+                  f"{match.group(2)}context,\n"
+                  f"{match.group(3)}state.priceViewport,"
+              ),
               text,
-              """      drawAggregatePriceRange(
-                context,
-                state.priceViewport,""",
-              """      drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);
-              drawAggregatePriceRange(
-                context,
-                state.priceViewport,""",
-              "unlabelled aggregate anchor",
+              count=1,
           )
-          text = replace_once(
+          text, labelled_anchor_count = re.subn(
+              r"(?m)^(\s{4})drawAggregatePriceRange\(\n(\s{6})context,\n(\s{6})state\.priceViewport,",
+              lambda match: (
+                  f"{match.group(1)}drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);\n"
+                  f"{match.group(1)}drawAggregatePriceRange(\n"
+                  f"{match.group(2)}context,\n"
+                  f"{match.group(3)}state.priceViewport,"
+              ),
               text,
-              """    drawAggregatePriceRange(
-              context,
-              state.priceViewport,""",
-              """    drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);
-              drawAggregatePriceRange(
-              context,
-              state.priceViewport,""",
-              "labelled aggregate anchor",
-          )'''
+              count=1,
+          )
+          if (unlabelled_anchor_count, labelled_anchor_count) != (1, 1):
+              raise RuntimeError(
+                  f"aggregate anchors: expected (1, 1), got "
+                  f"({unlabelled_anchor_count}, {labelled_anchor_count})"
+              )'''
           path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
           PY
 
