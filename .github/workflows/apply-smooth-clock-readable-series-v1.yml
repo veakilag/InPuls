@@ -1,0 +1,52 @@
+name: Apply smooth live clock and readable Series
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    if: github.event.pull_request.head.ref == 'agent/smooth-clock-readable-series-v1'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply implementation
+        run: python tools/apply_smooth_clock_readable_series_v1.py
+
+      - name: Syntax checks
+        run: |
+          node --check orderbook.js
+          node --check orderbook-flow-workspace.js
+          node --check app.js
+          node --check orderbook-worker.js
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Remove patch scaffolding
+        run: |
+          rm -f tools/apply_smooth_clock_readable_series_v1.py
+          rm -f .github/workflows/apply-smooth-clock-readable-series-v1.yml
+
+      - name: Commit verified implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Synchronize Tape clock and restore readable Series"
+            git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          fi
