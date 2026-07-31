@@ -21,9 +21,60 @@ jobs:
         with:
           node-version: 22
 
+      - name: Align Compact Series patch anchors
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tools/apply_compact_series_trade_edge_v1.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''motion_count = text.count(old_motion_call)
+          if motion_count != 2:
+              raise RuntimeError(f"aggregate motion calls: expected 2 matches, got {motion_count}")
+          text = text.replace(old_motion_call, new_motion_call)'''
+          new = '''motion_count = text.count(old_motion_call)
+          if motion_count != 1:
+              raise RuntimeError(f"unlabelled aggregate motion call: expected 1 match, got {motion_count}")
+          text = text.replace(old_motion_call, new_motion_call, 1)'''
+          if old not in text:
+              raise SystemExit("motion anchor block not found")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+
       - name: Apply compact Series implementation
         run: |
           python tools/apply_compact_series_trade_edge_v1.py
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("orderbook.js")
+          text = path.read_text(encoding="utf-8")
+          old = '''    drawAggregatePriceRange(
+              context,
+              state.priceViewport,
+              item,
+              x,
+              buy,
+              stroke,
+              strength,
+              openAggregate,
+            );'''
+          new = '''    drawAggregateMotion(
+              context,
+              state.priceViewport,
+              item,
+              x,
+              buy,
+              stroke,
+              strength,
+              sweepMode,
+              openAggregate,
+            );'''
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f"labelled aggregate motion call: expected 1 match, got {count}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
           python tools/apply_series_label_declutter_v1.py
 
       - name: Syntax checks
