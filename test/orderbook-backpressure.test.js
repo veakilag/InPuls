@@ -29,10 +29,11 @@ test("latest TAPE queue drops stale backlog and keeps chronological output", () 
   assert.deepEqual(queue.takeLatest(3), { items: [7], dropped: 0 });
 });
 
-test("production Worker keeps aggTrade for visual RAW and guards trade for AGG", () => {
+test("production Worker keeps documented aggTrade for Tape and AGG", () => {
   assert.match(worker, /fstream\.binance\.com\/public\/stream\?streams=/);
   assert.match(worker, /fstream\.binance\.com\/market\/stream\?streams=/);
-  assert.match(worker, /return \[`\$\{name\}@aggTrade`, `\$\{name\}@trade`\];/);
+  assert.match(worker, /return \[`\$\{name\}@aggTrade`\];/);
+  assert.doesNotMatch(worker, /`\$\{name\}@trade`/);
   assert.match(worker, /aggregationTapeBatch/);
   assert.match(worker, /aggregationSource: guard\.mode/);
   assert.doesNotMatch(worker, /stream\.binancefuture\.com/);

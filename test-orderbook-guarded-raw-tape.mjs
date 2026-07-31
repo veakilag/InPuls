@@ -100,13 +100,14 @@ test("invalid, duplicate and out-of-order events never reach the tape", () => {
   assert.equal(snapshot.rawOutOfOrderCount, 1);
 });
 
-test("production worker keeps visual RAW stable and routes guarded raw trades only to AGG", (context) => {
+test("production worker uses documented aggTrade while raw shadow stays isolated", (context) => {
   const workerUrl = new URL("./orderbook-worker.js", import.meta.url);
   if (!existsSync(workerUrl)) { context.skip("worker is added by the branch transformer"); return; }
   const worker = readFileSync(workerUrl, "utf8");
   const guard = readFileSync(new URL("./orderbook-tape-guard.js", import.meta.url), "utf8");
   assert.match(worker, /importScripts\("\.\/orderbook-tape-guard\.js\?v=worker-bp-v1"\);/);
-  assert.match(worker, /return \[`\$\{name\}@aggTrade`, `\$\{name\}@trade`\];/);
+  assert.match(worker, /return \[`\$\{name\}@aggTrade`\];/);
+  assert.doesNotMatch(worker, /`\$\{name\}@trade`/);
   assert.match(worker, /if \(aggregateEvent && this\.insertTrade\(trade, true\)\)/);
   assert.match(worker, /if \(decision\.emit && this\.insertAggregationTrade\(trade, true\)\)/);
   assert.match(worker, /aggregationSource: guard\.mode/);

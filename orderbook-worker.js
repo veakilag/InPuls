@@ -292,16 +292,17 @@ function depthTransports(symbol, mode) {
 
 function tradeStreams(symbol) {
   const name = symbol.toLowerCase();
-  // @aggTrade remains the stable visual RAW feed. @trade is consumed only by
-  // the guarded Tiger-style 0 ms aggregation channel.
-  return [`${name}@aggTrade`, `${name}@trade`];
+  // Production Tape uses the documented USD-M Futures @aggTrade stream.
+  // Undocumented @trade remains excluded until a separate shadow study proves
+  // continuity, duplication and latency behaviour over a long observation.
+  return [`${name}@aggTrade`];
 }
 
 function tradeTransports(streams) {
-  const joined = streams.join("/");
+  const stream = String(streams?.[0] ?? "");
   return [
-    { name: "market · combined", url: `wss://fstream.binance.com/market/stream?streams=${joined}`, subscribe: false, streams },
-    { name: "market · raw", url: `wss://fstream.binance.com/market/ws/${joined}`, subscribe: false, streams },
+    { name: "market · combined", url: `wss://fstream.binance.com/market/stream?streams=${stream}`, subscribe: false, streams: [stream] },
+    { name: "market · raw", url: `wss://fstream.binance.com/market/ws/${stream}`, subscribe: false, streams: [stream] },
   ];
 }
 
@@ -1426,9 +1427,8 @@ class SymbolFeed {
           changed = true;
         }
 
-        // The second channel is sequence-guarded. It starts on @aggTrade,
-        // promotes to individual @trade after warm-up, and falls back without
-        // overlaps when raw IDs gap, reorder or go stale.
+        // The guarded production path follows the same documented @aggTrade
+        // stream and keeps continuity/dedup protection without mixing sources.
         if (decision.emit && this.insertAggregationTrade(trade, true)) {
           this.queueAggregationTape(trade);
           changed = true;

@@ -128,8 +128,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-87-market-feed-footprint-series-v1/);
-  assert.match(app, /orderbook\.js\?v=26-87-market-feed-footprint-series-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-87-market-feed-footprint-series-v1/);
-  assert.match(sw, /26-87-market-feed-footprint-series-v1/);
+  assert.match(index, /26-88-split-market-public-feed-v1/);
+  assert.match(app, /orderbook\.js\?v=26-88-split-market-public-feed-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-88-split-market-public-feed-v1/);
+  assert.match(sw, /26-88-split-market-public-feed-v1/);
 });

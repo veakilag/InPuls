@@ -7,8 +7,8 @@ import {
   selectTapeLabelKeys,
   tapeDisplayLabel,
   tapeVisualSizeQuote,
-} from "./orderbook.js?v=26-87-market-feed-footprint-series-v1";
-import { upsertLiveCandleInPlace } from "./chart.js?v=26-87-market-feed-footprint-series-v1";
+} from "./orderbook.js?v=26-88-split-market-public-feed-v1";
+import { upsertLiveCandleInPlace } from "./chart.js?v=26-88-split-market-public-feed-v1";
 
 const trade = (id, eventTime, receivedAt, price, side, quote) => ({
   id,

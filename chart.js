@@ -45,6 +45,16 @@ export function upsertCandle(candles, candle, limit = 180) {
   return next.slice(-limit);
 }
 
+export function phasedLiveEmitDelay(now, intervalMs = 0, phaseMs = 0) {
+  const current = Number(now);
+  const interval = Math.max(0, Math.floor(Number(intervalMs) || 0));
+  if (!Number.isFinite(current) || interval <= 0) return 0;
+  const rawPhase = Math.floor(Number(phaseMs) || 0);
+  const phase = ((rawPhase % interval) + interval) % interval;
+  const remainder = ((Math.floor(current) - phase) % interval + interval) % interval;
+  return remainder === 0 ? 0 : interval - remainder;
+}
+
 export function upsertLiveCandleInPlace(candles, candle, limit = 180) {
   if (!Array.isArray(candles) || !candle || !Number.isFinite(candle.time)) return candles;
   const last = candles.at(-1);
@@ -197,9 +207,11 @@ class SecondHistoryStore {
 const secondHistoryStore = new SecondHistoryStore();
 
 export class KlineFeed {
-  constructor({ onData, onStatus }) {
+  constructor({ onData, onStatus, liveEmitIntervalMs = 0, liveEmitPhaseMs = 0 }) {
     this.onData = onData;
     this.onStatus = onStatus;
+    this.liveEmitIntervalMs = Math.max(0, Math.floor(Number(liveEmitIntervalMs) || 0));
+    this.liveEmitPhaseMs = Math.floor(Number(liveEmitPhaseMs) || 0);
     this.symbol = null;
     this.interval = null;
     this.candles = [];
@@ -316,13 +328,30 @@ export class KlineFeed {
       if (!pending) return;
       this.onData(this.candles, pending);
     };
-    if (typeof globalThis.requestAnimationFrame === "function") {
-      this.liveEmitKind = "raf";
-      this.liveEmitHandle = globalThis.requestAnimationFrame(emit);
-    } else {
+    const scheduleFrame = () => {
+      if (typeof globalThis.requestAnimationFrame === "function") {
+        this.liveEmitKind = "raf";
+        this.liveEmitHandle = globalThis.requestAnimationFrame(emit);
+      } else {
+        this.liveEmitKind = "timeout";
+        this.liveEmitHandle = setTimeout(emit, 16);
+      }
+    };
+    const delay = phasedLiveEmitDelay(
+      Date.now(),
+      this.liveEmitIntervalMs,
+      this.liveEmitPhaseMs,
+    );
+    if (delay > 8) {
       this.liveEmitKind = "timeout";
-      this.liveEmitHandle = setTimeout(emit, 16);
+      this.liveEmitHandle = setTimeout(() => {
+        this.liveEmitHandle = null;
+        this.liveEmitKind = null;
+        scheduleFrame();
+      }, delay);
+      return;
     }
+    scheduleFrame();
   }
 
   #scheduleSeriesCacheFlush() {
