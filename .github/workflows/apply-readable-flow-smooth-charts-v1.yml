@@ -34,6 +34,9 @@ jobs:
           fi
           exit "$status"
 
+      - name: Update test contracts
+        run: python tools/fix_readable_flow_test_contracts_v1.py
+
       - name: Syntax checks
         run: |
           node --check orderbook.js
@@ -78,6 +81,7 @@ jobs:
       - name: Remove patch scaffolding
         run: |
           rm -f tools/apply_readable_flow_smooth_charts_v1.py
+          rm -f tools/fix_readable_flow_test_contracts_v1.py
           rm -f .github/workflows/apply-readable-flow-smooth-charts-v1.yml
 
       - name: Commit verified implementation
