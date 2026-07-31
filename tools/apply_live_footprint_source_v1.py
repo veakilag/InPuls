@@ -144,7 +144,8 @@ test("current footprint interval accumulates repeated live packets", () => {
 });
 ''', encoding="utf-8")
 
-# Bump every existing cache/build reference atomically.
+# Bump every existing cache/build reference atomically. VERSION.txt keeps its
+# v23 label and feature identities; only the Build value is replaced here too.
 for candidate in Path(".").rglob("*"):
     if not candidate.is_file():
         continue
@@ -159,5 +160,4 @@ for candidate in Path(".").rglob("*"):
         continue
     candidate.write_text(text.replace(OLD_BUILD, NEW_BUILD), encoding="utf-8")
 
-Path("VERSION.txt").write_text(NEW_BUILD + "\n", encoding="utf-8")
 print(f"Applied {NEW_BUILD}")
