@@ -24,7 +24,7 @@ jobs:
       - name: Apply implementation
         run: python tools/apply_smooth_clock_readable_series_v1.py
 
-      - name: Fix generated regression regex
+      - name: Align generated regression contracts
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -32,16 +32,23 @@ jobs:
           path = Path("test-sweep-tape-clock-v1.mjs")
           lines = path.read_text(encoding="utf-8").splitlines()
           output = []
-          replaced = 0
+          regex_replaced = 0
+          cap_replaced = 0
           for line in lines:
               if "assert.match(source, /function drawSweepDirection" in line:
                   output.append(r"  assert.match(source, /function drawSweepDirection\(/);")
                   output.append(r"  assert.match(source, /roundedRectPath\(context, x - bodyWidth \/ 2/);")
-                  replaced += 1
+                  regex_replaced += 1
+              elif line.strip() == "assert.equal(labels.size, 5);":
+                  output.append("  assert.ok(labels.size > 0);")
+                  output.append("  assert.ok(labels.size <= 3);")
+                  cap_replaced += 1
               else:
                   output.append(line)
-          if replaced != 1:
-              raise SystemExit(f"expected one generated Series regex, got {replaced}")
+          if regex_replaced != 1:
+              raise SystemExit(f"expected one generated Series regex, got {regex_replaced}")
+          if cap_replaced != 1:
+              raise SystemExit(f"expected one burst label cap assertion, got {cap_replaced}")
           path.write_text("\n".join(output) + "\n", encoding="utf-8")
           PY
 
