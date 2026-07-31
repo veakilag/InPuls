@@ -12,15 +12,14 @@ import {
   SIGNAL_LAB_V3_FORMULA_VERSION,
 } from "./signal-lab-v3-candidates.js";
 
-const BINANCE_STREAM_ENDPOINT = "wss://fstream.binance.com/market/stream";
+const BINANCE_STREAM_ENDPOINT = "wss://fstream.binance.com/ws";
 const BINANCE_KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
+const CONNECTION_TIMEOUT_MS = 10_000;
 
 const finite = (value) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 };
-
-const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 
 function median(values) {
   const sorted = values.filter(Number.isFinite).sort((left, right) => left - right);
@@ -170,6 +169,7 @@ export class SignalLabV3Collector {
     this.requestId = 1;
     this.reconnectAttempt = 0;
     this.reconnectTimer = null;
+    this.connectionTimer = null;
     this.manualClose = false;
     this.symbols = new Map();
     this.bookTracker = new ExpertBookCandidateTracker(this.settings);
@@ -198,12 +198,20 @@ export class SignalLabV3Collector {
 
   connect() {
     clearTimeout(this.reconnectTimer);
+    clearTimeout(this.connectionTimer);
     this.manualClose = false;
     this.#publish({ connection: "connecting", startedAt: this.statusState.startedAt ?? Date.now() });
     const socket = new WebSocket(BINANCE_STREAM_ENDPOINT);
     this.socket = socket;
+    this.connectionTimer = setTimeout(() => {
+      if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+      this.#publish({ connection: "error", lastError: "Binance не отвечает более 10 секунд" });
+      socket.close();
+    }, CONNECTION_TIMEOUT_MS);
 
     socket.addEventListener("open", () => {
+      if (this.socket !== socket) return;
+      clearTimeout(this.connectionTimer);
       this.reconnectAttempt = 0;
       this.#publish({ connection: "live", lastError: null });
       this.#send("SUBSCRIBE", [
@@ -220,6 +228,7 @@ export class SignalLabV3Collector {
     });
 
     socket.addEventListener("message", (event) => {
+      if (this.socket !== socket) return;
       let payload;
       try {
         payload = JSON.parse(event.data);
@@ -232,7 +241,8 @@ export class SignalLabV3Collector {
     });
 
     socket.addEventListener("close", () => {
-      if (this.manualClose) return;
+      if (this.socket !== socket || this.manualClose) return;
+      clearTimeout(this.connectionTimer);
       this.reconnectAttempt += 1;
       const delay = Math.min(30_000, 1_000 * 2 ** Math.min(this.reconnectAttempt, 5));
       this.#publish({ connection: "reconnecting" });
@@ -240,6 +250,8 @@ export class SignalLabV3Collector {
     });
 
     socket.addEventListener("error", () => {
+      if (this.socket !== socket) return;
+      clearTimeout(this.connectionTimer);
       this.#publish({ connection: "error", lastError: "Ошибка потока Binance" });
     });
   }
@@ -247,6 +259,7 @@ export class SignalLabV3Collector {
   disconnect() {
     this.manualClose = true;
     clearTimeout(this.reconnectTimer);
+    clearTimeout(this.connectionTimer);
     this.socket?.close();
     this.socket = null;
     this.#publish({ connection: "stopped" });
