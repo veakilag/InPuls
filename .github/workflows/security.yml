@@ -34,51 +34,18 @@ jobs:
           python .github/scripts/apply-market-feed-footprint-series-v1.py
           python .github/scripts/update-footprint-tests-v1.py
           python .github/scripts/update-global-connection-test-v1.py
+          python .github/scripts/fix-flow-helper-tests-v1.py
 
       - name: Check JavaScript syntax
         run: find . -type f -name '*.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
 
-      - name: Combined market feed contract
-        run: node --test --test-name-pattern="global market feed" test-market-feed-footprint-series-v1.mjs
-
-      - name: Footprint source promotion contract
-        run: node --test --test-name-pattern="footprint bootstraps" test-market-feed-footprint-series-v1.mjs
-
-      - name: Series opposite-side contract
-        run: node --test --test-name-pattern="Series groups raw" test-market-feed-footprint-series-v1.mjs
-
-      - name: Series 100ms window contract
-        run: node --test --test-name-pattern="same-side trades outside" test-market-feed-footprint-series-v1.mjs
-
-      - name: Footprint label and maximum contract
-        run: node --test --test-name-pattern="footprint uses order-book" test-market-feed-footprint-series-v1.mjs
-
-      - name: Sweep Tape contract
-        run: node --test test-sweep-tape-clock-v1.mjs
-
-      - name: Footprint live source contract
-        run: node --test test-footprint-live-source-v1.mjs
-
-      - name: Global connection cleanup contract
-        run: node --test test-global-connection-radar-cleanup-v1.mjs
-
-      - name: Diagnose remaining visual contracts
-        shell: bash
+      - name: Focused market and Flow regressions
         run: |
-          set +e
-          failed=0
-          for name in \
-            "Flow Workspace redraw observer cannot trigger itself" \
-            "footprint uses one proportional dominance cell and interval candles"
-          do
-            file=$(grep -RIl --include='*.js' --include='*.mjs' "$name" . | head -n 1)
-            echo "===== $name ====="
-            echo "FILE: $file"
-            grep -n -B 24 -A 40 "$name" "$file" || true
-            node --test --test-name-pattern="$name" "$file"
-            if [ "$?" -ne 0 ]; then failed=1; fi
-          done
-          exit "$failed"
+          node --test test-market-feed-footprint-series-v1.mjs
+          node --test test-sweep-tape-clock-v1.mjs
+          node --test test-footprint-live-source-v1.mjs
+          node --test test-global-connection-radar-cleanup-v1.mjs
+          node --test --test-name-pattern="Flow Workspace redraw observer cannot trigger itself|footprint uses one proportional dominance cell and interval candles" test/tape-runtime.test.js
 
       - name: Run regression and security tests
         shell: bash
@@ -90,13 +57,14 @@ jobs:
             tail -n 320 /tmp/npm-test.log
             exit 1
           }
-          tail -n 30 /tmp/npm-test.log
+          tail -n 40 /tmp/npm-test.log
 
       - name: Commit verified runtime and restore standard workflow
         run: |
           git rm .github/scripts/apply-market-feed-footprint-series-v1.py
           git rm .github/scripts/update-footprint-tests-v1.py
           git rm .github/scripts/update-global-connection-test-v1.py
+          git rm .github/scripts/fix-flow-helper-tests-v1.py
           git rm .github/workflows/apply-market-feed-footprint-series-v1.yml
           git checkout origin/main -- .github/workflows/security.yml
           git config user.name "github-actions[bot]"
