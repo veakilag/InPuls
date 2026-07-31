@@ -1,0 +1,64 @@
+name: Integrate Signal Lab V2
+
+on:
+  push:
+    branches:
+      - agent/signal-lab-v2-team-pattern-learning
+    paths:
+      - scripts/apply-signal-lab-v2-integration.mjs
+      - .github/workflows/apply-signal-lab-v2-integration.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    if: ${{ !contains(github.event.head_commit.message || '', 'feat: integrate Signal Lab V2 runtime') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/signal-lab-v2-team-pattern-learning
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Merge latest main
+        run: |
+          git fetch origin main
+          git merge --no-edit origin/main
+
+      - name: Apply Signal Lab V2 integration
+        run: node scripts/apply-signal-lab-v2-integration.mjs
+
+      - name: Syntax checks
+        run: |
+          node --check signal-lab-v2-catalog.js
+          node --check signal-lab-v2-review.js
+          node --check signal-lab-v2-episodes.js
+          node --check signal-lab-v2-training.js
+          node --check signal-lab-v2-store.js
+          node --check owner-signal-lab.js
+          node --check sw.js
+
+      - name: Focused Signal Lab V2 tests
+        run: node --test test/signal-lab-v2.test.js test/signal-lab-v2-store.test.js test/signal-lab-v2-integration.test.js
+
+      - name: Full regression suite
+        run: npm test
+
+      - name: Remove temporary integration files
+        run: rm -f scripts/apply-signal-lab-v2-integration.mjs .github/workflows/apply-signal-lab-v2-integration.yml
+
+      - name: Commit integrated runtime
+        run: |
+          git config user.name "InPuls automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: integrate Signal Lab V2 runtime"
+          git push origin HEAD:agent/signal-lab-v2-team-pattern-learning
