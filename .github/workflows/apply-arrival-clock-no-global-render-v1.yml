@@ -50,9 +50,9 @@ jobs:
             assert.equal(resolveTapeVisualTime(1_000, 9_000), 9_000);
             assert.equal(resolveTapeVisualTime(1_000, null), 1_000);
             const groups = aggregateTapeZeroMs([
-              { id: 1, firstTradeId: 1, lastTradeId: 1, price: 100, quantity: 1, quote: 100, side: "buy", time: 9_000, tradeTime: 1_000, eventTime: 1_000 },
-              { id: 2, firstTradeId: 2, lastTradeId: 2, price: 101, quantity: 1, quote: 101, side: "buy", time: 9_001, tradeTime: 1_000, eventTime: 1_000 },
-              { id: 3, firstTradeId: 3, lastTradeId: 3, price: 102, quantity: 1, quote: 102, side: "buy", time: 9_020, tradeTime: 1_020, eventTime: 1_020 },
+              { id: 1, firstTradeId: 1, lastTradeId: 1, price: 100, quantity: 1, quote: 100, side: "buy", time: 1_000, receivedAt: 9_000, tradeTime: 1_000, eventTime: 1_000 },
+              { id: 2, firstTradeId: 2, lastTradeId: 2, price: 101, quantity: 1, quote: 101, side: "buy", time: 1_000, receivedAt: 9_001, tradeTime: 1_000, eventTime: 1_000 },
+              { id: 3, firstTradeId: 3, lastTradeId: 3, price: 102, quantity: 1, quote: 102, side: "buy", time: 1_020, receivedAt: 9_020, tradeTime: 1_020, eventTime: 1_020 },
             ]);
             assert.equal(groups.length, 2);
             assert.equal(groups[0].eventTime, 1_000);
@@ -61,7 +61,8 @@ jobs:
             const sweeps = aggregateTapeSweeps(groups, { maxGapMs: 35, tick: 1 });
             assert.equal(sweeps.length, 1);
             assert.equal(sweeps[0].eventTime, 1_010);
-            assert.ok(sweeps[0].time >= 9_000 && sweeps[0].time <= 9_020);
+            assert.equal(sweeps[0].time, 9_020);
+            assert.equal(sweeps[0].labelPrice, 102);
           });
 
           test("high-rate market streams do not trigger full-app DOM renders", () => {
@@ -81,6 +82,8 @@ jobs:
             assert.match(orderbook, /tradeTime: sourceTime/);
             assert.match(orderbook, /eventTime,/);
             assert.match(orderbook, /const eventTime = Number\(trade\.eventTime \?\? trade\.tradeTime \?\? trade\.time\)/);
+            assert.match(orderbook, /current\.time = current\.lastTime/);
+            assert.match(orderbook, /current\.labelPrice = current\.lastPrice/);
           });
           """
           test_path.write_text(test_source.replace("__BUILD__", NEW_BUILD), encoding="utf-8")
@@ -92,6 +95,224 @@ jobs:
 
       - name: Apply implementation
         run: python tools/apply_arrival_clock_no_global_render_v1.py
+
+      - name: Preserve Series contract with dual clocks
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("orderbook.js")
+          text = path.read_text(encoding="utf-8")
+
+          agg_start = text.index("export function aggregateTapeZeroMs(")
+          agg_end = text.index("\nexport function materializeZeroMsAggregates", agg_start)
+          agg = r'''export function aggregateTapeZeroMs(trades) {
+            const ordered = [...(trades ?? [])]
+              .filter((trade) => {
+                const eventTime = Number(trade?.eventTime ?? trade?.tradeTime ?? trade?.time);
+                const visualTime = resolveTapeVisualTime(trade?.time, trade?.receivedAt);
+                const price = Number(trade?.price);
+                const quote = Number(trade?.quote);
+                return [eventTime, visualTime, price, quote].every(Number.isFinite) && quote > 0;
+              })
+              .sort((left, right) => {
+                const timeDelta = Number(left.eventTime ?? left.tradeTime ?? left.time)
+                  - Number(right.eventTime ?? right.tradeTime ?? right.time);
+                if (timeDelta) return timeDelta;
+                const leftId = Number(left.id);
+                const rightId = Number(right.id);
+                if (Number.isFinite(leftId) && Number.isFinite(rightId) && leftId !== rightId) {
+                  return leftId - rightId;
+                }
+                return String(left.id).localeCompare(String(right.id));
+              });
+
+            const groups = [];
+            const ordinalByTime = new Map();
+            let current = null;
+            const finish = () => {
+              if (!current) return;
+              const timeOrdinal = ordinalByTime.get(current.eventTime) ?? 0;
+              current.timeOrdinal = timeOrdinal;
+              ordinalByTime.set(current.eventTime, timeOrdinal + 1);
+              current.vwapPrice = current.quantity > 0
+                ? current.quote / current.quantity
+                : current.firstPrice;
+              current.price = current.firstPrice;
+              current.bucketStart = current.eventTime;
+              current.bucketEnd = current.eventTime;
+              current.bucketMs = TAPE_AGGREGATION_PERIOD_MS;
+              groups.push(current);
+              current = null;
+            };
+
+            for (const trade of ordered) {
+              const eventTime = Number(trade.eventTime ?? trade.tradeTime ?? trade.time);
+              const visualTime = resolveTapeVisualTime(trade.time, trade.receivedAt);
+              const side = trade.side === "sell" ? "sell" : "buy";
+              const price = Number(trade.price);
+              const quote = Number(trade.quote);
+              const quantity = Number.isFinite(Number(trade.quantity)) && Number(trade.quantity) > 0
+                ? Number(trade.quantity)
+                : quote / price;
+              const rawFirstId = trade.firstTradeId ?? trade.id;
+              const rawLastId = trade.lastTradeId ?? trade.id;
+              const firstTradeId = Number.isInteger(Number(rawFirstId)) ? Number(rawFirstId) : null;
+              const lastTradeId = Number.isInteger(Number(rawLastId)) ? Number(rawLastId) : firstTradeId;
+              const continues = current
+                && current.eventTime === eventTime
+                && current.side === side;
+
+              if (!continues) {
+                finish();
+                current = {
+                  key: `agg0:${eventTime}:${side}:${tapeTradeKey(trade)}`,
+                  time: visualTime,
+                  lastTime: visualTime,
+                  eventTime,
+                  side,
+                  firstTradeId,
+                  lastTradeId,
+                  firstPrice: price,
+                  lastPrice: price,
+                  minPrice: price,
+                  maxPrice: price,
+                  price,
+                  vwapPrice: price,
+                  quantity: 0,
+                  quote: 0,
+                  buyQuote: 0,
+                  sellQuote: 0,
+                  count: 0,
+                };
+              }
+
+              current.lastTime = Math.max(current.lastTime, visualTime);
+              current.lastPrice = price;
+              if (Number.isInteger(lastTradeId)) current.lastTradeId = lastTradeId;
+              current.minPrice = Math.min(current.minPrice, price);
+              current.maxPrice = Math.max(current.maxPrice, price);
+              current.quantity += quantity;
+              current.quote += quote;
+              current[side === "sell" ? "sellQuote" : "buyQuote"] += quote;
+              current.count += 1;
+            }
+            finish();
+            return groups;
+          }
+          '''
+          text = text[:agg_start] + agg + text[agg_end:]
+
+          sweep_start = text.index("export function aggregateTapeSweeps(")
+          sweep_end = text.index("\nexport function materializeTapeSweeps", sweep_start)
+          sweep = r'''export function aggregateTapeSweeps(
+            groups,
+            {
+              maxGapMs = TAPE_SWEEP_MAX_GAP_MS,
+              maxReverseTicks = TAPE_SWEEP_MAX_REVERSE_TICKS,
+              tick = null,
+            } = {},
+          ) {
+            const ordered = [...(groups ?? [])]
+              .filter((group) => Number.isFinite(Number(group?.eventTime ?? group?.time)))
+              .sort((left, right) => {
+                const timeDelta = Number(left.eventTime ?? left.time) - Number(right.eventTime ?? right.time);
+                if (timeDelta) return timeDelta;
+                return Number(left.timeOrdinal) - Number(right.timeOrdinal);
+              });
+            const priceTick = Math.max(Number.EPSILON, Number(tick) || inferSweepTick(ordered) || Number.EPSILON);
+            const allowedReverse = priceTick * Math.max(0, Number(maxReverseTicks) || 0) + Number.EPSILON;
+            const groupsOut = [];
+            const ordinalByTime = new Map();
+            let current = null;
+
+            const finish = () => {
+              if (!current) return;
+              current.vwapPrice = current.quantity > 0 ? current.quote / current.quantity : current.firstPrice;
+              current.durationMs = Math.max(0, current.lastTime - current.firstTime);
+              current.time = current.lastTime;
+              const sourceDuration = Math.max(0, current.lastEventTime - current.firstEventTime);
+              current.eventTime = current.firstEventTime + sourceDuration / 2;
+              current.labelPrice = current.lastPrice;
+              current.price = current.lastPrice;
+              current.kind = "sweep";
+              const ordinalKey = Math.round(current.time);
+              current.timeOrdinal = ordinalByTime.get(ordinalKey) ?? 0;
+              ordinalByTime.set(ordinalKey, current.timeOrdinal + 1);
+              if (current.aggregateCount >= TAPE_SWEEP_MIN_AGGREGATES) groupsOut.push(current);
+              current = null;
+            };
+
+            for (const group of ordered) {
+              const eventTime = Number(group.eventTime ?? group.time);
+              const visualTime = Number(group.time ?? eventTime);
+              const visualLastTime = Number(group.lastTime ?? visualTime);
+              const side = group.side === "sell" ? "sell" : "buy";
+              const firstPrice = Number(group.firstPrice ?? group.price);
+              const lastPrice = Number(group.lastPrice ?? group.price);
+              const firstId = Number.isInteger(Number(group.firstTradeId)) ? Number(group.firstTradeId) : null;
+              const lastId = Number.isInteger(Number(group.lastTradeId)) ? Number(group.lastTradeId) : firstId;
+              const gap = current ? eventTime - current.lastEventTime : Infinity;
+              const idsContinuous = !current
+                || !Number.isInteger(current.lastTradeId)
+                || !Number.isInteger(firstId)
+                || firstId === current.lastTradeId + 1;
+              const directionContinuous = !current || (side === "buy"
+                ? firstPrice >= current.lastPrice - allowedReverse
+                : firstPrice <= current.lastPrice + allowedReverse);
+              const continues = current
+                && current.side === side
+                && gap >= 0
+                && gap <= Math.max(0, Number(maxGapMs) || 0)
+                && idsContinuous
+                && directionContinuous;
+
+              if (!continues) {
+                finish();
+                current = {
+                  key: `sweep:${eventTime}:${side}:${group.key}`,
+                  side,
+                  firstTime: visualTime,
+                  lastTime: visualLastTime,
+                  firstEventTime: eventTime,
+                  lastEventTime: eventTime,
+                  firstTradeId: firstId,
+                  lastTradeId: lastId,
+                  firstPrice,
+                  lastPrice,
+                  minPrice: Number(group.minPrice ?? firstPrice),
+                  maxPrice: Number(group.maxPrice ?? firstPrice),
+                  price: firstPrice,
+                  vwapPrice: firstPrice,
+                  quantity: 0,
+                  quote: 0,
+                  buyQuote: 0,
+                  sellQuote: 0,
+                  count: 0,
+                  aggregateCount: 0,
+                };
+              }
+
+              current.lastTime = Math.max(current.lastTime, visualLastTime);
+              current.lastEventTime = eventTime;
+              current.lastPrice = lastPrice;
+              if (Number.isInteger(lastId)) current.lastTradeId = lastId;
+              current.minPrice = Math.min(current.minPrice, Number(group.minPrice ?? firstPrice));
+              current.maxPrice = Math.max(current.maxPrice, Number(group.maxPrice ?? firstPrice));
+              current.quantity += Number(group.quantity) || 0;
+              current.quote += Number(group.quote) || 0;
+              current.buyQuote += Number(group.buyQuote) || 0;
+              current.sellQuote += Number(group.sellQuote) || 0;
+              current.count += Number(group.count) || 0;
+              current.aggregateCount += 1;
+            }
+            finish();
+            return groupsOut;
+          }
+          '''
+          text = text[:sweep_start] + sweep + text[sweep_end:]
+          path.write_text(text, encoding="utf-8")
+          PY
 
       - name: Syntax checks
         run: |
