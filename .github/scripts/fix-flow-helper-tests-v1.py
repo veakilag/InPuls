@@ -41,16 +41,17 @@ test_path, test_source = test_files[0]
 lines = test_source.splitlines()
 target_indexes = [
     index for index, line in enumerate(lines)
-    if "state\\.context\\.font" in line and "700 7px Arial, sans-serif" in line
+    if "formatQuoteVolume\\(cluster\\.quote\\)" in line
 ]
 if len(target_indexes) != 1:
-    raise RuntimeError(f"Expected one hardcoded footprint font assertion in {test_path}, got {target_indexes}")
+    raise RuntimeError(f"Expected one old footprint formatter assertion in {test_path}, got {target_indexes}")
 index = target_indexes[0]
 lines[index:index + 1] = [
-    '  assert.match(source, /formatCompactUsd\\(cluster\\.quote\\)/);',
-    '  assert.match(source, /footprintBookVolumeTextStyle\\(state, theme\\)/);',
-    '  assert.match(source, /querySelector\\?\\.\\("\\.book-size"\\)/);',
+    '  assert.match(flow, /formatCompactUsd\\(cluster\\.quote\\)/);',
+    '  assert.match(flow, /footprintBookVolumeTextStyle\\(state, theme\\)/);',
+    '  assert.match(flow, /querySelector\\?\\.\\("\\.book-size"\\)/);',
+    '  assert.match(flow, /const isColumnMaximum =/);',
 ]
 test_path.write_text("\n".join(lines) + ("\n" if test_source.endswith("\n") else ""), encoding="utf-8")
 
-print(f"Fixed Flow helper placement and updated typography contract in {test_path}")
+print(f"Fixed Flow helper placement and updated formatter/typography contract in {test_path}")
