@@ -1,11 +1,13 @@
 import { renderSignalLabEventCard } from "./owner-signal-lab-v2-card.js";
 
-const BUILD = "26-81-signal-lab-collector-status-v1";
+const BUILD = "26-82-signal-lab-event-driven-collector-v1";
 const WINDOWS = Object.freeze(["1d", "3d", "7d", "30d"]);
 const OWNER_SIGNAL_LAB_STARTED_EVENT = "inpuls:owner-signal-lab-started";
 const COLLECTOR_STATUS_MESSAGE = "inpuls:signal-lab-collector-status";
 const COLLECTOR_STATUS_TIMEOUT_MS = 2_500;
 const COLLECTOR_STATUS_POLL_MS = 5_000;
+const COLLECTOR_HEALTH_KEY = "inpuls-signal-lab-collector-health-v1";
+const COLLECTOR_HEARTBEAT_STALE_MS = 15_000;
 
 const elements = {
   storage: document.querySelector("#storage-state"),
@@ -41,6 +43,7 @@ let collectorStatus = Object.freeze({
   available: false,
   checkedAt: null,
   clients: [],
+  heartbeat: null,
   reason: "not-checked",
 });
 
@@ -109,6 +112,28 @@ function collectorWindow() {
     ?? null;
 }
 
+function readCollectorHeartbeat() {
+  try {
+    const value = JSON.parse(localStorage.getItem(COLLECTOR_HEALTH_KEY) || "null");
+    return value && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function collectorHeartbeatAge(now = Date.now()) {
+  const publishedAt = finite(collectorStatus.heartbeat?.publishedAt);
+  return publishedAt === null ? null : Math.max(0, now - publishedAt);
+}
+
+function formatAgeMs(value) {
+  const age = finite(value);
+  if (age === null) return "—";
+  if (age < 1_000) return "<1с";
+  if (age < 60_000) return `${Math.round(age / 1_000)}с`;
+  return `${Math.round(age / 60_000)}м`;
+}
+
 function renderRuntimeStatus() {
   if (!elements.storage) return;
   const reviewStorageState = storeStatus?.reviewStorageState || storeStatus?.state || "available";
@@ -124,13 +149,25 @@ function renderRuntimeStatus() {
   if (collectorStatus.active) {
     const client = collectorWindow();
     const inBackground = client?.visibilityState === "hidden";
+    const heartbeat = collectorStatus.heartbeat;
+    const heartbeatAge = collectorHeartbeatAge();
+    const heartbeatLive = heartbeatAge !== null && heartbeatAge <= COLLECTOR_HEARTBEAT_STALE_MS;
+    if (!heartbeatLive) {
+      elements.storage.dataset.state = "error";
+      elements.storage.textContent = heartbeatAge === null
+        ? "Вкладка InPuls открыта, но живой сбор не подтверждён"
+        : `Сбор замер · последнее обновление ${formatAgeMs(heartbeatAge)} назад`;
+      elements.storage.title = "Открытая вкладка не гарантирует работу детектора. Проверь соединение основного InPuls и верни вкладку на экран.";
+      if (elements.collectorOpen) elements.collectorOpen.textContent = "Открыть InPuls";
+      return;
+    }
+    const checks = formatInteger(heartbeat?.checks ?? 0);
+    const sessionEvents = formatInteger(heartbeat?.signalEvents ?? 0);
     elements.storage.dataset.state = inBackground ? "warning" : "available";
     elements.storage.textContent = inBackground
-      ? `Сборщик открыт в фоне · история: ${formatInteger(eventCount)} событий`
-      : `Сборщик активен · история: ${formatInteger(eventCount)} событий`;
-    elements.storage.title = inBackground
-      ? "Основной InPuls открыт в фоновой вкладке. Браузер может замедлять WebSocket и таймеры."
-      : "Основной InPuls открыт и записывает найденные события в локальную историю.";
+      ? `Поток LIVE в фоне · проверок: ${checks} · новых событий: ${sessionEvents}`
+      : `Поток LIVE · проверок: ${checks} · новых событий: ${sessionEvents}`;
+    elements.storage.title = `Последняя проверка ${formatAgeMs(heartbeatAge)} назад · символов: ${formatInteger(heartbeat?.symbols ?? 0)} · история: ${formatInteger(eventCount)}`;
     if (elements.collectorOpen) elements.collectorOpen.textContent = "Открыть InPuls";
     return;
   }
@@ -152,7 +189,12 @@ function renderEmptyState(events) {
     return;
   }
   if (collectorStatus.active && eventCount === 0) {
-    elements.empty.textContent = "Сборщик работает. Подходящий паттерн появится здесь после первого реального срабатывания.";
+    const age = collectorHeartbeatAge();
+    if (age === null || age > COLLECTOR_HEARTBEAT_STALE_MS) {
+      elements.empty.textContent = "Вкладка InPuls открыта, но поток детектора не обновляется. Открой основной InPuls и проверь статус Binance.";
+      return;
+    }
+    elements.empty.textContent = `Поток LIVE: выполнено ${formatInteger(collectorStatus.heartbeat?.checks ?? 0)} проверок. Подходящих паттернов пока не зафиксировано.`;
     return;
   }
   elements.empty.textContent = "В выбранном периоде или фильтре подходящих событий пока нет.";
@@ -177,6 +219,7 @@ async function requestCollectorStatus() {
         available: false,
         checkedAt: Date.now(),
         clients: [],
+        heartbeat: readCollectorHeartbeat(),
         reason: "service-worker-unavailable",
       });
     }
@@ -187,6 +230,7 @@ async function requestCollectorStatus() {
         available: false,
         checkedAt: Date.now(),
         clients: [],
+        heartbeat: readCollectorHeartbeat(),
         reason: "collector-status-timeout",
       })), COLLECTOR_STATUS_TIMEOUT_MS);
       channel.port1.onmessage = (event) => {
@@ -197,6 +241,7 @@ async function requestCollectorStatus() {
           available: true,
           checkedAt: finite(payload.checkedAt) ?? Date.now(),
           clients: Array.isArray(payload.clients) ? payload.clients : [],
+          heartbeat: readCollectorHeartbeat(),
           reason: payload.active === true ? "collector-client-found" : "collector-client-missing",
         }));
       };
@@ -208,6 +253,7 @@ async function requestCollectorStatus() {
       available: false,
       checkedAt: Date.now(),
       clients: [],
+      heartbeat: readCollectorHeartbeat(),
       reason: String(error?.message || error).slice(0, 120),
     });
   }

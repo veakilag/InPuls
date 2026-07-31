@@ -1,6 +1,6 @@
 const CACHE = "inpuls-26-79-agg-center-tape-scale-settings-v1";
 const BUILD = "26-79-agg-center-tape-scale-settings-v1";
-const SIGNAL_LAB_BUILD = "26-81-signal-lab-collector-status-v1";
+const SIGNAL_LAB_BUILD = "26-82-signal-lab-event-driven-collector-v1";
 const SIGNAL_LAB_COLLECTOR_STATUS_MESSAGE = "inpuls:signal-lab-collector-status";
 
 const FORCED = new Map([
@@ -54,18 +54,18 @@ const SHELL = [
   "./market-pattern-scanner.js?v=marketwide-patterns-v1",
   "./pattern-catalog.js?v=26-79-agg-center-tape-scale-settings-v1",
   "./signal-lab.js?v=signal-lab-analytics-v1",
-  "./signal-lab-v2-store.js?v=26-81-signal-lab-collector-status-v1",
-  "./signal-lab-v2-catalog.js?v=26-81-signal-lab-collector-status-v1",
-  "./signal-lab-v2-episodes.js?v=26-81-signal-lab-collector-status-v1",
-  "./signal-lab-v2-review.js?v=26-81-signal-lab-collector-status-v1",
-  "./signal-lab-v2-training.js?v=26-81-signal-lab-collector-status-v1",
+  "./signal-lab-v2-store.js?v=26-82-signal-lab-event-driven-collector-v1",
+  "./signal-lab-v2-catalog.js?v=26-82-signal-lab-event-driven-collector-v1",
+  "./signal-lab-v2-episodes.js?v=26-82-signal-lab-event-driven-collector-v1",
+  "./signal-lab-v2-review.js?v=26-82-signal-lab-event-driven-collector-v1",
+  "./signal-lab-v2-training.js?v=26-82-signal-lab-event-driven-collector-v1",
   "./owner-signal-lab.html",
-  "./owner-signal-lab-guard.js?v=26-81-signal-lab-collector-status-v1",
-  "./owner-signal-lab-v2.js?v=26-81-signal-lab-collector-status-v1",
-  "./owner-signal-lab-v2-card.js?v=26-81-signal-lab-collector-status-v1",
-  "./owner-signal-lab-v2-chart.js?v=26-81-signal-lab-collector-status-v1",
+  "./owner-signal-lab-guard.js?v=26-82-signal-lab-event-driven-collector-v1",
+  "./owner-signal-lab-v2.js?v=26-82-signal-lab-event-driven-collector-v1",
+  "./owner-signal-lab-v2-card.js?v=26-82-signal-lab-event-driven-collector-v1",
+  "./owner-signal-lab-v2-chart.js?v=26-82-signal-lab-event-driven-collector-v1",
   "./owner-signal-lab.css?v=26-64-signal-lab-without-impulse-v1",
-  "./owner-signal-lab-v2.css?v=26-81-signal-lab-collector-status-v1",
+  "./owner-signal-lab-v2.css?v=26-82-signal-lab-event-driven-collector-v1",
   "./owner-navigation.js?v=owner-signal-lab-v1",
   "./render-scheduler.js?v=render-scheduler-v1",
   "./orderbook-worker.js?v=26-79-agg-center-tape-scale-settings-v1",
