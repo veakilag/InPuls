@@ -37,8 +37,20 @@ jobs:
       - name: Check JavaScript syntax
         run: find . -type f -name '*.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
 
-      - name: Market feed and Series contract
-        run: node --test test-market-feed-footprint-series-v1.mjs
+      - name: Combined market feed contract
+        run: node --test --test-name-pattern="global market feed" test-market-feed-footprint-series-v1.mjs
+
+      - name: Footprint source promotion contract
+        run: node --test --test-name-pattern="footprint bootstraps" test-market-feed-footprint-series-v1.mjs
+
+      - name: Series opposite-side contract
+        run: node --test --test-name-pattern="Series groups raw" test-market-feed-footprint-series-v1.mjs
+
+      - name: Series 100ms window contract
+        run: node --test --test-name-pattern="same-side trades outside" test-market-feed-footprint-series-v1.mjs
+
+      - name: Footprint label and maximum contract
+        run: node --test --test-name-pattern="footprint uses order-book" test-market-feed-footprint-series-v1.mjs
 
       - name: Sweep Tape contract
         run: node --test test-sweep-tape-clock-v1.mjs
