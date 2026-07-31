@@ -274,6 +274,7 @@ class BinanceFeed {
 
   #handle(data) {
     if (Array.isArray(data)) {
+      let hasMarketTicker = false;
       for (const ticker of data) {
         if (ticker?.e === "bookTicker" && isUsdtPerpetualSymbol(ticker.s)) {
           marketSizeScanner.ingestBookTicker(ticker);
@@ -285,7 +286,9 @@ class BinanceFeed {
         }
         if (!filterUsdtPerpetualTicker(ticker)) continue;
         getSymbol(ticker.s, Number(ticker.E) || Date.now())?.updateTicker(ticker);
+        hasMarketTicker = true;
       }
+      if (hasMarketTicker) collectSignalMemoryFromFeed(Date.now());
       scheduleRender();
       return;
     }
@@ -330,6 +333,44 @@ const orderBookPanels = new Map();
 const orderBookAutoThresholds = new Map();
 const signalMemory = new SignalMemoryTracker();
 const signalLab = new SignalLabLocalStore();
+const SIGNAL_LAB_COLLECTOR_HEALTH_KEY = "inpuls-signal-lab-collector-health-v1";
+const signalLabCollectorHealth = {
+  schemaVersion: 1,
+  mode: "websocket-event-driven",
+  startedAt: Date.now(),
+  publishedAt: null,
+  lastMarketAt: null,
+  lastCheckAt: null,
+  lastPersistAt: null,
+  checks: 0,
+  signalEvents: 0,
+  observations: 0,
+  symbols: 0,
+  storageState: "initializing",
+  visibilityState: document.visibilityState,
+  lastError: null,
+};
+
+function publishSignalLabCollectorHealth(patch = {}) {
+  Object.assign(signalLabCollectorHealth, patch, {
+    publishedAt: Date.now(),
+    visibilityState: document.visibilityState,
+  });
+  try {
+    localStorage.setItem(
+      SIGNAL_LAB_COLLECTOR_HEALTH_KEY,
+      JSON.stringify(signalLabCollectorHealth),
+    );
+  } catch {
+    // The collector remains functional when localStorage is unavailable.
+  }
+}
+
+publishSignalLabCollectorHealth();
+document.addEventListener("visibilitychange", () => {
+  publishSignalLabCollectorHealth();
+});
+
 signalLab.initialize().then((status) => {
   if (status.recoveredObservations) {
     observability.increment(
@@ -337,8 +378,16 @@ signalLab.initialize().then((status) => {
       status.recoveredObservations,
     );
   }
-}).catch(() => {
+  publishSignalLabCollectorHealth({
+    storageState: status.state || "available",
+    lastError: null,
+  });
+}).catch((error) => {
   observability.increment("signal-lab.storage-errors");
+  publishSignalLabCollectorHealth({
+    storageState: "error",
+    lastError: String(error?.message || error).slice(0, 160),
+  });
 });
 Object.defineProperty(window, "inpulsSignalLab", {
   configurable: false,
@@ -346,7 +395,7 @@ Object.defineProperty(window, "inpulsSignalLab", {
   writable: false,
   value: Object.freeze({
     report: (options = {}) => signalLab.report(options),
-    status: () => signalLab.status(),
+    status: () => ({ ...signalLab.status(), collector: { ...signalLabCollectorHealth } }),
   }),
 });
 const orderBookRenderScheduler = new LatestFrameScheduler({
@@ -717,8 +766,20 @@ function updateSignalMemory(metrics, now) {
     || created.observations.length
     || created.resolvedObservations.length
   ) {
-    signalLab.persist(created, { now }).catch(() => {
+    signalLab.persist(created, { now }).then((persisted) => {
+      if (persisted) {
+        publishSignalLabCollectorHealth({
+          lastPersistAt: Date.now(),
+          storageState: "available",
+          lastError: null,
+        });
+      }
+    }).catch((error) => {
       observability.increment("signal-lab.storage-errors");
+      publishSignalLabCollectorHealth({
+        storageState: "error",
+        lastError: String(error?.message || error).slice(0, 160),
+      });
     });
   }
   if (created.events.length) {
@@ -736,6 +797,24 @@ function updateSignalMemory(metrics, now) {
       observability.increment("market-memory.signal-observations-unavailable", unavailable);
     }
   }
+  return created;
+}
+
+function collectSignalMemoryFromFeed(now = Date.now()) {
+  const checkedAt = Date.now();
+  const metrics = getMetrics(now);
+  const created = updateSignalMemory(metrics, now);
+  publishSignalLabCollectorHealth({
+    lastMarketAt: now,
+    lastCheckAt: checkedAt,
+    checks: signalLabCollectorHealth.checks + 1,
+    signalEvents: signalLabCollectorHealth.signalEvents + created.events.length,
+    observations: signalLabCollectorHealth.observations
+      + created.observations.length
+      + created.resolvedObservations.length,
+    symbols: metrics.length,
+  });
+  return created;
 }
 
 async function warmupRadarHistory() {
@@ -785,7 +864,6 @@ function render() {
   window.dispatchEvent(new CustomEvent("inpuls:event-radar-update", {
     detail: { metrics: eventRadarMetrics, now, favorites: [...state.favorites] },
   }));
-  updateSignalMemory(marketwideMetrics, now);
   updateAlerts(metrics, now);
   if (observability.enabled) {
     observability.record("app.render.metrics", performance.now() - phaseStartedAt, {
