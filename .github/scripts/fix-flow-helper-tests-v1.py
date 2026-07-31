@@ -26,32 +26,42 @@ if flow.count(anchor) != 1:
 flow = flow.replace(anchor, anchor + "\n" + helper, 1)
 flow_path.write_text(flow, encoding="utf-8")
 
-test_name = "footprint uses one proportional dominance cell and interval candles"
-test_files = []
-for candidate in [*Path(".").rglob("*.js"), *Path(".").rglob("*.mjs")]:
-    if ".git" in candidate.parts or ".github" in candidate.parts:
-        continue
-    source = candidate.read_text(encoding="utf-8")
-    if test_name in source:
-        test_files.append((candidate, source))
-if len(test_files) != 1:
-    raise RuntimeError(f"Expected one footprint runtime test file, got {[str(path) for path, _ in test_files]}")
+replacements = {
+    "footprint uses one proportional dominance cell and interval candles": [
+        '  assert.match(flow, /formatCompactUsd\\(cluster\\.quote\\)/);',
+        '  assert.match(flow, /footprintBookVolumeTextStyle\\(state, theme\\)/);',
+        '  assert.match(flow, /querySelector\\?\\.\\("\\.book-size"\\)/);',
+        '  assert.match(flow, /const isColumnMaximum =/);',
+    ],
+    "Flow Workspace redraw observer cannot trigger itself": [
+        '  assert.match(source, /formatCompactUsd\\(cluster\\.quote\\)/);',
+        '  assert.match(source, /footprintBookVolumeTextStyle\\(state, theme\\)/);',
+        '  assert.match(source, /querySelector\\?\\.\\("\\.book-size"\\)/);',
+    ],
+}
 
-test_path, test_source = test_files[0]
-lines = test_source.splitlines()
-target_indexes = [
-    index for index, line in enumerate(lines)
-    if "formatQuoteVolume\\(cluster\\.quote\\)" in line
-]
-if len(target_indexes) != 1:
-    raise RuntimeError(f"Expected one old footprint formatter assertion in {test_path}, got {target_indexes}")
-index = target_indexes[0]
-lines[index:index + 1] = [
-    '  assert.match(flow, /formatCompactUsd\\(cluster\\.quote\\)/);',
-    '  assert.match(flow, /footprintBookVolumeTextStyle\\(state, theme\\)/);',
-    '  assert.match(flow, /querySelector\\?\\.\\("\\.book-size"\\)/);',
-    '  assert.match(flow, /const isColumnMaximum =/);',
-]
-test_path.write_text("\n".join(lines) + ("\n" if test_source.endswith("\n") else ""), encoding="utf-8")
+for test_name, new_lines in replacements.items():
+    matches = []
+    for candidate in [*Path(".").rglob("*.js"), *Path(".").rglob("*.mjs")]:
+        if ".git" in candidate.parts or ".github" in candidate.parts:
+            continue
+        source = candidate.read_text(encoding="utf-8")
+        if test_name in source:
+            matches.append((candidate, source))
+    if len(matches) != 1:
+        raise RuntimeError(f"Expected one test file for {test_name!r}, got {[str(path) for path, _ in matches]}")
 
-print(f"Fixed Flow helper placement and updated formatter/typography contract in {test_path}")
+    test_path, test_source = matches[0]
+    lines = test_source.splitlines()
+    target_indexes = [
+        index for index, line in enumerate(lines)
+        if "formatQuoteVolume\\(cluster\\.quote\\)" in line
+    ]
+    if len(target_indexes) != 1:
+        raise RuntimeError(f"Expected one old footprint formatter assertion in {test_path}, got {target_indexes}")
+    index = target_indexes[0]
+    lines[index:index + 1] = new_lines
+    test_path.write_text("\n".join(lines) + ("\n" if test_source.endswith("\n") else ""), encoding="utf-8")
+    print(f"Updated footprint formatter contract in {test_path}")
+
+print("Fixed Flow helper placement and all footprint formatter contracts")
