@@ -770,6 +770,21 @@ function render() {
     (item) => item.quoteVolume24h >= state.settings.minTurnover24h,
   );
   state.lastMetrics = metrics;
+  const eventRadarMetrics = metrics.map((item) => {
+    const marketwideSignals = marketSizeScanner.signalsFor(item.symbol, now);
+    const cascade = detectMarketwideCascade(item);
+    return {
+      ...item,
+      signals: [
+        ...(Array.isArray(item.signals) ? item.signals : []),
+        ...marketwideSignals,
+        ...(cascade ? [cascade] : []),
+      ],
+    };
+  });
+  window.dispatchEvent(new CustomEvent("inpuls:event-radar-update", {
+    detail: { metrics: eventRadarMetrics, now, favorites: [...state.favorites] },
+  }));
   updateSignalMemory(marketwideMetrics, now);
   updateAlerts(metrics, now);
   if (observability.enabled) {
@@ -2837,6 +2852,16 @@ function bindEvents() {
     else mountExtraChart(model);
   }
   applyWorkspaceLayout();
+  window.addEventListener("inpuls:event-radar-select", (event) => {
+    const symbol = normalizeUsdtPerpetualSymbol(event.detail?.symbol);
+    if (!symbol) return;
+    selectChartSymbol(symbol, true);
+    if (event.detail?.openOrderBook !== false) openOrderBookForSymbol(symbol);
+  });
+  window.addEventListener("inpuls:event-radar-favorite", (event) => {
+    const symbol = normalizeUsdtPerpetualSymbol(event.detail?.symbol);
+    if (symbol) toggleFavorite(symbol);
+  });
   els.comfortSlider.value = String(state.comfort);
   els.comfortSlider.addEventListener("input", () => {
     state.comfort = Number(els.comfortSlider.value);
