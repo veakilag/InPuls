@@ -29,46 +29,10 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Apply market feed, footprint and Series update
+      - name: Apply runtime and show final red test
         run: |
           python .github/scripts/apply-market-feed-footprint-series-v1.py
           python .github/scripts/update-footprint-tests-v1.py
           python .github/scripts/update-global-connection-test-v1.py
           python .github/scripts/fix-flow-helper-tests-v1.py
-
-      - name: Check JavaScript syntax
-        run: find . -type f -name '*.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
-
-      - name: Focused market and Flow regressions
-        run: |
-          node --test test-market-feed-footprint-series-v1.mjs
-          node --test test-sweep-tape-clock-v1.mjs
-          node --test test-footprint-live-source-v1.mjs
-          node --test test-global-connection-radar-cleanup-v1.mjs
-          node --test test-orderbook-visual-priority.mjs
-
-      - name: Run regression and security tests
-        shell: bash
-        run: |
-          npm test > /tmp/npm-test.log 2>&1 || {
-            echo "===== failing assertions ====="
-            grep -nE "not ok|AssertionError|ERR_ASSERTION|failureType|expected:|actual:" /tmp/npm-test.log | tail -n 240 || true
-            echo "===== log tail ====="
-            tail -n 320 /tmp/npm-test.log
-            exit 1
-          }
-          tail -n 40 /tmp/npm-test.log
-
-      - name: Commit verified runtime and restore standard workflow
-        run: |
-          git rm .github/scripts/apply-market-feed-footprint-series-v1.py
-          git rm .github/scripts/update-footprint-tests-v1.py
-          git rm .github/scripts/update-global-connection-test-v1.py
-          git rm .github/scripts/fix-flow-helper-tests-v1.py
-          git rm .github/workflows/apply-market-feed-footprint-series-v1.yml
-          git checkout origin/main -- .github/workflows/security.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Restore market feed and rebuild Footprint Series"
-          git push origin HEAD:fix/market-feed-footprint-series-v1
+          python .github/scripts/show-redraw-test-v1.py
