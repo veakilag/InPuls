@@ -136,3 +136,23 @@ test("orderbook price text is separated from the size boundary", async () => {
   assert.match(orderbook, /\.book-ladder-row strong \{[\s\S]*border-left: 0 !important;/);
   assert.match(orderbook, /\.book-ladder-row \.book-size \{[\s\S]*overflow: hidden !important;/);
 });
+
+
+test("event radar beta is isolated from the three existing discovery blocks", async () => {
+  const [html, app, worker, widget, css] = await Promise.all([
+    source("index.html"), source("app.js"), source("sw.js"), source("event-radar-beta.js"), source("event-radar-beta.css"),
+  ]);
+  assert.match(html, /id="event-radar-beta-toggle"/);
+  assert.match(html, /event-radar-beta\.js\?v=event-radar-beta-v1/);
+  assert.match(app, /inpuls:event-radar-update/);
+  assert.match(app, /inpuls:event-radar-select/);
+  assert.match(app, /openOrderBookForSymbol\(symbol\)/);
+  assert.match(widget, /ПАУЗА/);
+  assert.match(widget, /eventRadarStatus/);
+  assert.match(widget, /eventRadarDataState/);
+  assert.match(css, /position: fixed/);
+  assert.match(worker, /event-radar-beta\.js/);
+  assert.match(html, /class="inplay-strip"/);
+  assert.match(html, /data-panel="radar"/);
+  assert.match(html, /data-panel="scanner"/);
+});

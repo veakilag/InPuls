@@ -23,6 +23,8 @@ const FORCED = new Map([
   ["/orderbook-network.js", "./orderbook-network.js?v=obs-pr1-1"],
   ["/orderbook-tape-latency.js", "./orderbook-tape-latency.js?v=worker-bp-v1"],
   ["/orderbook-flow-workspace.js", "./orderbook-flow-workspace.js?v=26-78-agg-range-rx-v1"],
+  ["/event-radar-beta.js", "./event-radar-beta.js?v=event-radar-beta-v1"],
+  ["/event-radar-beta.css", "./event-radar-beta.css?v=event-radar-beta-v1"],
   ["/observability.js", "./observability.js?v=render-scheduler-v1"],
 ]);
 
@@ -31,6 +33,8 @@ const SHELL = [
   "./index.html",
   "./styles.css?v=26-78-agg-range-rx-v1",
   "./app.js?v=26-78-agg-range-rx-v1",
+  "./event-radar-beta.js?v=event-radar-beta-v1",
+  "./event-radar-beta.css?v=event-radar-beta-v1",
   "./chart.js?v=23",
   "./engine.js?v=26-65-structured-signal-collection-v1",
   "./orderbook.js?v=26-78-agg-range-rx-v1",
