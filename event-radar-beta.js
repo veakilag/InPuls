@@ -6,8 +6,11 @@ const SELECT_EVENT = "inpuls:event-radar-select";
 const FAVORITE_EVENT = "inpuls:event-radar-favorite";
 const ACTIVE_GRACE_MS = 1_800;
 const RESET_GAP_MS = 4_000;
-const RETENTION_MS = 90_000;
-const PINNED_RETENTION_MS = 10 * 60_000;
+const RETENTION_MS = 15 * 60_000;
+const PINNED_RETENTION_MS = 60 * 60_000;
+const FEED_STALE_MS = 5_000;
+const FEED_WARMUP_SECONDS = 60;
+const HISTORY_READY_SECONDS = 5 * 60;
 
 const FILTERS = Object.freeze([
   ["all", "Все"],
@@ -104,6 +107,34 @@ export function eventRadarDataState(entry, now = Date.now()) {
   return tradeAge <= 3_000 ? "live" : "light";
 }
 
+function median(values) {
+  if (!values.length) return 0;
+  const ordered = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(ordered.length / 2);
+  return ordered.length % 2 ? ordered[middle] : (ordered[middle - 1] + ordered[middle]) / 2;
+}
+
+export function summarizeEventRadarFeed(metrics, receivedAt = Date.now()) {
+  const list = Array.isArray(metrics) ? metrics : [];
+  const warmups = list.map((item) => finite(item?.warmupSeconds)).filter((value) => value !== null);
+  const medianWarmupSeconds = median(warmups);
+  const signalCount = list.reduce((total, item) => total + (Array.isArray(item?.signals) ? item.signals.length : 0), 0);
+  return {
+    receivedAt,
+    symbolCount: list.length,
+    signalCount,
+    medianWarmupSeconds,
+    historyPercent: Math.min(100, Math.max(0, Math.round((medianWarmupSeconds / HISTORY_READY_SECONDS) * 100))),
+  };
+}
+
+export function eventRadarFeedState(snapshot, now = Date.now()) {
+  if (!snapshot?.receivedAt) return "waiting";
+  if (now - snapshot.receivedAt > FEED_STALE_MS) return "stale";
+  if ((finite(snapshot.medianWarmupSeconds) ?? 0) < FEED_WARMUP_SECONDS) return "warming";
+  return "live";
+}
+
 export function eventRadarStatus(entry, now = Date.now()) {
   if (!entry || now - entry.lastSeen > ACTIVE_GRACE_MS) return "finished";
   if (now - entry.firstSeen <= 8_000) return "new";
@@ -180,6 +211,9 @@ class EventRadarBetaWidget {
     this.list = null;
     this.toggle = null;
     this.newCounter = null;
+    this.feedStatus = null;
+    this.feedSnapshot = null;
+    this.feedTimer = null;
     this.resizeObserver = null;
     this.mount();
   }
@@ -202,6 +236,13 @@ class EventRadarBetaWidget {
       <div class="event-radar-beta__filters" role="group" aria-label="Фильтр событий">
         ${FILTERS.map(([value, label]) => `<button data-event-filter="${value}" type="button">${label}</button>`).join("")}
       </div>
+      <div class="event-radar-beta__feed" data-feed-state="waiting" role="status" aria-live="polite">
+        <strong data-feed-label>ОЖИДАНИЕ ПОТОКА</strong>
+        <span data-feed-symbols>0 монет</span>
+        <span data-feed-signals>0 сигналов</span>
+        <span data-feed-age>обновлений нет</span>
+        <span data-feed-history>история 0%</span>
+      </div>
       <div class="event-radar-beta__columns" aria-hidden="true"><span>Событие</span><span>15с / 1м</span><span>Поток</span><span>Приоритет</span></div>
       <div class="event-radar-beta__list" aria-live="polite"></div>
       <footer>Нажатие: график + стакан · это наблюдение, не команда на вход</footer>`;
@@ -209,6 +250,7 @@ class EventRadarBetaWidget {
     this.panel = panel;
     this.list = panel.querySelector(".event-radar-beta__list");
     this.newCounter = panel.querySelector(".event-radar-beta__new");
+    this.feedStatus = panel.querySelector(".event-radar-beta__feed");
     this.applyGeometry();
     this.setVisible(this.saved.visible !== false, false);
     this.syncFilters();
@@ -226,6 +268,11 @@ class EventRadarBetaWidget {
     window.addEventListener("resize", () => this.clampGeometry());
     this.resizeObserver = new ResizeObserver(() => this.persistGeometry());
     this.resizeObserver.observe(panel);
+    this.feedTimer = window.setInterval(() => {
+      this.now = Date.now();
+      this.renderFeedStatus();
+      if (!this.entries.size) this.render();
+    }, 1_000);
   }
 
   applyGeometry() {
@@ -277,7 +324,9 @@ class EventRadarBetaWidget {
   }
 
   ingest(detail = {}) {
-    this.now = finite(detail.now) ?? Date.now();
+    const receivedAt = Date.now();
+    this.now = finite(detail.now) ?? receivedAt;
+    this.feedSnapshot = summarizeEventRadarFeed(detail.metrics, receivedAt);
     this.favorites = new Set(Array.isArray(detail.favorites) ? detail.favorites : []);
     const before = new Set(this.entries.keys());
     const merged = mergeEventRadarEntries(this.entries, detail.metrics, this.now);
@@ -294,7 +343,36 @@ class EventRadarBetaWidget {
         this.pinned.delete(key);
       }
     }
+    this.renderFeedStatus();
     this.render();
+  }
+
+  renderFeedStatus() {
+    if (!this.feedStatus) return;
+    const state = eventRadarFeedState(this.feedSnapshot, this.now);
+    const snapshot = this.feedSnapshot || { symbolCount: 0, signalCount: 0, historyPercent: 0, receivedAt: null };
+    const labels = {
+      waiting: "ОЖИДАНИЕ ПОТОКА",
+      warming: "СБОР ИСТОРИИ",
+      live: "ПОТОК LIVE",
+      stale: "НЕТ ДАННЫХ · STALE",
+    };
+    this.feedStatus.dataset.feedState = state;
+    this.feedStatus.querySelector("[data-feed-label]").textContent = labels[state];
+    this.feedStatus.querySelector("[data-feed-symbols]").textContent = `${snapshot.symbolCount} монет`;
+    this.feedStatus.querySelector("[data-feed-signals]").textContent = `${snapshot.signalCount} сигналов`;
+    this.feedStatus.querySelector("[data-feed-age]").textContent = snapshot.receivedAt
+      ? `обновлено ${formatAge(Math.max(0, this.now - snapshot.receivedAt))} назад`
+      : "обновлений нет";
+    this.feedStatus.querySelector("[data-feed-history]").textContent = `история ${snapshot.historyPercent}%`;
+  }
+
+  emptyStateMarkup() {
+    const state = eventRadarFeedState(this.feedSnapshot, this.now);
+    if (state === "waiting") return ["Ожидаю рыночный поток", "Binance ещё не передал первый набор метрик в этот виджет."];
+    if (state === "stale") return ["Данные перестали обновляться", "Проверь соединение: последний пакет старше 5 секунд."];
+    if (state === "warming") return ["Собираю историю", "Поток уже работает, но формулам нужно накопить контекст."];
+    return ["Поток LIVE · сигналов нет", "Рынок обновляется, но условия реальных сигналов сейчас не выполнены."];
   }
 
   toggleFreeze() {
@@ -371,7 +449,8 @@ class EventRadarBetaWidget {
     this.syncNewCounter();
     const entries = this.sortedEntries().slice(0, 80);
     if (!entries.length) {
-      this.list.innerHTML = `<div class="event-radar-beta__empty"><strong>Свежих событий пока нет</strong><span>Радар получает только реальные сигналы текущего main.</span></div>`;
+      const [title, description] = this.emptyStateMarkup();
+      this.list.innerHTML = `<div class="event-radar-beta__empty"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(description)}</span></div>`;
       return;
     }
     const fragment = document.createDocumentFragment();
