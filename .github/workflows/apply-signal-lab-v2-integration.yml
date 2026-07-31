@@ -62,3 +62,5 @@ jobs:
           git add -A
           git commit -m "feat: integrate Signal Lab V2 runtime"
           git push origin HEAD:agent/signal-lab-v2-team-pattern-learning
+
+# Triggered after the workflow existed on the branch.
