@@ -84,6 +84,6 @@ test("marker geometry is absolute and independent of visible neighbours", () => 
 
 test("footprint and chart visual requests stay applied", () => {
   assert.doesNotMatch(footprint, /formatSignedQuoteDelta|deltaText/);
-  assert.match(footprint, /const alpha = \.38 \+ clusterStrength \* \.5/);
+  assert.match(footprint, /const alpha = \.58 \+ clusterStrength \* \.4/);
   assert.match(chart, /const fill = this\.theme\.bearFill;/);
 });

@@ -67,7 +67,7 @@ test("footprint uses one proportional dominance cell and interval candles", () =
   assert.match(flow, /const buyWidth = Math\.max\(0, cellWidth - sellWidth\)/);
   assert.match(flow, /formatQuoteVolume\(cluster\.quote\)/);
   assert.doesNotMatch(flow, /formatSignedQuoteDelta|deltaText/);
-  assert.match(flow, /const alpha = \.38 \+ clusterStrength \* \.5/);
+  assert.match(flow, /const alpha = \.58 \+ clusterStrength \* \.4/);
   assert.doesNotMatch(flow, /\$\{dominantSide\} \$\{Math\.round\(dominantShare \* 100\)\}%/);
   assert.doesNotMatch(flow, /columnWidth \* \.25|columnWidth \* \.75|halfWidth/);
   assert.match(flow, /const highRow = nearestRow\(rows, interval\.highPrice\)/);
@@ -125,8 +125,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-78-agg-range-rx-v1/);
-  assert.match(app, /orderbook\.js\?v=26-78-agg-range-rx-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-78-agg-range-rx-v1/);
-  assert.match(sw, /26-78-agg-range-rx-v1/);
+  assert.match(index, /26-79-agg-center-tape-scale-settings-v1/);
+  assert.match(app, /orderbook\.js\?v=26-79-agg-center-tape-scale-settings-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-79-agg-center-tape-scale-settings-v1/);
+  assert.match(sw, /26-79-agg-center-tape-scale-settings-v1/);
 });

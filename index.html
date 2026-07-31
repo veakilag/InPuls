@@ -9,8 +9,8 @@
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="26-78-agg-range-rx-v1" />
-    <link rel="stylesheet" href="./styles.css?v=26-78-agg-range-rx-v1" />
+    <meta name="inpuls-build" content="26-79-agg-center-tape-scale-settings-v1" />
+    <link rel="stylesheet" href="./styles.css?v=26-79-agg-center-tape-scale-settings-v1" />
     <link rel="stylesheet" href="./event-radar-beta.css?v=event-radar-beta-v1" />
     <title>InPuls — в ритме рынка</title>
   </head>
@@ -245,24 +245,26 @@
 
     <dialog id="settings-dialog" class="settings-dialog">
       <form id="settings-form" method="dialog">
-        <div class="dialog-heading"><div><span class="eyebrow">Твоя система</span><h2>Пороги скринера</h2></div><button id="settings-close" class="detail-close" type="button" aria-label="Закрыть">×</button></div>
-        <p class="dialog-intro">Стартовые значения умеренные. После недели наблюдений их лучше корректировать по сохранённым примерам, а не по ощущениям.</p>
-        <label class="font-scale-control"><span>Шрифт всего сайта</span><input id="font-scale" type="range" min="80" max="130" step="5" value="100" /><strong id="font-scale-value">100%</strong></label>
-        <div class="settings-grid">
-          <label><span>Мин. оборот 24ч, $</span><input name="minTurnover24h" type="number" min="100000" step="100000" required /></label>
-          <label><span>Импульс за 15с, %</span><input name="impulse15s" type="number" min="0.05" step="0.05" required /></label>
-          <label><span>Нож за 15с, %</span><input name="knife15s" type="number" min="0.1" step="0.05" required /></label>
-          <label><span>Пробой за 15с, %</span><input name="breakout15s" type="number" min="0.05" step="0.05" required /></label>
-          <label><span>Ускорение объёма, ×</span><input name="volumeBoost" type="number" min="1" step="0.1" required /></label>
-          <label><span>Каскад: движение 15с, %</span><input name="cascadeMove15s" type="number" min="0.1" step="0.05" required /></label>
-          <label><span>Каскад: ликвидации 60с, $</span><input name="cascadeLiquidationUsd" type="number" min="1000" step="1000" required /></label>
-          <label><span>Сжатие: диапазон 60с, %</span><input name="compressionRange60s" type="number" min="0.05" step="0.01" required /></label>
-          <label><span>Сжатие: объём, ×</span><input name="compressionVolumeBoost" type="number" min="1" step="0.1" required /></label>
-          <label><span>Звуковой сигнал от рейтинга</span><input name="alertScore" type="number" min="1" max="100" step="1" required /></label>
-          <label><span>Монет с потоком сделок</span><input name="trackedTrades" type="number" min="5" max="100" step="1" required /></label>
-          <label><span>Строк в таблице</span><input name="maxRows" type="number" min="10" max="250" step="10" required /></label>
+        <div class="dialog-heading"><div><span class="eyebrow">Твоя система</span><h2>Интерфейс и управление</h2></div><button id="settings-close" class="detail-close" type="button" aria-label="Закрыть">×</button></div>
+        <p class="dialog-intro">Здесь только отображение и управление. Фильтры отбора монет и формулы сигналов убраны из этого окна.</p>
+        <label class="font-scale-control"><span>Шрифт всего сайта</span><input id="font-scale" type="range" min="80" max="200" step="5" value="100" /><strong id="font-scale-value">100%</strong></label>
+        <div class="hotkeys-grid" aria-label="Горячие клавиши InPuls">
+          <section class="hotkeys-section">
+            <h3>Стакан</h3>
+            <dl>
+              <div><dt><kbd>Ctrl</kbd> + колесо</dt><dd>Удерживать Ctrl и вращать колесо над стаканом — изменить шаг цены.</dd></div>
+              <div><dt>Колесо</dt><dd>Прокрутить стакан вручную вверх или вниз без автоцентрирования.</dd></div>
+            </dl>
+          </section>
+          <section class="hotkeys-section">
+            <h3>Лента</h3>
+            <dl>
+              <div><dt><kbd>Shift</kbd> + колесо</dt><dd>Удерживать Shift над лентой: вверх — укрупнить текущий поток, вниз — показать более длинную историю.</dd></div>
+              <div><dt>Ползунок «ВРЕМЯ»</dt><dd>Тот же масштаб без клавиатуры. Значение сохраняется между перезапусками.</dd></div>
+            </dl>
+          </section>
         </div>
-        <div class="dialog-actions"><button id="settings-reset" class="button" type="button">Сбросить</button><button class="button button-primary" type="submit">Сохранить настройки</button></div>
+        <div class="dialog-actions"><button id="settings-reset" class="button" type="button">Шрифт 100%</button><button class="button button-primary" type="submit">Готово</button></div>
       </form>
     </dialog>
 
@@ -307,6 +309,6 @@
     <div id="alert-toast" class="alert-toast" role="status" aria-live="assertive" hidden></div>
     <script src="./install-cta.js?v=pwa-install-cta-v2"></script>
     <script type="module" src="./event-radar-beta.js?v=event-radar-beta-v1"></script>
-    <script type="module" src="./app.js?v=26-78-agg-range-rx-v1"></script>
+    <script type="module" src="./app.js?v=26-79-agg-center-tape-scale-settings-v1"></script>
   </body>
 </html>

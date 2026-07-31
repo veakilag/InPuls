@@ -7,7 +7,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=26-65-structured-signal-collection-v1";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-78-agg-range-rx-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-79-agg-center-tape-scale-settings-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -488,7 +488,7 @@ function applyComfort(rawValue) {
 }
 
 function applyFontScale(rawValue) {
-  const value = Math.max(80, Math.min(130, Number(rawValue) || 100));
+  const value = Math.max(80, Math.min(200, Number(rawValue) || 100));
   state.fontScale = value;
   document.documentElement.style.setProperty("--font-scale", `${value / 100}px`);
   if (els.fontScale) els.fontScale.value = String(value);
@@ -3083,19 +3083,24 @@ function bindEvents() {
   els.settingsForm.addEventListener("submit", (event) => {
     event.preventDefault();
     const formData = new FormData(els.settingsForm);
-    const next = { ...DEFAULT_SETTINGS };
-    for (const key of Object.keys(next)) next[key] = Number(formData.get(key));
+    const next = { ...state.settings };
+    for (const key of Object.keys(DEFAULT_SETTINGS)) {
+      const rawValue = formData.get(key);
+      if (rawValue !== null && rawValue !== "") next[key] = Number(rawValue);
+    }
     state.settings = next;
     localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(next));
     els.settingsDialog.close();
     updateTrackedSymbols();
     render();
   });
-  els.settingsReset.addEventListener("click", () => {
-    state.settings = { ...DEFAULT_SETTINGS };
-    localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(state.settings));
-    els.settingsDialog.close();
-    render();
+  els.settingsReset?.addEventListener("click", () => {
+    applyFontScale(100);
+    localStorage.setItem(STORAGE_KEYS.fontScale, "100");
+    requestAnimationFrame(() => {
+      priceChart.render();
+      for (const panel of extraCharts.values()) panel.chart.render();
+    });
   });
   document.querySelector("#settings-close")?.addEventListener("click", () => els.settingsDialog.close());
   els.detailClose.addEventListener("click", closeDetail);
@@ -3152,7 +3157,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-78-agg-range-rx-v1";
+const INPULS_RUNTIME_BUILD = "26-79-agg-center-tape-scale-settings-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
