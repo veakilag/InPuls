@@ -155,7 +155,9 @@ test("Flow Workspace redraw observer cannot trigger itself", () => {
   assert.match(source, /bookWidth - delta/);
   assert.match(source, /const sellWidth = cellWidth \* sellShare/);
   assert.match(source, /const buyWidth = Math\.max\(0, cellWidth - sellWidth\)/);
-  assert.match(source, /formatQuoteVolume\(cluster\.quote\)/);
+  assert.match(source, /formatCompactUsd\(cluster\.quote\)/);
+  assert.match(source, /footprintBookVolumeTextStyle\(state, theme\)/);
+  assert.match(source, /querySelector\?\.\("\.book-size"\)/);
   assert.match(source, /incoming\.length && state\.historyOffset === 0/);
   assert.match(source, /const highRow = nearestRow\(rows, interval\.highPrice\)/);
 });

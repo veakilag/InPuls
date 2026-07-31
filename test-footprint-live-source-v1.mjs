@@ -5,8 +5,9 @@ import {
   footprintIntervalSnapshot,
   ingestFootprintTrades,
   normalizeFlowTrade,
+  selectFootprintTapeBatch,
   selectFootprintTapeTrades,
-} from "./orderbook-flow-workspace.js?v=26-86-global-connection-radar-cleanup-v1";
+} from "./orderbook-flow-workspace.js?v=26-87-market-feed-footprint-series-v1";
 
 test("footprint buckets live trades by browser arrival time", () => {
   const normalized = normalizeFlowTrade({
@@ -24,30 +25,80 @@ test("footprint buckets live trades by browser arrival time", () => {
   assert.equal(normalized.sourceTime, 1_000);
 });
 
-test("footprint uses the guarded aggregation stream without mixing RAW arrays", () => {
+test("footprint bootstraps from stable Tape and locks to guarded flow after promotion", () => {
   const stable = [{ id: "stable" }];
   const guarded = [{ id: "guarded" }];
-  assert.equal(selectFootprintTapeTrades({ live: true, trades: stable, aggregationTrades: guarded }), guarded);
-  assert.deepEqual(selectFootprintTapeTrades({ live: true, trades: stable, aggregationTrades: [] }), []);
-  assert.equal(selectFootprintTapeTrades({ live: true, trades: stable }), stable);
-  assert.deepEqual(selectFootprintTapeTrades({ live: false, trades: stable, aggregationTrades: guarded }), []);
+
+  assert.deepEqual(
+    selectFootprintTapeBatch({ live: true, trades: stable, aggregationTrades: [] }, null),
+    { trades: stable, source: "stable", replace: false },
+  );
+  assert.deepEqual(
+    selectFootprintTapeBatch({ live: true, trades: stable, aggregationTrades: guarded }, "stable"),
+    { trades: guarded, source: "guarded", replace: true },
+  );
+  assert.deepEqual(
+    selectFootprintTapeBatch({ live: true, trades: stable, aggregationTrades: [] }, "guarded"),
+    { trades: [], source: "guarded", replace: false },
+  );
+  assert.deepEqual(
+    selectFootprintTapeBatch({ live: false, trades: stable, aggregationTrades: guarded }, "guarded"),
+    { trades: [], source: "guarded", replace: false },
+  );
+
+  assert.equal(
+    selectFootprintTapeTrades({ live: true, trades: stable, aggregationTrades: guarded }),
+    guarded,
+  );
 });
 
-test("an empty guarded packet never replaces or duplicates accumulated footprint volume", () => {
+test("promotion replaces stable bootstrap volume instead of duplicating it", () => {
   const intervalStart = Math.floor(Date.now() / 1_000) * 1_000;
   const accumulator = createFootprintAccumulator();
-  ingestFootprintTrades(accumulator, [
-    {
-      id: 1,
+  ingestFootprintTrades(accumulator, [{
+    id: 1,
+    price: 100,
+    quantity: 1,
+    quote: 100,
+    tradeTime: intervalStart - 9_000,
+    receivedAt: intervalStart + 100,
+    side: "buy",
+  }]);
+
+  const promoted = selectFootprintTapeBatch({
+    live: true,
+    trades: [],
+    aggregationTrades: [{
+      id: 2,
       price: 100,
-      quantity: 1,
-      quote: 100,
-      tradeTime: intervalStart - 9_000,
-      receivedAt: intervalStart + 100,
+      quantity: 2,
+      quote: 200,
+      tradeTime: intervalStart - 8_990,
+      receivedAt: intervalStart + 200,
       side: "buy",
-    },
-  ]);
-  const incoming = selectFootprintTapeTrades({
+    }],
+  }, "stable");
+  ingestFootprintTrades(accumulator, promoted.trades, { replace: promoted.replace });
+
+  const snapshot = footprintIntervalSnapshot(accumulator, "1s", intervalStart + 500);
+  assert.equal(snapshot.count, 1);
+  assert.equal(snapshot.quote, 200);
+});
+
+test("empty guarded packets never fall back or duplicate accumulated volume", () => {
+  const intervalStart = Math.floor(Date.now() / 1_000) * 1_000;
+  const accumulator = createFootprintAccumulator();
+  ingestFootprintTrades(accumulator, [{
+    id: 1,
+    price: 100,
+    quantity: 1,
+    quote: 100,
+    tradeTime: intervalStart - 9_000,
+    receivedAt: intervalStart + 100,
+    side: "buy",
+  }]);
+
+  const batch = selectFootprintTapeBatch({
     live: true,
     trades: [{
       id: 2,
@@ -59,8 +110,9 @@ test("an empty guarded packet never replaces or duplicates accumulated footprint
       side: "buy",
     }],
     aggregationTrades: [],
-  });
-  ingestFootprintTrades(accumulator, incoming);
+  }, "guarded");
+  ingestFootprintTrades(accumulator, batch.trades, { replace: batch.replace });
+
   const snapshot = footprintIntervalSnapshot(accumulator, "1s", intervalStart + 500);
   assert.equal(snapshot.count, 1);
   assert.equal(snapshot.quote, 100);

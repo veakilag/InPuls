@@ -7,7 +7,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=26-65-structured-signal-collection-v1";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-86-global-connection-radar-cleanup-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-87-market-feed-footprint-series-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -214,31 +214,51 @@ class BinanceFeed {
     this.requestId = 1;
     this.manualClose = false;
     this.connectionTimer = null;
+    this.endpointIndex = 0;
+    this.marketPacketReceived = false;
   }
 
   connect() {
     clearTimeout(this.reconnectTimer);
     clearTimeout(this.connectionTimer);
     this.manualClose = false;
+    this.marketPacketReceived = false;
+
+    const streams = [
+      "!miniTicker@arr",
+      "!markPrice@arr@1s",
+      "!forceOrder@arr",
+      "!bookTicker",
+    ];
+    const endpoints = [
+      `wss://fstream.binance.com/stream?streams=${streams.join("/")}`,
+      "wss://fstream.binance.com/ws",
+    ];
+    const endpoint = endpoints[this.endpointIndex % endpoints.length];
+    const rawEndpoint = endpoint.endsWith("/ws");
     setConnection("connecting", "Подключение к Binance…");
-    const endpoint = "wss://fstream.binance.com/ws";
+
     const socket = new WebSocket(endpoint);
     this.socket = socket;
     this.connectionTimer = setTimeout(() => {
-      if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
-      setConnection("offline", "Binance не отвечает");
+      if (this.socket !== socket || this.marketPacketReceived) return;
+      setConnection("offline", "Нет рыночных данных · резервный поток");
+      this.endpointIndex = (this.endpointIndex + 1) % endpoints.length;
       socket.close();
     }, 10_000);
 
     socket.addEventListener("open", () => {
       if (this.socket !== socket) return;
-      clearTimeout(this.connectionTimer);
-      this.reconnectAttempt = 0;
-      state.connectedAt = Date.now();
-      setConnection("online", "Онлайн");
-      this.#send("SUBSCRIBE", ["!miniTicker@arr", "!markPrice@arr@1s", "!forceOrder@arr", "!bookTicker"]);
+      setConnection("connecting", "Синхронизация рынка…");
+      if (rawEndpoint) this.#send("SUBSCRIBE", streams);
       if (this.trackedAggTrades.size) {
-        this.#send("SUBSCRIBE", [...this.trackedAggTrades].flatMap((symbol) => [`${symbol.toLowerCase()}@aggTrade`, `${symbol.toLowerCase()}@bookTicker`]));
+        this.#send(
+          "SUBSCRIBE",
+          [...this.trackedAggTrades].flatMap((symbol) => [
+            `${symbol.toLowerCase()}@aggTrade`,
+            `${symbol.toLowerCase()}@bookTicker`,
+          ]),
+        );
       }
     });
 
@@ -251,15 +271,27 @@ class BinanceFeed {
       }
       if (payload.result === null || payload.id) return;
       const data = payload.data ?? payload;
+      if (!this.marketPacketReceived) {
+        this.marketPacketReceived = true;
+        clearTimeout(this.connectionTimer);
+        this.reconnectAttempt = 0;
+        state.connectedAt = Date.now();
+        setConnection("online", "Онлайн");
+      }
       this.#handle(data);
     });
 
     socket.addEventListener("close", () => {
       if (this.socket !== socket || this.manualClose) return;
       clearTimeout(this.connectionTimer);
+      if (!this.marketPacketReceived) {
+        this.endpointIndex = (this.endpointIndex + 1) % endpoints.length;
+      }
       this.reconnectAttempt += 1;
-      const delay = Math.min(30_000, 1000 * 2 ** Math.min(this.reconnectAttempt, 5));
-      setConnection("offline", `Переподключение через ${Math.round(delay / 1000)}с`);
+      const delay = this.marketPacketReceived
+        ? Math.min(30_000, 1000 * 2 ** Math.min(this.reconnectAttempt, 5))
+        : 750;
+      setConnection("offline", `Переподключение через ${Math.max(1, Math.round(delay / 1000))}с`);
       this.reconnectTimer = setTimeout(() => this.connect(), delay);
     });
 
@@ -3278,7 +3310,7 @@ updateClock();
 scheduleClockTick();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-86-global-connection-radar-cleanup-v1";
+const INPULS_RUNTIME_BUILD = "26-87-market-feed-footprint-series-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

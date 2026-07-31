@@ -65,7 +65,10 @@ test("footprint uses one proportional dominance cell and interval candles", () =
   assert.match(flow, /export function footprintCellIntensity/);
   assert.match(flow, /const sellWidth = cellWidth \* sellShare/);
   assert.match(flow, /const buyWidth = Math\.max\(0, cellWidth - sellWidth\)/);
-  assert.match(flow, /formatQuoteVolume\(cluster\.quote\)/);
+  assert.match(flow, /formatCompactUsd\(cluster\.quote\)/);
+  assert.match(flow, /footprintBookVolumeTextStyle\(state, theme\)/);
+  assert.match(flow, /querySelector\?\.\("\.book-size"\)/);
+  assert.match(flow, /const isColumnMaximum =/);
   assert.doesNotMatch(flow, /formatSignedQuoteDelta|deltaText/);
   assert.match(flow, /const alpha = \.58 \+ clusterStrength \* \.4/);
   assert.doesNotMatch(flow, /\$\{dominantSide\} \$\{Math\.round\(dominantShare \* 100\)\}%/);
@@ -125,8 +128,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-86-global-connection-radar-cleanup-v1/);
-  assert.match(app, /orderbook\.js\?v=26-86-global-connection-radar-cleanup-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-86-global-connection-radar-cleanup-v1/);
-  assert.match(sw, /26-86-global-connection-radar-cleanup-v1/);
+  assert.match(index, /26-87-market-feed-footprint-series-v1/);
+  assert.match(app, /orderbook\.js\?v=26-87-market-feed-footprint-series-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-87-market-feed-footprint-series-v1/);
+  assert.match(sw, /26-87-market-feed-footprint-series-v1/);
 });

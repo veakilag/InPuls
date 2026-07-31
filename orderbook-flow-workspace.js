@@ -1,4 +1,20 @@
+import { formatCompactUsd } from "./engine.js?v=26-65-structured-signal-collection-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
+
+function footprintBookVolumeTextStyle(state, theme) {
+  const card = state?.card ?? state?.canvas?.closest?.("[data-panel-id]") ?? null;
+  const sample = card?.querySelector?.(".book-size")
+    ?? (typeof document !== "undefined" ? document.querySelector(".book-size") : null);
+  if (sample && typeof getComputedStyle === "function") {
+    const computed = getComputedStyle(sample);
+    return {
+      color: computed.color || theme.text,
+      font: `${computed.fontWeight || "700"} ${computed.fontSize || "7px"} ${computed.fontFamily || "Arial, sans-serif"}`,
+    };
+  }
+  return { color: theme.text, font: "700 7px Arial, sans-serif" };
+}
+
 
 export const FLOW_WORKSPACE = Object.freeze({
   historyMs: 5 * 60_000,
@@ -473,6 +489,7 @@ export function footprintHistoryOffsetLimit(accumulator, timeframeValue = "1m", 
 }
 
 const footprintBySymbol = new Map();
+const footprintSourceBySymbol = new Map();
 const statusBySymbol = new Map();
 const cardStates = new WeakMap();
 const dirtyCards = new Set();
@@ -1187,7 +1204,10 @@ function renderCard(card, state) {
       const dataLeft = candleLeft + candleBodyWidth + 2;
       const dataWidth = Math.max(1, columnLeft + columnWidth - dataLeft - 1);
 
+      const columnMaximumCluster = Math.max(0, ...clusters.map((cluster) => Number(cluster.quote) || 0));
       for (const cluster of clusters) {
+        const isColumnMaximum = columnMaximumCluster > 0
+          && Math.abs(Number(cluster.quote) - columnMaximumCluster) <= Math.max(1e-9, columnMaximumCluster * 1e-12);
         const totalQuote = Math.max(Number.EPSILON, cluster.quote);
         const sellShare = Math.max(0, cluster.sellQuote) / totalQuote;
         const buyShare = Math.max(0, cluster.buyQuote) / totalQuote;
@@ -1217,19 +1237,32 @@ function renderCard(card, state) {
           : dominantSide === "S"
             ? rgbaHex(theme.red, .98)
             : rgbaHex(theme.muted, .52);
-        state.context.lineWidth = 1.15;
+        state.context.save();
+        if (isColumnMaximum) {
+          state.context.shadowBlur = 6;
+          state.context.shadowColor = dominantSide === "B"
+            ? rgbaHex(theme.green, .82)
+            : dominantSide === "S"
+              ? rgbaHex(theme.red, .82)
+              : rgbaHex(theme.text, .55);
+        }
+        state.context.lineWidth = isColumnMaximum ? 2.15 : 1.15;
         state.context.strokeRect(cellLeft, cellTop, cellWidth, cellHeight);
+        state.context.restore();
 
-        const volumeText = formatQuoteVolume(cluster.quote);
-        state.context.fillStyle = theme.text;
-        state.context.font = "700 7px Arial, sans-serif";
+        const volumeText = formatCompactUsd(cluster.quote);
+        const bookVolumeStyle = footprintBookVolumeTextStyle(state, theme);
+        state.context.fillStyle = bookVolumeStyle.color;
+        state.context.font = bookVolumeStyle.font;
         state.context.textAlign = "center";
+        state.context.textBaseline = "middle";
         state.context.fillText(
           volumeText,
           dataLeft + dataWidth / 2,
           cluster.row.y,
           Math.max(1, dataWidth - 4),
         );
+        state.context.textBaseline = "alphabetic";
         state.context.font = "800 7px Inter, system-ui, sans-serif";
       }
 
@@ -1288,13 +1321,30 @@ function renderCard(card, state) {
   }
 }
 
+export function selectFootprintTapeBatch(detail, previousSource = null) {
+  if (!detail?.live) {
+    return { trades: [], source: previousSource, replace: false };
+  }
+  const guarded = Array.isArray(detail?.aggregationTrades)
+    ? detail.aggregationTrades
+    : [];
+  const stable = Array.isArray(detail?.trades) ? detail.trades : [];
+
+  if (guarded.length) {
+    return {
+      trades: guarded,
+      source: "guarded",
+      replace: previousSource === "stable",
+    };
+  }
+  if ((!previousSource || previousSource === "stable") && stable.length) {
+    return { trades: stable, source: "stable", replace: false };
+  }
+  return { trades: [], source: previousSource, replace: false };
+}
+
 export function selectFootprintTapeTrades(detail) {
-  if (!detail?.live) return [];
-  // The guarded aggregation channel is continuous: it starts on @aggTrade,
-  // promotes to individual @trade only after validation and falls back without
-  // overlaps. Never mix both arrays in one footprint accumulator.
-  if (Array.isArray(detail?.aggregationTrades)) return detail.aggregationTrades;
-  return Array.isArray(detail?.trades) ? detail.trades : [];
+  return selectFootprintTapeBatch(detail).trades;
 }
 
 function acceptTape(event) {
@@ -1302,14 +1352,16 @@ function acceptTape(event) {
   const symbol = String(detail?.symbol ?? "").toUpperCase();
   if (!symbol.endsWith("USDT")) return;
   if (!detail?.replace && !detail?.live) return;
-  const incoming = selectFootprintTapeTrades(detail);
+  const previousSource = footprintSourceBySymbol.get(symbol) ?? null;
+  const batch = selectFootprintTapeBatch(detail, previousSource);
+  if (batch.source) footprintSourceBySymbol.set(symbol, batch.source);
   const accumulator = footprintBySymbol.get(symbol) ?? createFootprintAccumulator();
   footprintBySymbol.set(
     symbol,
     ingestFootprintTrades(
       accumulator,
-      incoming,
-      { replace: Boolean(detail?.replace) },
+      batch.trades,
+      { replace: Boolean(detail?.replace || batch.replace) },
     ),
   );
   document.querySelectorAll(".orderbook-card").forEach((card) => {
