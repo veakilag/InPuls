@@ -5,6 +5,7 @@ import {
   TAPE_SWEEP_MAX_GAP_MS,
   aggregateTapeZeroMs,
   aggregateTapeSweeps,
+  materializeTapeSweeps,
   aggregateVisibleLabelPrice,
   advanceTapeDisplayClock,
 } from "./orderbook.js?v=26-80-sweep-tape-clock-v1";
@@ -49,6 +50,28 @@ test("Sweep breaks on ID gap and excessive pause", () => {
   ]);
   const sweeps = aggregateTapeSweeps(zero);
   assert.equal(sweeps.length, 3);
+});
+
+test("sealed Sweep history keeps identity while only the open series grows", () => {
+  const state = { sweepSnapshots: new Map() };
+  const firstGroups = aggregateTapeSweeps(aggregateTapeZeroMs([
+    trade(20, 3_000, 100, "buy"),
+    trade(21, 3_001, 101, "sell"),
+  ]));
+  const firstView = materializeTapeSweeps(state, firstGroups, []);
+  assert.equal(firstView[0].status, "sealed");
+  assert.equal(firstView[1].status, "open");
+  const sealed = firstView[0];
+
+  const nextGroups = aggregateTapeSweeps(aggregateTapeZeroMs([
+    trade(20, 3_000, 100, "buy"),
+    trade(21, 3_001, 101, "sell"),
+    trade(22, 3_002, 100, "sell"),
+  ]));
+  const nextView = materializeTapeSweeps(state, nextGroups, []);
+  assert.equal(nextView[0], sealed);
+  assert.equal(nextView[1].status, "open");
+  assert.equal(nextView[1].aggregateCount, 2);
 });
 
 test("Aggregate labels are clipped to visible price range and absent outside it", () => {
