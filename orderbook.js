@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-82-smooth-live-clock-series-v1";
+import "./orderbook-flow-workspace.js?v=26-83-arrival-clock-render-decouple-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1413,7 +1413,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-82-smooth-live-clock-series-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-83-arrival-clock-render-decouple-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1830,7 +1830,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-82-smooth-live-clock-series-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-83-arrival-clock-render-decouple-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -3648,19 +3648,19 @@ export function stableTapeQuoteStrength(value) {
 export function aggregateTapeZeroMs(trades) {
   const ordered = [...(trades ?? [])]
     .filter((trade) => {
-      const time = Number(trade?.time);
+      const eventTime = Number(trade?.eventTime ?? trade?.tradeTime ?? trade?.time);
+      const visualTime = resolveTapeVisualTime(trade?.time, trade?.receivedAt);
       const price = Number(trade?.price);
       const quote = Number(trade?.quote);
-      return [time, price, quote].every(Number.isFinite) && quote > 0;
+      return [eventTime, visualTime, price, quote].every(Number.isFinite) && quote > 0;
     })
     .sort((left, right) => {
-      const timeDelta = Number(left.time) - Number(right.time);
+      const timeDelta = Number(left.eventTime ?? left.tradeTime ?? left.time)
+        - Number(right.eventTime ?? right.tradeTime ?? right.time);
       if (timeDelta) return timeDelta;
       const leftId = Number(left.id);
       const rightId = Number(right.id);
-      if (Number.isFinite(leftId) && Number.isFinite(rightId) && leftId !== rightId) {
-        return leftId - rightId;
-      }
+      if (Number.isFinite(leftId) && Number.isFinite(rightId) && leftId !== rightId) return leftId - rightId;
       return String(left.id).localeCompare(String(right.id));
     });
 
@@ -3675,10 +3675,7 @@ export function aggregateTapeZeroMs(trades) {
     current.vwapPrice = current.quantity > 0
       ? current.quote / current.quantity
       : current.firstPrice;
-    // The marker is anchored to the first execution. Its volume may grow while
-    // OPEN, but it never jumps between price rows.
     current.price = current.firstPrice;
-    current.lastTime = current.eventTime;
     current.bucketStart = current.eventTime;
     current.bucketEnd = current.eventTime;
     current.bucketMs = TAPE_AGGREGATION_PERIOD_MS;
@@ -3687,7 +3684,8 @@ export function aggregateTapeZeroMs(trades) {
   };
 
   for (const trade of ordered) {
-    const eventTime = Number(trade.time);
+    const eventTime = Number(trade.eventTime ?? trade.tradeTime ?? trade.time);
+    const visualTime = resolveTapeVisualTime(trade.time, trade.receivedAt);
     const side = trade.side === "sell" ? "sell" : "buy";
     const price = Number(trade.price);
     const quote = Number(trade.quote);
@@ -3706,8 +3704,8 @@ export function aggregateTapeZeroMs(trades) {
       finish();
       current = {
         key: `agg0:${eventTime}:${side}:${tapeTradeKey(trade)}`,
-        time: eventTime,
-        lastTime: eventTime,
+        time: visualTime,
+        lastTime: visualTime,
         eventTime,
         side,
         firstTradeId,
@@ -3726,6 +3724,7 @@ export function aggregateTapeZeroMs(trades) {
       };
     }
 
+    current.lastTime = Math.max(current.lastTime, visualTime);
     current.lastPrice = price;
     if (Number.isInteger(lastTradeId)) current.lastTradeId = lastTradeId;
     current.minPrice = Math.min(current.minPrice, price);
@@ -3738,7 +3737,6 @@ export function aggregateTapeZeroMs(trades) {
   finish();
   return groups;
 }
-
 export function materializeZeroMsAggregates(state, groups, output = []) {
   if (!(state.aggSnapshots instanceof Map)) state.aggSnapshots = new Map();
   output.length = 0;
@@ -3818,7 +3816,8 @@ export function aggregateTapeSweeps(
     current.vwapPrice = current.quantity > 0 ? current.quote / current.quantity : current.firstPrice;
     current.durationMs = Math.max(0, current.lastTime - current.firstTime);
     current.time = current.firstTime + current.durationMs / 2;
-    current.eventTime = current.time;
+    const sourceDurationMs = Math.max(0, current.lastEventTime - current.firstEventTime);
+    current.eventTime = current.firstEventTime + sourceDurationMs / 2;
     current.labelPrice = (current.firstPrice + current.lastPrice) / 2;
     current.price = current.labelPrice;
     current.kind = "sweep";
@@ -3831,12 +3830,14 @@ export function aggregateTapeSweeps(
 
   for (const group of ordered) {
     const eventTime = Number(group.eventTime ?? group.time);
+    const visualTime = Number(group.time);
+    const visualLastTime = Number(group.lastTime ?? visualTime);
     const side = group.side === "sell" ? "sell" : "buy";
     const firstPrice = Number(group.firstPrice ?? group.price);
     const lastPrice = Number(group.lastPrice ?? group.price);
     const firstId = Number.isInteger(Number(group.firstTradeId)) ? Number(group.firstTradeId) : null;
     const lastId = Number.isInteger(Number(group.lastTradeId)) ? Number(group.lastTradeId) : firstId;
-    const gap = current ? eventTime - current.lastTime : Infinity;
+    const gap = current ? eventTime - current.lastEventTime : Infinity;
     const idsContinuous = !current
       || !Number.isInteger(current.lastTradeId)
       || !Number.isInteger(firstId)
@@ -3856,8 +3857,10 @@ export function aggregateTapeSweeps(
       current = {
         key: `sweep:${eventTime}:${side}:${group.key}`,
         side,
-        firstTime: eventTime,
-        lastTime: Number(group.lastTime ?? eventTime),
+        firstTime: visualTime,
+        lastTime: visualLastTime,
+        firstEventTime: eventTime,
+        lastEventTime: eventTime,
         firstTradeId: firstId,
         lastTradeId: lastId,
         firstPrice,
@@ -3875,7 +3878,8 @@ export function aggregateTapeSweeps(
       };
     }
 
-    current.lastTime = Number(group.lastTime ?? eventTime);
+    current.lastTime = Math.max(current.lastTime, visualLastTime);
+    current.lastEventTime = eventTime;
     current.lastPrice = lastPrice;
     if (Number.isInteger(lastId)) current.lastTradeId = lastId;
     current.minPrice = Math.min(current.minPrice, Number(group.minPrice ?? firstPrice));
@@ -3890,7 +3894,6 @@ export function aggregateTapeSweeps(
   finish();
   return groupsOut;
 }
-
 export function materializeTapeSweeps(state, groups, output = []) {
   if (!(state.sweepSnapshots instanceof Map)) state.sweepSnapshots = new Map();
   output.length = 0;
@@ -4845,16 +4848,27 @@ function scheduleTapeDraw(force = false, card = null) {
   if (!tapeDrawFrame) tapeDrawFrame = requestAnimationFrame(runTapeDrawFrame);
 }
 
+export function resolveTapeVisualTime(sourceTime, receivedAt) {
+  const source = Number(sourceTime);
+  const arrival = receivedAt === null || receivedAt === undefined
+    ? Number.NaN
+    : Number(receivedAt);
+  return Number.isFinite(arrival) && arrival > 0 ? arrival : source;
+}
+
 function normalizeTapeTrade(trade) {
   const price = Number(trade?.price);
   const quantity = Number(trade?.quantity);
   const quote = Number(trade?.quote);
-  const time = Number(trade?.time ?? trade?.tradeTime);
+  const time = Number(trade?.tradeTime ?? trade?.time);
   const tradeTime = Number(trade?.tradeTime ?? time);
   const eventTime = Number(trade?.eventTime ?? time);
-  const receivedAt = Number(trade?.receivedAt);
+  const receivedAt = trade?.receivedAt === null || trade?.receivedAt === undefined
+    ? null
+    : Number(trade.receivedAt);
+  const visualTime = resolveTapeVisualTime(time, receivedAt);
   const rxLatencyMs = Number(trade?.rxLatencyMs);
-  if (![price, quantity, quote, time].every(Number.isFinite) || quote <= 0) return null;
+  if (![price, quantity, quote, time, visualTime].every(Number.isFinite) || quote <= 0) return null;
   return {
     id: trade?.id ?? `${time}-${price}-${quantity}`,
     firstTradeId: Number.isInteger(Number(trade?.firstTradeId)) ? Number(trade.firstTradeId) : null,
@@ -4863,7 +4877,7 @@ function normalizeTapeTrade(trade) {
     price,
     quantity,
     quote,
-    time,
+    time: visualTime,
     tradeTime: Number.isFinite(tradeTime) ? tradeTime : time,
     eventTime: Number.isFinite(eventTime) ? eventTime : time,
     receivedAt: Number.isFinite(receivedAt) ? receivedAt : null,
@@ -4871,7 +4885,6 @@ function normalizeTapeTrade(trade) {
     side: trade?.side === "sell" ? "sell" : "buy",
   };
 }
-
 function tapeTradeKey(trade) {
   return `${String(trade.id)}:${trade.time}:${trade.price}:${trade.quantity}`;
 }

@@ -7,7 +7,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=26-65-structured-signal-collection-v1";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-82-smooth-live-clock-series-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-83-arrival-clock-render-decouple-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -289,7 +289,7 @@ class BinanceFeed {
         hasMarketTicker = true;
       }
       if (hasMarketTicker) collectSignalMemoryFromFeed(Date.now());
-      scheduleRender();
+      if (hasMarketTicker) scheduleRender();
       return;
     }
     if (!data || typeof data !== "object") return;
@@ -298,12 +298,14 @@ class BinanceFeed {
       if (this.trackedAggTrades.has(data.s)) {
         getSymbol(data.s, Number(data.E) || Date.now())?.updateBookTicker(data);
       }
-      scheduleRender();
+      // State is current immediately. The next miniTicker refresh owns the
+      // expensive market-table DOM work; Tape has a separate frame scheduler.
       return;
     }
     if (data.e === "aggTrade" && filterUsdtPerpetualTicker(data) && this.trackedAggTrades.has(data.s)) {
       getSymbol(data.s)?.updateTrade(data);
-      scheduleRender();
+      // Keep trade statistics live without rebuilding every radar row for each
+      // execution. The dedicated Tape stream is independent from this path.
       return;
     }
     if (data.e === "forceOrder") {
@@ -321,10 +323,15 @@ const feed = new BinanceFeed();
 let scheduledMarketRender = null;
 function scheduleRender() {
   if (scheduledMarketRender !== null) return;
-  scheduledMarketRender = setTimeout(() => {
+  const run = () => {
     scheduledMarketRender = null;
     render();
-  }, 180);
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    scheduledMarketRender = window.requestIdleCallback(run, { timeout: 450 });
+  } else {
+    scheduledMarketRender = setTimeout(run, 180);
+  }
 }
 const radarHistoryLoaded = new Set();
 const radarHistoryLoading = new Set();
@@ -3218,7 +3225,8 @@ els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.datas
 renderTimeframePickers();
 klineFeed.select(state.selectedChartSymbol, state.chartInterval, state.chartRange);
 loadChartStats(state.selectedChartSymbol);
-setInterval(render, 1000);
+// Market packets and explicit UI actions own rendering. A fixed full-app
+// rebuild on every exact second caused a visible main-thread stall in Tape.
 setInterval(updateTrackedSymbols, 15_000);
 setTimeout(warmupRadarHistory, 1500);
 setInterval(warmupRadarHistory, 5000);
@@ -3235,7 +3243,7 @@ setInterval(updateClock, 1000);
 updateClock();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-82-smooth-live-clock-series-v1";
+const INPULS_RUNTIME_BUILD = "26-83-arrival-clock-render-decouple-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
