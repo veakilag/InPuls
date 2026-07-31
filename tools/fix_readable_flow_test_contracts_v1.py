@@ -34,4 +34,24 @@ text = replace_once(
 )
 legacy.write_text(text, encoding="utf-8")
 
+stability = Path("test-tape-stability-followup-v1.mjs")
+text = stability.read_text(encoding="utf-8")
+text = replace_once(
+    text,
+    '  assert.match(painter, /const strength = stableTapeQuoteStrength\\(item\\.quote\\)/);',
+    '  assert.match(painter, /const strength = stableTapeQuoteStrength\\(tapeVisualSizeQuote\\(item, state\\.mode\\)\\)/);',
+    "Unified visual size contract",
+)
+stability.write_text(text, encoding="utf-8")
+
+threshold = Path("test-tape-threshold-agg-visual-v1.mjs")
+text = threshold.read_text(encoding="utf-8")
+text = replace_once(
+    text,
+    '  assert.match(painter, /const showLabel = sweepMode[\\s\\S]*\\? Boolean\\(sweepLabelKeys\\?\\.has\\(item\\.key\\)\\)[\\s\\S]*: minQuote > 0 \\|\\| Boolean\\(item\\.showLabel\\)/);',
+    '  assert.match(painter, /const aggLabelKeys = state\\.mode === "agg"[\\s\\S]*forceLabels: minQuote > 0/);\n  assert.match(painter, /const showLabel = sweepMode[\\s\\S]*Boolean\\(aggLabelKeys\\?\\.has\\(item\\.key\\)\\)/);',
+    "Threshold marker and adaptive label contract",
+)
+threshold.write_text(text, encoding="utf-8")
+
 print("Updated readable flow test contracts")
