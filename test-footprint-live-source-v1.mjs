@@ -34,17 +34,34 @@ test("footprint uses the guarded aggregation stream without mixing RAW arrays", 
 });
 
 test("an empty guarded packet never replaces or duplicates accumulated footprint volume", () => {
+  const intervalStart = Math.floor(Date.now() / 1_000) * 1_000;
   const accumulator = createFootprintAccumulator();
   ingestFootprintTrades(accumulator, [
-    { id: 1, price: 100, quantity: 1, quote: 100, tradeTime: 1_000, receivedAt: 10_100, side: "buy" },
+    {
+      id: 1,
+      price: 100,
+      quantity: 1,
+      quote: 100,
+      tradeTime: intervalStart - 9_000,
+      receivedAt: intervalStart + 100,
+      side: "buy",
+    },
   ]);
   const incoming = selectFootprintTapeTrades({
     live: true,
-    trades: [{ id: 2, price: 100, quantity: 5, quote: 500, tradeTime: 1_010, receivedAt: 10_200, side: "buy" }],
+    trades: [{
+      id: 2,
+      price: 100,
+      quantity: 5,
+      quote: 500,
+      tradeTime: intervalStart - 8_990,
+      receivedAt: intervalStart + 200,
+      side: "buy",
+    }],
     aggregationTrades: [],
   });
   ingestFootprintTrades(accumulator, incoming);
-  const snapshot = footprintIntervalSnapshot(accumulator, "1s", 10_500);
+  const snapshot = footprintIntervalSnapshot(accumulator, "1s", intervalStart + 500);
   assert.equal(snapshot.count, 1);
   assert.equal(snapshot.quote, 100);
 });
