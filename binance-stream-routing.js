@@ -1,6 +1,12 @@
 const CHANNEL_BASES = Object.freeze({
-  market: "wss://fstream.binance.com/market/stream",
-  public: "wss://fstream.binance.com/public/stream",
+  market: Object.freeze({
+    combined: "wss://fstream.binance.com/market/stream",
+    control: "wss://fstream.binance.com/market/ws",
+  }),
+  public: Object.freeze({
+    combined: "wss://fstream.binance.com/public/stream",
+    control: "wss://fstream.binance.com/public/ws",
+  }),
 });
 
 const GLOBAL_STREAMS = Object.freeze({
@@ -30,19 +36,19 @@ export function buildBinanceChannelStreams(kind, symbols = []) {
 }
 
 export function buildBinanceChannelTransports(kind, streams) {
-  const base = CHANNEL_BASES[kind];
-  if (!base) throw new TypeError(`Unknown Binance channel: ${kind}`);
+  const bases = CHANNEL_BASES[kind];
+  if (!bases) throw new TypeError(`Unknown Binance channel: ${kind}`);
   const normalized = [...new Set((streams ?? []).map(String).filter(Boolean))];
   if (!normalized.length) throw new TypeError(`Binance ${kind} channel requires streams`);
   return [
     {
       name: `${kind} · combined`,
-      url: `${base}?streams=${normalized.join("/")}`,
+      url: `${bases.combined}?streams=${normalized.join("/")}`,
       subscribeOnOpen: false,
     },
     {
       name: `${kind} · subscribe`,
-      url: base,
+      url: bases.control,
       subscribeOnOpen: true,
     },
   ];
