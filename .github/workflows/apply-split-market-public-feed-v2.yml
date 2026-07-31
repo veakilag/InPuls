@@ -1,0 +1,127 @@
+name: Apply verified split market public feed recovery
+
+on:
+  push:
+    branches:
+      - fix/split-market-public-feed-v1
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/split-market-public-feed-v1
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply runtime recovery
+        run: python .github/scripts/apply-split-market-public-feed-v1.py
+
+      - name: Align production stream test contracts
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              "test-orderbook-guarded-raw-tape.mjs": [
+                  (
+                      'test("production worker keeps visual RAW stable and routes guarded raw trades only to AGG", (context) => {',
+                      'test("production worker uses documented aggTrade while raw shadow stays isolated", (context) => {',
+                  ),
+                  (
+                      '  assert.match(worker, /return \\[`\\$\\{name\\}@aggTrade`, `\\$\\{name\\}@trade`\\];/);',
+                      '  assert.match(worker, /return \\[`\\$\\{name\\}@aggTrade`\\];/);\n  assert.doesNotMatch(worker, /`\\$\\{name\\}@trade`/);',
+                  ),
+              ],
+              "test-tiger-zero-ms-agg-source-v1.mjs": [
+                  (
+                      'test("Worker keeps visual RAW on aggTrade and exposes guarded trade input for AGG", () => {',
+                      'test("Worker keeps production Tape and AGG on documented aggTrade", () => {',
+                  ),
+                  (
+                      '  assert.match(worker, /return \\[`\\$\\{name\\}@aggTrade`, `\\$\\{name\\}@trade`\\]/);',
+                      '  assert.match(worker, /return \\[`\\$\\{name\\}@aggTrade`\\]/);\n  assert.doesNotMatch(worker, /`\\$\\{name\\}@trade`/);',
+                  ),
+              ],
+              "test/orderbook-backpressure.test.js": [
+                  (
+                      'test("production Worker keeps aggTrade for visual RAW and guards trade for AGG", () => {',
+                      'test("production Worker keeps documented aggTrade for Tape and AGG", () => {',
+                  ),
+                  (
+                      '  assert.match(worker, /return \\[`\\$\\{name\\}@aggTrade`, `\\$\\{name\\}@trade`\\];/);',
+                      '  assert.match(worker, /return \\[`\\$\\{name\\}@aggTrade`\\];/);\n  assert.doesNotMatch(worker, /`\\$\\{name\\}@trade`/);',
+                  ),
+              ],
+              "test-raw-stability-core.mjs": [
+                  (
+                      'test("browser lab stays isolated while production adds a guarded raw AGG channel", () => {',
+                      'test("browser raw lab stays isolated while production remains on documented aggTrade", () => {',
+                  ),
+                  (
+                      '  assert.match(worker, /return \\[`\\$\\{name\\}@aggTrade`, `\\$\\{name\\}@trade`\\];/);',
+                      '  assert.match(worker, /return \\[`\\$\\{name\\}@aggTrade`\\];/);\n  assert.doesNotMatch(worker, /`\\$\\{name\\}@trade`/);',
+                  ),
+              ],
+          }
+
+          for filename, changes in replacements.items():
+              path = Path(filename)
+              text = path.read_text(encoding="utf-8")
+              for old, new in changes:
+                  count = text.count(old)
+                  if count != 1:
+                      raise RuntimeError(f"{filename}: expected one contract anchor, found {count}: {old}")
+                  text = text.replace(old, new, 1)
+              path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Remove diagnostic artifacts
+        run: rm -f split-feed-migration-failure.txt trade-test-references.txt
+
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check binance-stream-routing.js
+          node --check chart.js
+          node --check orderbook-worker.js
+          node --check orderbook.js
+          node --check orderbook-flow-workspace.js
+          node --check sw.js
+
+      - name: Focused regressions
+        run: |
+          node --test test-global-connection-radar-cleanup-v1.mjs
+          node --test test-market-feed-footprint-series-v1.mjs
+          node --test test-footprint-live-source-v1.mjs
+          node --test test-parallel-chart-phasing-v1.mjs
+          node --test test-orderbook-guarded-raw-tape.mjs
+          node --test test-tiger-zero-ms-agg-source-v1.mjs
+          node --test test-orderbook-runtime-stability.mjs
+          node --test test-orderbook-flow-workspace.mjs
+          node --test test-raw-stability-core.mjs
+          node --test test/orderbook-backpressure.test.js
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Commit verified implementation
+        run: |
+          git rm .github/scripts/apply-split-market-public-feed-v1.py
+          git rm .github/workflows/apply-split-market-public-feed-v2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Restore split Binance feeds and smooth parallel charts"
+          git push origin HEAD:fix/split-market-public-feed-v1
