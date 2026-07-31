@@ -28,7 +28,9 @@ jobs:
         with:
           node-version: 22
       - name: Apply focused patch
-        run: node tools/apply-signal-lab-event-driven-collector-v2.mjs
+        run: |
+          node tools/apply-signal-lab-event-driven-collector-v2.mjs
+          sed -i 's/26-81-signal-lab-collector-status-v1/26-82-signal-lab-event-driven-collector-v1/g' test/owner-navigation.test.js
       - name: Check JavaScript syntax
         run: find . -type f -name '*.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
       - name: Run full test suite
@@ -40,6 +42,6 @@ jobs:
           git rm .github/workflows/apply-signal-lab-event-driven-collector.yml
           git rm tools/apply-signal-lab-event-driven-collector.mjs
           git rm tools/apply-signal-lab-event-driven-collector-v2.mjs
-          git add app.js owner-signal-lab-v2.js owner-signal-lab.html sw.js test/signal-lab-collector-status.test.js
+          git add app.js owner-signal-lab-v2.js owner-signal-lab.html sw.js test/owner-navigation.test.js test/signal-lab-collector-status.test.js
           git commit -m "Fix Signal Lab collection in background tabs"
           git push origin HEAD:fix/signal-lab-event-driven-collector
