@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-78-agg-range-rx-v1";
+import "./orderbook-flow-workspace.js?v=26-79-agg-center-tape-scale-settings-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1413,7 +1413,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-78-agg-range-rx-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-79-agg-center-tape-scale-settings-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1830,7 +1830,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-78-agg-range-rx-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-79-agg-center-tape-scale-settings-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -1852,6 +1852,10 @@ const TAPE_STATE_REFRESH_MS = 1_000;
 const TAPE_FREEZE_AFTER_MS = 2_500;
 const TAPE_MODE_KEY = "inpuls-tape-mode-v2";
 const TAPE_MIN_FILTER_KEY = "inpuls-tape-min-filter-v3";
+const TAPE_TIME_SCALE_KEY = "inpuls-tape-time-scale-v1";
+const TAPE_TIME_SCALE_MIN = 35;
+const TAPE_TIME_SCALE_MAX = 300;
+const TAPE_TIME_SCALE_DEFAULT = 100;
 const DENSITY_AGE_VISIBLE_KEY = "inpuls-density-age-visible-v1";
 export const TAPE_AGGREGATION_PERIOD_MS = 0;
 const TAPE_VISIBLE_KEY = "inpuls-tape-visible-v1";
@@ -2103,6 +2107,31 @@ function installOrderBookStyles() {
       background: transparent;
       color: var(--text);
       font: 700 10px/20px Inter, system-ui, sans-serif;
+    }
+    .orderbook-card .inpuls-tape-time-scale {
+      min-width: 116px;
+      height: 22px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 4px;
+      border: 1px solid var(--line-soft);
+      border-radius: 4px;
+      background: color-mix(in srgb, var(--panel-2) 90%, transparent);
+      color: var(--muted);
+      font: 800 7px/1 Inter, system-ui, sans-serif;
+    }
+    .orderbook-card .inpuls-tape-time-scale input {
+      width: 54px;
+      min-width: 42px;
+      accent-color: var(--accent);
+      cursor: ew-resize;
+    }
+    .orderbook-card .inpuls-tape-time-scale output {
+      width: 29px;
+      color: var(--text);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
     }
     .orderbook-card .inpuls-tape-mode {
       margin-left: auto;
@@ -2752,12 +2781,18 @@ function ensureTapeUi(card) {
   let state = tapeCardStates.get(card);
   if (!state) {
     const savedMinimum = localStorage.getItem(TAPE_MIN_FILTER_KEY);
+    const savedTimeScale = localStorage.getItem(TAPE_TIME_SCALE_KEY);
     state = {
       canvas: null,
       context: null,
       mode: localStorage.getItem(TAPE_MODE_KEY) === "agg" ? "agg" : "raw",
       densityAgeVisible: localStorage.getItem(DENSITY_AGE_VISIBLE_KEY) === "1",
       minQuote: savedMinimum === null ? 0 : Math.max(0, Number(savedMinimum) || 0),
+      timeScale: clampTape(
+        savedTimeScale === null ? TAPE_TIME_SCALE_DEFAULT : Number(savedTimeScale),
+        TAPE_TIME_SCALE_MIN,
+        TAPE_TIME_SCALE_MAX,
+      ),
       aggregationSource: "agg",
       tapeVisible: localStorage.getItem(TAPE_VISIBLE_KEY) !== "0",
       clustersVisible: localStorage.getItem(CLUSTERS_VISIBLE_KEY) !== "0",
@@ -2847,12 +2882,30 @@ function ensureTapeUi(card) {
         <span>ОТ $</span>
         <input data-inpuls-trade-min type="number" min="0" step="100" value="${state.minQuote}" aria-label="Минимальный объём отображаемой сделки или агрегата" />
       </label>
+      <label class="inpuls-tape-time-scale" title="Временной диапазон ленты. Меньше — крупнее текущий поток; больше — длиннее история.">
+        <span>ВРЕМЯ</span>
+        <input data-inpuls-tape-time-scale type="range" min="${TAPE_TIME_SCALE_MIN}" max="${TAPE_TIME_SCALE_MAX}" step="5" value="${state.timeScale}" aria-label="Временной масштаб ленты" />
+        <output data-inpuls-tape-time-scale-value>${Math.round(state.timeScale)}%</output>
+      </label>
       <button data-inpuls-tape-mode class="inpuls-tape-mode" type="button"></button>`;
     toolbar.append(controls);
     state.controls = controls;
 
     const minInput = controls.querySelector("[data-inpuls-trade-min]");
+    const timeScaleInput = controls.querySelector("[data-inpuls-tape-time-scale]");
+    const timeScaleValue = controls.querySelector("[data-inpuls-tape-time-scale-value]");
     const modeButton = controls.querySelector("[data-inpuls-tape-mode]");
+    const syncTimeScale = () => {
+      state.timeScale = clampTape(
+        Number(timeScaleInput.value) || TAPE_TIME_SCALE_DEFAULT,
+        TAPE_TIME_SCALE_MIN,
+        TAPE_TIME_SCALE_MAX,
+      );
+      timeScaleInput.value = String(state.timeScale);
+      timeScaleValue.textContent = `${Math.round(state.timeScale)}%`;
+      localStorage.setItem(TAPE_TIME_SCALE_KEY, String(state.timeScale));
+      scheduleTapeDraw(true, card);
+    };
     const applyMinimum = () => {
       state.minQuote = Math.max(0, Number(minInput.value) || 0);
       localStorage.setItem(TAPE_MIN_FILTER_KEY, String(state.minQuote));
@@ -2860,6 +2913,8 @@ function ensureTapeUi(card) {
     };
     minInput.addEventListener("input", applyMinimum);
     minInput.addEventListener("change", applyMinimum);
+    timeScaleInput.addEventListener("input", syncTimeScale);
+    timeScaleInput.addEventListener("change", syncTimeScale);
     modeButton.addEventListener("click", () => {
       state.mode = state.mode === "agg" ? "raw" : "agg";
       localStorage.setItem(TAPE_MODE_KEY, state.mode);
@@ -2870,8 +2925,34 @@ function ensureTapeUi(card) {
     syncLayerButtons(card, state);
   } else {
     const minInput = state.controls.querySelector("[data-inpuls-trade-min]");
+    const timeScaleInput = state.controls.querySelector("[data-inpuls-tape-time-scale]");
+    const timeScaleValue = state.controls.querySelector("[data-inpuls-tape-time-scale-value]");
     if (minInput && document.activeElement !== minInput) minInput.value = String(state.minQuote);
+    if (timeScaleInput && document.activeElement !== timeScaleInput) timeScaleInput.value = String(state.timeScale);
+    if (timeScaleValue) timeScaleValue.textContent = `${Math.round(state.timeScale)}%`;
     syncTapeModeButton(state.controls.querySelector("[data-inpuls-tape-mode]"), state);
+  }
+
+  if (flow.dataset.inpulsTapeShiftWheel !== "1") {
+    flow.dataset.inpulsTapeShiftWheel = "1";
+    flow.addEventListener("wheel", (event) => {
+      if (!event.shiftKey || !Number.isFinite(Number(event.deltaY)) || event.deltaY === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const activeState = tapeCardStates.get(card);
+      if (!activeState) return;
+      activeState.timeScale = clampTape(
+        activeState.timeScale + (event.deltaY < 0 ? -10 : 10),
+        TAPE_TIME_SCALE_MIN,
+        TAPE_TIME_SCALE_MAX,
+      );
+      localStorage.setItem(TAPE_TIME_SCALE_KEY, String(activeState.timeScale));
+      const input = activeState.controls?.querySelector("[data-inpuls-tape-time-scale]");
+      const output = activeState.controls?.querySelector("[data-inpuls-tape-time-scale-value]");
+      if (input) input.value = String(activeState.timeScale);
+      if (output) output.textContent = `${Math.round(activeState.timeScale)}%`;
+      scheduleTapeDraw(true, card);
+    }, { passive: false });
   }
 
   const heading = card.querySelector(".orderbook-heading");
@@ -3345,14 +3426,29 @@ export function advanceWaterTapeClock(
   return Math.max(previous, corrected);
 }
 
-function buildContinuousTapeWindow(width, latestTime, requestedEndTime = null) {
+export function tapeSecondsForScale(width, scalePercent = TAPE_TIME_SCALE_DEFAULT) {
   const safeWidth = Math.max(1, Number(width) || 1);
-  const seconds = clampTape(
+  const baseSeconds = clampTape(
     Math.floor(safeWidth / TAPE_MIN_SECOND_WIDTH),
     TAPE_MIN_SECONDS,
     TAPE_MAX_SECONDS,
   );
-  const duration = seconds * TAPE_SECOND_MS;
+  const scale = clampTape(
+    Number(scalePercent) || TAPE_TIME_SCALE_DEFAULT,
+    TAPE_TIME_SCALE_MIN,
+    TAPE_TIME_SCALE_MAX,
+  );
+  return clampTape(baseSeconds * scale / 100, 4, 180);
+}
+
+function buildContinuousTapeWindow(
+  width,
+  latestTime,
+  requestedEndTime = null,
+  scalePercent = TAPE_TIME_SCALE_DEFAULT,
+) {
+  const safeWidth = Math.max(1, Number(width) || 1);
+  const duration = tapeSecondsForScale(safeWidth, scalePercent) * TAPE_SECOND_MS;
   const latest = Number(latestTime) || Date.now();
   const requested = Number(requestedEndTime);
   const endTime = Number.isFinite(requested)
@@ -3473,9 +3569,13 @@ export function aggregateTapeZeroMs(trades) {
     });
 
   const groups = [];
+  const ordinalByTime = new Map();
   let current = null;
   const finish = () => {
     if (!current) return;
+    const timeOrdinal = ordinalByTime.get(current.eventTime) ?? 0;
+    current.timeOrdinal = timeOrdinal;
+    ordinalByTime.set(current.eventTime, timeOrdinal + 1);
     current.vwapPrice = current.quantity > 0
       ? current.quote / current.quantity
       : current.firstPrice;
@@ -3749,6 +3849,41 @@ function rawTapeMarkerBucket(strength, buy) {
   return (buy ? 0 : RAW_TAPE_MARKER_BUCKETS) + sizeIndex;
 }
 
+export function aggregateLabelPrice(item) {
+  const minimum = Number(item?.minPrice);
+  const maximum = Number(item?.maxPrice);
+  if (Number.isFinite(minimum) && Number.isFinite(maximum)) return (minimum + maximum) / 2;
+  const vwap = Number(item?.vwapPrice);
+  if (Number.isFinite(vwap)) return vwap;
+  return Number(item?.price);
+}
+
+export function aggregateStableX(baseX, ordinal, markerWidth, plotRight) {
+  const right = Math.max(1, Number(plotRight) || 1);
+  const width = Math.max(4, Number(markerWidth) || 4);
+  const index = Math.max(0, Math.floor(Number(ordinal) || 0));
+  const spacing = clampTape(width + 3, 12, 48);
+  let offset = 0;
+  if (index > 0) {
+    if (baseX >= right * .68) offset = -index * spacing;
+    else if (baseX <= right * .32) offset = index * spacing;
+    else {
+      const ring = Math.ceil(index / 2);
+      offset = (index % 2 ? 1 : -1) * ring * spacing;
+    }
+  }
+  return clampTape(
+    Number(baseX) + offset,
+    width / 2 + .5,
+    Math.max(width / 2 + .5, right - width / 2 - .5),
+  );
+}
+
+function aggregateLabelY(viewport, item, fallbackY) {
+  const position = projectTapePrice(viewport, aggregateLabelPrice(item));
+  return position ? position.y : fallbackY;
+}
+
 function drawAggregatePriceRange(
   context,
   viewport,
@@ -3935,7 +4070,7 @@ function drawTapeCard(card) {
   );
   state.clockEndTime = endTime;
   state.clockPerfAt = perfNow;
-  const window = buildContinuousTapeWindow(rect.width, latestTime, endTime);
+  const window = buildContinuousTapeWindow(rect.width, latestTime, endTime, state.timeScale);
   const range = state.priceRange;
   refreshTapeRenderModel(state, symbol, stored, aggregationStored);
 
@@ -4030,7 +4165,10 @@ function drawTapeCard(card) {
 
   for (const projected of items) {
     const item = projected.source;
-    const y = projected.position.y;
+    const projectedY = projected.position.y;
+    const y = state.mode === "agg"
+      ? aggregateLabelY(state.priceViewport, item, projectedY)
+      : projectedY;
     const buy = item.buyQuote >= item.sellQuote;
     const stroke = buy ? "rgba(88, 239, 184, .9)" : "rgba(255, 121, 137, .9)";
     const strength = stableTapeQuoteStrength(item.quote);
@@ -4075,10 +4213,11 @@ function drawTapeCard(card) {
     const label = formatTapeUsd(item.quote);
     const diameter = clampTape(4 + strength * 6, 4, 12);
     if (!showLabel) {
-      const x = clampTape(
+      const x = aggregateStableX(
         baseX,
-        diameter / 2 + .5,
-        Math.max(diameter / 2 + .5, window.plotRight - diameter / 2 - .5),
+        item.timeOrdinal,
+        diameter,
+        window.plotRight,
       );
       drawAggregatePriceRange(
         context,
@@ -4103,10 +4242,11 @@ function drawTapeCard(card) {
     const measured = context.measureText(label).width;
     const height = clampTape(7 + strength * 6, 7, 14);
     const width = clampTape(measured + 9, 18, Math.min(84, rect.width * .26));
-    const x = clampTape(
+    const x = aggregateStableX(
       baseX,
-      width / 2 + .5,
-      Math.max(width / 2 + .5, window.plotRight - width / 2 - .5),
+      item.timeOrdinal,
+      width,
+      window.plotRight,
     );
     drawAggregatePriceRange(
       context,

@@ -796,3 +796,25 @@ body { background: var(--bg); }
   .trade-flow-line, .trade-flow-nodes { right: 16%; width: 84%; }
   .trade-flow-grid .is-horizontal { right: 16%; }
 }
+
+
+/* Settings: interface and verified hotkeys only. */
+.settings-dialog form { max-height: 90vh; overflow-y: auto; }
+.font-scale-control { display: grid; grid-template-columns: minmax(130px, auto) minmax(180px, 1fr) 52px; align-items: center; gap: 12px; padding: 13px 14px; border: 1px solid var(--line-soft); border-radius: 10px; background: color-mix(in srgb, var(--panel-2) 82%, transparent); }
+.font-scale-control > span { color: var(--muted); font-size: calc(10 * var(--font-scale)); }
+.font-scale-control input { width: 100%; accent-color: var(--accent); }
+.font-scale-control strong { text-align: right; font-size: calc(11 * var(--font-scale)); font-variant-numeric: tabular-nums; }
+.hotkeys-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.hotkeys-section { padding: 14px; border: 1px solid var(--line-soft); border-radius: 10px; background: color-mix(in srgb, var(--panel-2) 74%, transparent); }
+.hotkeys-section h3 { margin: 0 0 9px; color: var(--accent); font-size: calc(11 * var(--font-scale)); }
+.hotkeys-section dl { display: grid; gap: 9px; margin: 0; }
+.hotkeys-section dl > div { display: grid; gap: 4px; padding-top: 9px; border-top: 1px solid var(--line-soft); }
+.hotkeys-section dl > div:first-child { padding-top: 0; border-top: 0; }
+.hotkeys-section dt { font-size: calc(10 * var(--font-scale)); font-weight: 800; }
+.hotkeys-section dd { margin: 0; color: var(--muted); font-size: calc(9 * var(--font-scale)); line-height: 1.45; }
+.hotkeys-section kbd { display: inline-grid; min-width: 30px; min-height: 21px; place-items: center; padding: 0 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--panel); color: var(--text); font: 800 calc(8 * var(--font-scale))/1 system-ui, sans-serif; }
+@media (max-width: 620px) {
+  .hotkeys-grid { grid-template-columns: 1fr; }
+  .font-scale-control { grid-template-columns: 1fr 52px; }
+  .font-scale-control > span { grid-column: 1 / -1; }
+}

@@ -1192,7 +1192,7 @@ function renderCard(card, state) {
         const cellWidth = dataWidth;
         const sellWidth = cellWidth * sellShare;
         const buyWidth = Math.max(0, cellWidth - sellWidth);
-        const alpha = .38 + clusterStrength * .5;
+        const alpha = .58 + clusterStrength * .4;
 
         state.context.fillStyle = theme.panel2;
         state.context.fillRect(cellLeft, cellTop, cellWidth, cellHeight);
@@ -1210,7 +1210,7 @@ function renderCard(card, state) {
           : dominantSide === "S"
             ? rgbaHex(theme.red, .98)
             : rgbaHex(theme.muted, .52);
-        state.context.lineWidth = 1;
+        state.context.lineWidth = 1.15;
         state.context.strokeRect(cellLeft, cellTop, cellWidth, cellHeight);
 
         const volumeText = formatQuoteVolume(cluster.quote);

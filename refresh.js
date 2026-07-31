@@ -1,6 +1,6 @@
 import { clearInPulsRuntime } from "./pwa-reset.js";
 
-const BUILD = "26-78-agg-range-rx-v1";
+const BUILD = "26-79-agg-center-tape-scale-settings-v1";
 const button = document.getElementById("refresh");
 const status = document.getElementById("status");
 
