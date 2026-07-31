@@ -14,7 +14,7 @@ test("global market feed goes online only after a valid miniTicker packet", () =
   const app = fs.readFileSync(new URL("./app.js", import.meta.url), "utf8");
   assert.match(app, /isCoreMiniTickerPacket\(data\)/);
   assert.match(app, /setConnection\("online", "Онлайн"\)/);
-  assert.match(app, /Нет miniTicker · резервный market-поток/);
+  assert.match(app, /Нет miniTicker · резервный поток/);
   assert.match(app, /isBinanceSubscriptionError\(payload\)/);
 });
 
