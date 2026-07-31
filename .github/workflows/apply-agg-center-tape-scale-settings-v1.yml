@@ -1,0 +1,42 @@
+name: Apply AGG center tape scale settings
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    if: github.head_ref == 'agent/agg-center-tape-scale-settings-v1'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply AGG and settings update
+        run: python .github/scripts/apply-agg-center-tape-scale-settings-v1.py
+      - name: Syntax checks
+        run: |
+          node --check orderbook.js
+          node --check orderbook-flow-workspace.js
+          node --check app.js
+          node --check test-orderbook-ux-controls-v1.mjs
+      - name: Full test suite
+        run: npm test
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          rm -f .github/scripts/apply-agg-center-tape-scale-settings-v1.py
+          rm -f .github/workflows/apply-agg-center-tape-scale-settings-v1.yml
+          git config user.name "InPuls automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: center AGG labels and add tape scale controls"
+          git push origin HEAD:${{ github.head_ref }}
