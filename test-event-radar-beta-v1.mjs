@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import {
   EVENT_RADAR_BETA_VERSION,
   eventRadarDataState,
+  eventRadarFeedState,
   eventRadarGroup,
   eventRadarStatus,
   mergeEventRadarEntries,
+  summarizeEventRadarFeed,
 } from "./event-radar-beta.js";
 
 test("event radar groups current signal types without changing signal formulas", () => {
@@ -55,4 +57,18 @@ test("event radar reports lifecycle and data quality honestly", () => {
   assert.equal(eventRadarStatus({ ...entry, score: 62 }, 12_500), "weakening");
   assert.equal(eventRadarStatus(entry, 14_000), "finished");
   assert.equal(eventRadarDataState({ ...entry, updatedAt: 1_000 }, 12_500), "stale");
+});
+
+
+test("event radar distinguishes waiting, warmup, live and stale feed states", () => {
+  assert.equal(eventRadarFeedState(null, 10_000), "waiting");
+  const warming = summarizeEventRadarFeed([{ symbol: "BTCUSDT", warmupSeconds: 30, signals: [] }], 10_000);
+  assert.equal(warming.symbolCount, 1);
+  assert.equal(warming.signalCount, 0);
+  assert.equal(warming.historyPercent, 10);
+  assert.equal(eventRadarFeedState(warming, 10_500), "warming");
+  const live = summarizeEventRadarFeed([{ symbol: "BTCUSDT", warmupSeconds: 90, signals: [{ type: "impulse" }] }], 20_000);
+  assert.equal(live.signalCount, 1);
+  assert.equal(eventRadarFeedState(live, 20_500), "live");
+  assert.equal(eventRadarFeedState(live, 26_000), "stale");
 });
