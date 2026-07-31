@@ -1,0 +1,55 @@
+name: Apply global connection and Radar cleanup
+
+on:
+  push:
+    branches:
+      - fix/global-connection-remove-event-radar-v1
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-test:
+    if: ${{ !contains(github.event.head_commit.message, 'Apply verified connection and Radar cleanup') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply cleanup
+        run: python3 tools/apply_global_connection_remove_event_radar_v1.py
+
+      - name: Verify diff
+        run: git diff --check
+
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check sw.js
+          find . -maxdepth 1 -type f -name '*.mjs' -print0 | xargs -0 -n1 node --check
+
+      - name: Focused regressions
+        run: node --test test-global-connection-radar-cleanup-v1.mjs test/ui.test.js
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Remove patch scaffolding
+        run: |
+          rm tools/apply_global_connection_remove_event_radar_v1.py
+          rm .github/workflows/apply-global-connection-radar-cleanup-v1.yml
+
+      - name: Commit verified cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Apply verified connection and Radar cleanup"
+          git push
