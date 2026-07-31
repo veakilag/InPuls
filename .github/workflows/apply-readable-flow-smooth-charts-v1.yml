@@ -1,0 +1,72 @@
+name: Apply readable flow and smooth charts
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-test:
+    if: github.event.pull_request.head.ref == 'agent/readable-flow-smooth-charts-v1'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply implementation
+        run: python tools/apply_readable_flow_smooth_charts_v1.py
+
+      - name: Syntax checks
+        run: |
+          node --check orderbook.js
+          node --check chart.js
+          node --check app.js
+          node --check test-readable-flow-smooth-charts-v1.mjs
+
+      - name: Focused regressions
+        run: |
+          node --test \
+            test-readable-flow-smooth-charts-v1.mjs \
+            test-sweep-tape-clock-v1.mjs \
+            test-arrival-clock-render-decouple-v1.mjs \
+            test-orderbook-tape-latency.mjs
+
+      - name: Full test suite
+        run: |
+          set +e
+          npm test > /tmp/inpuls-test.log 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "=== FAILURES ==="
+            grep -n -E "not ok|failureType|error:|Expected values|actual:|expected:|location:" /tmp/inpuls-test.log | tail -n 180 || true
+            echo "=== LOG TAIL ==="
+            tail -n 120 /tmp/inpuls-test.log
+          else
+            grep -E "# tests |# pass |# fail |# duration_ms" /tmp/inpuls-test.log | tail -n 8
+          fi
+          exit "$status"
+
+      - name: Remove patch scaffolding
+        run: |
+          rm -f tools/apply_readable_flow_smooth_charts_v1.py
+          rm -f .github/workflows/apply-readable-flow-smooth-charts-v1.yml
+
+      - name: Commit verified implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Make flow labels readable and smooth parallel charts"
+            git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          fi
