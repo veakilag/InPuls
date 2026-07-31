@@ -21,14 +21,14 @@ jobs:
         with:
           node-version: 22
 
-      - name: Align Sweep patch render anchors
+      - name: Align Sweep patch transformers
         run: |
           python - <<'PY'
           from pathlib import Path
-          import re
 
           path = Path("tools/apply_sweep_tape_clock_v1.py")
           text = path.read_text(encoding="utf-8")
+
           start_marker = "text = text.replace(\n    '''      drawAggregatePriceRange("
           end_marker = '    raise RuntimeError("aggregate anchors: expected two render branches")'
           start = text.find(start_marker)
@@ -36,7 +36,7 @@ jobs:
           if start < 0 or end < 0:
               raise SystemExit(f"anchor block boundaries not found: start={start}, end={end}")
           end += len(end_marker)
-          replacement = r'''text, unlabelled_anchor_count = re.subn(
+          anchor_replacement = r'''text, unlabelled_anchor_count = re.subn(
               r"(?m)^(\s{6})drawAggregatePriceRange\(\n(\s{8})context,\n(\s{8})state\.priceViewport,",
               lambda match: (
                   f"{match.group(1)}drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);\n"
@@ -63,7 +63,28 @@ jobs:
                   f"aggregate anchors: expected (1, 1), got "
                   f"({unlabelled_anchor_count}, {labelled_anchor_count})"
               )'''
-          path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+          text = text[:start] + anchor_replacement + text[end:]
+
+          base_font_block = '''footprint = replace_once(
+              footprint,
+              '  state.context.font = "800 7px Inter, system-ui, sans-serif";',
+              '  state.context.font = "700 7px Arial, sans-serif";',
+              "footprint base font",
+          )
+          '''
+          restore_font_block = '''footprint = replace_once(
+              footprint,
+              '        state.context.font = "800 7px Inter, system-ui, sans-serif";',
+              '        state.context.font = "700 7px Arial, sans-serif";',
+              "footprint font restore",
+          )
+          '''
+          for label, block in (("base", base_font_block), ("restore", restore_font_block)):
+              if block not in text:
+                  raise SystemExit(f"footprint {label} font block not found")
+              text = text.replace(block, "", 1)
+
+          path.write_text(text, encoding="utf-8")
           PY
 
       - name: Apply Sweep tape implementation
