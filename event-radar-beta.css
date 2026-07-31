@@ -27,7 +27,7 @@
   max-width: calc(100vw - 8px);
   max-height: calc(100vh - 54px);
   display: grid;
-  grid-template-rows: 38px auto 24px minmax(0, 1fr) 24px;
+  grid-template-rows: 38px auto 28px 24px minmax(0, 1fr) 24px;
   overflow: hidden;
   resize: both;
   border: 1px solid color-mix(in srgb, var(--violet) 44%, var(--line));
@@ -102,6 +102,31 @@
 }
 .event-radar-beta__filters button:hover,
 .event-radar-beta__filters button.is-active { color: var(--text); border-color: var(--violet); background: rgba(170, 134, 255, .1); }
+
+.event-radar-beta__feed {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--panel-2) 78%, transparent);
+  color: var(--muted);
+  scrollbar-width: none;
+  white-space: nowrap;
+}
+.event-radar-beta__feed strong {
+  flex: 0 0 auto;
+  color: var(--blue);
+  font-size: calc(7 * var(--font-scale));
+  letter-spacing: .05em;
+}
+.event-radar-beta__feed span { flex: 0 0 auto; font-size: calc(6.5 * var(--font-scale)); }
+.event-radar-beta__feed span + span::before { content: "·"; margin-right: 8px; color: var(--line); }
+.event-radar-beta__feed[data-feed-state="live"] strong { color: var(--green); }
+.event-radar-beta__feed[data-feed-state="warming"] strong { color: var(--amber); }
+.event-radar-beta__feed[data-feed-state="stale"] strong { color: var(--red); }
 
 .event-radar-beta__columns {
   display: grid;
