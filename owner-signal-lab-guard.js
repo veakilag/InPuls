@@ -4,7 +4,7 @@ const OWNER_SIGNAL_LAB_GUARD_TIMEOUT_MS = 15_000;
 const guardTimer = setTimeout(() => {
   const status = document.querySelector("#storage-state");
   const refresh = document.querySelector("#refresh-report");
-  const empty = document.querySelector("#owner-empty");
+  const empty = document.querySelector("#event-review-empty, #owner-empty");
   const emptyTitle = document.querySelector("#owner-empty-title");
   const emptyMessage = document.querySelector("#owner-empty-message");
 
@@ -18,7 +18,12 @@ const guardTimer = setTimeout(() => {
     refresh.dataset.bootFallback = "true";
     refresh.textContent = "Перезагрузить";
   }
-  if (empty) empty.hidden = false;
+  if (empty) {
+    empty.hidden = false;
+    if (!emptyTitle && !emptyMessage) {
+      empty.textContent = "Signal Lab не загрузился. Нажми «Перезагрузить» — локальная история останется на устройстве.";
+    }
+  }
   if (emptyTitle) emptyTitle.textContent = "Дашборд не загрузился";
   if (emptyMessage) {
     emptyMessage.textContent = "Нажми «Перезагрузить». Локальная история останется на устройстве.";
