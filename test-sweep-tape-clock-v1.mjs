@@ -11,7 +11,7 @@ import {
   aggregateVisibleLabelPrice,
   advanceTapeDisplayClock,
   selectSweepLabelKeys,
-} from "./orderbook.js?v=26-82-smooth-live-clock-series-v1";
+} from "./orderbook.js?v=26-83-arrival-clock-render-decouple-v1";
 
 const trade = (id, time, price, side, quantity = 1) => ({
   id,
