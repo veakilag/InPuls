@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - fix/core-feed-footprint-runtime-v1
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -51,6 +54,7 @@ jobs:
         run: npm test
 
       - name: Commit verified runtime
+        if: github.event_name != 'pull_request'
         run: |
           git rm .github/scripts/apply-core-feed-footprint-runtime-v1.py
           git rm .github/workflows/apply-core-feed-footprint-runtime-v1.yml
