@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 
-const OLD_BUILD = "26-78-agg-range-rx-v1";
-const BUILD = "26-79-event-radar-beta-v1";
+const HOST_BUILD = "26-78-agg-range-rx-v1";
+const FEATURE_VERSION = "event-radar-beta-v1";
 
 async function read(path) {
   return readFile(path, "utf8");
@@ -18,12 +18,11 @@ function replaceRequired(source, before, after, label) {
 
 async function patchIndex() {
   let source = await read("index.html");
-  source = source.replaceAll(OLD_BUILD, BUILD);
   if (!source.includes("event-radar-beta.css")) {
     source = replaceRequired(
       source,
-      `    <link rel="stylesheet" href="./styles.css?v=${BUILD}" />`,
-      `    <link rel="stylesheet" href="./styles.css?v=${BUILD}" />\n    <link rel="stylesheet" href="./event-radar-beta.css?v=event-radar-beta-v1" />`,
+      `    <link rel="stylesheet" href="./styles.css?v=${HOST_BUILD}" />`,
+      `    <link rel="stylesheet" href="./styles.css?v=${HOST_BUILD}" />\n    <link rel="stylesheet" href="./event-radar-beta.css?v=${FEATURE_VERSION}" />`,
       "event radar stylesheet",
     );
   }
@@ -38,8 +37,8 @@ async function patchIndex() {
   if (!source.includes("event-radar-beta.js")) {
     source = replaceRequired(
       source,
-      `    <script type="module" src="./app.js?v=${BUILD}"></script>`,
-      `    <script type="module" src="./event-radar-beta.js?v=event-radar-beta-v1"></script>\n    <script type="module" src="./app.js?v=${BUILD}"></script>`,
+      `    <script type="module" src="./app.js?v=${HOST_BUILD}"></script>`,
+      `    <script type="module" src="./event-radar-beta.js?v=${FEATURE_VERSION}"></script>\n    <script type="module" src="./app.js?v=${HOST_BUILD}"></script>`,
       "event radar module",
     );
   }
@@ -48,7 +47,6 @@ async function patchIndex() {
 
 async function patchApp() {
   let source = await read("app.js");
-  source = source.replaceAll(OLD_BUILD, BUILD);
   if (!source.includes("inpuls:event-radar-update")) {
     source = replaceRequired(
       source,
@@ -68,37 +66,33 @@ async function patchApp() {
 
 async function patchServiceWorker() {
   let source = await read("sw.js");
-  source = source.replaceAll(OLD_BUILD, BUILD);
   if (!source.includes('["/event-radar-beta.js"')) {
     source = replaceRequired(
       source,
       `  ["/observability.js", "./observability.js?v=render-scheduler-v1"],`,
-      `  ["/event-radar-beta.js", "./event-radar-beta.js?v=event-radar-beta-v1"],\n  ["/event-radar-beta.css", "./event-radar-beta.css?v=event-radar-beta-v1"],\n  ["/observability.js", "./observability.js?v=render-scheduler-v1"],`,
+      `  ["/event-radar-beta.js", "./event-radar-beta.js?v=${FEATURE_VERSION}"],\n  ["/event-radar-beta.css", "./event-radar-beta.css?v=${FEATURE_VERSION}"],\n  ["/observability.js", "./observability.js?v=render-scheduler-v1"],`,
       "event radar forced assets",
     );
   }
-  if (!source.includes('"./event-radar-beta.js?v=event-radar-beta-v1"')) throw new Error("Event radar JS missing from service worker");
-  const shellAnchor = `  "./app.js?v=${BUILD}",`;
-  if (!source.includes(`  "./event-radar-beta.css?v=event-radar-beta-v1",`)) {
+  if (!source.includes(`"./event-radar-beta.js?v=${FEATURE_VERSION}"`)) {
+    throw new Error("Event radar JS missing from service worker");
+  }
+  const shellAnchor = `  "./app.js?v=${HOST_BUILD}",`;
+  if (!source.includes(`  "./event-radar-beta.css?v=${FEATURE_VERSION}",`)) {
     source = replaceRequired(
       source,
       shellAnchor,
-      `${shellAnchor}\n  "./event-radar-beta.js?v=event-radar-beta-v1",\n  "./event-radar-beta.css?v=event-radar-beta-v1",`,
+      `${shellAnchor}\n  "./event-radar-beta.js?v=${FEATURE_VERSION}",\n  "./event-radar-beta.css?v=${FEATURE_VERSION}",`,
       "event radar shell assets",
     );
   }
   await write("sw.js", source);
 }
 
-async function patchReleaseFiles() {
-  const files = ["refresh.html", "refresh.js", "reset-v26.html", "reset.js", "test/ui.test.js"];
-  for (const path of files) {
-    const source = await read(path);
-    await write(path, source.replaceAll(OLD_BUILD, BUILD));
-  }
-  let version = (await read("VERSION.txt")).replaceAll(OLD_BUILD, BUILD);
-  if (!version.includes("event-radar-beta-v1")) {
-    version = version.trimEnd().replace(/\n?$/, "") + ", event-radar-beta-v1, event-age-lifecycle-v1, event-list-freeze-v1, event-data-state-v1\n";
+async function patchVersionFile() {
+  let version = await read("VERSION.txt");
+  if (!version.includes(FEATURE_VERSION)) {
+    version = version.trimEnd().replace(/\n?$/, "") + `, ${FEATURE_VERSION}, event-age-lifecycle-v1, event-list-freeze-v1, event-data-state-v1\n`;
   }
   await write("VERSION.txt", version);
 }
@@ -114,5 +108,5 @@ async function patchUiTests() {
 await patchIndex();
 await patchApp();
 await patchServiceWorker();
-await patchReleaseFiles();
+await patchVersionFile();
 await patchUiTests();
