@@ -27,42 +27,36 @@ jobs:
           from pathlib import Path
           path = Path("tools/apply_sweep_tape_clock_v1.py")
           text = path.read_text(encoding="utf-8")
-          old = '''text = text.replace(
-              ''' + "'''" + '''      drawAggregatePriceRange(
-                context,
-                state.priceViewport,''' + "'''" + ''',
-              ''' + "'''" + '''      drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);
-              drawAggregatePriceRange(
-                context,
-                state.priceViewport,''' + "'''" + ''',
-          )
-          if text.count('drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);') != 2:
-              raise RuntimeError("aggregate anchors: expected two render branches")'''
-          new = '''text = replace_once(
+          start_marker = "text = text.replace(\n    '''      drawAggregatePriceRange("
+          end_marker = '    raise RuntimeError("aggregate anchors: expected two render branches")'
+          start = text.find(start_marker)
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit(f"anchor block boundaries not found: start={start}, end={end}")
+          end += len(end_marker)
+          replacement = '''text = replace_once(
               text,
-              ''' + "'''" + '''      drawAggregatePriceRange(
+              """      drawAggregatePriceRange(
                 context,
-                state.priceViewport,''' + "'''" + ''',
-              ''' + "'''" + '''      drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);
+                state.priceViewport,""",
+              """      drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);
               drawAggregatePriceRange(
                 context,
-                state.priceViewport,''' + "'''" + ''',
+                state.priceViewport,""",
               "unlabelled aggregate anchor",
           )
           text = replace_once(
               text,
-              ''' + "'''" + '''    drawAggregatePriceRange(
+              """    drawAggregatePriceRange(
               context,
-              state.priceViewport,''' + "'''" + ''',
-              ''' + "'''" + '''    drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);
+              state.priceViewport,""",
+              """    drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);
               drawAggregatePriceRange(
               context,
-              state.priceViewport,''' + "'''" + ''',
+              state.priceViewport,""",
               "labelled aggregate anchor",
           )'''
-          if old not in text:
-              raise SystemExit("anchor patch block not found")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
           PY
 
       - name: Apply Sweep tape implementation
