@@ -5,7 +5,7 @@ import {
   aggregateTapeSweeps,
   aggregateTapeZeroMs,
   resolveTapeVisualTime,
-} from "./orderbook.js?v=26-87-market-feed-footprint-series-v1";
+} from "./orderbook.js?v=26-88-split-market-public-feed-v1";
 
 const app = fs.readFileSync(new URL("./app.js", import.meta.url), "utf8");
 

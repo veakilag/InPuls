@@ -12,7 +12,7 @@ import {
   aggregateVisibleLabelPrice,
   advanceTapeDisplayClock,
   selectSweepLabelKeys,
-} from "./orderbook.js?v=26-87-market-feed-footprint-series-v1";
+} from "./orderbook.js?v=26-88-split-market-public-feed-v1";
 
 const trade = (id, time, price, side, quantity = 1) => ({
   id,

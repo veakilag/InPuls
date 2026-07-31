@@ -1,6 +1,0 @@
-./test-orderbook-guarded-raw-tape.mjs:109:  assert.match(worker, /return \[`\$\{name\}@aggTrade`, `\$\{name\}@trade`\];/);
-./test-tiger-zero-ms-agg-source-v1.mjs:24:  assert.match(worker, /return \[`\$\{name\}@aggTrade`, `\$\{name\}@trade`\]/);
-./test-tiger-zero-ms-agg-source-v1.mjs:35:  assert.match(orderbook, /@trade RAW/);
-./test/orderbook-backpressure.test.js:35:  assert.match(worker, /return \[`\$\{name\}@aggTrade`, `\$\{name\}@trade`\];/);
-./test-trade-latency-core.mjs:36:  assert.equal(sourceFromTradePayload({ stream: "btcusdt@trade", data: { e: "trade" } }), "trade");
-./test-raw-stability-core.mjs:322:  assert.match(worker, /return \[`\$\{name\}@aggTrade`, `\$\{name\}@trade`\];/);

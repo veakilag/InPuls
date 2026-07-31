@@ -7,7 +7,7 @@ import {
   normalizeFlowTrade,
   selectFootprintTapeBatch,
   selectFootprintTapeTrades,
-} from "./orderbook-flow-workspace.js?v=26-87-market-feed-footprint-series-v1";
+} from "./orderbook-flow-workspace.js?v=26-88-split-market-public-feed-v1";
 
 test("footprint buckets live trades by browser arrival time", () => {
   const normalized = normalizeFlowTrade({

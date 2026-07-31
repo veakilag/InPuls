@@ -20,8 +20,9 @@ const raw = (id, time, side, quote, price = 100) => ({
   quote,
 });
 
-test("Worker keeps visual RAW on aggTrade and exposes guarded trade input for AGG", () => {
-  assert.match(worker, /return \[`\$\{name\}@aggTrade`, `\$\{name\}@trade`\]/);
+test("Worker keeps production Tape and AGG on documented aggTrade", () => {
+  assert.match(worker, /return \[`\$\{name\}@aggTrade`\]/);
+  assert.doesNotMatch(worker, /`\$\{name\}@trade`/);
   assert.match(worker, /if \(aggregateEvent && this\.insertTrade\(trade, true\)\)/);
   assert.match(worker, /if \(decision\.emit && this\.insertAggregationTrade\(trade, true\)\)/);
   assert.match(worker, /aggregationTrades,/);

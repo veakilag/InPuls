@@ -2,21 +2,20 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-import { TAPE_SWEEP_WINDOW_MS, aggregateTapeSweeps } from "./orderbook.js?v=26-87-market-feed-footprint-series-v1";
-import { selectFootprintTapeBatch } from "./orderbook-flow-workspace.js?v=26-87-market-feed-footprint-series-v1";
+import { TAPE_SWEEP_WINDOW_MS, aggregateTapeSweeps } from "./orderbook.js?v=26-88-split-market-public-feed-v1";
+import { selectFootprintTapeBatch } from "./orderbook-flow-workspace.js?v=26-88-split-market-public-feed-v1";
 
 const trade = (id, eventTime, receivedAt, price, side, quote = 1_000) => ({
   id, firstTradeId: id, lastTradeId: id, eventTime, tradeTime: eventTime,
   receivedAt, time: receivedAt, price, quantity: quote / price, quote, side,
 });
 
-test("global market feed starts on combined streams and only becomes online after data", () => {
+test("global market feed goes online only after a valid miniTicker packet", () => {
   const app = fs.readFileSync(new URL("./app.js", import.meta.url), "utf8");
-  assert.match(app, /fstream\.binance\.com\/stream\?streams=/);
-  assert.match(app, /fstream\.binance\.com\/ws/);
-  assert.match(app, /if \(!this\.marketPacketReceived\)/);
+  assert.match(app, /isCoreMiniTickerPacket\(data\)/);
   assert.match(app, /setConnection\("online", "Онлайн"\)/);
-  assert.match(app, /Нет рыночных данных · резервный поток/);
+  assert.match(app, /Нет miniTicker · резервный market-поток/);
+  assert.match(app, /isBinanceSubscriptionError\(payload\)/);
 });
 
 test("footprint bootstraps from stable Tape and switches once to guarded flow", () => {
