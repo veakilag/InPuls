@@ -9,8 +9,8 @@ test("browser entry points keep user version v23 and identify the current releas
     source("index.html"), source("app.js"), source("sw.js"), source("refresh.html"), source("VERSION.txt"),
   ]);
   for (const text of [html, app, worker, refresh, version]) assert.doesNotMatch(text, /(?:v|build=|\?v=)22\b/);
-  assert.match(html, /inpuls-build" content="26-85-live-footprint-source-v1"/);
-  assert.match(worker, /inpuls-26-85-live-footprint-source-v1/);
+  assert.match(html, /inpuls-build" content="26-86-global-connection-radar-cleanup-v1"/);
+  assert.match(worker, /inpuls-26-86-global-connection-radar-cleanup-v1/);
   assert.match(html, /SCREENER <small>v23<\/small>/);
   assert.match(version, /^InPuls v23/m);
 });
@@ -80,8 +80,8 @@ test("browser entry points carry a restrictive CSP and reset scripts stay extern
   }
   assert.doesNotMatch(pages[3], /<script>(?:.|\n)*getRegistrations/);
   assert.doesNotMatch(pages[4], /<script>(?:.|\n)*getRegistrations/);
-  assert.match(pages[3], /refresh\.js\?v=26-85-live-footprint-source-v1/);
-  assert.match(pages[4], /reset\.js\?v=26-85-live-footprint-source-v1/);
+  assert.match(pages[3], /refresh\.js\?v=26-86-global-connection-radar-cleanup-v1/);
+  assert.match(pages[4], /reset\.js\?v=26-86-global-connection-radar-cleanup-v1/);
 });
 
 test("Service Worker installs atomically and validates cached response types", async () => {
@@ -138,21 +138,17 @@ test("orderbook price text is separated from the size boundary", async () => {
 });
 
 
-test("event radar beta is isolated from the three existing discovery blocks", async () => {
-  const [html, app, worker, widget, css] = await Promise.all([
-    source("index.html"), source("app.js"), source("sw.js"), source("event-radar-beta.js"), source("event-radar-beta.css"),
+test("Event Radar Beta is fully absent while core discovery blocks remain", async () => {
+  const [html, app, worker] = await Promise.all([
+    source("index.html"), source("app.js"), source("sw.js"),
   ]);
-  assert.match(html, /id="event-radar-beta-toggle"/);
-  assert.match(html, /event-radar-beta\.js\?v=event-radar-beta-v1/);
-  assert.match(app, /inpuls:event-radar-update/);
-  assert.match(app, /inpuls:event-radar-select/);
-  assert.match(app, /openOrderBookForSymbol\(symbol\)/);
-  assert.match(widget, /ПАУЗА/);
-  assert.match(widget, /eventRadarStatus/);
-  assert.match(widget, /eventRadarDataState/);
-  assert.match(css, /position: fixed/);
-  assert.match(worker, /event-radar-beta\.js/);
+  for (const text of [html, app, worker]) {
+    assert.doesNotMatch(text, /event-radar-beta/);
+    assert.doesNotMatch(text, /inpuls:event-radar-/);
+  }
+  assert.doesNotMatch(html, /РАДАР BETA/);
   assert.match(html, /class="inplay-strip"/);
   assert.match(html, /data-panel="radar"/);
   assert.match(html, /data-panel="scanner"/);
+  assert.match(app, /updateSignalMemory/);
 });
