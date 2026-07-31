@@ -21,6 +21,75 @@ jobs:
         with:
           node-version: 22
 
+      - name: Repair generator test tail
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tools/apply_arrival_clock_no_global_render_v1.py")
+          text = path.read_text(encoding="utf-8")
+          marker = "# Focused regression contract."
+          if marker not in text:
+              raise SystemExit("generator tail marker is missing")
+          prefix = text.split(marker, 1)[0]
+          tail = r'''# Focused regression contract.
+          test_path = Path("test-arrival-clock-render-decouple-v1.mjs")
+          test_source = r"""import assert from "node:assert/strict";
+          import test from "node:test";
+          import fs from "node:fs";
+          import {
+            aggregateTapeSweeps,
+            aggregateTapeZeroMs,
+            resolveTapeVisualTime,
+          } from "./orderbook.js?v=__BUILD__";
+
+          const app = fs.readFileSync(new URL("./app.js", import.meta.url), "utf8");
+          const orderbook = fs.readFileSync(new URL("./orderbook.js", import.meta.url), "utf8");
+
+          test("newly received trades use arrival time for visual X without rewriting source clocks", () => {
+            assert.equal(resolveTapeVisualTime(1_000, 9_000), 9_000);
+            assert.equal(resolveTapeVisualTime(1_000, null), 1_000);
+            const groups = aggregateTapeZeroMs([
+              { id: 1, firstTradeId: 1, lastTradeId: 1, price: 100, quantity: 1, quote: 100, side: "buy", time: 9_000, tradeTime: 1_000, eventTime: 1_000 },
+              { id: 2, firstTradeId: 2, lastTradeId: 2, price: 101, quantity: 1, quote: 101, side: "buy", time: 9_001, tradeTime: 1_000, eventTime: 1_000 },
+              { id: 3, firstTradeId: 3, lastTradeId: 3, price: 102, quantity: 1, quote: 102, side: "buy", time: 9_020, tradeTime: 1_020, eventTime: 1_020 },
+            ]);
+            assert.equal(groups.length, 2);
+            assert.equal(groups[0].eventTime, 1_000);
+            assert.equal(groups[0].time, 9_000);
+            assert.equal(groups[0].lastTime, 9_001);
+            const sweeps = aggregateTapeSweeps(groups, { maxGapMs: 35, tick: 1 });
+            assert.equal(sweeps.length, 1);
+            assert.equal(sweeps[0].eventTime, 1_010);
+            assert.ok(sweeps[0].time >= 9_000 && sweeps[0].time <= 9_020);
+          });
+
+          test("high-rate market streams do not trigger full-app DOM renders", () => {
+            assert.doesNotMatch(app, /setInterval\(render,\s*1_?000\)/);
+            assert.match(app, /requestIdleCallback\(run, \{ timeout: 450 \}\)/);
+            const bookBlock = app.match(/if \(data\.e === "bookTicker"[\s\S]*?return;\n    \}/)?.[0] ?? "";
+            const tradeBlock = app.match(/if \(data\.e === "aggTrade"[\s\S]*?return;\n    \}/)?.[0] ?? "";
+            assert.ok(bookBlock.length > 0);
+            assert.ok(tradeBlock.length > 0);
+            assert.doesNotMatch(bookBlock, /scheduleRender\(/);
+            assert.doesNotMatch(tradeBlock, /scheduleRender\(/);
+            assert.match(app, /if \(hasMarketTicker\) \{[\s\S]*collectSignalMemoryFromFeed[\s\S]*scheduleRender\(\);[\s\S]*\}/);
+          });
+
+          test("runtime carries separate arrival and exchange clocks", () => {
+            assert.match(orderbook, /time: visualTime/);
+            assert.match(orderbook, /tradeTime: sourceTime/);
+            assert.match(orderbook, /eventTime,/);
+            assert.match(orderbook, /const eventTime = Number\(trade\.eventTime \?\? trade\.tradeTime \?\? trade\.time\)/);
+          });
+          """
+          test_path.write_text(test_source.replace("__BUILD__", NEW_BUILD), encoding="utf-8")
+
+          print(f"Applied {NEW_BUILD}")
+          '''
+          path.write_text(prefix + tail, encoding="utf-8")
+          PY
+
       - name: Apply implementation
         run: python tools/apply_arrival_clock_no_global_render_v1.py
 
