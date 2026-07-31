@@ -11,7 +11,7 @@ import {
   aggregateVisibleLabelPrice,
   advanceTapeDisplayClock,
   selectSweepLabelKeys,
-} from "./orderbook.js?v=26-83-arrival-clock-render-decouple-v1";
+} from "./orderbook.js?v=26-84-readable-flow-smooth-charts-v1";
 
 const trade = (id, time, price, side, quantity = 1) => ({
   id,
@@ -161,8 +161,9 @@ test("Runtime exposes compact Series and avoids per-second card rescans", () => 
   assert.match(source, /function drawSweepDirection\(/);
   assert.match(source, /roundedRectPath\(context, x - bodyWidth \/ 2/);
   assert.match(source, /function selectSweepLabelKeys\(/);
-  assert.match(source, /const maximumLabels = Math\.max\(3, Math\.min\(10, Math\.floor\(right \/ 72\)\)\)/);
-  assert.match(source, /const showLabel = sweepMode\s*\? Boolean\(sweepLabelKeys\?\.has\(item\.key\)\)/);
+  assert.match(source, /function selectTapeLabelKeys\(/);
+  assert.match(source, /const maximumLabels = sweepMode/);
+  assert.match(source, /const showLabel = sweepMode\s*\? Boolean\(sweepLabelKeys\?\.has\(item\.key\)\)\s*:\s*Boolean\(aggLabelKeys\?\.has\(item\.key\)\)/);
   assert.match(source, /advanceTapeDisplayClock\(\s*state\.clockEndTime,\s*state\.clockPerfAt,\s*latestTime,/);
   assert.match(source, /cachedTapeClockLabel\(state, window\.endTime\).*LIVE/);
   assert.doesNotMatch(source, /tapeStateTimer = setInterval/);

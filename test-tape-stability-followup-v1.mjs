@@ -77,7 +77,7 @@ test("marker geometry is absolute and independent of visible neighbours", () => 
   assert.equal(stableTapeQuoteStrength(0), 0);
   assert.ok(stableTapeQuoteStrength(10_000) > stableTapeQuoteStrength(1_000));
   const painter = tapePainter();
-  assert.match(painter, /const strength = stableTapeQuoteStrength\(item\.quote\)/);
+  assert.match(painter, /const strength = stableTapeQuoteStrength\(tapeVisualSizeQuote\(item, state\.mode\)\)/);
   assert.match(painter, /const baseX = tapeTimeX\(item\.time, window, rect\.width\)/);
   assert.doesNotMatch(painter, /adaptiveRawDiameter\(strength, item\.density/);
 });

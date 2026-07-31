@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-83-arrival-clock-render-decouple-v1";
+import "./orderbook-flow-workspace.js?v=26-84-readable-flow-smooth-charts-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1413,7 +1413,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-83-arrival-clock-render-decouple-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-84-readable-flow-smooth-charts-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1830,7 +1830,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-83-arrival-clock-render-decouple-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-84-readable-flow-smooth-charts-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -1866,6 +1866,8 @@ export const TAPE_SWEEP_MIN_AGGREGATES = 2;
 const TAPE_SWEEP_MAX_DIRECTION_SPAN_PX = 52;
 const TAPE_SWEEP_LABEL_MIN_GAP_X = 6;
 const TAPE_SWEEP_LABEL_MIN_GAP_Y = 4;
+const TAPE_AGG_LABEL_MIN_GAP_X = 5;
+const TAPE_AGG_LABEL_MIN_GAP_Y = 3;
 const TAPE_TIMELINE_CACHE_LIMIT = 240;
 const DENSITY_AGE_VISIBLE_KEY = "inpuls-density-age-visible-v1";
 export const TAPE_AGGREGATION_PERIOD_MS = 0;
@@ -3814,6 +3816,7 @@ export function aggregateTapeSweeps(
   const finish = () => {
     if (!current) return;
     current.vwapPrice = current.quantity > 0 ? current.quote / current.quantity : current.firstPrice;
+    current.sizeQuote = Math.max(0, Number(current.peakAggregateQuote) || Number(current.quote) || 0);
     current.durationMs = Math.max(0, current.lastTime - current.firstTime);
     current.time = current.firstTime + current.durationMs / 2;
     const sourceDurationMs = Math.max(0, current.lastEventTime - current.firstEventTime);
@@ -3875,6 +3878,7 @@ export function aggregateTapeSweeps(
         sellQuote: 0,
         count: 0,
         aggregateCount: 0,
+        peakAggregateQuote: 0,
       };
     }
 
@@ -3886,6 +3890,10 @@ export function aggregateTapeSweeps(
     current.maxPrice = Math.max(current.maxPrice, Number(group.maxPrice ?? firstPrice));
     current.quantity += Number(group.quantity) || 0;
     current.quote += Number(group.quote) || 0;
+    current.peakAggregateQuote = Math.max(
+      Number(current.peakAggregateQuote) || 0,
+      Number(group.quote) || 0,
+    );
     current.buyQuote += Number(group.buyQuote) || 0;
     current.sellQuote += Number(group.sellQuote) || 0;
     current.count += Number(group.count) || 0;
@@ -4292,23 +4300,41 @@ function drawAggregateMotion(
     : drawAggregatePriceRange(context, viewport, item, x, buy, stroke, strength, openAggregate);
 }
 
-export function selectSweepLabelKeys(
+export function tapeVisualSizeQuote(item, mode = "agg") {
+  const total = Math.max(0, Number(item?.quote) || 0);
+  if (mode !== "sweep") return total;
+  return Math.max(
+    0,
+    Number(item?.sizeQuote) || 0,
+    Number(item?.peakAggregateQuote) || 0,
+    total && !Number(item?.aggregateCount) ? total : 0,
+  );
+}
+
+export function tapeDisplayLabel(item, mode = "agg") {
+  const formatted = formatTapeUsd(item?.quote);
+  return mode === "sweep" ? `Σ${formatted}` : formatted;
+}
+
+export function selectTapeLabelKeys(
   projectedItems,
   window,
   plotRight,
   measureText = (label) => String(label).length * 5,
+  { mode = "agg", forceLabels = false } = {},
 ) {
   const right = Math.max(1, Number(plotRight) || 1);
+  const sweepMode = mode === "sweep";
   const candidates = [];
   for (const projected of projectedItems ?? []) {
     const item = projected?.source;
     const y = Number(projected?.position?.y);
-    if (!item?.showLabel || !Number.isFinite(y)) continue;
-    const label = formatTapeUsd(item.quote);
+    if ((!forceLabels && !item?.showLabel) || !Number.isFinite(y)) continue;
+    const label = tapeDisplayLabel(item, mode);
     const measured = Math.max(0, Number(measureText(label)) || 0);
-    const strength = stableTapeQuoteStrength(item.quote);
-    const height = clampTape(7 + strength * 5, 7, 14);
-    const width = clampTape(measured + 10, 20, Math.min(84, right * .28));
+    const strength = stableTapeQuoteStrength(tapeVisualSizeQuote(item, mode));
+    const height = clampTape(7 + strength * 6, 7, 14);
+    const width = clampTape(measured + 9, 18, Math.min(92, right * .28));
     const baseX = tapeTimeX(item.time, window, right);
     const x = aggregateStableX(baseX, item.timeOrdinal, width, right);
     candidates.push({
@@ -4318,6 +4344,7 @@ export function selectSweepLabelKeys(
       width,
       height,
       quote: Number(item.quote) || 0,
+      sizeQuote: tapeVisualSizeQuote(item, mode),
       aggregateCount: Number(item.aggregateCount) || 0,
       time: Number(item.time) || 0,
       open: item.status === "open",
@@ -4327,28 +4354,40 @@ export function selectSweepLabelKeys(
   candidates.sort((left, rightItem) => {
     if (left.open !== rightItem.open) return left.open ? -1 : 1;
     if (left.quote !== rightItem.quote) return rightItem.quote - left.quote;
+    if (left.sizeQuote !== rightItem.sizeQuote) return rightItem.sizeQuote - left.sizeQuote;
     if (left.aggregateCount !== rightItem.aggregateCount) {
       return rightItem.aggregateCount - left.aggregateCount;
     }
     return rightItem.time - left.time;
   });
 
-  const maximumLabels = Math.max(3, Math.min(10, Math.floor(right / 72)));
+  const maximumLabels = sweepMode
+    ? Math.max(3, Math.min(10, Math.floor(right / 72)))
+    : Math.max(4, Math.min(14, Math.floor(right / 62)));
+  const gapX = sweepMode ? TAPE_SWEEP_LABEL_MIN_GAP_X : TAPE_AGG_LABEL_MIN_GAP_X;
+  const gapY = sweepMode ? TAPE_SWEEP_LABEL_MIN_GAP_Y : TAPE_AGG_LABEL_MIN_GAP_Y;
   const accepted = [];
   const keys = new Set();
   for (const candidate of candidates) {
     if (accepted.length >= maximumLabels) break;
     const overlaps = accepted.some((placed) => (
-      Math.abs(candidate.x - placed.x)
-        < (candidate.width + placed.width) / 2 + TAPE_SWEEP_LABEL_MIN_GAP_X
-      && Math.abs(candidate.y - placed.y)
-        < (candidate.height + placed.height) / 2 + TAPE_SWEEP_LABEL_MIN_GAP_Y
+      Math.abs(candidate.x - placed.x) < (candidate.width + placed.width) / 2 + gapX
+      && Math.abs(candidate.y - placed.y) < (candidate.height + placed.height) / 2 + gapY
     ));
     if (overlaps) continue;
     accepted.push(candidate);
     keys.add(candidate.key);
   }
   return keys;
+}
+
+export function selectSweepLabelKeys(
+  projectedItems,
+  window,
+  plotRight,
+  measureText = (label) => String(label).length * 5,
+) {
+  return selectTapeLabelKeys(projectedItems, window, plotRight, measureText, { mode: "sweep" });
 }
 
 function drawRawTapeMarkerBatches(context, batches) {
@@ -4612,11 +4651,21 @@ function drawTapeCard(card) {
     ? prepareRawTapeMarkerBatches(state)
     : null;
   const sweepLabelKeys = state.mode === "sweep"
-    ? selectSweepLabelKeys(
+    ? selectTapeLabelKeys(
       items,
       window,
       window.plotRight,
       (label) => context.measureText(label).width,
+      { mode: "sweep" },
+    )
+    : null;
+  const aggLabelKeys = state.mode === "agg"
+    ? selectTapeLabelKeys(
+      items,
+      window,
+      window.plotRight,
+      (label) => context.measureText(label).width,
+      { mode: "agg", forceLabels: minQuote > 0 },
     )
     : null;
 
@@ -4625,7 +4674,7 @@ function drawTapeCard(card) {
     const y = projected.position.y;
     const buy = item.buyQuote >= item.sellQuote;
     const stroke = buy ? "rgba(88, 239, 184, .9)" : "rgba(255, 121, 137, .9)";
-    const strength = stableTapeQuoteStrength(item.quote);
+    const strength = stableTapeQuoteStrength(tapeVisualSizeQuote(item, state.mode));
     const baseX = tapeTimeX(item.time, window, rect.width);
 
     if (state.mode === "raw") {
@@ -4665,10 +4714,10 @@ function drawTapeCard(card) {
     const sweepMode = state.mode === "sweep";
     const showLabel = sweepMode
       ? Boolean(sweepLabelKeys?.has(item.key))
-      : minQuote > 0 || Boolean(item.showLabel);
+      : Boolean(aggLabelKeys?.has(item.key));
     const openAggregate = item.status === "open";
-    const label = formatTapeUsd(item.quote);
-    const diameter = clampTape(4 + strength * (sweepMode ? 5 : 6), 4, sweepMode ? 11 : 12);
+    const label = tapeDisplayLabel(item, state.mode);
+    const diameter = clampTape(4 + strength * 6, 4, 12);
     if (!showLabel) {
       const x = aggregateStableX(
         baseX,
@@ -4699,8 +4748,8 @@ function drawTapeCard(card) {
     }
 
     const measured = context.measureText(label).width;
-    const height = clampTape(7 + strength * (sweepMode ? 5 : 6), 7, sweepMode ? 14 : 14);
-    const width = clampTape(measured + 9 + (sweepMode ? 1 : 0), 18, Math.min(sweepMode ? 84 : 92, rect.width * .28));
+    const height = clampTape(7 + strength * 6, 7, 14);
+    const width = clampTape(measured + 9, 18, Math.min(92, rect.width * .28));
     const x = aggregateStableX(
       baseX,
       item.timeOrdinal,
