@@ -26,11 +26,11 @@ test("header RX uses only the stable aggTrade feed and never renders literal zer
   assert.doesNotMatch(worker, /Math\.round\(latency\)\}ms/);
 });
 
-test("AGG painter renders the aggregate price sweep instead of only its first-price label", () => {
+test("AGG painter renders and clips the aggregate price sweep", () => {
   assert.match(runtime, /function drawAggregatePriceRange\(/);
   assert.match(runtime, /item\?\.minPrice/);
   assert.match(runtime, /item\?\.maxPrice/);
-  assert.match(runtime, /projectTapePrice\(viewport, minimum\)/);
-  assert.match(runtime, /projectTapePrice\(viewport, maximum\)/);
+  assert.match(runtime, /projectTapePrice\(viewport, visibleMinimum\)/);
+  assert.match(runtime, /projectTapePrice\(viewport, visibleMaximum\)/);
   assert.ok((runtime.match(/drawAggregatePriceRange\(/g) ?? []).length >= 3);
 });

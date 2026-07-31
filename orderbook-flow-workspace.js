@@ -1215,7 +1215,7 @@ function renderCard(card, state) {
 
         const volumeText = formatQuoteVolume(cluster.quote);
         state.context.fillStyle = theme.text;
-        state.context.font = "850 6.7px Inter, system-ui, sans-serif";
+        state.context.font = "700 7px Arial, sans-serif";
         state.context.textAlign = "center";
         state.context.fillText(
           volumeText,

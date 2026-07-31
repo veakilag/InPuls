@@ -14,9 +14,10 @@ function tapePainter() {
   return orderbook.slice(start, end);
 }
 
-test("Tape keeps RAW default and AGG explicit", () => {
-  assert.match(orderbook, /mode: localStorage\.getItem\(TAPE_MODE_KEY\) === "agg" \? "agg" : "raw"/);
-  assert.match(orderbook, /button\.textContent = aggregated/);
+test("Tape keeps RAW default and AGG/SERIES explicit", () => {
+  assert.match(orderbook, /const savedMode = localStorage\.getItem\(TAPE_MODE_KEY\)/);
+  assert.match(orderbook, /mode: savedMode === "agg" \|\| savedMode === "sweep" \? savedMode : "raw"/);
+  assert.match(orderbook, /button\.textContent = mode === "agg" \? "AGG" : mode === "sweep" \? "СЕРИЯ" : "RAW"/);
   assert.match(orderbook, /TAPE_AGGREGATION_PERIOD_MS = 0/);
   assert.doesNotMatch(orderbook, /TAPE_AGGREGATION_LEVELS|data-inpuls-agg-step/);
 });
@@ -43,19 +44,19 @@ test("water renderer owns stable event geometry", () => {
 });
 
 test("Flow Workspace cache and reset page point to water runtime", () => {
-  assert.match(orderbook, /inpuls-orderbook-runtime-26-79-agg-center-tape-scale-settings-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-79-agg-center-tape-scale-settings-v1/);
-  assert.match(serviceWorker, /inpuls-26-79-agg-center-tape-scale-settings-v1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=26-79-agg-center-tape-scale-settings-v1/);
+  assert.match(orderbook, /inpuls-orderbook-runtime-26-80-sweep-tape-clock-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-80-sweep-tape-clock-v1/);
+  assert.match(serviceWorker, /inpuls-26-80-sweep-tape-clock-v1/);
+  assert.match(serviceWorker, /orderbook\.js\?v=26-80-sweep-tape-clock-v1/);
   assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-79-agg-center-tape-scale-settings-v1/);
+  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-80-sweep-tape-clock-v1/);
   assert.match(serviceWorker, /orderbook-tape-layout\.js\?v=stable-tape-v4/);
   assert.match(serviceWorker, /orderbook-tape-latency\.js\?v=worker-bp-v1/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-79-agg-center-tape-scale-settings-v1/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-80-sweep-tape-clock-v1/);
   assert.match(resetPage, /Resume v2/);
-  assert.match(resetPage, /reset\.js\?v=26-79-agg-center-tape-scale-settings-v1/);
+  assert.match(resetPage, /reset\.js\?v=26-80-sweep-tape-clock-v1/);
   assert.match(resetScript, /sw\.js\?v=\$\{BUILD\}/);
-  assert.match(resetScript, /26-79-agg-center-tape-scale-settings-v1/);
+  assert.match(resetScript, /26-80-sweep-tape-clock-v1/);
 });
 
 test("production TAPE accepts only live packets and starts from an empty frame", () => {
