@@ -24,6 +24,9 @@ jobs:
       - name: Apply clean implementation
         run: python tools/apply_arrival_clock_render_decouple_v2.py
 
+      - name: Preserve timing and collector contracts
+        run: python tools/fix_arrival_clock_contracts_v2.py
+
       - name: Syntax checks
         run: |
           node --check app.js
@@ -37,7 +40,9 @@ jobs:
             test-arrival-clock-render-decouple-v1.mjs \
             test-sweep-tape-clock-v1.mjs \
             test-tape-stability-followup-v1.mjs \
-            test-sealed-agg-round-levels-v1.mjs
+            test-sealed-agg-round-levels-v1.mjs \
+            test-orderbook-tape-latency.mjs \
+            test/signal-lab-collector-status.test.js
 
       - name: Full test suite with compact failure output
         run: |
@@ -58,6 +63,7 @@ jobs:
         run: |
           rm -f tools/apply_arrival_clock_no_global_render_v1.py
           rm -f tools/apply_arrival_clock_render_decouple_v2.py
+          rm -f tools/fix_arrival_clock_contracts_v2.py
           rm -f .github/workflows/apply-arrival-clock-no-global-render-v1.yml
           rm -f .github/workflows/apply-arrival-clock-render-decouple-v2.yml
 
