@@ -43,11 +43,22 @@ jobs:
 
       - name: Focused regressions
         run: |
+          set +e
           node --test \
             test-readable-flow-smooth-charts-v1.mjs \
             test-sweep-tape-clock-v1.mjs \
             test-arrival-clock-render-decouple-v1.mjs \
-            test-orderbook-tape-latency.mjs
+            test-orderbook-tape-latency.mjs > /tmp/focused.log 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "=== FOCUSED FAILURES ==="
+            grep -n -E "not ok|failureType|error:|Expected values|actual:|expected:|location:" /tmp/focused.log | tail -n 100 || true
+            echo "=== FOCUSED TAIL ==="
+            tail -n 100 /tmp/focused.log
+          else
+            grep -E "# tests |# pass |# fail |# duration_ms" /tmp/focused.log | tail -n 8
+          fi
+          exit "$status"
 
       - name: Full test suite
         run: |
