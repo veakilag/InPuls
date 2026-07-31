@@ -1,0 +1,28 @@
+name: Scan trade stream test contracts
+
+on:
+  push:
+    branches:
+      - fix/split-market-public-feed-v1
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/split-market-public-feed-v1
+          fetch-depth: 0
+      - name: Scan and commit
+        shell: bash
+        run: |
+          grep -R -n --include='test*.mjs' --include='*.test.js' --include='*.test.mjs' '@trade' . > trade-test-references.txt || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/scan-trade-test-contracts.yml
+          git add -f trade-test-references.txt
+          git commit -m "Capture trade stream test references"
+          git push origin HEAD:fix/split-market-public-feed-v1
