@@ -21,6 +21,50 @@ jobs:
         with:
           node-version: 22
 
+      - name: Align Sweep patch render anchors
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tools/apply_sweep_tape_clock_v1.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''text = text.replace(
+              ''' + "'''" + '''      drawAggregatePriceRange(
+                context,
+                state.priceViewport,''' + "'''" + ''',
+              ''' + "'''" + '''      drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);
+              drawAggregatePriceRange(
+                context,
+                state.priceViewport,''' + "'''" + ''',
+          )
+          if text.count('drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);') != 2:
+              raise RuntimeError("aggregate anchors: expected two render branches")'''
+          new = '''text = replace_once(
+              text,
+              ''' + "'''" + '''      drawAggregatePriceRange(
+                context,
+                state.priceViewport,''' + "'''" + ''',
+              ''' + "'''" + '''      drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);
+              drawAggregatePriceRange(
+                context,
+                state.priceViewport,''' + "'''" + ''',
+              "unlabelled aggregate anchor",
+          )
+          text = replace_once(
+              text,
+              ''' + "'''" + '''    drawAggregatePriceRange(
+              context,
+              state.priceViewport,''' + "'''" + ''',
+              ''' + "'''" + '''    drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);
+              drawAggregatePriceRange(
+              context,
+              state.priceViewport,''' + "'''" + ''',
+              "labelled aggregate anchor",
+          )'''
+          if old not in text:
+              raise SystemExit("anchor patch block not found")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+
       - name: Apply Sweep tape implementation
         run: python tools/apply_sweep_tape_clock_v1.py
 
