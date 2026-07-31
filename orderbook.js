@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-79-agg-center-tape-scale-settings-v1";
+import "./orderbook-flow-workspace.js?v=26-80-sweep-tape-clock-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1413,7 +1413,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-79-agg-center-tape-scale-settings-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-80-sweep-tape-clock-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1830,7 +1830,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-79-agg-center-tape-scale-settings-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-80-sweep-tape-clock-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -1856,6 +1856,9 @@ const TAPE_TIME_SCALE_KEY = "inpuls-tape-time-scale-v1";
 const TAPE_TIME_SCALE_MIN = 35;
 const TAPE_TIME_SCALE_MAX = 300;
 const TAPE_TIME_SCALE_DEFAULT = 100;
+export const TAPE_SWEEP_MAX_GAP_MS = 35;
+export const TAPE_SWEEP_MAX_REVERSE_TICKS = 1;
+const TAPE_TIMELINE_CACHE_LIMIT = 240;
 const DENSITY_AGE_VISIBLE_KEY = "inpuls-density-age-visible-v1";
 export const TAPE_AGGREGATION_PERIOD_MS = 0;
 const TAPE_VISIBLE_KEY = "inpuls-tape-visible-v1";
@@ -2135,7 +2138,7 @@ function installOrderBookStyles() {
     }
     .orderbook-card .inpuls-tape-mode {
       margin-left: auto;
-      min-width: 42px;
+      min-width: 54px;
       height: 22px;
       padding-inline: 7px;
       font-weight: 800;
@@ -2145,6 +2148,11 @@ function installOrderBookStyles() {
       color: #42e1ad;
       border-color: rgba(66, 225, 173, .48);
       background: rgba(66, 225, 173, .09);
+    }
+    .orderbook-card .inpuls-tape-mode.is-sweep {
+      color: #ffd27a;
+      border-color: rgba(255, 210, 122, .58);
+      background: rgba(255, 210, 122, .10);
     }
     .orderbook-card .inpuls-agg-step {
       width: 22px;
@@ -2680,15 +2688,20 @@ function handleRuntimeSplitter(event) {
 }
 
 function syncTapeModeButton(button, state) {
-  const aggregated = state.mode === "agg";
-  button.textContent = aggregated ? "AGG" : "RAW";
-  button.classList.toggle("is-active", aggregated);
-  button.setAttribute("aria-pressed", String(aggregated));
+  if (!button) return;
+  const mode = state.mode === "agg" || state.mode === "sweep" ? state.mode : "raw";
   const source = state.aggregationSource === "raw" ? "@trade RAW" : "@aggTrade fallback";
+  button.textContent = mode === "agg" ? "AGG" : mode === "sweep" ? "СЕРИЯ" : "RAW";
+  button.classList.toggle("is-active", mode !== "raw");
+  button.classList.toggle("is-sweep", mode === "sweep");
+  button.setAttribute("aria-pressed", String(mode !== "raw"));
+  button.dataset.mode = mode;
   button.dataset.aggregationSource = state.aggregationSource === "raw" ? "raw" : "agg";
-  button.title = aggregated
-    ? `AGG 0 мс · ${source}: объединяются последовательные исполнения с одинаковым биржевым временем и направлением. Текущий агрегат появляется сразу; история не пересчитывается.`
-    : "Каждое исполнение отображается отдельно по стабильному @aggTrade-потоку";
+  button.title = mode === "agg"
+    ? `AGG 0 мс · ${source}: последовательные исполнения одного направления с одинаковым биржевым временем.`
+    : mode === "sweep"
+      ? `СЕРИЯ · ${source}: соседние AGG одной стороны объединяются при непрерывных ID, паузе до ${TAPE_SWEEP_MAX_GAP_MS} мс и обратном ходе не больше ${TAPE_SWEEP_MAX_REVERSE_TICKS} тика.`
+      : "Каждое исполнение отображается отдельно по стабильному @aggTrade-потоку";
 }
 
 function formatObservedAge(value) {
@@ -2701,10 +2714,20 @@ function formatObservedAge(value) {
   return `${hours}ч${String(minutes % 60).padStart(2, "0")}м`;
 }
 
+function clearDensityAges(card) {
+  card.querySelectorAll(".orderbook-rows .book-size[data-density-age]").forEach((size) => {
+    size.removeAttribute("data-density-age");
+    size.removeAttribute("title");
+  });
+}
+
 function decorateDensityAges(card, state = tapeCardStates.get(card)) {
+  if (!state?.densityAgeVisible) {
+    clearDensityAges(card);
+    return;
+  }
   const rows = [...card.querySelectorAll(".orderbook-rows .book-ladder-row")];
   for (const row of rows) row.querySelector(".book-size")?.removeAttribute("data-density-age");
-  if (!state?.densityAgeVisible) return;
   const symbol = cardSymbol(card);
   const data = symbol ? latestBookDataBySymbol.get(symbol) : null;
   const densities = data?.densityLifecycle?.densities;
@@ -2782,10 +2805,11 @@ function ensureTapeUi(card) {
   if (!state) {
     const savedMinimum = localStorage.getItem(TAPE_MIN_FILTER_KEY);
     const savedTimeScale = localStorage.getItem(TAPE_TIME_SCALE_KEY);
+    const savedMode = localStorage.getItem(TAPE_MODE_KEY);
     state = {
       canvas: null,
       context: null,
-      mode: localStorage.getItem(TAPE_MODE_KEY) === "agg" ? "agg" : "raw",
+      mode: savedMode === "agg" || savedMode === "sweep" ? savedMode : "raw",
       densityAgeVisible: localStorage.getItem(DENSITY_AGE_VISIBLE_KEY) === "1",
       minQuote: savedMinimum === null ? 0 : Math.max(0, Number(savedMinimum) || 0),
       timeScale: clampTape(
@@ -2823,9 +2847,13 @@ function ensureTapeUi(card) {
       rawRenderNodes: [],
       aggSourceBuckets: [],
       aggSnapshots: new Map(),
+      sweepSourceBuckets: [],
+      sweepSnapshots: new Map(),
       recentRawScratch: [],
       finalizedAggScratch: [],
       closedAggScratch: [],
+      finalizedSweepScratch: [],
+      closedSweepScratch: [],
       candidateScratch: [],
       pathProjectionScratch: [],
       markerProjectionScratch: [],
@@ -2916,7 +2944,7 @@ function ensureTapeUi(card) {
     timeScaleInput.addEventListener("input", syncTimeScale);
     timeScaleInput.addEventListener("change", syncTimeScale);
     modeButton.addEventListener("click", () => {
-      state.mode = state.mode === "agg" ? "raw" : "agg";
+      state.mode = state.mode === "raw" ? "agg" : state.mode === "agg" ? "sweep" : "raw";
       localStorage.setItem(TAPE_MODE_KEY, state.mode);
       syncTapeModeButton(modeButton, state);
       scheduleTapeDraw(true, card);
@@ -3003,7 +3031,6 @@ function ensureTapeUi(card) {
     }
     syncDensityAgeButton(densityButton, state, card);
   }
-  decorateDensityAges(card, state);
 
   const rows = card.querySelector(".orderbook-rows");
   if (state.rowTarget !== rows) {
@@ -3053,7 +3080,9 @@ function ensureTapeUi(card) {
           state.rawNodeByKey?.clear?.();
           state.rawRenderNodes = [];
           state.aggSourceBuckets = [];
-            state.aggSnapshots?.clear?.();
+          state.aggSnapshots?.clear?.();
+          state.sweepSourceBuckets = [];
+          state.sweepSnapshots?.clear?.();
           scheduleTapeDraw(true, card);
         }
       });
@@ -3126,7 +3155,8 @@ function acceptBookData(event) {
   scheduleLiquidityForSymbol(symbol);
   requestAnimationFrame(() => {
     document.querySelectorAll(".orderbook-card").forEach((card) => {
-      if (cardSymbol(card) === symbol) decorateDensityAges(card);
+      const state = tapeCardStates.get(card);
+      if (cardSymbol(card) === symbol && state?.densityAgeVisible) decorateDensityAges(card, state);
     });
   });
 }
@@ -3426,6 +3456,26 @@ export function advanceWaterTapeClock(
   return Math.max(previous, corrected);
 }
 
+export function advanceTapeDisplayClock(previousEnd, previousAt, wallNow, nowPerf) {
+  const wall = Number(wallNow);
+  const now = Number(nowPerf);
+  if (!Number.isFinite(wall) || !Number.isFinite(now)) return null;
+  const hasPrevious = previousEnd !== null
+    && previousEnd !== undefined
+    && Number.isFinite(Number(previousEnd));
+  if (!hasPrevious) return wall;
+  const previous = Number(previousEnd);
+  const previousPerf = Number(previousAt);
+  const elapsed = Number.isFinite(previousPerf)
+    ? Math.max(0, Math.min(250, now - previousPerf))
+    : 0;
+  const predicted = previous + elapsed;
+  const error = wall - predicted;
+  const alpha = 1 - Math.exp(-Math.max(1, elapsed) / 240);
+  const correction = clampTape(error * alpha, -4, 4);
+  return Math.max(previous, predicted + correction);
+}
+
 export function tapeSecondsForScale(width, scalePercent = TAPE_TIME_SCALE_DEFAULT) {
   const safeWidth = Math.max(1, Number(width) || 1);
   const baseSeconds = clampTape(
@@ -3486,7 +3536,20 @@ function formatTapeClock(time) {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
-function drawTapeTimeline(context, rect, window) {
+function cachedTapeClockLabel(state, time) {
+  if (!(state.timelineLabelCache instanceof Map)) state.timelineLabelCache = new Map();
+  let label = state.timelineLabelCache.get(time);
+  if (!label) {
+    label = formatTapeClock(time);
+    state.timelineLabelCache.set(time, label);
+  }
+  while (state.timelineLabelCache.size > TAPE_TIMELINE_CACHE_LIMIT) {
+    state.timelineLabelCache.delete(state.timelineLabelCache.keys().next().value);
+  }
+  return label;
+}
+
+function drawTapeTimeline(context, rect, window, state) {
   const right = Math.max(2, Math.min(Number(window?.plotRight) || rect.width, rect.width));
   const seconds = Math.max(1, window.duration / TAPE_SECOND_MS);
   const pixelsPerSecond = right / seconds;
@@ -3515,7 +3578,7 @@ function drawTapeTimeline(context, rect, window) {
     context.moveTo(x, rect.height - 4);
     context.lineTo(x, rect.height);
     context.stroke();
-    context.fillText(formatTapeClock(time), x, rect.height - 5);
+    context.fillText(cachedTapeClockLabel(state, time), x, rect.height - 5);
   }
 
   context.restore();
@@ -3598,6 +3661,10 @@ export function aggregateTapeZeroMs(trades) {
     const quantity = Number.isFinite(Number(trade.quantity)) && Number(trade.quantity) > 0
       ? Number(trade.quantity)
       : quote / price;
+    const rawFirstId = trade.firstTradeId ?? trade.id;
+    const rawLastId = trade.lastTradeId ?? trade.id;
+    const firstTradeId = Number.isInteger(Number(rawFirstId)) ? Number(rawFirstId) : null;
+    const lastTradeId = Number.isInteger(Number(rawLastId)) ? Number(rawLastId) : firstTradeId;
     const continues = current
       && current.eventTime === eventTime
       && current.side === side;
@@ -3610,6 +3677,8 @@ export function aggregateTapeZeroMs(trades) {
         lastTime: eventTime,
         eventTime,
         side,
+        firstTradeId,
+        lastTradeId,
         firstPrice: price,
         lastPrice: price,
         minPrice: price,
@@ -3625,6 +3694,7 @@ export function aggregateTapeZeroMs(trades) {
     }
 
     current.lastPrice = price;
+    if (Number.isInteger(lastTradeId)) current.lastTradeId = lastTradeId;
     current.minPrice = Math.min(current.minPrice, price);
     current.maxPrice = Math.max(current.maxPrice, price);
     current.quantity += quantity;
@@ -3667,6 +3737,153 @@ export function materializeZeroMsAggregates(state, groups, output = []) {
 
   while (state.aggSnapshots.size > 1_800) {
     state.aggSnapshots.delete(state.aggSnapshots.keys().next().value);
+  }
+  return output;
+}
+
+
+function inferSweepTick(groups) {
+  const prices = [];
+  for (const group of groups ?? []) {
+    for (const value of [group?.firstPrice, group?.lastPrice, group?.minPrice, group?.maxPrice]) {
+      const price = Number(value);
+      if (Number.isFinite(price) && price > 0) prices.push(price);
+    }
+  }
+  const unique = [...new Set(prices)].sort((left, right) => left - right);
+  let tick = Infinity;
+  for (let index = 1; index < unique.length; index += 1) {
+    const gap = unique[index] - unique[index - 1];
+    if (gap > Number.EPSILON && gap < tick) tick = gap;
+  }
+  return Number.isFinite(tick) ? tick : 0;
+}
+
+export function aggregateTapeSweeps(
+  groups,
+  {
+    maxGapMs = TAPE_SWEEP_MAX_GAP_MS,
+    maxReverseTicks = TAPE_SWEEP_MAX_REVERSE_TICKS,
+    tick = null,
+  } = {},
+) {
+  const ordered = [...(groups ?? [])]
+    .filter((group) => Number.isFinite(Number(group?.eventTime ?? group?.time)))
+    .sort((left, right) => {
+      const timeDelta = Number(left.eventTime ?? left.time) - Number(right.eventTime ?? right.time);
+      if (timeDelta) return timeDelta;
+      return Number(left.timeOrdinal) - Number(right.timeOrdinal);
+    });
+  const priceTick = Math.max(Number.EPSILON, Number(tick) || inferSweepTick(ordered) || Number.EPSILON);
+  const allowedReverse = priceTick * Math.max(0, Number(maxReverseTicks) || 0) + Number.EPSILON;
+  const groupsOut = [];
+  const ordinalByTime = new Map();
+  let current = null;
+
+  const finish = () => {
+    if (!current) return;
+    current.vwapPrice = current.quantity > 0 ? current.quote / current.quantity : current.firstPrice;
+    current.durationMs = Math.max(0, current.lastTime - current.firstTime);
+    current.time = current.firstTime + current.durationMs / 2;
+    current.eventTime = current.time;
+    current.price = current.firstPrice;
+    const ordinalKey = Math.round(current.time);
+    current.timeOrdinal = ordinalByTime.get(ordinalKey) ?? 0;
+    ordinalByTime.set(ordinalKey, current.timeOrdinal + 1);
+    groupsOut.push(current);
+    current = null;
+  };
+
+  for (const group of ordered) {
+    const eventTime = Number(group.eventTime ?? group.time);
+    const side = group.side === "sell" ? "sell" : "buy";
+    const firstPrice = Number(group.firstPrice ?? group.price);
+    const lastPrice = Number(group.lastPrice ?? group.price);
+    const firstId = Number.isInteger(Number(group.firstTradeId)) ? Number(group.firstTradeId) : null;
+    const lastId = Number.isInteger(Number(group.lastTradeId)) ? Number(group.lastTradeId) : firstId;
+    const gap = current ? eventTime - current.lastTime : Infinity;
+    const idsContinuous = !current
+      || !Number.isInteger(current.lastTradeId)
+      || !Number.isInteger(firstId)
+      || firstId === current.lastTradeId + 1;
+    const directionContinuous = !current || (side === "buy"
+      ? firstPrice >= current.lastPrice - allowedReverse
+      : firstPrice <= current.lastPrice + allowedReverse);
+    const continues = current
+      && current.side === side
+      && gap >= 0
+      && gap <= Math.max(0, Number(maxGapMs) || 0)
+      && idsContinuous
+      && directionContinuous;
+
+    if (!continues) {
+      finish();
+      current = {
+        key: `sweep:${eventTime}:${side}:${group.key}`,
+        side,
+        firstTime: eventTime,
+        lastTime: Number(group.lastTime ?? eventTime),
+        firstTradeId: firstId,
+        lastTradeId: lastId,
+        firstPrice,
+        lastPrice,
+        minPrice: Number(group.minPrice ?? firstPrice),
+        maxPrice: Number(group.maxPrice ?? firstPrice),
+        price: firstPrice,
+        vwapPrice: firstPrice,
+        quantity: 0,
+        quote: 0,
+        buyQuote: 0,
+        sellQuote: 0,
+        count: 0,
+        aggregateCount: 0,
+      };
+    }
+
+    current.lastTime = Number(group.lastTime ?? eventTime);
+    current.lastPrice = lastPrice;
+    if (Number.isInteger(lastId)) current.lastTradeId = lastId;
+    current.minPrice = Math.min(current.minPrice, Number(group.minPrice ?? firstPrice));
+    current.maxPrice = Math.max(current.maxPrice, Number(group.maxPrice ?? firstPrice));
+    current.quantity += Number(group.quantity) || 0;
+    current.quote += Number(group.quote) || 0;
+    current.buyQuote += Number(group.buyQuote) || 0;
+    current.sellQuote += Number(group.sellQuote) || 0;
+    current.count += Number(group.count) || 0;
+    current.aggregateCount += 1;
+  }
+  finish();
+  return groupsOut;
+}
+
+export function materializeTapeSweeps(state, groups, output = []) {
+  if (!(state.sweepSnapshots instanceof Map)) state.sweepSnapshots = new Map();
+  output.length = 0;
+  const lastIndex = Math.max(-1, (groups?.length ?? 0) - 1);
+  for (let index = 0; index <= lastIndex; index += 1) {
+    const group = groups[index];
+    if (index === lastIndex) {
+      output.push(Object.freeze({
+        ...group,
+        status: "open",
+        showLabel: stableTapeQuoteStrength(group.quote) >= .52,
+      }));
+      continue;
+    }
+    let snapshot = state.sweepSnapshots.get(group.key);
+    if (!snapshot) {
+      snapshot = Object.freeze({
+        ...group,
+        status: "sealed",
+        sealedAt: Number(groups[index + 1]?.firstTime ?? group.lastTime),
+        showLabel: stableTapeQuoteStrength(group.quote) >= .52,
+      });
+      state.sweepSnapshots.set(group.key, snapshot);
+    }
+    output.push(snapshot);
+  }
+  while (state.sweepSnapshots.size > 1_200) {
+    state.sweepSnapshots.delete(state.sweepSnapshots.keys().next().value);
   }
   return output;
 }
@@ -3793,6 +4010,7 @@ function refreshTapeRenderModel(state, symbol, stored, aggregationStored = store
   state.rawRenderNodes = nextNodes;
   const aggregationInput = aggregationStored?.length ? aggregationStored : stored;
   state.aggSourceBuckets = aggregateTapeZeroMs(aggregationInput);
+  state.sweepSourceBuckets = aggregateTapeSweeps(state.aggSourceBuckets);
 }
 
 function visibleWaterTapeNodes(nodes, window, output = []) {
@@ -3814,11 +4032,14 @@ function filterWaterTapeCandidates(nodes, minimum, output = []) {
   return output;
 }
 
-function projectWaterTapeNodes(nodes, viewport, output = []) {
+function projectWaterTapeNodes(nodes, viewport, output = [], aggregateRange = false) {
   let count = 0;
   for (const source of nodes ?? []) {
     const slot = output[count] ?? { source: null, position: {} };
-    const position = projectTapePriceInto(viewport, source.price, slot.position);
+    const projectedPrice = aggregateRange
+      ? aggregateVisibleLabelPrice(viewport, source)
+      : Number(source.price);
+    const position = projectTapePriceInto(viewport, projectedPrice, slot.position);
     if (!position) continue;
     slot.source = source;
     slot.position = position;
@@ -3858,6 +4079,19 @@ export function aggregateLabelPrice(item) {
   return Number(item?.price);
 }
 
+export function aggregateVisibleLabelPrice(viewport, item) {
+  if (!viewport) return NaN;
+  const minimum = Number(item?.minPrice);
+  const maximum = Number(item?.maxPrice);
+  const label = aggregateLabelPrice(item);
+  const low = Number(viewport.lowPrice);
+  const high = Number(viewport.highPrice);
+  const step = Math.max(Number.EPSILON, Number(viewport.step) || 0);
+  if (![minimum, maximum, label, low, high].every(Number.isFinite)) return NaN;
+  if (maximum < low - step * .65 || minimum > high + step * .65) return NaN;
+  return clampTape(label, low, high);
+}
+
 export function aggregateStableX(baseX, ordinal, markerWidth, plotRight) {
   const right = Math.max(1, Number(plotRight) || 1);
   const width = Math.max(4, Number(markerWidth) || 4);
@@ -3879,9 +4113,21 @@ export function aggregateStableX(baseX, ordinal, markerWidth, plotRight) {
   );
 }
 
-function aggregateLabelY(viewport, item, fallbackY) {
-  const position = projectTapePrice(viewport, aggregateLabelPrice(item));
-  return position ? position.y : fallbackY;
+function drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate = false) {
+  if (![baseX, x, y].every(Number.isFinite) || Math.abs(x - baseX) < 2) return;
+  context.save();
+  context.strokeStyle = stroke;
+  context.globalAlpha = openAggregate ? .36 : .58;
+  context.lineWidth = .65;
+  context.beginPath();
+  context.moveTo(baseX, y);
+  context.lineTo(x, y);
+  context.stroke();
+  context.beginPath();
+  context.arc(baseX, y, 1.2, 0, Math.PI * 2);
+  context.fillStyle = stroke;
+  context.fill();
+  context.restore();
 }
 
 function drawAggregatePriceRange(
@@ -3897,8 +4143,11 @@ function drawAggregatePriceRange(
   const minimum = Number(item?.minPrice);
   const maximum = Number(item?.maxPrice);
   if (![minimum, maximum].every(Number.isFinite) || maximum - minimum <= Number.EPSILON) return false;
-  const low = projectTapePrice(viewport, minimum);
-  const high = projectTapePrice(viewport, maximum);
+  const visibleMinimum = clampTape(minimum, Number(viewport.lowPrice), Number(viewport.highPrice));
+  const visibleMaximum = clampTape(maximum, Number(viewport.lowPrice), Number(viewport.highPrice));
+  if (visibleMaximum < Number(viewport.lowPrice) || visibleMinimum > Number(viewport.highPrice)) return false;
+  const low = projectTapePrice(viewport, visibleMinimum);
+  const high = projectTapePrice(viewport, visibleMaximum);
   if (!low || !high) return false;
   const top = Math.min(low.y, high.y);
   const bottom = Math.max(low.y, high.y);
@@ -4060,13 +4309,11 @@ function drawTapeCard(card) {
     || Number(stored[0]?.time)
     || Number(aggregationStored[0]?.time)
     || Date.now();
-  const endTime = advanceWaterTapeClock(
+  const endTime = advanceTapeDisplayClock(
     state.clockEndTime,
     state.clockPerfAt,
-    latestTime,
-    meta.lastPacketPerfAt,
+    Date.now(),
     perfNow,
-    frozen,
   );
   state.clockEndTime = endTime;
   state.clockPerfAt = perfNow;
@@ -4088,10 +4335,19 @@ function drawTapeCard(card) {
     window,
     state.closedAggScratch,
   );
+  const liveSweeps = visibleWaterTapeNodes(
+    materializeTapeSweeps(
+      state,
+      state.sweepSourceBuckets,
+      state.finalizedSweepScratch,
+    ),
+    window,
+    state.closedSweepScratch,
+  );
 
   paintTapeSurface(context, rect);
   state.hasFrame = false;
-  drawTapeTimeline(context, rect, window);
+  drawTapeTimeline(context, rect, window, state);
 
   const minQuote = Math.max(0, Number(state.minQuote) || 0);
   const pathItems = projectWaterTapeNodes(
@@ -4117,7 +4373,7 @@ function drawTapeCard(card) {
     context.restore();
   }
 
-  const sourceItems = state.mode === "agg" ? liveAggregates : recentRaw;
+  const sourceItems = state.mode === "sweep" ? liveSweeps : state.mode === "agg" ? liveAggregates : recentRaw;
   const candidates = filterWaterTapeCandidates(
     sourceItems,
     minQuote,
@@ -4129,10 +4385,18 @@ function drawTapeCard(card) {
     candidates,
     state.priceViewport,
     state.markerProjectionScratch,
+    state.mode !== "raw",
   );
 
   if (!candidates.length) {
-    setTapeState(state, state.mode === "agg" ? "Жду агрегированную сделку…" : "Жду сделку…");
+    setTapeState(
+      state,
+      state.mode === "sweep"
+        ? "Жду серию агрессивных сделок…"
+        : state.mode === "agg"
+          ? "Жду агрегированную сделку…"
+          : "Жду сделку…",
+    );
     state.hasFrame = true;
     skip("filter-empty", { recent: recentRaw.length });
     return;
@@ -4165,10 +4429,7 @@ function drawTapeCard(card) {
 
   for (const projected of items) {
     const item = projected.source;
-    const projectedY = projected.position.y;
-    const y = state.mode === "agg"
-      ? aggregateLabelY(state.priceViewport, item, projectedY)
-      : projectedY;
+    const y = projected.position.y;
     const buy = item.buyQuote >= item.sellQuote;
     const stroke = buy ? "rgba(88, 239, 184, .9)" : "rgba(255, 121, 137, .9)";
     const strength = stableTapeQuoteStrength(item.quote);
@@ -4210,8 +4471,9 @@ function drawTapeCard(card) {
 
     const showLabel = minQuote > 0 || Boolean(item.showLabel);
     const openAggregate = item.status === "open";
+    const sweepMode = state.mode === "sweep";
     const label = formatTapeUsd(item.quote);
-    const diameter = clampTape(4 + strength * 6, 4, 12);
+    const diameter = clampTape(4 + strength * 6 + (sweepMode ? 1.5 : 0), 4, sweepMode ? 14 : 12);
     if (!showLabel) {
       const x = aggregateStableX(
         baseX,
@@ -4219,6 +4481,7 @@ function drawTapeCard(card) {
         diameter,
         window.plotRight,
       );
+      drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);
       drawAggregatePriceRange(
         context,
         state.priceViewport,
@@ -4240,14 +4503,15 @@ function drawTapeCard(card) {
     }
 
     const measured = context.measureText(label).width;
-    const height = clampTape(7 + strength * 6, 7, 14);
-    const width = clampTape(measured + 9, 18, Math.min(84, rect.width * .26));
+    const height = clampTape(7 + strength * 6 + (sweepMode ? 1.5 : 0), 7, sweepMode ? 16 : 14);
+    const width = clampTape(measured + 9 + (sweepMode ? 4 : 0), 18, Math.min(92, rect.width * .28));
     const x = aggregateStableX(
       baseX,
       item.timeOrdinal,
       width,
       window.plotRight,
     );
+    drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);
     drawAggregatePriceRange(
       context,
       state.priceViewport,
@@ -4263,7 +4527,7 @@ function drawTapeCard(card) {
       ? `rgba(42, 191, 137, ${openAggregate ? .66 : .76})`
       : `rgba(222, 70, 87, ${openAggregate ? .68 : .78})`;
     context.fill();
-    context.lineWidth = 1;
+    context.lineWidth = sweepMode ? 1.25 : 1;
     context.strokeStyle = stroke;
     context.stroke();
     context.fillStyle = "rgba(244, 250, 248, .98)";
@@ -4611,6 +4875,8 @@ function acceptTapeData(event) {
         state.rawRenderNodes = [];
         state.aggSourceBuckets = [];
         state.aggSnapshots?.clear?.();
+        state.sweepSourceBuckets = [];
+        state.sweepSnapshots?.clear?.();
       }
     });
   }
@@ -4722,11 +4988,10 @@ function installOrderBookRuntime() {
   clearInterval(tapeStateTimer);
   tapeStateTimer = setInterval(() => {
     if (tapeDocumentHidden) return;
-    scanTapeCards(document);
     document.querySelectorAll(".orderbook-card").forEach((card) => {
       const state = tapeCardStates.get(card);
       if (!state) return;
-      decorateDensityAges(card, state);
+      if (state.densityAgeVisible) decorateDensityAges(card, state);
       const symbol = cardSymbol(card);
       const suffix = staleTradeSuffix(symbol);
       if (suffix) setTapeState(state, `НЕТ НОВЫХ СДЕЛОК${suffix}`, "attention");
