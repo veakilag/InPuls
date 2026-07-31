@@ -1,5 +1,7 @@
 const CACHE = "inpuls-26-79-agg-center-tape-scale-settings-v1";
 const BUILD = "26-79-agg-center-tape-scale-settings-v1";
+const SIGNAL_LAB_BUILD = "26-81-signal-lab-collector-status-v1";
+const SIGNAL_LAB_COLLECTOR_STATUS_MESSAGE = "inpuls:signal-lab-collector-status";
 
 const FORCED = new Map([
   ["/app.js", "./app.js?v=26-79-agg-center-tape-scale-settings-v1"],
@@ -11,10 +13,18 @@ const FORCED = new Map([
   ["/market-pattern-scanner.js", "./market-pattern-scanner.js?v=marketwide-patterns-v1"],
   ["/pattern-catalog.js", "./pattern-catalog.js?v=26-79-agg-center-tape-scale-settings-v1"],
   ["/signal-lab.js", "./signal-lab.js?v=signal-lab-analytics-v1"],
+  ["/signal-lab-v2-store.js", `./signal-lab-v2-store.js?v=${SIGNAL_LAB_BUILD}`],
+  ["/signal-lab-v2-catalog.js", `./signal-lab-v2-catalog.js?v=${SIGNAL_LAB_BUILD}`],
+  ["/signal-lab-v2-episodes.js", `./signal-lab-v2-episodes.js?v=${SIGNAL_LAB_BUILD}`],
+  ["/signal-lab-v2-review.js", `./signal-lab-v2-review.js?v=${SIGNAL_LAB_BUILD}`],
+  ["/signal-lab-v2-training.js", `./signal-lab-v2-training.js?v=${SIGNAL_LAB_BUILD}`],
   ["/owner-navigation.js", "./owner-navigation.js?v=owner-signal-lab-v1"],
-  ["/owner-signal-lab-guard.js", "./owner-signal-lab-guard.js?v=26-64-signal-lab-without-impulse-v1"],
-  ["/owner-signal-lab.js", "./owner-signal-lab.js?v=26-64-signal-lab-without-impulse-v1"],
+  ["/owner-signal-lab-guard.js", `./owner-signal-lab-guard.js?v=${SIGNAL_LAB_BUILD}`],
+  ["/owner-signal-lab-v2.js", `./owner-signal-lab-v2.js?v=${SIGNAL_LAB_BUILD}`],
+  ["/owner-signal-lab-v2-card.js", `./owner-signal-lab-v2-card.js?v=${SIGNAL_LAB_BUILD}`],
+  ["/owner-signal-lab-v2-chart.js", `./owner-signal-lab-v2-chart.js?v=${SIGNAL_LAB_BUILD}`],
   ["/owner-signal-lab.css", "./owner-signal-lab.css?v=26-64-signal-lab-without-impulse-v1"],
+  ["/owner-signal-lab-v2.css", `./owner-signal-lab-v2.css?v=${SIGNAL_LAB_BUILD}`],
   ["/render-scheduler.js", "./render-scheduler.js?v=render-scheduler-v1"],
   ["/orderbook-worker.js", "./orderbook-worker.js?v=26-79-agg-center-tape-scale-settings-v1"],
   ["/orderbook-worker-buffers.js", "./orderbook-worker-buffers.js?v=worker-bp-v1"],
@@ -44,10 +54,18 @@ const SHELL = [
   "./market-pattern-scanner.js?v=marketwide-patterns-v1",
   "./pattern-catalog.js?v=26-79-agg-center-tape-scale-settings-v1",
   "./signal-lab.js?v=signal-lab-analytics-v1",
+  "./signal-lab-v2-store.js?v=26-81-signal-lab-collector-status-v1",
+  "./signal-lab-v2-catalog.js?v=26-81-signal-lab-collector-status-v1",
+  "./signal-lab-v2-episodes.js?v=26-81-signal-lab-collector-status-v1",
+  "./signal-lab-v2-review.js?v=26-81-signal-lab-collector-status-v1",
+  "./signal-lab-v2-training.js?v=26-81-signal-lab-collector-status-v1",
   "./owner-signal-lab.html",
-  "./owner-signal-lab-guard.js?v=26-64-signal-lab-without-impulse-v1",
-  "./owner-signal-lab.js?v=26-64-signal-lab-without-impulse-v1",
+  "./owner-signal-lab-guard.js?v=26-81-signal-lab-collector-status-v1",
+  "./owner-signal-lab-v2.js?v=26-81-signal-lab-collector-status-v1",
+  "./owner-signal-lab-v2-card.js?v=26-81-signal-lab-collector-status-v1",
+  "./owner-signal-lab-v2-chart.js?v=26-81-signal-lab-collector-status-v1",
   "./owner-signal-lab.css?v=26-64-signal-lab-without-impulse-v1",
+  "./owner-signal-lab-v2.css?v=26-81-signal-lab-collector-status-v1",
   "./owner-navigation.js?v=owner-signal-lab-v1",
   "./render-scheduler.js?v=render-scheduler-v1",
   "./orderbook-worker.js?v=26-79-agg-center-tape-scale-settings-v1",
@@ -148,6 +166,41 @@ function navigationShellFor(request) {
   const ownerPath = new URL("./owner-signal-lab.html", self.registration.scope).pathname;
   return requestUrl.pathname === ownerPath ? "./owner-signal-lab.html" : "./index.html";
 }
+
+function isSignalCollectorClient(client) {
+  try {
+    const url = new URL(client.url);
+    const scopePath = new URL("./", self.registration.scope).pathname;
+    const indexPath = new URL("./index.html", self.registration.scope).pathname;
+    return url.origin === self.location.origin
+      && (url.pathname === scopePath || url.pathname === indexPath);
+  } catch {
+    return false;
+  }
+}
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== SIGNAL_LAB_COLLECTOR_STATUS_MESSAGE) return;
+  const replyPort = event.ports?.[0] ?? null;
+  event.waitUntil((async () => {
+    const windowClients = await self.clients.matchAll({
+      type: "window",
+      includeUncontrolled: true,
+    });
+    const collectors = windowClients.filter(isSignalCollectorClient);
+    replyPort?.postMessage({
+      type: SIGNAL_LAB_COLLECTOR_STATUS_MESSAGE,
+      active: collectors.length > 0,
+      checkedAt: Date.now(),
+      clients: collectors.map((client) => ({
+        id: client.id,
+        url: client.url,
+        visibilityState: client.visibilityState ?? "unknown",
+        focused: client.focused === true,
+      })),
+    });
+  })());
+});
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
