@@ -67,7 +67,7 @@ test("footprint uses one proportional dominance cell and interval candles", () =
   assert.match(flow, /const buyWidth = Math\.max\(0, cellWidth - sellWidth\)/);
   assert.match(flow, /formatQuoteVolume\(cluster\.quote\)/);
   assert.doesNotMatch(flow, /formatSignedQuoteDelta|deltaText/);
-  assert.match(flow, /const alpha = \.38 \+ clusterStrength \* \.5/);
+  assert.match(flow, /const alpha = \.58 \+ clusterStrength \* \.4/);
   assert.doesNotMatch(flow, /\$\{dominantSide\} \$\{Math\.round\(dominantShare \* 100\)\}%/);
   assert.doesNotMatch(flow, /columnWidth \* \.25|columnWidth \* \.75|halfWidth/);
   assert.match(flow, /const highRow = nearestRow\(rows, interval\.highPrice\)/);
