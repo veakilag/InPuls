@@ -45,7 +45,7 @@ jobs:
           node --test test-sweep-tape-clock-v1.mjs
           node --test test-footprint-live-source-v1.mjs
           node --test test-global-connection-radar-cleanup-v1.mjs
-          node --test --test-name-pattern="Flow Workspace redraw observer cannot trigger itself|footprint uses one proportional dominance cell and interval candles" test/tape-runtime.test.js
+          node --test test-orderbook-visual-priority.mjs
 
       - name: Run regression and security tests
         shell: bash
