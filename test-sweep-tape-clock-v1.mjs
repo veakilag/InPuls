@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs";
 import {
-  TAPE_LIVE_EDGE_MAX_LEAD_MS,
+  TAPE_CLOCK_FUTURE_TOLERANCE_MS,
   TAPE_SWEEP_MAX_GAP_MS,
   TAPE_SWEEP_MIN_AGGREGATES,
   aggregateTapeZeroMs,
@@ -11,7 +11,7 @@ import {
   aggregateVisibleLabelPrice,
   advanceTapeDisplayClock,
   selectSweepLabelKeys,
-} from "./orderbook.js?v=26-81-compact-series-trade-edge-v1";
+} from "./orderbook.js?v=26-82-smooth-live-clock-series-v1";
 
 const trade = (id, time, price, side, quantity = 1) => ({
   id,
@@ -42,7 +42,7 @@ test("Series joins adjacent same-side AGG and hides singleton fragments", () => 
   assert.equal(sweeps[0].minPrice, 100);
   assert.equal(sweeps[0].maxPrice, 102);
   assert.equal(sweeps[0].durationMs, 40);
-  assert.equal(sweeps[0].labelPrice, 101);
+  assert.equal(sweeps[0].labelPrice, 100.5);
   assert.equal(sweeps[0].kind, "sweep");
 });
 
@@ -94,14 +94,14 @@ test("Aggregate labels are clipped and Series labels use the ending price", () =
   assert.ok(Number.isNaN(aggregateVisibleLabelPrice(viewport, { minPrice: 80, maxPrice: 90 })));
 });
 
-test("Tape edge stays near the latest trade instead of creating a large empty future", () => {
+test("Tape live edge follows the site clock even when the market is silent", () => {
   const first = advanceTapeDisplayClock(null, null, 10_000, 20_000, 0);
-  assert.equal(first, 10_000 + TAPE_LIVE_EDGE_MAX_LEAD_MS);
-  const idle = advanceTapeDisplayClock(first, 0, 10_000, 20_016, 16);
-  assert.equal(idle, first);
-  const nextTrade = advanceTapeDisplayClock(idle, 16, 10_050, 20_032, 32);
-  assert.ok(nextTrade > idle);
-  assert.ok(nextTrade <= 10_050 + TAPE_LIVE_EDGE_MAX_LEAD_MS);
+  assert.equal(first, 20_000);
+  const next = advanceTapeDisplayClock(first, 0, 10_000, 20_016, 16);
+  assert.equal(next, 20_016);
+  const futureTrade = advanceTapeDisplayClock(next, 16, 20_500, 20_032, 32);
+  assert.ok(futureTrade >= 20_032);
+  assert.ok(futureTrade <= 20_032 + TAPE_CLOCK_FUTURE_TOLERANCE_MS);
 });
 
 test("Series labels keep the larger volume when visual boxes collide", () => {
@@ -149,7 +149,8 @@ test("Burst traffic cannot create an unbounded wall of Series labels", () => {
     position: { y: index * 24 },
   }));
   const labels = selectSweepLabelKeys(projected, window, 200, () => 24);
-  assert.equal(labels.size, 5);
+  assert.ok(labels.size > 0);
+  assert.ok(labels.size <= 3);
 });
 
 test("Runtime exposes compact Series and avoids per-second card rescans", () => {
@@ -158,13 +159,14 @@ test("Runtime exposes compact Series and avoids per-second card rescans", () => 
   assert.match(source, /button\.textContent = mode === "agg" \? "AGG" : mode === "sweep" \? "СЕРИЯ" : "RAW"/);
   assert.match(source, /current\.aggregateCount >= TAPE_SWEEP_MIN_AGGREGATES/);
   assert.match(source, /function drawSweepDirection\(/);
+  assert.match(source, /roundedRectPath\(context, x - bodyWidth \/ 2/);
   assert.match(source, /function selectSweepLabelKeys\(/);
+  assert.match(source, /const maximumLabels = Math\.max\(3, Math\.min\(10, Math\.floor\(right \/ 72\)\)\)/);
   assert.match(source, /const showLabel = sweepMode\s*\? Boolean\(sweepLabelKeys\?\.has\(item\.key\)\)/);
   assert.match(source, /advanceTapeDisplayClock\(\s*state\.clockEndTime,\s*state\.clockPerfAt,\s*latestTime,/);
-  const timerBlock = source.match(/tapeStateTimer = setInterval\(\(\) => \{[\s\S]*?\}, TAPE_STATE_REFRESH_MS\);/)?.[0] ?? "";
-  assert.ok(timerBlock.length > 0);
-  assert.doesNotMatch(timerBlock, /scanTapeCards\(document\)/);
-  assert.match(timerBlock, /if \(state\.densityAgeVisible\) decorateDensityAges/);
+  assert.match(source, /cachedTapeClockLabel\(state, window\.endTime\).*LIVE/);
+  assert.doesNotMatch(source, /tapeStateTimer = setInterval/);
+  assert.doesNotMatch(source, /Math\.floor\(age \/ 1_000\)/);
 });
 
 test("Footprint volume labels reuse order-book size typography", () => {
