@@ -87,6 +87,37 @@ jobs:
           PY
           python tools/apply_series_label_declutter_v1.py
 
+      - name: Align Compact Series regression contracts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, got {count}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          range_test = Path("test-agg-range-rx-fix-v1.mjs")
+          replace_once(
+              range_test,
+              '  assert.ok((runtime.match(/drawAggregatePriceRange\\(/g) ?? []).length >= 3);',
+              '''  assert.match(runtime, /function drawAggregateMotion\\(/);
+          assert.match(runtime, /\\? drawSweepDirection\\(/);
+          assert.match(runtime, /: drawAggregatePriceRange\\(/);''',
+              "AGG motion routing contract",
+          )
+
+          threshold_test = Path("test-tape-threshold-agg-visual-v1.mjs")
+          replace_once(
+              threshold_test,
+              '  assert.match(painter, /const showLabel = minQuote > 0 \\|\\| Boolean\\(item\\.showLabel\\)/);',
+              '''  assert.match(painter, /const showLabel = sweepMode[\\s\\S]*\\? Boolean\\(sweepLabelKeys\\?\\.has\\(item\\.key\\)\\)[\\s\\S]*: minQuote > 0 \\|\\| Boolean\\(item\\.showLabel\\)/);''',
+              "threshold and Series label contract",
+          )
+          PY
+
       - name: Syntax checks
         run: |
           node --check orderbook.js
