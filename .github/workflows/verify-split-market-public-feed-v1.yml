@@ -1,0 +1,48 @@
+name: Verify split market public feed recovery
+
+on:
+  push:
+    branches:
+      - fix/split-market-public-feed-v1
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/split-market-public-feed-v1
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check binance-stream-routing.js
+          node --check chart.js
+          node --check orderbook-worker.js
+          node --check orderbook.js
+          node --check orderbook-flow-workspace.js
+          node --check sw.js
+      - name: Focused feed checks
+        run: |
+          node --test test-global-connection-radar-cleanup-v1.mjs
+          node --test test-market-feed-footprint-series-v1.mjs
+          node --test test-footprint-live-source-v1.mjs
+          node --test test-parallel-chart-phasing-v1.mjs
+          node --test test-orderbook-guarded-raw-tape.mjs
+          node --test test-tiger-zero-ms-agg-source-v1.mjs
+      - name: Full test suite
+        run: npm test
+      - name: Remove temporary workflow
+        run: |
+          git rm .github/workflows/verify-split-market-public-feed-v1.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Record green split feed verification"
+          git push origin HEAD:fix/split-market-public-feed-v1
