@@ -22,7 +22,17 @@ jobs:
           node-version: 22
 
       - name: Apply implementation
-        run: python tools/apply_readable_flow_smooth_charts_v1.py
+        run: |
+          set +e
+          python tools/apply_readable_flow_smooth_charts_v1.py > /tmp/apply.log 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "=== MIGRATION TRACEBACK ==="
+            tail -n 40 /tmp/apply.log
+          else
+            cat /tmp/apply.log
+          fi
+          exit "$status"
 
       - name: Syntax checks
         run: |
