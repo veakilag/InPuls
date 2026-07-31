@@ -27,6 +27,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Harden migration anchor
+        run: python .github/scripts/patch-core-feed-migration-anchor-v1.py
+
       - name: Apply runtime recovery
         run: python .github/scripts/apply-core-feed-footprint-runtime-v1.py
 
@@ -57,6 +60,7 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           git rm .github/scripts/apply-core-feed-footprint-runtime-v1.py
+          git rm .github/scripts/patch-core-feed-migration-anchor-v1.py
           git rm .github/workflows/apply-core-feed-footprint-runtime-v1.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
