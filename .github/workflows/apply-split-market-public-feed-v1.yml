@@ -1,0 +1,85 @@
+name: Apply split market public feed recovery
+
+on:
+  push:
+    branches:
+      - fix/split-market-public-feed-v1
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/split-market-public-feed-v1
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply, verify and commit
+        shell: bash
+        run: |
+          set +e
+          : > /tmp/split-feed-run.txt
+          run_step() {
+            echo "\n===== $1 =====" | tee -a /tmp/split-feed-run.txt
+            shift
+            "$@" 2>&1 | tee -a /tmp/split-feed-run.txt
+            return ${PIPESTATUS[0]}
+          }
+
+          status=0
+          run_step "Apply recovery" python .github/scripts/apply-split-market-public-feed-v1.py || status=$?
+          if [ "$status" -eq 0 ]; then
+            for check in \
+              "node --check app.js" \
+              "node --check binance-stream-routing.js" \
+              "node --check chart.js" \
+              "node --check orderbook-worker.js" \
+              "node --check orderbook.js" \
+              "node --check orderbook-flow-workspace.js" \
+              "node --check sw.js"; do
+              run_step "$check" bash -lc "$check" || { status=$?; break; }
+            done
+          fi
+          if [ "$status" -eq 0 ]; then
+            for test_file in \
+              test-global-connection-radar-cleanup-v1.mjs \
+              test-market-feed-footprint-series-v1.mjs \
+              test-footprint-live-source-v1.mjs \
+              test-parallel-chart-phasing-v1.mjs \
+              test-orderbook-runtime-stability.mjs \
+              test-orderbook-flow-workspace.mjs; do
+              run_step "node --test $test_file" node --test "$test_file" || { status=$?; break; }
+            done
+          fi
+          if [ "$status" -eq 0 ]; then
+            run_step "Full test suite" npm test || status=$?
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ "$status" -ne 0 ]; then
+            cp /tmp/split-feed-run.txt split-feed-migration-failure.txt
+            git rm .github/workflows/apply-split-market-public-feed-v1.yml
+            git add -f split-feed-migration-failure.txt
+            git commit -m "Capture split feed migration failure details"
+            git push origin HEAD:fix/split-market-public-feed-v1
+            exit "$status"
+          fi
+
+          rm -f split-feed-migration-failure.txt
+          git rm .github/scripts/apply-split-market-public-feed-v1.py
+          git rm .github/workflows/apply-split-market-public-feed-v1.yml
+          git add -A
+          git commit -m "Restore split Binance feeds and smooth parallel charts"
+          git push origin HEAD:fix/split-market-public-feed-v1
