@@ -2,13 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs";
 import {
+  TAPE_LIVE_EDGE_MAX_LEAD_MS,
   TAPE_SWEEP_MAX_GAP_MS,
+  TAPE_SWEEP_MIN_AGGREGATES,
   aggregateTapeZeroMs,
   aggregateTapeSweeps,
   materializeTapeSweeps,
   aggregateVisibleLabelPrice,
   advanceTapeDisplayClock,
-} from "./orderbook.js?v=26-80-sweep-tape-clock-v1";
+  selectSweepLabelKeys,
+} from "./orderbook.js?v=26-81-compact-series-trade-edge-v1";
 
 const trade = (id, time, price, side, quantity = 1) => ({
   id,
@@ -21,7 +24,7 @@ const trade = (id, time, price, side, quantity = 1) => ({
   side,
 });
 
-test("Sweep joins adjacent same-side AGG across milliseconds", () => {
+test("Series joins adjacent same-side AGG and hides singleton fragments", () => {
   const zero = aggregateTapeZeroMs([
     trade(1, 1_000, 100, "buy"),
     trade(2, 1_001, 101, "buy"),
@@ -32,68 +35,114 @@ test("Sweep joins adjacent same-side AGG across milliseconds", () => {
   ]);
   const sweeps = aggregateTapeSweeps(zero);
   assert.equal(TAPE_SWEEP_MAX_GAP_MS, 35);
-  assert.equal(sweeps.length, 3);
+  assert.equal(TAPE_SWEEP_MIN_AGGREGATES, 2);
+  assert.equal(sweeps.length, 1);
   assert.equal(sweeps[0].aggregateCount, 4);
   assert.equal(sweeps[0].count, 4);
   assert.equal(sweeps[0].minPrice, 100);
   assert.equal(sweeps[0].maxPrice, 102);
   assert.equal(sweeps[0].durationMs, 40);
-  assert.equal(sweeps[1].firstPrice, 99);
-  assert.equal(sweeps[2].side, "sell");
+  assert.equal(sweeps[0].labelPrice, 101);
+  assert.equal(sweeps[0].kind, "sweep");
 });
 
-test("Sweep breaks on ID gap and excessive pause", () => {
+test("ID gaps and excessive pauses do not create fake one-trade Series", () => {
   const zero = aggregateTapeZeroMs([
     trade(10, 2_000, 10, "sell"),
     trade(12, 2_001, 9, "sell"),
     trade(13, 2_100, 8, "sell"),
   ]);
-  const sweeps = aggregateTapeSweeps(zero);
-  assert.equal(sweeps.length, 3);
+  assert.equal(aggregateTapeSweeps(zero).length, 0);
 });
 
-test("sealed Sweep history keeps identity while only the open series grows", () => {
+test("sealed Series history keeps identity while only the open Series grows", () => {
   const state = { sweepSnapshots: new Map() };
   const firstGroups = aggregateTapeSweeps(aggregateTapeZeroMs([
     trade(20, 3_000, 100, "buy"),
-    trade(21, 3_001, 101, "sell"),
+    trade(21, 3_001, 101, "buy"),
+    trade(22, 3_010, 100, "sell"),
+    trade(23, 3_011, 99, "sell"),
   ]));
   const firstView = materializeTapeSweeps(state, firstGroups, []);
+  assert.equal(firstView.length, 2);
   assert.equal(firstView[0].status, "sealed");
   assert.equal(firstView[1].status, "open");
   const sealed = firstView[0];
 
   const nextGroups = aggregateTapeSweeps(aggregateTapeZeroMs([
     trade(20, 3_000, 100, "buy"),
-    trade(21, 3_001, 101, "sell"),
-    trade(22, 3_002, 100, "sell"),
+    trade(21, 3_001, 101, "buy"),
+    trade(22, 3_010, 100, "sell"),
+    trade(23, 3_011, 99, "sell"),
+    trade(24, 3_012, 98, "sell"),
   ]));
   const nextView = materializeTapeSweeps(state, nextGroups, []);
   assert.equal(nextView[0], sealed);
   assert.equal(nextView[1].status, "open");
-  assert.equal(nextView[1].aggregateCount, 2);
+  assert.equal(nextView[1].aggregateCount, 3);
 });
 
-test("Aggregate labels are clipped to visible price range and absent outside it", () => {
+test("Aggregate labels are clipped and Series labels use the ending price", () => {
   const viewport = { lowPrice: 100, highPrice: 110, step: 1, lowY: 100, highY: 0, rowHeight: 10 };
   assert.equal(aggregateVisibleLabelPrice(viewport, { minPrice: 90, maxPrice: 104 }), 100);
   assert.equal(aggregateVisibleLabelPrice(viewport, { minPrice: 104, maxPrice: 108 }), 106);
+  assert.equal(aggregateVisibleLabelPrice(viewport, {
+    minPrice: 104,
+    maxPrice: 108,
+    labelPrice: 108,
+  }), 108);
   assert.ok(Number.isNaN(aggregateVisibleLabelPrice(viewport, { minPrice: 80, maxPrice: 90 })));
 });
 
-test("Tape display clock follows wall clock smoothly instead of last trade packets", () => {
-  const first = advanceTapeDisplayClock(null, null, 10_000, 0);
-  const second = advanceTapeDisplayClock(first, 0, 10_016, 16);
-  const third = advanceTapeDisplayClock(second, 16, 10_032, 32);
-  assert.equal(first, 10_000);
-  assert.ok(second >= 10_015 && second <= 10_017);
-  assert.ok(third >= second);
+test("Tape edge stays near the latest trade instead of creating a large empty future", () => {
+  const first = advanceTapeDisplayClock(null, null, 10_000, 20_000, 0);
+  assert.equal(first, 10_000 + TAPE_LIVE_EDGE_MAX_LEAD_MS);
+  const idle = advanceTapeDisplayClock(first, 0, 10_000, 20_016, 16);
+  assert.equal(idle, first);
+  const nextTrade = advanceTapeDisplayClock(idle, 16, 10_050, 20_032, 32);
+  assert.ok(nextTrade > idle);
+  assert.ok(nextTrade <= 10_050 + TAPE_LIVE_EDGE_MAX_LEAD_MS);
 });
 
-test("Runtime exposes RAW, AGG and SERIES without per-second card rescans", () => {
+test("Series labels keep the larger volume when visual boxes collide", () => {
+  const window = { startTime: 0, endTime: 2_000, duration: 2_000, plotRight: 200 };
+  const labels = selectSweepLabelKeys([
+    {
+      source: { key: "small", time: 1_000, timeOrdinal: 0, quote: 1_000, aggregateCount: 2, showLabel: true, status: "sealed" },
+      position: { y: 50 },
+    },
+    {
+      source: { key: "large", time: 1_001, timeOrdinal: 0, quote: 8_000, aggregateCount: 5, showLabel: true, status: "sealed" },
+      position: { y: 51 },
+    },
+  ], window, 200, () => 24);
+  assert.deepEqual([...labels], ["large"]);
+});
+
+test("Current open Series label wins a collision so the live event remains readable", () => {
+  const window = { startTime: 0, endTime: 2_000, duration: 2_000, plotRight: 200 };
+  const labels = selectSweepLabelKeys([
+    {
+      source: { key: "old-large", time: 1_000, timeOrdinal: 0, quote: 20_000, aggregateCount: 8, showLabel: true, status: "sealed" },
+      position: { y: 50 },
+    },
+    {
+      source: { key: "live", time: 1_001, timeOrdinal: 0, quote: 3_000, aggregateCount: 3, showLabel: true, status: "open" },
+      position: { y: 51 },
+    },
+  ], window, 200, () => 24);
+  assert.deepEqual([...labels], ["live"]);
+});
+
+test("Runtime exposes compact Series and avoids per-second card rescans", () => {
   const source = fs.readFileSync(new URL("./orderbook.js", import.meta.url), "utf8");
   assert.match(source, /mode === "raw" \? "agg" : state\.mode === "agg" \? "sweep" : "raw"/);
   assert.match(source, /button\.textContent = mode === "agg" \? "AGG" : mode === "sweep" \? "СЕРИЯ" : "RAW"/);
+  assert.match(source, /current\.aggregateCount >= TAPE_SWEEP_MIN_AGGREGATES/);
+  assert.match(source, /function drawSweepDirection\(/);
+  assert.match(source, /function selectSweepLabelKeys\(/);
+  assert.match(source, /const showLabel = sweepMode\s*\? Boolean\(sweepLabelKeys\?\.has\(item\.key\)\)/);
+  assert.match(source, /advanceTapeDisplayClock\(\s*state\.clockEndTime,\s*state\.clockPerfAt,\s*latestTime,/);
   const timerBlock = source.match(/tapeStateTimer = setInterval\(\(\) => \{[\s\S]*?\}, TAPE_STATE_REFRESH_MS\);/)?.[0] ?? "";
   assert.ok(timerBlock.length > 0);
   assert.doesNotMatch(timerBlock, /scanTapeCards\(document\)/);
