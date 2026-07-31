@@ -134,6 +134,24 @@ test("Current open Series label wins a collision so the live event remains reada
   assert.deepEqual([...labels], ["live"]);
 });
 
+test("Burst traffic cannot create an unbounded wall of Series labels", () => {
+  const window = { startTime: 0, endTime: 2_000, duration: 2_000, plotRight: 200 };
+  const projected = Array.from({ length: 60 }, (_, index) => ({
+    source: {
+      key: `burst-${index}`,
+      time: 500 + index * 20,
+      timeOrdinal: 0,
+      quote: 60_000 - index,
+      aggregateCount: 5,
+      showLabel: true,
+      status: "sealed",
+    },
+    position: { y: index * 24 },
+  }));
+  const labels = selectSweepLabelKeys(projected, window, 200, () => 24);
+  assert.equal(labels.size, 5);
+});
+
 test("Runtime exposes compact Series and avoids per-second card rescans", () => {
   const source = fs.readFileSync(new URL("./orderbook.js", import.meta.url), "utf8");
   assert.match(source, /mode === "raw" \? "agg" : state\.mode === "agg" \? "sweep" : "raw"/);
