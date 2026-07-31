@@ -4,6 +4,7 @@ import fs from "node:fs";
 import {
   TAPE_CLOCK_FUTURE_TOLERANCE_MS,
   TAPE_SWEEP_MAX_GAP_MS,
+  TAPE_SWEEP_WINDOW_MS,
   TAPE_SWEEP_MIN_AGGREGATES,
   aggregateTapeZeroMs,
   aggregateTapeSweeps,
@@ -11,7 +12,7 @@ import {
   aggregateVisibleLabelPrice,
   advanceTapeDisplayClock,
   selectSweepLabelKeys,
-} from "./orderbook.js?v=26-86-global-connection-radar-cleanup-v1";
+} from "./orderbook.js?v=26-87-market-feed-footprint-series-v1";
 
 const trade = (id, time, price, side, quantity = 1) => ({
   id,
@@ -24,58 +25,58 @@ const trade = (id, time, price, side, quantity = 1) => ({
   side,
 });
 
-test("Series joins adjacent same-side AGG and hides singleton fragments", () => {
-  const zero = aggregateTapeZeroMs([
+test("Series groups same-side raw executions for a fixed 100 ms window", () => {
+  const sweeps = aggregateTapeSweeps([
     trade(1, 1_000, 100, "buy"),
-    trade(2, 1_001, 101, "buy"),
-    trade(3, 1_020, 102, "buy"),
-    trade(4, 1_040, 101, "buy"),
-    trade(5, 1_041, 99, "buy"),
-    trade(6, 1_042, 98, "sell"),
+    trade(2, 1_040, 101, "buy"),
+    trade(3, 1_100, 102, "buy"),
+    trade(4, 1_101, 101, "sell"),
+    trade(5, 1_150, 99, "sell"),
   ]);
-  const sweeps = aggregateTapeSweeps(zero);
-  assert.equal(TAPE_SWEEP_MAX_GAP_MS, 35);
+  assert.equal(TAPE_SWEEP_WINDOW_MS, 100);
+  assert.equal(TAPE_SWEEP_MAX_GAP_MS, 100);
   assert.equal(TAPE_SWEEP_MIN_AGGREGATES, 2);
-  assert.equal(sweeps.length, 1);
-  assert.equal(sweeps[0].aggregateCount, 4);
-  assert.equal(sweeps[0].count, 4);
-  assert.equal(sweeps[0].minPrice, 100);
-  assert.equal(sweeps[0].maxPrice, 102);
-  assert.equal(sweeps[0].durationMs, 40);
-  assert.equal(sweeps[0].labelPrice, 100.5);
+  assert.equal(sweeps.length, 2);
+  assert.equal(sweeps[0].aggregateCount, 3);
+  assert.equal(sweeps[0].count, 3);
+  assert.equal(sweeps[0].durationMs, 100);
+  assert.equal(sweeps[0].labelPrice, 101);
   assert.equal(sweeps[0].kind, "sweep");
 });
 
-test("ID gaps and excessive pauses do not create fake one-trade Series", () => {
-  const zero = aggregateTapeZeroMs([
+test("the first opposite execution closes the current Series immediately", () => {
+  const sweeps = aggregateTapeSweeps([
     trade(10, 2_000, 10, "sell"),
-    trade(12, 2_001, 9, "sell"),
-    trade(13, 2_100, 8, "sell"),
+    trade(11, 2_010, 9, "sell"),
+    trade(12, 2_011, 10, "buy"),
+    trade(13, 2_020, 11, "buy"),
   ]);
-  assert.equal(aggregateTapeSweeps(zero).length, 0);
+  assert.equal(sweeps.length, 2);
+  assert.equal(sweeps[0].side, "sell");
+  assert.equal(sweeps[1].side, "buy");
 });
 
 test("sealed Series history keeps identity while only the open Series grows", () => {
   const state = { sweepSnapshots: new Map() };
-  const firstGroups = aggregateTapeSweeps(aggregateTapeZeroMs([
+  const firstGroups = aggregateTapeSweeps([
     trade(20, 3_000, 100, "buy"),
     trade(21, 3_001, 101, "buy"),
     trade(22, 3_010, 100, "sell"),
     trade(23, 3_011, 99, "sell"),
-  ]));
+  ]);
   const firstView = materializeTapeSweeps(state, firstGroups, []);
   assert.equal(firstView.length, 2);
   assert.equal(firstView[0].status, "sealed");
   assert.equal(firstView[1].status, "open");
   const sealed = firstView[0];
 
-  const nextGroups = aggregateTapeSweeps(aggregateTapeZeroMs([
+  const nextGroups = aggregateTapeSweeps([
     trade(20, 3_000, 100, "buy"),
     trade(21, 3_001, 101, "buy"),
     trade(22, 3_010, 100, "sell"),
     trade(23, 3_011, 99, "sell"),
     trade(24, 3_012, 98, "sell"),
-  ]));
+  ]);
   const nextView = materializeTapeSweeps(state, nextGroups, []);
   assert.equal(nextView[0], sealed);
   assert.equal(nextView[1].status, "open");
@@ -157,7 +158,7 @@ test("Runtime exposes compact Series and avoids per-second card rescans", () => 
   const source = fs.readFileSync(new URL("./orderbook.js", import.meta.url), "utf8");
   assert.match(source, /mode === "raw" \? "agg" : state\.mode === "agg" \? "sweep" : "raw"/);
   assert.match(source, /button\.textContent = mode === "agg" \? "AGG" : mode === "sweep" \? "СЕРИЯ" : "RAW"/);
-  assert.match(source, /current\.aggregateCount >= TAPE_SWEEP_MIN_AGGREGATES/);
+  assert.match(source, /current\.count >= TAPE_SWEEP_MIN_AGGREGATES/);
   assert.match(source, /function drawSweepDirection\(/);
   assert.match(source, /roundedRectPath\(context, x - bodyWidth \/ 2/);
   assert.match(source, /function selectSweepLabelKeys\(/);
@@ -172,5 +173,6 @@ test("Runtime exposes compact Series and avoids per-second card rescans", () => 
 
 test("Footprint volume labels reuse order-book size typography", () => {
   const source = fs.readFileSync(new URL("./orderbook-flow-workspace.js", import.meta.url), "utf8");
-  assert.match(source, /state\.context\.font = "700 7px Arial, sans-serif"/);
+  assert.match(source, /formatCompactUsd\(cluster\.quote\)/);
+  assert.match(source, /querySelector\?\.\("\.book-size"\)/);
 });

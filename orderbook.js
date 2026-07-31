@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-86-global-connection-radar-cleanup-v1";
+import "./orderbook-flow-workspace.js?v=26-87-market-feed-footprint-series-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1413,7 +1413,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-86-global-connection-radar-cleanup-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-87-market-feed-footprint-series-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1830,7 +1830,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-86-global-connection-radar-cleanup-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-87-market-feed-footprint-series-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -1856,7 +1856,9 @@ const TAPE_TIME_SCALE_KEY = "inpuls-tape-time-scale-v1";
 const TAPE_TIME_SCALE_MIN = 35;
 const TAPE_TIME_SCALE_MAX = 300;
 const TAPE_TIME_SCALE_DEFAULT = 100;
-export const TAPE_SWEEP_MAX_GAP_MS = 35;
+export const TAPE_SWEEP_WINDOW_MS = 100;
+// Compatibility alias for tests and external consumers.
+export const TAPE_SWEEP_MAX_GAP_MS = TAPE_SWEEP_WINDOW_MS;
 export const TAPE_SWEEP_MAX_REVERSE_TICKS = 1;
 export const TAPE_CLOCK_FUTURE_TOLERANCE_MS = 250;
 // Backward-compatible export for existing consumers; the clock is no longer
@@ -2710,7 +2712,7 @@ function syncTapeModeButton(button, state) {
   button.title = mode === "agg"
     ? `AGG 0 мс · ${source}: последовательные исполнения одного направления с одинаковым биржевым временем.`
     : mode === "sweep"
-      ? `СЕРИЯ · ${source}: соседние AGG одной стороны объединяются при непрерывных ID, паузе до ${TAPE_SWEEP_MAX_GAP_MS} мс и обратном ходе не больше ${TAPE_SWEEP_MAX_REVERSE_TICKS} тика.`
+      ? `СЕРИЯ · ${source}: агрессивные исполнения одной стороны за ${TAPE_SWEEP_WINDOW_MS} мс от первой сделки или до первой сделки в обратную сторону.`
       : "Каждое исполнение отображается отдельно по стабильному @aggTrade-потоку";
 }
 
@@ -3793,114 +3795,136 @@ function inferSweepTick(groups) {
 }
 
 export function aggregateTapeSweeps(
-  groups,
+  trades,
   {
-    maxGapMs = TAPE_SWEEP_MAX_GAP_MS,
-    maxReverseTicks = TAPE_SWEEP_MAX_REVERSE_TICKS,
-    tick = null,
+    windowMs = TAPE_SWEEP_WINDOW_MS,
   } = {},
 ) {
-  const ordered = [...(groups ?? [])]
-    .filter((group) => Number.isFinite(Number(group?.eventTime ?? group?.time)))
+  const safeWindowMs = Math.max(1, Number(windowMs) || TAPE_SWEEP_WINDOW_MS);
+  const eventTimeOf = (trade) => Number(trade?.eventTime ?? trade?.tradeTime ?? trade?.time);
+  const displayTimeOf = (trade) => {
+    const receivedAt = Number(trade?.receivedAt);
+    return Number.isFinite(receivedAt) && receivedAt > 0
+      ? receivedAt
+      : Number(trade?.time ?? eventTimeOf(trade));
+  };
+  const idOf = (trade) => Number(trade?.lastTradeId ?? trade?.firstTradeId ?? trade?.id);
+  const ordered = [...(trades ?? [])]
+    .filter((trade) => {
+      const price = Number(trade?.price);
+      const quote = Number(trade?.quote);
+      return Number.isFinite(eventTimeOf(trade))
+        && Number.isFinite(displayTimeOf(trade))
+        && Number.isFinite(price)
+        && price > 0
+        && Number.isFinite(quote)
+        && quote > 0;
+    })
     .sort((left, right) => {
-      const timeDelta = Number(left.eventTime ?? left.time) - Number(right.eventTime ?? right.time);
+      const timeDelta = eventTimeOf(left) - eventTimeOf(right);
       if (timeDelta) return timeDelta;
-      return Number(left.timeOrdinal) - Number(right.timeOrdinal);
+      return idOf(left) - idOf(right);
     });
-  const priceTick = Math.max(Number.EPSILON, Number(tick) || inferSweepTick(ordered) || Number.EPSILON);
-  const allowedReverse = priceTick * Math.max(0, Number(maxReverseTicks) || 0) + Number.EPSILON;
-  const groupsOut = [];
-  const ordinalByTime = new Map();
+
+  const result = [];
   let current = null;
+
+  const start = (trade) => {
+    const eventTime = eventTimeOf(trade);
+    const displayTime = displayTimeOf(trade);
+    const price = Number(trade.price);
+    const quantity = Math.max(0, Number(trade.quantity) || 0);
+    const quote = Math.max(0, Number(trade.quote) || price * quantity);
+    const tradeId = idOf(trade);
+    current = {
+      key: `sweep:${trade.side}:${tradeId}:${eventTime}`,
+      kind: "sweep",
+      side: trade.side === "sell" ? "sell" : "buy",
+      firstTradeId: tradeId,
+      lastTradeId: tradeId,
+      firstEventTime: eventTime,
+      lastEventTime: eventTime,
+      firstTime: displayTime,
+      lastTime: displayTime,
+      startTime: displayTime,
+      endTime: displayTime,
+      firstPrice: price,
+      lastPrice: price,
+      price,
+      minPrice: price,
+      maxPrice: price,
+      labelPrice: price,
+      quantity,
+      quote,
+      sizeQuote: quote,
+      peakAggregateQuote: quote,
+      count: 1,
+      aggregateCount: 1,
+      durationMs: 0,
+      eventTime,
+      tradeTime: eventTime,
+      receivedAt: displayTime,
+      time: displayTime,
+      timeOrdinal: Number(trade?.timeOrdinal) || 0,
+      showLabel: true,
+    };
+  };
+
+  const append = (trade) => {
+    const eventTime = eventTimeOf(trade);
+    const displayTime = displayTimeOf(trade);
+    const price = Number(trade.price);
+    const quantity = Math.max(0, Number(trade.quantity) || 0);
+    const quote = Math.max(0, Number(trade.quote) || price * quantity);
+    current.lastTradeId = idOf(trade);
+    current.lastEventTime = eventTime;
+    current.lastTime = displayTime;
+    current.endTime = displayTime;
+    current.lastPrice = price;
+    current.price = price;
+    current.minPrice = Math.min(current.minPrice, price);
+    current.maxPrice = Math.max(current.maxPrice, price);
+    current.quantity += quantity;
+    current.quote += quote;
+    current.sizeQuote = Math.max(current.sizeQuote, quote);
+    current.peakAggregateQuote = current.sizeQuote;
+    current.count += 1;
+    current.aggregateCount += 1;
+  };
 
   const finish = () => {
     if (!current) return;
-    current.vwapPrice = current.quantity > 0 ? current.quote / current.quantity : current.firstPrice;
-    current.sizeQuote = Math.max(0, Number(current.peakAggregateQuote) || Number(current.quote) || 0);
-    current.durationMs = Math.max(0, current.lastTime - current.firstTime);
-    current.time = current.firstTime + current.durationMs / 2;
-    const sourceDurationMs = Math.max(0, current.lastEventTime - current.firstEventTime);
-    current.eventTime = current.firstEventTime + sourceDurationMs / 2;
-    current.labelPrice = (current.firstPrice + current.lastPrice) / 2;
-    current.price = current.labelPrice;
-    current.kind = "sweep";
-    const ordinalKey = Math.round(current.time);
-    current.timeOrdinal = ordinalByTime.get(ordinalKey) ?? 0;
-    ordinalByTime.set(ordinalKey, current.timeOrdinal + 1);
-    if (current.aggregateCount >= TAPE_SWEEP_MIN_AGGREGATES) groupsOut.push(current);
+    if (current.count >= TAPE_SWEEP_MIN_AGGREGATES) {
+      current.durationMs = Math.max(0, current.lastEventTime - current.firstEventTime);
+      current.time = current.firstTime + Math.max(0, current.lastTime - current.firstTime) / 2;
+      current.receivedAt = current.time;
+      current.eventTime = current.firstEventTime + current.durationMs / 2;
+      current.tradeTime = current.eventTime;
+      current.labelPrice = (current.firstPrice + current.lastPrice) / 2;
+      current.vwapPrice = current.quantity > 0 ? current.quote / current.quantity : current.firstPrice;
+      result.push(current);
+    }
     current = null;
   };
 
-  for (const group of ordered) {
-    const eventTime = Number(group.eventTime ?? group.time);
-    const visualTime = Number(group.time);
-    const visualLastTime = Number(group.lastTime ?? visualTime);
-    const side = group.side === "sell" ? "sell" : "buy";
-    const firstPrice = Number(group.firstPrice ?? group.price);
-    const lastPrice = Number(group.lastPrice ?? group.price);
-    const firstId = Number.isInteger(Number(group.firstTradeId)) ? Number(group.firstTradeId) : null;
-    const lastId = Number.isInteger(Number(group.lastTradeId)) ? Number(group.lastTradeId) : firstId;
-    const gap = current ? eventTime - current.lastEventTime : Infinity;
-    const idsContinuous = !current
-      || !Number.isInteger(current.lastTradeId)
-      || !Number.isInteger(firstId)
-      || firstId === current.lastTradeId + 1;
-    const directionContinuous = !current || (side === "buy"
-      ? firstPrice >= current.lastPrice - allowedReverse
-      : firstPrice <= current.lastPrice + allowedReverse);
-    const continues = current
-      && current.side === side
-      && gap >= 0
-      && gap <= Math.max(0, Number(maxGapMs) || 0)
-      && idsContinuous
-      && directionContinuous;
-
-    if (!continues) {
-      finish();
-      current = {
-        key: `sweep:${eventTime}:${side}:${group.key}`,
-        side,
-        firstTime: visualTime,
-        lastTime: visualLastTime,
-        firstEventTime: eventTime,
-        lastEventTime: eventTime,
-        firstTradeId: firstId,
-        lastTradeId: lastId,
-        firstPrice,
-        lastPrice,
-        minPrice: Number(group.minPrice ?? firstPrice),
-        maxPrice: Number(group.maxPrice ?? firstPrice),
-        price: firstPrice,
-        vwapPrice: firstPrice,
-        quantity: 0,
-        quote: 0,
-        buyQuote: 0,
-        sellQuote: 0,
-        count: 0,
-        aggregateCount: 0,
-        peakAggregateQuote: 0,
-      };
+  for (const trade of ordered) {
+    const side = trade.side === "sell" ? "sell" : "buy";
+    const eventTime = eventTimeOf(trade);
+    if (!current) {
+      start({ ...trade, side });
+      continue;
     }
-
-    current.lastTime = Math.max(current.lastTime, visualLastTime);
-    current.lastEventTime = eventTime;
-    current.lastPrice = lastPrice;
-    if (Number.isInteger(lastId)) current.lastTradeId = lastId;
-    current.minPrice = Math.min(current.minPrice, Number(group.minPrice ?? firstPrice));
-    current.maxPrice = Math.max(current.maxPrice, Number(group.maxPrice ?? firstPrice));
-    current.quantity += Number(group.quantity) || 0;
-    current.quote += Number(group.quote) || 0;
-    current.peakAggregateQuote = Math.max(
-      Number(current.peakAggregateQuote) || 0,
-      Number(group.quote) || 0,
-    );
-    current.buyQuote += Number(group.buyQuote) || 0;
-    current.sellQuote += Number(group.sellQuote) || 0;
-    current.count += Number(group.count) || 0;
-    current.aggregateCount += 1;
+    const opposite = side !== current.side;
+    const outsideWindow = eventTime - current.firstEventTime > safeWindowMs;
+    if (opposite || outsideWindow) {
+      finish();
+      start({ ...trade, side });
+      continue;
+    }
+    append({ ...trade, side });
   }
   finish();
-  return groupsOut;
+  return result;
 }
 export function materializeTapeSweeps(state, groups, output = []) {
   if (!(state.sweepSnapshots instanceof Map)) state.sweepSnapshots = new Map();
@@ -4056,7 +4080,7 @@ function refreshTapeRenderModel(state, symbol, stored, aggregationStored = store
   state.rawRenderNodes = nextNodes;
   const aggregationInput = aggregationStored?.length ? aggregationStored : stored;
   state.aggSourceBuckets = aggregateTapeZeroMs(aggregationInput);
-  state.sweepSourceBuckets = aggregateTapeSweeps(state.aggSourceBuckets);
+  state.sweepSourceBuckets = aggregateTapeSweeps(aggregationInput);
 }
 
 function visibleWaterTapeNodes(nodes, window, output = []) {
