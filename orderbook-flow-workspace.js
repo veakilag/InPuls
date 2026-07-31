@@ -58,16 +58,23 @@ export function normalizeFlowTrade(trade) {
   const price = Number(trade?.price);
   const quantity = Number(trade?.quantity);
   const quote = Number(trade?.quote ?? price * quantity);
-  const time = Number(trade?.time ?? trade?.tradeTime ?? trade?.eventTime);
+  const sourceTime = Number(trade?.tradeTime ?? trade?.eventTime ?? trade?.time);
+  const receivedAt = trade?.receivedAt === null || trade?.receivedAt === undefined
+    ? Number.NaN
+    : Number(trade.receivedAt);
+  const time = Number.isFinite(receivedAt) && receivedAt > 0
+    ? receivedAt
+    : Number(trade?.time ?? sourceTime);
   if (![price, quantity, quote, time].every(Number.isFinite) || price <= 0 || quantity <= 0 || quote <= 0) {
     return null;
   }
   return {
-    id: trade?.id ?? `${time}:${price}:${quantity}`,
+    id: trade?.id ?? `${sourceTime}:${price}:${quantity}`,
     price,
     quantity,
     quote,
     time,
+    sourceTime: Number.isFinite(sourceTime) ? sourceTime : time,
     side: trade?.side === "sell" ? "sell" : "buy",
   };
 }
@@ -1281,12 +1288,21 @@ function renderCard(card, state) {
   }
 }
 
+export function selectFootprintTapeTrades(detail) {
+  if (!detail?.live) return [];
+  // The guarded aggregation channel is continuous: it starts on @aggTrade,
+  // promotes to individual @trade only after validation and falls back without
+  // overlaps. Never mix both arrays in one footprint accumulator.
+  if (Array.isArray(detail?.aggregationTrades)) return detail.aggregationTrades;
+  return Array.isArray(detail?.trades) ? detail.trades : [];
+}
+
 function acceptTape(event) {
   const detail = event?.detail;
   const symbol = String(detail?.symbol ?? "").toUpperCase();
   if (!symbol.endsWith("USDT")) return;
   if (!detail?.replace && !detail?.live) return;
-  const incoming = detail?.live && Array.isArray(detail?.trades) ? detail.trades : [];
+  const incoming = selectFootprintTapeTrades(detail);
   const accumulator = footprintBySymbol.get(symbol) ?? createFootprintAccumulator();
   footprintBySymbol.set(
     symbol,
