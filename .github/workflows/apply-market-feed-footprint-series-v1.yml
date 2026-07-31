@@ -1,3 +1,4 @@
+# Triggered after workflow registration.
 name: Apply market feed footprint series
 
 on:
