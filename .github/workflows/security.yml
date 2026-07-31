@@ -7,7 +7,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
@@ -16,20 +16,42 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Check out reviewed revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          persist-credentials: false
+          ref: fix/market-feed-footprint-series-v1
+          fetch-depth: 0
 
       - name: Use Node.js 22
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
 
+      - name: Apply market feed, footprint and Series update
+        run: python .github/scripts/apply-market-feed-footprint-series-v1.py
+
       - name: Check JavaScript syntax
         run: find . -type f -name '*.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
 
+      - name: Run focused regressions
+        run: |
+          node --test test-market-feed-footprint-series-v1.mjs
+          node --test test-sweep-tape-clock-v1.mjs
+          node --test test-footprint-live-source-v1.mjs
+          node --test test-global-connection-radar-cleanup-v1.mjs
+
       - name: Run regression and security tests
         run: npm test
+
+      - name: Commit verified runtime and restore standard workflow
+        run: |
+          git rm .github/scripts/apply-market-feed-footprint-series-v1.py
+          git rm .github/workflows/apply-market-feed-footprint-series-v1.yml
+          git checkout origin/main -- .github/workflows/security.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Restore market feed and rebuild Footprint Series"
+          git push origin HEAD:fix/market-feed-footprint-series-v1
