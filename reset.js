@@ -1,6 +1,6 @@
 import { clearInPulsRuntime } from "./pwa-reset.js";
 
-const BUILD = "26-80-sweep-tape-clock-v1";
+const BUILD = "26-81-compact-series-trade-edge-v1";
 const WORKER_URL = `./sw.js?v=${BUILD}`;
 const APP_URL = `./?build=${BUILD}`;
 const button = document.getElementById("reset");

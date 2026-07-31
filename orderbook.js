@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-80-sweep-tape-clock-v1";
+import "./orderbook-flow-workspace.js?v=26-81-compact-series-trade-edge-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1413,7 +1413,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-80-sweep-tape-clock-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-81-compact-series-trade-edge-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1830,7 +1830,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-80-sweep-tape-clock-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-81-compact-series-trade-edge-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -1858,6 +1858,11 @@ const TAPE_TIME_SCALE_MAX = 300;
 const TAPE_TIME_SCALE_DEFAULT = 100;
 export const TAPE_SWEEP_MAX_GAP_MS = 35;
 export const TAPE_SWEEP_MAX_REVERSE_TICKS = 1;
+export const TAPE_LIVE_EDGE_MAX_LEAD_MS = 1_200;
+export const TAPE_SWEEP_MIN_AGGREGATES = 2;
+const TAPE_SWEEP_MAX_DIRECTION_SPAN_PX = 34;
+const TAPE_SWEEP_LABEL_MIN_GAP_X = 6;
+const TAPE_SWEEP_LABEL_MIN_GAP_Y = 4;
 const TAPE_TIMELINE_CACHE_LIMIT = 240;
 const DENSITY_AGE_VISIBLE_KEY = "inpuls-density-age-visible-v1";
 export const TAPE_AGGREGATION_PERIOD_MS = 0;
@@ -3456,24 +3461,37 @@ export function advanceWaterTapeClock(
   return Math.max(previous, corrected);
 }
 
-export function advanceTapeDisplayClock(previousEnd, previousAt, wallNow, nowPerf) {
+export function advanceTapeDisplayClock(
+  previousEnd,
+  previousAt,
+  latestTradeTime,
+  wallNow,
+  nowPerf,
+) {
+  const latest = Number(latestTradeTime);
   const wall = Number(wallNow);
   const now = Number(nowPerf);
-  if (!Number.isFinite(wall) || !Number.isFinite(now)) return null;
+  if (![latest, wall, now].every(Number.isFinite)) return null;
+  const desired = Math.max(
+    latest + 1,
+    Math.min(wall, latest + TAPE_LIVE_EDGE_MAX_LEAD_MS),
+  );
   const hasPrevious = previousEnd !== null
     && previousEnd !== undefined
     && Number.isFinite(Number(previousEnd));
-  if (!hasPrevious) return wall;
+  if (!hasPrevious) return desired;
   const previous = Number(previousEnd);
+  if (Math.abs(desired - previous) > TAPE_LIVE_EDGE_MAX_LEAD_MS * 2) return desired;
   const previousPerf = Number(previousAt);
   const elapsed = Number.isFinite(previousPerf)
     ? Math.max(0, Math.min(250, now - previousPerf))
     : 0;
-  const predicted = previous + elapsed;
-  const error = wall - predicted;
-  const alpha = 1 - Math.exp(-Math.max(1, elapsed) / 240);
-  const correction = clampTape(error * alpha, -4, 4);
-  return Math.max(previous, predicted + correction);
+  if (elapsed <= 0 || Math.abs(desired - previous) <= .5) return desired;
+  const alpha = 1 - Math.exp(-elapsed / 90);
+  const next = previous + (desired - previous) * alpha;
+  return desired >= previous
+    ? Math.min(desired, Math.max(previous, next))
+    : Math.max(desired, Math.min(previous, next));
 }
 
 export function tapeSecondsForScale(width, scalePercent = TAPE_TIME_SCALE_DEFAULT) {
@@ -3786,11 +3804,13 @@ export function aggregateTapeSweeps(
     current.durationMs = Math.max(0, current.lastTime - current.firstTime);
     current.time = current.firstTime + current.durationMs / 2;
     current.eventTime = current.time;
-    current.price = current.firstPrice;
+    current.labelPrice = current.lastPrice;
+    current.price = current.lastPrice;
+    current.kind = "sweep";
     const ordinalKey = Math.round(current.time);
     current.timeOrdinal = ordinalByTime.get(ordinalKey) ?? 0;
     ordinalByTime.set(ordinalKey, current.timeOrdinal + 1);
-    groupsOut.push(current);
+    if (current.aggregateCount >= TAPE_SWEEP_MIN_AGGREGATES) groupsOut.push(current);
     current = null;
   };
 
@@ -3866,7 +3886,7 @@ export function materializeTapeSweeps(state, groups, output = []) {
       output.push(Object.freeze({
         ...group,
         status: "open",
-        showLabel: stableTapeQuoteStrength(group.quote) >= .52,
+        showLabel: stableTapeQuoteStrength(group.quote) >= .66 || Number(group.aggregateCount) >= 4,
       }));
       continue;
     }
@@ -3876,7 +3896,7 @@ export function materializeTapeSweeps(state, groups, output = []) {
         ...group,
         status: "sealed",
         sealedAt: Number(groups[index + 1]?.firstTime ?? group.lastTime),
-        showLabel: stableTapeQuoteStrength(group.quote) >= .52,
+        showLabel: stableTapeQuoteStrength(group.quote) >= .66 || Number(group.aggregateCount) >= 4,
       });
       state.sweepSnapshots.set(group.key, snapshot);
     }
@@ -4071,6 +4091,8 @@ function rawTapeMarkerBucket(strength, buy) {
 }
 
 export function aggregateLabelPrice(item) {
+  const explicit = Number(item?.labelPrice);
+  if (Number.isFinite(explicit)) return explicit;
   const minimum = Number(item?.minPrice);
   const maximum = Number(item?.maxPrice);
   if (Number.isFinite(minimum) && Number.isFinite(maximum)) return (minimum + maximum) / 2;
@@ -4165,6 +4187,130 @@ function drawAggregatePriceRange(
   context.strokeStyle = stroke;
   context.stroke();
   return true;
+}
+
+function drawSweepDirection(
+  context,
+  viewport,
+  item,
+  x,
+  buy,
+  stroke,
+  strength,
+  openAggregate = false,
+) {
+  const lowPrice = Number(viewport?.lowPrice);
+  const highPrice = Number(viewport?.highPrice);
+  const firstPrice = Number(item?.firstPrice);
+  const lastPrice = Number(item?.lastPrice);
+  if (![lowPrice, highPrice, firstPrice, lastPrice].every(Number.isFinite)) return false;
+  const start = projectTapePrice(viewport, clampTape(firstPrice, lowPrice, highPrice));
+  const end = projectTapePrice(viewport, clampTape(lastPrice, lowPrice, highPrice));
+  if (!start || !end) return false;
+  const delta = end.y - start.y;
+  const maximumSpan = clampTape(
+    (Number(viewport?.rowHeight) || 1) * 4.2,
+    12,
+    TAPE_SWEEP_MAX_DIRECTION_SPAN_PX,
+  );
+  const fromY = Math.abs(delta) > maximumSpan
+    ? end.y - Math.sign(delta || (buy ? -1 : 1)) * maximumSpan
+    : start.y;
+  const toY = end.y;
+  const direction = Math.sign(toY - fromY) || (buy ? -1 : 1);
+
+  context.save();
+  context.globalAlpha = openAggregate ? .52 : .76;
+  context.strokeStyle = stroke;
+  context.fillStyle = stroke;
+  context.lineWidth = clampTape(.85 + strength * .45, .85, 1.45);
+  context.beginPath();
+  context.moveTo(x, fromY);
+  context.lineTo(x, toY);
+  context.stroke();
+  context.beginPath();
+  context.moveTo(x, toY);
+  context.lineTo(x - 2.6, toY - direction * 4.2);
+  context.lineTo(x + 2.6, toY - direction * 4.2);
+  context.closePath();
+  context.fill();
+  context.restore();
+  return true;
+}
+
+function drawAggregateMotion(
+  context,
+  viewport,
+  item,
+  x,
+  buy,
+  stroke,
+  strength,
+  sweepMode,
+  openAggregate = false,
+) {
+  return sweepMode
+    ? drawSweepDirection(context, viewport, item, x, buy, stroke, strength, openAggregate)
+    : drawAggregatePriceRange(context, viewport, item, x, buy, stroke, strength, openAggregate);
+}
+
+export function selectSweepLabelKeys(
+  projectedItems,
+  window,
+  plotRight,
+  measureText = (label) => String(label).length * 5,
+) {
+  const right = Math.max(1, Number(plotRight) || 1);
+  const candidates = [];
+  for (const projected of projectedItems ?? []) {
+    const item = projected?.source;
+    const y = Number(projected?.position?.y);
+    if (!item?.showLabel || !Number.isFinite(y)) continue;
+    const label = formatTapeUsd(item.quote);
+    const measured = Math.max(0, Number(measureText(label)) || 0);
+    const strength = stableTapeQuoteStrength(item.quote);
+    const height = clampTape(7 + strength * 5, 7, 14);
+    const width = clampTape(measured + 10, 20, Math.min(84, right * .28));
+    const baseX = tapeTimeX(item.time, window, right);
+    const x = aggregateStableX(baseX, item.timeOrdinal, width, right);
+    candidates.push({
+      key: item.key,
+      x,
+      y,
+      width,
+      height,
+      quote: Number(item.quote) || 0,
+      aggregateCount: Number(item.aggregateCount) || 0,
+      time: Number(item.time) || 0,
+      open: item.status === "open",
+    });
+  }
+
+  candidates.sort((left, rightItem) => {
+    if (left.open !== rightItem.open) return left.open ? -1 : 1;
+    if (left.quote !== rightItem.quote) return rightItem.quote - left.quote;
+    if (left.aggregateCount !== rightItem.aggregateCount) {
+      return rightItem.aggregateCount - left.aggregateCount;
+    }
+    return rightItem.time - left.time;
+  });
+
+  const maximumLabels = Math.max(4, Math.min(22, Math.floor(right / 38)));
+  const accepted = [];
+  const keys = new Set();
+  for (const candidate of candidates) {
+    if (accepted.length >= maximumLabels) break;
+    const overlaps = accepted.some((placed) => (
+      Math.abs(candidate.x - placed.x)
+        < (candidate.width + placed.width) / 2 + TAPE_SWEEP_LABEL_MIN_GAP_X
+      && Math.abs(candidate.y - placed.y)
+        < (candidate.height + placed.height) / 2 + TAPE_SWEEP_LABEL_MIN_GAP_Y
+    ));
+    if (overlaps) continue;
+    accepted.push(candidate);
+    keys.add(candidate.key);
+  }
+  return keys;
 }
 
 function drawRawTapeMarkerBatches(context, batches) {
@@ -4312,6 +4458,7 @@ function drawTapeCard(card) {
   const endTime = advanceTapeDisplayClock(
     state.clockEndTime,
     state.clockPerfAt,
+    latestTime,
     Date.now(),
     perfNow,
   );
@@ -4426,6 +4573,14 @@ function drawTapeCard(card) {
   const rawMarkerBatches = state.mode === "raw" && minQuote === 0
     ? prepareRawTapeMarkerBatches(state)
     : null;
+  const sweepLabelKeys = state.mode === "sweep"
+    ? selectSweepLabelKeys(
+      items,
+      window,
+      window.plotRight,
+      (label) => context.measureText(label).width,
+    )
+    : null;
 
   for (const projected of items) {
     const item = projected.source;
@@ -4469,11 +4624,13 @@ function drawTapeCard(card) {
       continue;
     }
 
-    const showLabel = minQuote > 0 || Boolean(item.showLabel);
-    const openAggregate = item.status === "open";
     const sweepMode = state.mode === "sweep";
+    const showLabel = sweepMode
+      ? Boolean(sweepLabelKeys?.has(item.key))
+      : minQuote > 0 || Boolean(item.showLabel);
+    const openAggregate = item.status === "open";
     const label = formatTapeUsd(item.quote);
-    const diameter = clampTape(4 + strength * 6 + (sweepMode ? 1.5 : 0), 4, sweepMode ? 14 : 12);
+    const diameter = clampTape(4 + strength * (sweepMode ? 5 : 6), 4, sweepMode ? 11 : 12);
     if (!showLabel) {
       const x = aggregateStableX(
         baseX,
@@ -4482,7 +4639,7 @@ function drawTapeCard(card) {
         window.plotRight,
       );
       drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);
-      drawAggregatePriceRange(
+      drawAggregateMotion(
         context,
         state.priceViewport,
         item,
@@ -4490,6 +4647,7 @@ function drawTapeCard(card) {
         buy,
         stroke,
         strength,
+        sweepMode,
         openAggregate,
       );
       context.beginPath();
@@ -4503,8 +4661,8 @@ function drawTapeCard(card) {
     }
 
     const measured = context.measureText(label).width;
-    const height = clampTape(7 + strength * 6 + (sweepMode ? 1.5 : 0), 7, sweepMode ? 16 : 14);
-    const width = clampTape(measured + 9 + (sweepMode ? 4 : 0), 18, Math.min(92, rect.width * .28));
+    const height = clampTape(7 + strength * (sweepMode ? 5 : 6), 7, sweepMode ? 14 : 14);
+    const width = clampTape(measured + 9 + (sweepMode ? 1 : 0), 18, Math.min(sweepMode ? 84 : 92, rect.width * .28));
     const x = aggregateStableX(
       baseX,
       item.timeOrdinal,
@@ -4512,7 +4670,7 @@ function drawTapeCard(card) {
       window.plotRight,
     );
     drawAggregateAnchor(context, baseX, x, y, stroke, openAggregate);
-    drawAggregatePriceRange(
+    drawAggregateMotion(
       context,
       state.priceViewport,
       item,
@@ -4520,6 +4678,7 @@ function drawTapeCard(card) {
       buy,
       stroke,
       strength,
+      sweepMode,
       openAggregate,
     );
     roundedRectPath(context, x - width / 2, y - height / 2, width, height, height * .28);
