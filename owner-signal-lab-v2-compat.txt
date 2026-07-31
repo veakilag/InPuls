@@ -1,0 +1,3 @@
+OWNER SIGNAL LAB V2
+Проверь паттерн на графике и результат
+owner-signal-lab-guard.js
