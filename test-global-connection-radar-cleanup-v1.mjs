@@ -11,6 +11,9 @@ test("global market feed uses the supported raw subscription endpoint", async ()
   assert.match(app, /socket\.readyState !== WebSocket\.CONNECTING/);
   assert.match(app, /Binance не отвечает/);
   assert.match(app, /clearTimeout\(this\.connectionTimer\)/);
+  assert.match(app, /socket\.addEventListener\("open",/);
+  assert.match(app, /setConnection\("online", "Онлайн"\)/);
+  assert.match(app, /this\.#send\("SUBSCRIBE", \["!miniTicker@arr"/);
 });
 
 test("Event Radar Beta assets are removed from runtime and PWA cache", async () => {
