@@ -20,10 +20,10 @@ helper = '''function footprintBookVolumeTextStyle(state, theme) {
 if flow.count(helper) != 1:
     raise RuntimeError(f"Expected one footprint style helper, got {flow.count(helper)}")
 flow = flow.replace(helper, "", 1)
-anchor = "function observeFlowViewport() {"
+anchor = 'import { observability } from "./observability.js?v=render-scheduler-v1";\n'
 if flow.count(anchor) != 1:
-    raise RuntimeError(f"Expected one viewport anchor, got {flow.count(anchor)}")
-flow = flow.replace(anchor, helper + anchor, 1)
+    raise RuntimeError(f"Expected one observability import anchor, got {flow.count(anchor)}")
+flow = flow.replace(anchor, anchor + "\n" + helper, 1)
 flow_path.write_text(flow, encoding="utf-8")
 
 test_path = Path("test/tape-runtime.test.js")
