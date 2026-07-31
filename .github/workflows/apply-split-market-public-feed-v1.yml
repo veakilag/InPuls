@@ -24,37 +24,58 @@ jobs:
         with:
           node-version: 22
 
-      - name: Apply recovery
-        run: python .github/scripts/apply-split-market-public-feed-v1.py
-
-      - name: Syntax checks
+      - name: Apply, verify and commit
+        shell: bash
         run: |
-          node --check app.js
-          node --check binance-stream-routing.js
-          node --check chart.js
-          node --check orderbook-worker.js
-          node --check orderbook.js
-          node --check orderbook-flow-workspace.js
-          node --check sw.js
+          set +e
+          : > /tmp/split-feed-run.log
+          run_step() {
+            echo "\n===== $1 =====" | tee -a /tmp/split-feed-run.log
+            shift
+            "$@" 2>&1 | tee -a /tmp/split-feed-run.log
+            return ${PIPESTATUS[0]}
+          }
 
-      - name: Focused regressions
-        run: |
-          node --test test-global-connection-radar-cleanup-v1.mjs
-          node --test test-market-feed-footprint-series-v1.mjs
-          node --test test-footprint-live-source-v1.mjs
-          node --test test-parallel-chart-phasing-v1.mjs
-          node --test test-orderbook-runtime-stability.mjs
-          node --test test-orderbook-flow-workspace.mjs
+          status=0
+          run_step "Apply recovery" python .github/scripts/apply-split-market-public-feed-v1.py || status=$?
 
-      - name: Full test suite
-        run: npm test
+          if [ "$status" -eq 0 ]; then
+            run_step "Syntax app" node --check app.js || status=$?
+            run_step "Syntax routing" node --check binance-stream-routing.js || status=$?
+            run_step "Syntax chart" node --check chart.js || status=$?
+            run_step "Syntax worker" node --check orderbook-worker.js || status=$?
+            run_step "Syntax orderbook" node --check orderbook.js || status=$?
+            run_step "Syntax flow" node --check orderbook-flow-workspace.js || status=$?
+            run_step "Syntax service worker" node --check sw.js || status=$?
+          fi
 
-      - name: Commit verified implementation
-        run: |
-          git rm .github/scripts/apply-split-market-public-feed-v1.py
-          git rm .github/workflows/apply-split-market-public-feed-v1.yml
+          if [ "$status" -eq 0 ]; then
+            run_step "Focused global feed" node --test test-global-connection-radar-cleanup-v1.mjs || status=$?
+            run_step "Focused market feed" node --test test-market-feed-footprint-series-v1.mjs || status=$?
+            run_step "Focused footprint" node --test test-footprint-live-source-v1.mjs || status=$?
+            run_step "Focused chart phasing" node --test test-parallel-chart-phasing-v1.mjs || status=$?
+            run_step "Focused orderbook runtime" node --test test-orderbook-runtime-stability.mjs || status=$?
+            run_step "Focused flow workspace" node --test test-orderbook-flow-workspace.mjs || status=$?
+          fi
+
+          if [ "$status" -eq 0 ]; then
+            run_step "Full test suite" npm test || status=$?
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ "$status" -ne 0 ]; then
+            cp /tmp/split-feed-run.log split-feed-migration-failure.log
+            git rm .github/workflows/apply-split-market-public-feed-v1.yml
+            git add split-feed-migration-failure.log
+            git commit -m "Capture split feed migration failure"
+            git push origin HEAD:fix/split-market-public-feed-v1
+            exit "$status"
+          fi
+
+          git rm .github/scripts/apply-split-market-public-feed-v1.py
+          git rm .github/workflows/apply-split-market-public-feed-v1.yml
           git add -A
           git commit -m "Restore split Binance feeds and smooth parallel charts"
           git push origin HEAD:fix/split-market-public-feed-v1
