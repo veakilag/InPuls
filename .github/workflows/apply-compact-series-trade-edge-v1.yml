@@ -46,34 +46,44 @@ jobs:
           python tools/apply_compact_series_trade_edge_v1.py
           python - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path("orderbook.js")
           text = path.read_text(encoding="utf-8")
-          old = '''    drawAggregatePriceRange(
-              context,
-              state.priceViewport,
-              item,
-              x,
-              buy,
-              stroke,
-              strength,
-              openAggregate,
-            );'''
-          new = '''    drawAggregateMotion(
-              context,
-              state.priceViewport,
-              item,
-              x,
-              buy,
-              stroke,
-              strength,
-              sweepMode,
-              openAggregate,
-            );'''
-          count = text.count(old)
+          pattern = re.compile(
+              r'(?m)^(\s{4})drawAggregatePriceRange\(\n'
+              r'(\s{6})context,\n'
+              r'\2state\.priceViewport,\n'
+              r'\2item,\n'
+              r'\2x,\n'
+              r'\2buy,\n'
+              r'\2stroke,\n'
+              r'\2strength,\n'
+              r'\2openAggregate,\n'
+              r'\1\);'
+          )
+
+          def replacement(match):
+              outer = match.group(1)
+              inner = match.group(2)
+              return (
+                  f"{outer}drawAggregateMotion(\n"
+                  f"{inner}context,\n"
+                  f"{inner}state.priceViewport,\n"
+                  f"{inner}item,\n"
+                  f"{inner}x,\n"
+                  f"{inner}buy,\n"
+                  f"{inner}stroke,\n"
+                  f"{inner}strength,\n"
+                  f"{inner}sweepMode,\n"
+                  f"{inner}openAggregate,\n"
+                  f"{outer});"
+              )
+
+          text, count = pattern.subn(replacement, text, count=1)
           if count != 1:
               raise SystemExit(f"labelled aggregate motion call: expected 1 match, got {count}")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          path.write_text(text, encoding="utf-8")
           PY
           python tools/apply_series_label_declutter_v1.py
 
