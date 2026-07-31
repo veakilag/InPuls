@@ -27,6 +27,7 @@ test("Signal Lab V3 stays a separate noindex owner page with its own public-mark
   assert.match(ownerHtml, /name="robots" content="noindex,nofollow,noarchive"/);
   assert.match(ownerHtml, /owner-signal-lab-v3\.js/);
   assert.match(ownerRuntime, /new SignalLabV3Collector/);
-  assert.match(ownerRuntime, /candidate-not-trade-signal|Сначала собрать/);
+  assert.match(ownerHtml, /Сначала собрать — потом доказать паттерн/);
+  assert.match(ownerHtml, /не команда на сделку/);
   assert.doesNotMatch(ownerHtml, /api[_-]?key|secret|private[_-]?key/i);
 });
