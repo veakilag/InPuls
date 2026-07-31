@@ -5,7 +5,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-81-compact-series-trade-edge-v1";
+import "./orderbook-flow-workspace.js?v=26-82-smooth-live-clock-series-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1413,7 +1413,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-81-compact-series-trade-edge-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-82-smooth-live-clock-series-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1830,7 +1830,7 @@ export class OrderBookFeed {
   }
 }
 
-const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-81-compact-series-trade-edge-v1";
+const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-82-smooth-live-clock-series-v1";
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
@@ -1848,7 +1848,7 @@ const TAPE_CLOCK_CORRECTION_TAU_MS = 120;
 const TAPE_VIEWPORT_SAMPLE_MS = 50;
 const RAW_TAPE_MARKER_BUCKETS = 8;
 const TAPE_STALE_NOTICE_MS = 3_000;
-const TAPE_STATE_REFRESH_MS = 1_000;
+const TAPE_STATUS_IDLE_REFRESH_MS = 5_000;
 const TAPE_FREEZE_AFTER_MS = 2_500;
 const TAPE_MODE_KEY = "inpuls-tape-mode-v2";
 const TAPE_MIN_FILTER_KEY = "inpuls-tape-min-filter-v3";
@@ -1858,9 +1858,12 @@ const TAPE_TIME_SCALE_MAX = 300;
 const TAPE_TIME_SCALE_DEFAULT = 100;
 export const TAPE_SWEEP_MAX_GAP_MS = 35;
 export const TAPE_SWEEP_MAX_REVERSE_TICKS = 1;
-export const TAPE_LIVE_EDGE_MAX_LEAD_MS = 1_200;
+export const TAPE_CLOCK_FUTURE_TOLERANCE_MS = 250;
+// Backward-compatible export for existing consumers; the clock is no longer
+// anchored to the last trade.
+export const TAPE_LIVE_EDGE_MAX_LEAD_MS = TAPE_CLOCK_FUTURE_TOLERANCE_MS;
 export const TAPE_SWEEP_MIN_AGGREGATES = 2;
-const TAPE_SWEEP_MAX_DIRECTION_SPAN_PX = 34;
+const TAPE_SWEEP_MAX_DIRECTION_SPAN_PX = 52;
 const TAPE_SWEEP_LABEL_MIN_GAP_X = 6;
 const TAPE_SWEEP_LABEL_MIN_GAP_Y = 4;
 const TAPE_TIMELINE_CACHE_LIMIT = 240;
@@ -3270,7 +3273,9 @@ function staleTradeSuffix(symbol) {
   if (!lastAt) return "";
   const age = Date.now() - lastAt;
   if (age < TAPE_STALE_NOTICE_MS) return "";
-  return ` · данные ${Math.max(1, Math.floor(age / 1_000))}с назад`;
+  // Keep the status stable. A changing "N seconds ago" DOM string caused a
+  // synchronous style/layout update on every exact second boundary.
+  return " · поток без новых сделок";
 }
 
 function visibleBookRows(card, flow) {
@@ -3472,26 +3477,28 @@ export function advanceTapeDisplayClock(
   const wall = Number(wallNow);
   const now = Number(nowPerf);
   if (![latest, wall, now].every(Number.isFinite)) return null;
+
+  // performance.timeOrigin + performance.now() is a smooth epoch clock. Keep it
+  // aligned with Date.now(), which also drives the site header, and fall back to
+  // the wall clock when a test/runtime supplies an unrelated performance epoch.
+  const origin = Number(globalThis.performance?.timeOrigin);
+  const monotonicWall = Number.isFinite(origin) ? origin + now : wall;
+  const displayWall = Math.abs(monotonicWall - wall) <= 1_500 ? monotonicWall : wall;
   const desired = Math.max(
-    latest + 1,
-    Math.min(wall, latest + TAPE_LIVE_EDGE_MAX_LEAD_MS),
+    displayWall,
+    Math.min(latest + 1, displayWall + TAPE_CLOCK_FUTURE_TOLERANCE_MS),
   );
+
   const hasPrevious = previousEnd !== null
     && previousEnd !== undefined
     && Number.isFinite(Number(previousEnd));
   if (!hasPrevious) return desired;
   const previous = Number(previousEnd);
-  if (Math.abs(desired - previous) > TAPE_LIVE_EDGE_MAX_LEAD_MS * 2) return desired;
-  const previousPerf = Number(previousAt);
-  const elapsed = Number.isFinite(previousPerf)
-    ? Math.max(0, Math.min(250, now - previousPerf))
-    : 0;
-  if (elapsed <= 0 || Math.abs(desired - previous) <= .5) return desired;
-  const alpha = 1 - Math.exp(-elapsed / 90);
-  const next = previous + (desired - previous) * alpha;
-  return desired >= previous
-    ? Math.min(desired, Math.max(previous, next))
-    : Math.max(desired, Math.min(previous, next));
+
+  // Never lag behind the site clock. A small previous lead can remain until the
+  // wall clock catches up, preventing a backward visual step after clock jitter.
+  if (desired >= previous) return desired;
+  return previous - desired <= TAPE_CLOCK_FUTURE_TOLERANCE_MS ? previous : desired;
 }
 
 export function tapeSecondsForScale(width, scalePercent = TAPE_TIME_SCALE_DEFAULT) {
@@ -3591,13 +3598,21 @@ function drawTapeTimeline(context, rect, window, state) {
 
   for (let time = firstTick; time < window.endTime; time += stepMs) {
     const x = tapeTimeX(time, window, rect.width);
-    if (x < 20 || x > right - 20) continue;
+    if (x < 20 || x > right - 54) continue;
     context.beginPath();
     context.moveTo(x, rect.height - 4);
     context.lineTo(x, rect.height);
     context.stroke();
     context.fillText(cachedTapeClockLabel(state, time), x, rect.height - 5);
   }
+
+  // The right edge is the same live epoch clock as the header, not the time of
+  // the last trade. This makes genuine market silence visible instead of faking
+  // a delayed timeline.
+  context.textAlign = "right";
+  context.fillStyle = "rgba(84, 227, 194, .92)";
+  context.font = "800 7px Inter, system-ui, sans-serif";
+  context.fillText(`${cachedTapeClockLabel(state, window.endTime)} LIVE`, right - 3, rect.height - 5);
 
   context.restore();
 }
@@ -3804,8 +3819,8 @@ export function aggregateTapeSweeps(
     current.durationMs = Math.max(0, current.lastTime - current.firstTime);
     current.time = current.firstTime + current.durationMs / 2;
     current.eventTime = current.time;
-    current.labelPrice = current.lastPrice;
-    current.price = current.lastPrice;
+    current.labelPrice = (current.firstPrice + current.lastPrice) / 2;
+    current.price = current.labelPrice;
     current.kind = "sweep";
     const ordinalKey = Math.round(current.time);
     current.timeOrdinal = ordinalByTime.get(ordinalKey) ?? 0;
@@ -3886,7 +3901,7 @@ export function materializeTapeSweeps(state, groups, output = []) {
       output.push(Object.freeze({
         ...group,
         status: "open",
-        showLabel: stableTapeQuoteStrength(group.quote) >= .66 || Number(group.aggregateCount) >= 4,
+        showLabel: stableTapeQuoteStrength(group.quote) >= .58 || Number(group.aggregateCount) >= 3,
       }));
       continue;
     }
@@ -3896,7 +3911,7 @@ export function materializeTapeSweeps(state, groups, output = []) {
         ...group,
         status: "sealed",
         sealedAt: Number(groups[index + 1]?.firstTime ?? group.lastTime),
-        showLabel: stableTapeQuoteStrength(group.quote) >= .66 || Number(group.aggregateCount) >= 4,
+        showLabel: stableTapeQuoteStrength(group.quote) >= .58 || Number(group.aggregateCount) >= 3,
       });
       state.sweepSnapshots.set(group.key, snapshot);
     }
@@ -4207,31 +4222,51 @@ function drawSweepDirection(
   const start = projectTapePrice(viewport, clampTape(firstPrice, lowPrice, highPrice));
   const end = projectTapePrice(viewport, clampTape(lastPrice, lowPrice, highPrice));
   if (!start || !end) return false;
-  const delta = end.y - start.y;
+
+  const rawDelta = end.y - start.y;
   const maximumSpan = clampTape(
-    (Number(viewport?.rowHeight) || 1) * 4.2,
-    12,
+    (Number(viewport?.rowHeight) || 1) * 6,
+    18,
     TAPE_SWEEP_MAX_DIRECTION_SPAN_PX,
   );
-  const fromY = Math.abs(delta) > maximumSpan
-    ? end.y - Math.sign(delta || (buy ? -1 : 1)) * maximumSpan
+  const fromY = Math.abs(rawDelta) > maximumSpan
+    ? end.y - Math.sign(rawDelta) * maximumSpan
     : start.y;
   const toY = end.y;
-  const direction = Math.sign(toY - fromY) || (buy ? -1 : 1);
+  const delta = toY - fromY;
+  const bodyWidth = clampTape(4.8 + strength * 2.6, 4.8, 8.4);
 
   context.save();
-  context.globalAlpha = openAggregate ? .52 : .76;
   context.strokeStyle = stroke;
-  context.fillStyle = stroke;
-  context.lineWidth = clampTape(.85 + strength * .45, .85, 1.45);
-  context.beginPath();
-  context.moveTo(x, fromY);
-  context.lineTo(x, toY);
+  context.fillStyle = buy
+    ? `rgba(42, 191, 137, ${openAggregate ? .25 : .38})`
+    : `rgba(222, 70, 87, ${openAggregate ? .26 : .40})`;
+  context.lineWidth = clampTape(.85 + strength * .35, .85, 1.35);
+
+  if (Math.abs(delta) < 3) {
+    roundedRectPath(context, x - 5, toY - 2.5, 10, 5, 2.5);
+    context.fill();
+    context.stroke();
+    context.restore();
+    return true;
+  }
+
+  const top = Math.min(fromY, toY);
+  const height = Math.max(6, Math.abs(delta));
+  roundedRectPath(context, x - bodyWidth / 2, top, bodyWidth, height, bodyWidth / 2);
+  context.fill();
   context.stroke();
+
+  const direction = Math.sign(delta);
+  context.globalAlpha = openAggregate ? .62 : .88;
   context.beginPath();
-  context.moveTo(x, toY);
-  context.lineTo(x - 2.6, toY - direction * 4.2);
-  context.lineTo(x + 2.6, toY - direction * 4.2);
+  context.arc(x, fromY, Math.max(1.4, bodyWidth * .24), 0, Math.PI * 2);
+  context.fillStyle = stroke;
+  context.fill();
+  context.beginPath();
+  context.moveTo(x, toY + direction * 1.2);
+  context.lineTo(x - bodyWidth * .62, toY - direction * 4.6);
+  context.lineTo(x + bodyWidth * .62, toY - direction * 4.6);
   context.closePath();
   context.fill();
   context.restore();
@@ -4295,7 +4330,7 @@ export function selectSweepLabelKeys(
     return rightItem.time - left.time;
   });
 
-  const maximumLabels = Math.max(4, Math.min(22, Math.floor(right / 38)));
+  const maximumLabels = Math.max(3, Math.min(10, Math.floor(right / 72)));
   const accepted = [];
   const keys = new Set();
   for (const candidate of candidates) {
@@ -5144,19 +5179,12 @@ function installOrderBookRuntime() {
     setTimeout(() => scheduleTapeDraw(false, card), 0);
   }, { capture: true, passive: true });
 
-  clearInterval(tapeStateTimer);
-  tapeStateTimer = setInterval(() => {
-    if (tapeDocumentHidden) return;
-    document.querySelectorAll(".orderbook-card").forEach((card) => {
-      const state = tapeCardStates.get(card);
-      if (!state) return;
-      if (state.densityAgeVisible) decorateDensityAges(card, state);
-      const symbol = cardSymbol(card);
-      const suffix = staleTradeSuffix(symbol);
-      if (suffix) setTapeState(state, `НЕТ НОВЫХ СДЕЛОК${suffix}`, "attention");
-      else if (state.status?.textContent?.startsWith("НЕТ НОВЫХ СДЕЛОК")) setTapeState(state, "");
-    });
-  }, TAPE_STATE_REFRESH_MS);
+  // No fixed one-second DOM heartbeat. Density ages already update from book
+  // events, while stale state is evaluated by the existing Canvas render loop
+  // and mutates the DOM only when the stable state actually changes.
+  clearTimeout(tapeStateTimer);
+  tapeStateTimer = 0;
+  void TAPE_STATUS_IDLE_REFRESH_MS;
 
   scheduleTapeDraw(true);
 }
