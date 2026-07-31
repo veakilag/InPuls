@@ -11,7 +11,7 @@ import {
   aggregateVisibleLabelPrice,
   advanceTapeDisplayClock,
   selectSweepLabelKeys,
-} from "./orderbook.js?v=26-84-readable-flow-smooth-charts-v1";
+} from "./orderbook.js?v=26-85-live-footprint-source-v1";
 
 const trade = (id, time, price, side, quantity = 1) => ({
   id,

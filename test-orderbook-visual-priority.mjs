@@ -125,8 +125,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-84-readable-flow-smooth-charts-v1/);
-  assert.match(app, /orderbook\.js\?v=26-84-readable-flow-smooth-charts-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-84-readable-flow-smooth-charts-v1/);
-  assert.match(sw, /26-84-readable-flow-smooth-charts-v1/);
+  assert.match(index, /26-85-live-footprint-source-v1/);
+  assert.match(app, /orderbook\.js\?v=26-85-live-footprint-source-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-85-live-footprint-source-v1/);
+  assert.match(sw, /26-85-live-footprint-source-v1/);
 });

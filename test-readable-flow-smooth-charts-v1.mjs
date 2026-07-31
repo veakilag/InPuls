@@ -7,8 +7,8 @@ import {
   selectTapeLabelKeys,
   tapeDisplayLabel,
   tapeVisualSizeQuote,
-} from "./orderbook.js?v=26-84-readable-flow-smooth-charts-v1";
-import { upsertLiveCandleInPlace } from "./chart.js?v=26-84-readable-flow-smooth-charts-v1";
+} from "./orderbook.js?v=26-85-live-footprint-source-v1";
+import { upsertLiveCandleInPlace } from "./chart.js?v=26-85-live-footprint-source-v1";
 
 const trade = (id, eventTime, receivedAt, price, side, quote) => ({
   id,
