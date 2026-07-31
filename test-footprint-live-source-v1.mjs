@@ -6,7 +6,7 @@ import {
   ingestFootprintTrades,
   normalizeFlowTrade,
   selectFootprintTapeTrades,
-} from "./orderbook-flow-workspace.js?v=26-85-live-footprint-source-v1";
+} from "./orderbook-flow-workspace.js?v=26-86-global-connection-radar-cleanup-v1";
 
 test("footprint buckets live trades by browser arrival time", () => {
   const normalized = normalizeFlowTrade({

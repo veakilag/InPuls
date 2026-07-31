@@ -5,7 +5,7 @@ import {
   aggregateTapeSweeps,
   aggregateTapeZeroMs,
   resolveTapeVisualTime,
-} from "./orderbook.js?v=26-85-live-footprint-source-v1";
+} from "./orderbook.js?v=26-86-global-connection-radar-cleanup-v1";
 
 const app = fs.readFileSync(new URL("./app.js", import.meta.url), "utf8");
 

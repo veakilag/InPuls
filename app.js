@@ -7,7 +7,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=26-65-structured-signal-collection-v1";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-85-live-footprint-source-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-86-global-connection-radar-cleanup-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -213,16 +213,26 @@ class BinanceFeed {
     this.trackedAggTrades = new Set();
     this.requestId = 1;
     this.manualClose = false;
+    this.connectionTimer = null;
   }
 
   connect() {
     clearTimeout(this.reconnectTimer);
+    clearTimeout(this.connectionTimer);
     this.manualClose = false;
     setConnection("connecting", "Подключение к Binance…");
-    const endpoint = "wss://fstream.binance.com/market/stream";
-    this.socket = new WebSocket(endpoint);
+    const endpoint = "wss://fstream.binance.com/ws";
+    const socket = new WebSocket(endpoint);
+    this.socket = socket;
+    this.connectionTimer = setTimeout(() => {
+      if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+      setConnection("offline", "Binance не отвечает");
+      socket.close();
+    }, 10_000);
 
-    this.socket.addEventListener("open", () => {
+    socket.addEventListener("open", () => {
+      if (this.socket !== socket) return;
+      clearTimeout(this.connectionTimer);
       this.reconnectAttempt = 0;
       state.connectedAt = Date.now();
       setConnection("online", "Онлайн");
@@ -232,7 +242,7 @@ class BinanceFeed {
       }
     });
 
-    this.socket.addEventListener("message", (event) => {
+    socket.addEventListener("message", (event) => {
       let payload;
       try {
         payload = JSON.parse(event.data);
@@ -244,15 +254,18 @@ class BinanceFeed {
       this.#handle(data);
     });
 
-    this.socket.addEventListener("close", () => {
-      if (this.manualClose) return;
+    socket.addEventListener("close", () => {
+      if (this.socket !== socket || this.manualClose) return;
+      clearTimeout(this.connectionTimer);
       this.reconnectAttempt += 1;
       const delay = Math.min(30_000, 1000 * 2 ** Math.min(this.reconnectAttempt, 5));
       setConnection("offline", `Переподключение через ${Math.round(delay / 1000)}с`);
       this.reconnectTimer = setTimeout(() => this.connect(), delay);
     });
 
-    this.socket.addEventListener("error", () => {
+    socket.addEventListener("error", () => {
+      if (this.socket !== socket) return;
+      clearTimeout(this.connectionTimer);
       setConnection("offline", "Ошибка потока");
     });
   }
@@ -856,21 +869,6 @@ function render() {
     (item) => item.quoteVolume24h >= state.settings.minTurnover24h,
   );
   state.lastMetrics = metrics;
-  const eventRadarMetrics = metrics.map((item) => {
-    const marketwideSignals = marketSizeScanner.signalsFor(item.symbol, now);
-    const cascade = detectMarketwideCascade(item);
-    return {
-      ...item,
-      signals: [
-        ...(Array.isArray(item.signals) ? item.signals : []),
-        ...marketwideSignals,
-        ...(cascade ? [cascade] : []),
-      ],
-    };
-  });
-  window.dispatchEvent(new CustomEvent("inpuls:event-radar-update", {
-    detail: { metrics: eventRadarMetrics, now, favorites: [...state.favorites] },
-  }));
   updateAlerts(metrics, now);
   if (observability.enabled) {
     observability.record("app.render.metrics", performance.now() - phaseStartedAt, {
@@ -2970,16 +2968,6 @@ function bindEvents() {
     else mountExtraChart(model);
   }
   applyWorkspaceLayout();
-  window.addEventListener("inpuls:event-radar-select", (event) => {
-    const symbol = normalizeUsdtPerpetualSymbol(event.detail?.symbol);
-    if (!symbol) return;
-    selectChartSymbol(symbol, true);
-    if (event.detail?.openOrderBook !== false) openOrderBookForSymbol(symbol);
-  });
-  window.addEventListener("inpuls:event-radar-favorite", (event) => {
-    const symbol = normalizeUsdtPerpetualSymbol(event.detail?.symbol);
-    if (symbol) toggleFavorite(symbol);
-  });
   els.comfortSlider.value = String(state.comfort);
   els.comfortSlider.addEventListener("input", () => {
     state.comfort = Number(els.comfortSlider.value);
@@ -3290,7 +3278,7 @@ updateClock();
 scheduleClockTick();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-85-live-footprint-source-v1";
+const INPULS_RUNTIME_BUILD = "26-86-global-connection-radar-cleanup-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

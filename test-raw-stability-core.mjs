@@ -322,7 +322,7 @@ test("browser lab stays isolated while production adds a guarded raw AGG channel
   assert.match(worker, /return \[`\$\{name\}@aggTrade`, `\$\{name\}@trade`\];/);
   assert.match(worker, /if \(aggregateEvent && this\.insertTrade\(trade, true\)\)/);
   assert.match(worker, /if \(decision\.emit && this\.insertAggregationTrade\(trade, true\)\)/);
-  assert.match(serviceWorker, /inpuls-26-85-live-footprint-source-v1/);
+  assert.match(serviceWorker, /inpuls-26-86-global-connection-radar-cleanup-v1/);
   assert.match(serviceWorker, /raw-stability-lab\.html/);
   assert.match(serviceWorker, /raw-stability-lab\.js\?v=3/);
   assert.match(serviceWorker, /raw-stability-core\.js\?v=3/);
