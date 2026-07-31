@@ -23,7 +23,8 @@ test("threshold filters markers while the path still uses every RAW trade", () =
   const painter = tapePainter();
   assert.match(painter, /const pathItems = projectWaterTapeNodes\([\s\S]*recentRaw/);
   assert.match(painter, /filterWaterTapeCandidates\([\s\S]*sourceItems,[\s\S]*minQuote/);
-  assert.match(painter, /const showLabel = sweepMode[\s\S]*\? Boolean\(sweepLabelKeys\?\.has\(item\.key\)\)[\s\S]*: minQuote > 0 \|\| Boolean\(item\.showLabel\)/);
+  assert.match(painter, /const aggLabelKeys = state\.mode === "agg"[\s\S]*forceLabels: minQuote > 0/);
+  assert.match(painter, /const showLabel = sweepMode[\s\S]*Boolean\(aggLabelKeys\?\.has\(item\.key\)\)/);
 });
 
 test("zero threshold no longer writes a label on every aggregate", () => {
