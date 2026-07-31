@@ -53,6 +53,12 @@ jobs:
           node --test test-orderbook-runtime-stability.mjs
           node --test test-orderbook-flow-workspace.mjs
 
+      - name: Inspect remaining regression source
+        run: |
+          find . -name 'test-global-market-feed.mjs' -print
+          sed -n '1,140p' test-global-market-feed.mjs
+          grep -n "class SymbolModel\|updateTrade" app.js | head -40
+
       - name: Full test suite
         run: npm test
 
