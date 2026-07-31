@@ -14,9 +14,10 @@ function tapePainter() {
   return orderbook.slice(start, end);
 }
 
-test("Tape keeps RAW default and AGG explicit", () => {
-  assert.match(orderbook, /mode: localStorage\.getItem\(TAPE_MODE_KEY\) === "agg" \? "agg" : "raw"/);
-  assert.match(orderbook, /button\.textContent = aggregated/);
+test("Tape keeps RAW default and AGG/SERIES explicit", () => {
+  assert.match(orderbook, /const savedMode = localStorage\.getItem\(TAPE_MODE_KEY\)/);
+  assert.match(orderbook, /mode: savedMode === "agg" \|\| savedMode === "sweep" \? savedMode : "raw"/);
+  assert.match(orderbook, /button\.textContent = mode === "agg" \? "AGG" : mode === "sweep" \? "СЕРИЯ" : "RAW"/);
   assert.match(orderbook, /TAPE_AGGREGATION_PERIOD_MS = 0/);
   assert.doesNotMatch(orderbook, /TAPE_AGGREGATION_LEVELS|data-inpuls-agg-step/);
 });
