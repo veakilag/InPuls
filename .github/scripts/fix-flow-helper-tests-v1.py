@@ -26,20 +26,31 @@ if flow.count(anchor) != 1:
 flow = flow.replace(anchor, anchor + "\n" + helper, 1)
 flow_path.write_text(flow, encoding="utf-8")
 
-old = '  assert.match(source, /state\\.context\\.font = "700 7px Arial, sans-serif";/);'
-new = '''  assert.match(source, /formatCompactUsd\\(cluster\\.quote\\)/);
-  assert.match(source, /footprintBookVolumeTextStyle\\(state, theme\\)/);
-  assert.match(source, /querySelector\\?\\.\\("\\.book-size"\\)/);'''
-matches = []
+test_name = "footprint uses one proportional dominance cell and interval candles"
+test_files = []
 for candidate in [*Path(".").rglob("*.js"), *Path(".").rglob("*.mjs")]:
     if ".git" in candidate.parts or ".github" in candidate.parts:
         continue
     source = candidate.read_text(encoding="utf-8")
-    if old in source:
-        matches.append((candidate, source))
-if len(matches) != 1:
-    raise RuntimeError(f"Expected one old footprint font assertion file, got {[str(path) for path, _ in matches]}")
-test_path, test_source = matches[0]
-test_path.write_text(test_source.replace(old, new, 1), encoding="utf-8")
+    if test_name in source:
+        test_files.append((candidate, source))
+if len(test_files) != 1:
+    raise RuntimeError(f"Expected one footprint runtime test file, got {[str(path) for path, _ in test_files]}")
+
+test_path, test_source = test_files[0]
+lines = test_source.splitlines()
+target_indexes = [
+    index for index, line in enumerate(lines)
+    if "state\\.context\\.font" in line and "700 7px Arial, sans-serif" in line
+]
+if len(target_indexes) != 1:
+    raise RuntimeError(f"Expected one hardcoded footprint font assertion in {test_path}, got {target_indexes}")
+index = target_indexes[0]
+lines[index:index + 1] = [
+    '  assert.match(source, /formatCompactUsd\\(cluster\\.quote\\)/);',
+    '  assert.match(source, /footprintBookVolumeTextStyle\\(state, theme\\)/);',
+    '  assert.match(source, /querySelector\\?\\.\\("\\.book-size"\\)/);',
+]
+test_path.write_text("\n".join(lines) + ("\n" if test_source.endswith("\n") else ""), encoding="utf-8")
 
 print(f"Fixed Flow helper placement and updated typography contract in {test_path}")
