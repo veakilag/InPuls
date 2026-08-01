@@ -1,5 +1,6 @@
 name: Apply core feed footprint runtime recovery
 
+# Authorized release trigger: apply, test and commit the verified runtime to this branch.
 on:
   push:
     branches:
