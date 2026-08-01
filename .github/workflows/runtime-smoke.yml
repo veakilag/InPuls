@@ -1,6 +1,7 @@
 name: Runtime smoke
 
 on:
+  pull_request:
   push:
     branches:
       - main
@@ -10,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: runtime-smoke-${{ github.ref }}
+  group: runtime-smoke-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
