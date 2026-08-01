@@ -1,5 +1,6 @@
 name: PR 104 browser smoke
 
+# Registered first, then triggered by this branch update.
 on:
   push:
     branches:
