@@ -25,8 +25,12 @@ assert.ok(sw.includes("runtime-boot-recovery.js"));
 assert.ok(sw.includes("binance-stream-routing.js"));
 assert.ok(boot.includes("serviceWorker"));
 assert.ok(boot.includes("caches.keys"));
+assert.ok(boot.includes("isInPulsRegistration"));
+assert.ok(boot.includes("scope.pathname === appScope.pathname"));
+assert.ok(boot.includes('url.searchParams.delete("_inpuls_reload")'));
 assert.ok(!boot.includes("localStorage.clear"));
 assert.ok(!boot.includes("indexedDB.deleteDatabase"));
+assert.ok(!boot.includes("registrations.map((registration) => registration.unregister())"));
 
 assert.deepEqual(buildBinanceChannelStreams("core"), ["!miniTicker@arr"]);
 assert.deepEqual(buildBinanceChannelStreams("public"), ["!bookTicker"]);
