@@ -1,0 +1,54 @@
+name: Apply REST bootstrap normalization fix
+
+on:
+  push:
+    branches:
+      - fix/core-feed-footprint-runtime-v1
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out recovery branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/core-feed-footprint-runtime-v1
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply guarded normalization patch
+        run: python .github/scripts/patch-rest-bootstrap-normalization-v1.py
+
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check binance-stream-routing.js
+          node --check sw.js
+
+      - name: Critical feed regressions
+        run: |
+          node --test test-core-feed-footprint-runtime-v1.mjs
+          node --test test-global-connection-radar-cleanup-v1.mjs
+          node --test test-market-feed-footprint-series-v1.mjs
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Commit verified fix
+        run: |
+          git rm -f .github/scripts/patch-rest-bootstrap-normalization-v1.py
+          git rm -f .github/workflows/apply-rest-bootstrap-normalization-v1.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Normalize REST market bootstrap payload"
+          git push origin HEAD:fix/core-feed-footprint-runtime-v1
