@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; worker-src 'self'; connect-src 'self'" />
+    <meta name="referrer" content="no-referrer" />
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+    <title>Восстановление InPuls</title>
+    <style>
+      html,body{height:100%;margin:0;background:#090b0e;color:#eef4f1;font:15px/1.5 system-ui,sans-serif}body{display:grid;place-items:center}.card{width:min(480px,calc(100% - 32px));padding:28px;border:1px solid #27322e;border-radius:16px;background:#101619;text-align:center;box-shadow:0 18px 70px #0008}.pulse{width:14px;height:14px;margin:0 auto 16px;border-radius:50%;background:#42e7a5;box-shadow:0 0 28px #42e7a5;animation:p .8s infinite alternate}@keyframes p{to{opacity:.3;transform:scale(.78)}}h1{margin:0 0 8px;font-size:20px}p{margin:8px 0;color:#aebbb5}strong{color:#d8ffec}button{display:none;width:100%;margin-top:18px;padding:12px;border:0;border-radius:10px;background:#42e7a5;color:#06110d;font:inherit;font-weight:800;cursor:pointer}.error button{display:block}
+    </style>
+  </head>
+  <body>
+    <main id="card" class="card">
+      <div class="pulse" aria-hidden="true"></div>
+      <h1>Восстанавливаю InPuls</h1>
+      <p id="status">Удаляю только старый Service Worker и кеши InPuls…</p>
+      <p><strong>Настройки, рабочее поле и история Signal Lab сохранятся.</strong></p>
+      <button id="retry" type="button">Повторить восстановление</button>
+    </main>
+    <script src="./rescue-26-94.js?v=26-94-runtime-rescue-v2"></script>
+  </body>
+</html>
