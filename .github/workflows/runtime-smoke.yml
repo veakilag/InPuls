@@ -1,0 +1,50 @@
+name: Runtime smoke
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out current revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Start local static server
+        run: |
+          python3 -m http.server 4173 > /tmp/inpuls-http.log 2>&1 &
+          echo $! > /tmp/inpuls-http.pid
+          for attempt in {1..40}; do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then exit 0; fi
+            sleep 0.25
+          done
+          cat /tmp/inpuls-http.log
+          exit 1
+
+      - name: Local browser startup smoke
+        env:
+          CHROME_BIN: google-chrome
+        run: node scripts/browser-runtime-smoke.mjs "http://127.0.0.1:4173/?smoke=${GITHUB_SHA}"
+
+      - name: Production browser startup smoke
+        env:
+          CHROME_BIN: google-chrome
+        run: node scripts/browser-runtime-smoke.mjs "https://veakilag.github.io/InPuls/?smoke=${GITHUB_SHA}"
