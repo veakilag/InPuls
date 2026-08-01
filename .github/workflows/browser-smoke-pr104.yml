@@ -50,10 +50,11 @@ jobs:
           import { chromium } from "playwright";
 
           const APP_URL = "http://127.0.0.1:4173/";
+          const tickerNow = Date.now();
           const restRows = [
             {
               symbol: "BTCUSDT",
-              closeTime: 1_725_000_000_000,
+              closeTime: tickerNow,
               lastPrice: "64000.50",
               openPrice: "62500.00",
               highPrice: "64500.00",
@@ -63,7 +64,7 @@ jobs:
             },
             {
               symbol: "ETHUSDT",
-              closeTime: 1_725_000_000_000,
+              closeTime: tickerNow,
               lastPrice: "3500.25",
               openPrice: "3400.00",
               highPrice: "3550.00",
@@ -87,7 +88,22 @@ jobs:
             const context = await browser.newContext({ serviceWorkers: "block" });
             const page = await context.newPage();
             const pageErrors = [];
+            const consoleMessages = [];
+            const networkEvents = [];
             page.on("pageerror", (error) => pageErrors.push(String(error?.stack || error)));
+            page.on("console", (message) => consoleMessages.push(`${message.type()}: ${message.text()}`));
+            page.on("request", (request) => {
+              const url = request.url();
+              if (url.includes("binance.com")) networkEvents.push(`request ${url}`);
+            });
+            page.on("requestfailed", (request) => {
+              const url = request.url();
+              if (url.includes("binance.com")) networkEvents.push(`failed ${url} ${request.failure()?.errorText || ""}`);
+            });
+            page.on("response", (response) => {
+              const url = response.url();
+              if (url.includes("binance.com")) networkEvents.push(`response ${response.status()} ${url}`);
+            });
             await page.routeWebSocket(/wss:\/\/fstream\.binance\.com\/.*/, (socket) => socket.close());
             for (const host of ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"]) {
               await page.route(`https://${host}/**`, async (route) => {
@@ -116,16 +132,31 @@ jobs:
               }
             });
 
-            await poll(
-              async () => (await page.locator("#market-body tr").count()) >= 2,
-              20_000,
-              "two normalized market rows"
-            );
-            await poll(
-              () => page.evaluate(() => (globalThis.__inpulsStatusHistory || []).some((value) => value.includes("REST-резерв"))),
-              15_000,
-              "REST fallback status"
-            );
+            try {
+              await poll(
+                async () => (await page.locator("#market-body tr").count()) >= 2,
+                20_000,
+                "two normalized market rows"
+              );
+              await poll(
+                () => page.evaluate(() => (globalThis.__inpulsStatusHistory || []).some((value) => value.includes("REST-резерв"))),
+                15_000,
+                "REST fallback status"
+              );
+            } catch (error) {
+              const diagnostic = await page.evaluate(() => ({
+                readyState: document.readyState,
+                build: document.querySelector('meta[name="inpuls-build"]')?.content || "",
+                status: document.querySelector("#connection-text")?.textContent?.trim() || "",
+                statusHistory: globalThis.__inpulsStatusHistory || [],
+                rows: document.querySelectorAll("#market-body tr").length,
+                topText: document.querySelector("#top-list")?.textContent?.trim() || "",
+                inplay: document.querySelector("#inplay-coins")?.textContent?.trim() || "",
+                scripts: [...document.scripts].map((script) => script.src || "inline")
+              }));
+              console.log("BROWSER_SMOKE_DIAGNOSTIC", JSON.stringify({ diagnostic, pageErrors, consoleMessages, networkEvents }));
+              throw error;
+            }
 
             const firstState = await page.evaluate(() => {
               globalThis.__inpulsFirstMarketRow = document.querySelector("#market-body tr");
