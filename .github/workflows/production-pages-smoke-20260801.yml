@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - diag/production-pages-smoke-20260801
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
