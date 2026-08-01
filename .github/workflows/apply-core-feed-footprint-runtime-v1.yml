@@ -52,15 +52,19 @@ jobs:
           node --test test-parallel-chart-phasing-v1.mjs
           node --test test-orderbook-runtime-stability.mjs
           node --test test-orderbook-flow-workspace.mjs
+          node --test test-orderbook-visual-priority.mjs
 
-      - name: Capture exact full-suite failure
+      - name: Full test suite
+        run: npm test
+
+      - name: Commit verified runtime
+        if: github.event_name != 'pull_request'
         run: |
-          set +e
-          node --test --test-concurrency=1 > /tmp/full-test.log 2>&1
-          status=$?
-          set -e
-          printf '%s\n' '--- exact failing tests ---'
-          grep -n -B8 -A30 '^not ok' /tmp/full-test.log || true
-          printf '%s\n' '--- matching source text ---'
-          grep -R -n --include='*.mjs' "SymbolModel trade windows\|model.updateTrade" . || true
-          exit ${status:-1}
+          git rm .github/scripts/apply-core-feed-footprint-runtime-v1.py
+          git rm .github/scripts/patch-core-feed-migration-anchor-v1.py
+          git rm .github/workflows/apply-core-feed-footprint-runtime-v1.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Recover core market feed and Footprint runtime"
+          git push origin HEAD:fix/core-feed-footprint-runtime-v1
