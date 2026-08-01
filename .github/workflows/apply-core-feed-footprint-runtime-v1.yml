@@ -53,10 +53,18 @@ jobs:
           node --test test-orderbook-runtime-stability.mjs
           node --test test-orderbook-flow-workspace.mjs
 
-      - name: Print exact remaining regression
+      - name: Capture full-suite generated fixture
         run: |
-          printf '%s\n' '--- test lines 118-150 ---'
-          sed -n '118,150p' test-global-market-feed-routing.mjs
-          printf '%s\n' '--- engine export and updateTrade ---'
-          grep -n "export class SymbolState\|updateTrade" engine.js | head -10
-          exit 1
+          set +e
+          node --test --test-concurrency=1 > /tmp/full-test.log 2>&1
+          status=$?
+          set -e
+          printf '%s\n' '--- failure tail ---'
+          tail -80 /tmp/full-test.log
+          printf '%s\n' '--- global feed files after suite ---'
+          find . -maxdepth 2 -type f -name '*global*feed*.mjs' -print
+          for file in $(find . -maxdepth 2 -type f -name '*global*feed*.mjs'); do
+            printf '%s\n' "--- $file lines 112-150 ---"
+            sed -n '112,150p' "$file"
+          done
+          exit ${status:-1}
