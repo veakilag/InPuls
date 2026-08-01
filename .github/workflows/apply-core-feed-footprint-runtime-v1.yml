@@ -53,18 +53,14 @@ jobs:
           node --test test-orderbook-runtime-stability.mjs
           node --test test-orderbook-flow-workspace.mjs
 
-      - name: Capture full-suite generated fixture
+      - name: Capture exact full-suite failure
         run: |
           set +e
           node --test --test-concurrency=1 > /tmp/full-test.log 2>&1
           status=$?
           set -e
-          printf '%s\n' '--- failure tail ---'
-          tail -80 /tmp/full-test.log
-          printf '%s\n' '--- global feed files after suite ---'
-          find . -maxdepth 2 -type f -name '*global*feed*.mjs' -print
-          for file in $(find . -maxdepth 2 -type f -name '*global*feed*.mjs'); do
-            printf '%s\n' "--- $file lines 112-150 ---"
-            sed -n '112,150p' "$file"
-          done
+          printf '%s\n' '--- exact failing tests ---'
+          grep -n -B8 -A30 '^not ok' /tmp/full-test.log || true
+          printf '%s\n' '--- matching source text ---'
+          grep -R -n --include='*.mjs' "SymbolModel trade windows\|model.updateTrade" . || true
           exit ${status:-1}
