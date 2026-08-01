@@ -1,10 +1,13 @@
 name: PR 104 browser smoke
 
-# Registered first, then triggered by this branch update.
+# Isolated release-gate smoke for the open recovery PR.
 on:
   push:
     branches:
       - fix/core-feed-footprint-runtime-v1
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
