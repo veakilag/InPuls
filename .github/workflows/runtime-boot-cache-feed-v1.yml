@@ -40,12 +40,16 @@ jobs:
               "orderbook-worker.js",
               "orderbook-flow-workspace.js",
           ]
+          replacements = 0
           for relative in files:
               path = Path(relative)
               text = path.read_text(encoding="utf-8")
-              if old not in text:
-                  raise RuntimeError(f"expected stale runtime reference in {relative}")
-              path.write_text(text.replace(old, new), encoding="utf-8")
+              count = text.count(old)
+              replacements += count
+              if count:
+                  path.write_text(text.replace(old, new), encoding="utf-8")
+          if replacements == 0:
+              raise RuntimeError("no nested runtime cache references were synchronized")
           PY
 
       - name: Syntax checks
