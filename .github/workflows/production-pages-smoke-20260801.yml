@@ -1,0 +1,87 @@
+name: Production GitHub Pages smoke diagnostic
+
+on:
+  push:
+    branches:
+      - diag/production-pages-smoke-20260801
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.54.2
+          npx playwright install --with-deps chromium
+
+      - name: Inspect deployed InPuls
+        run: |
+          cat > production-smoke.mjs <<'EOF'
+          import { chromium } from "playwright";
+
+          const target = `https://veakilag.github.io/InPuls/?diag=${Date.now()}`;
+
+          async function run(label, serviceWorkers) {
+            const browser = await chromium.launch({ headless: true });
+            try {
+              const context = await browser.newContext({ serviceWorkers });
+              const page = await context.newPage();
+              const events = [];
+              page.on("console", (msg) => events.push({ type: `console:${msg.type()}`, text: msg.text() }));
+              page.on("pageerror", (error) => events.push({ type: "pageerror", text: String(error?.stack || error) }));
+              page.on("requestfailed", (request) => events.push({ type: "requestfailed", text: `${request.url()} :: ${request.failure()?.errorText}` }));
+              page.on("response", (response) => {
+                const url = response.url();
+                if (/\.(?:js|css)(?:\?|$)/.test(url) || /\/InPuls\/(?:$|\?)/.test(url)) {
+                  events.push({ type: "response", text: `${response.status()} ${url}` });
+                }
+              });
+
+              let navigationError = null;
+              try {
+                await page.goto(target, { waitUntil: "domcontentloaded", timeout: 45_000 });
+                await page.waitForTimeout(12_000);
+              } catch (error) {
+                navigationError = String(error?.stack || error);
+              }
+
+              const snapshot = await page.evaluate(() => ({
+                href: location.href,
+                title: document.title,
+                readyState: document.readyState,
+                build: document.querySelector('meta[name="inpuls-build"]')?.content || "",
+                connection: document.querySelector("#connection-text")?.textContent?.trim() || "",
+                rows: document.querySelectorAll("#market-body tr").length,
+                inplay: document.querySelector("#inplay-coins")?.textContent?.trim() || "",
+                chartCanvas: document.querySelectorAll("canvas").length,
+                bodyText: document.body.innerText.slice(0, 1200),
+                controller: Boolean(navigator.serviceWorker?.controller),
+                scripts: [...document.scripts].map((script) => script.src || "inline"),
+              })).catch((error) => ({ evaluateError: String(error?.stack || error) }));
+
+              console.log(`=== ${label} ===`);
+              console.log("NAVIGATION_ERROR", navigationError);
+              console.log("SNAPSHOT", JSON.stringify(snapshot));
+              console.log("EVENTS", JSON.stringify(events, null, 2));
+              await page.screenshot({ path: `production-${label}.png`, fullPage: true }).catch(() => {});
+            } finally {
+              await browser.close();
+            }
+          }
+
+          await run("normal", "allow");
+          await run("no-sw", "block");
+          EOF
+          node production-smoke.mjs
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-pages-smoke
+          path: production-*.png
