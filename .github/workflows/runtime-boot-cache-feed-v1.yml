@@ -28,6 +28,26 @@ jobs:
       - name: Apply runtime migration
         run: python .github/scripts/apply-runtime-boot-cache-feed-v1.py
 
+      - name: Synchronize nested runtime cache references
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          old = "26-79-agg-center-tape-scale-settings-v1"
+          new = "26-91-runtime-boot-cache-feed-v1"
+          files = [
+              "orderbook.js",
+              "orderbook-worker.js",
+              "orderbook-flow-workspace.js",
+          ]
+          for relative in files:
+              path = Path(relative)
+              text = path.read_text(encoding="utf-8")
+              if old not in text:
+                  raise RuntimeError(f"expected stale runtime reference in {relative}")
+              path.write_text(text.replace(old, new), encoding="utf-8")
+          PY
+
       - name: Syntax checks
         run: |
           node --check app.js
