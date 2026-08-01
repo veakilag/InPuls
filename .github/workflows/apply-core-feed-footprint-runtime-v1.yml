@@ -60,9 +60,9 @@ jobs:
 
       - name: Commit verified runtime
         run: |
-          git rm .github/scripts/apply-core-feed-footprint-runtime-v1.py
-          git rm .github/scripts/patch-core-feed-migration-anchor-v1.py
-          git rm .github/workflows/apply-core-feed-footprint-runtime-v1.yml
+          git rm -f .github/scripts/apply-core-feed-footprint-runtime-v1.py
+          git rm -f .github/scripts/patch-core-feed-migration-anchor-v1.py
+          git rm -f .github/workflows/apply-core-feed-footprint-runtime-v1.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
