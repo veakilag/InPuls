@@ -24,3 +24,7 @@ The browser could load the HTML shell while the JavaScript runtime stayed dead: 
 - primary chart receives candles;
 - core miniTicker, auxiliary market data and public bookTicker are not mixed on one obsolete route;
 - no local history/database reset occurs.
+
+## Verification
+
+The generated release passed the full Node regression suite and a strict-CSP Chromium smoke covering one-time cache recovery, an advancing header clock, market rows, chart startup and absence of page-level JavaScript errors.
