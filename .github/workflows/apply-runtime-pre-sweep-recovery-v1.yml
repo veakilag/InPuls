@@ -1,0 +1,122 @@
+name: Apply pre-sweep runtime recovery
+
+on:
+  push:
+    branches:
+      - recovery/runtime-pre-sweep-v1
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  recover-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out recovery branch
+        uses: actions/checkout@v4
+        with:
+          ref: recovery/runtime-pre-sweep-v1
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Restore pre-sweep runtime
+        run: python .github/scripts/apply-runtime-pre-sweep-recovery-v1.py
+
+      - name: Runtime syntax checks
+        run: |
+          node --check app.js
+          node --check chart.js
+          node --check orderbook.js
+          node --check orderbook-worker.js
+          node --check orderbook-flow-workspace.js
+          node --check sw.js
+
+      - name: Full regression suite
+        run: npm test
+
+      - name: Install browser runtime
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.54.2
+          npx playwright install --with-deps chromium
+
+      - name: Start recovered InPuls
+        run: |
+          npm start > /tmp/inpuls-recovery-server.log 2>&1 &
+          echo $! > /tmp/inpuls-recovery-server.pid
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/inpuls-recovery-server.log
+          exit 1
+
+      - name: Chromium startup and live market smoke
+        run: |
+          cat > .runtime-recovery-smoke.mjs <<'EOF'
+          import assert from "node:assert/strict";
+          import { chromium } from "playwright";
+
+          async function poll(check, timeout, label) {
+            const started = Date.now();
+            while (Date.now() - started < timeout) {
+              if (await check()) return;
+              await new Promise((resolve) => setTimeout(resolve, 250));
+            }
+            throw new Error(`Timed out waiting for ${label}`);
+          }
+
+          const browser = await chromium.launch({ headless: true });
+          try {
+            const context = await browser.newContext({ serviceWorkers: "block" });
+            const page = await context.newPage();
+            const errors = [];
+            page.on("pageerror", (error) => errors.push(String(error?.stack || error)));
+            await page.goto("http://127.0.0.1:4173/", { waitUntil: "domcontentloaded", timeout: 30_000 });
+
+            await poll(async () => /^\d{2}:\d{2}:\d{2}$/.test((await page.locator("#clock").textContent() || "").trim()), 10_000, "header clock");
+            await poll(async () => (await page.locator("#market-body tr").count()) > 0, 25_000, "market rows");
+            await poll(async () => !((await page.locator("#connection-text").textContent() || "").includes("Подключение")), 25_000, "connection transition");
+
+            const state = await page.evaluate(() => ({
+              build: document.querySelector('meta[name="inpuls-build"]')?.content || "",
+              rows: document.querySelectorAll("#market-body tr").length,
+              inplay: document.querySelector("#inplay-coins")?.textContent?.trim() || "",
+              status: document.querySelector("#connection-text")?.textContent?.trim() || "",
+              clock: document.querySelector("#clock")?.textContent?.trim() || "",
+              chartCanvas: Boolean(document.querySelector("#price-chart")),
+            }));
+
+            assert.equal(state.build, "26-90-runtime-pre-sweep-recovery-v1");
+            assert.ok(state.rows > 0);
+            assert.match(state.clock, /^\d{2}:\d{2}:\d{2}$/);
+            assert.ok(state.chartCanvas);
+            assert.equal(errors.length, 0, errors.join("\n"));
+            console.log("RUNTIME_RECOVERY_SMOKE", JSON.stringify(state));
+          } finally {
+            await browser.close();
+          }
+          EOF
+          node .runtime-recovery-smoke.mjs
+          rm -f .runtime-recovery-smoke.mjs
+
+      - name: Show server log on failure
+        if: failure()
+        run: cat /tmp/inpuls-recovery-server.log || true
+
+      - name: Commit verified recovery
+        run: |
+          git rm .github/scripts/apply-runtime-pre-sweep-recovery-v1.py
+          git rm .github/workflows/apply-runtime-pre-sweep-recovery-v1.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Recover runtime to pre-sweep stable checkpoint"
+          git push origin HEAD:recovery/runtime-pre-sweep-v1
