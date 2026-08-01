@@ -5,6 +5,7 @@
   const STORAGE_KEY = "inpuls-runtime-boot-build-v1";
   const SESSION_KEY = `inpuls-runtime-recovery:${BUILD}`;
   const url = new URL(window.location.href);
+  const appScope = new URL("./", url);
 
   function read(storage, key) {
     try { return storage.getItem(key); } catch { return null; }
@@ -14,9 +15,21 @@
     try { storage.setItem(key, value); } catch {}
   }
 
+  function isInPulsRegistration(registration) {
+    try {
+      const scope = new URL(registration.scope);
+      return scope.origin === appScope.origin && scope.pathname === appScope.pathname;
+    } catch {
+      return false;
+    }
+  }
+
   function cleanRecoveryQuery() {
-    if (!url.searchParams.has("_inpuls_recovery")) return;
+    const hadRecovery = url.searchParams.has("_inpuls_recovery")
+      || url.searchParams.has("_inpuls_reload");
+    if (!hadRecovery) return;
     url.searchParams.delete("_inpuls_recovery");
+    url.searchParams.delete("_inpuls_reload");
     history.replaceState(history.state, "", url);
   }
 
@@ -30,7 +43,11 @@
 
   const unregister = "serviceWorker" in navigator
     ? navigator.serviceWorker.getRegistrations()
-      .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+      .then((registrations) => Promise.all(
+        registrations
+          .filter(isInPulsRegistration)
+          .map((registration) => registration.unregister()),
+      ))
       .catch(() => [])
     : Promise.resolve([]);
 
