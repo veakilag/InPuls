@@ -115,7 +115,8 @@ test("only full round prices affect text and the liquidity meter stays readable"
 });
 
 test("live flow invalidates footprint while Tape keeps one coherent viewport", () => {
-  assert.match(flow, /incoming\.length && state\.historyOffset === 0/);
+  assert.match(flow, /batch\.trades\.length && state\.historyOffset === 0/);
+  assert.doesNotMatch(flow, /incoming\.length && state\.historyOffset === 0/);
   assert.match(orderbook, /state\.priceViewport = advanceTapePriceViewport/);
   assert.match(orderbook, /projectWaterTapeNodes\([\s\S]*recentRaw,[\s\S]*state\.priceViewport,[\s\S]*state\.pathProjectionScratch/);
   assert.match(orderbook, /const baseX = tapeTimeX\(item\.time, window, rect\.width\)/);
