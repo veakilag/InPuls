@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - feature/tape-series-stage1-v1
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -131,6 +135,7 @@ jobs:
         run: |
           git rm .github/scripts/apply-tape-series-stage1-v1.py
           git rm .github/workflows/apply-tape-series-stage1-v1.yml
+          rm -f .github/TAPE_SERIES_STAGE1_TRIGGER
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
