@@ -29,6 +29,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Harden migration anchors
+        run: python .github/scripts/patch-tape-series-reset-anchor-v1.py
+
       - name: Apply isolated Series migration
         run: python .github/scripts/apply-tape-series-stage1-v1.py
 
@@ -134,6 +137,7 @@ jobs:
       - name: Commit verified Series stage
         run: |
           git rm .github/scripts/apply-tape-series-stage1-v1.py
+          git rm .github/scripts/patch-tape-series-reset-anchor-v1.py
           git rm .github/workflows/apply-tape-series-stage1-v1.yml
           rm -f .github/TAPE_SERIES_STAGE1_TRIGGER
           git config user.name "github-actions[bot]"
