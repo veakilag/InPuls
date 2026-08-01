@@ -73,6 +73,15 @@ jobs:
             }
           ];
 
+          async function poll(check, timeoutMs, description) {
+            const startedAt = Date.now();
+            while (Date.now() - startedAt < timeoutMs) {
+              if (await check()) return;
+              await new Promise((resolve) => setTimeout(resolve, 200));
+            }
+            throw new Error(`Timed out waiting for ${description}`);
+          }
+
           const browser = await chromium.launch({ headless: true });
           try {
             const context = await browser.newContext({ serviceWorkers: "block" });
@@ -107,15 +116,15 @@ jobs:
               }
             });
 
-            await page.waitForFunction(
-              () => document.querySelectorAll("#market-body tr").length >= 2,
-              null,
-              { timeout: 20_000 }
+            await poll(
+              async () => (await page.locator("#market-body tr").count()) >= 2,
+              20_000,
+              "two normalized market rows"
             );
-            await page.waitForFunction(
-              () => (globalThis.__inpulsStatusHistory || []).some((value) => value.includes("REST-резерв")),
-              null,
-              { timeout: 15_000 }
+            await poll(
+              () => page.evaluate(() => (globalThis.__inpulsStatusHistory || []).some((value) => value.includes("REST-резерв"))),
+              15_000,
+              "REST fallback status"
             );
 
             const firstState = await page.evaluate(() => {
