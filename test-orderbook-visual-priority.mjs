@@ -115,7 +115,8 @@ test("only full round prices affect text and the liquidity meter stays readable"
 });
 
 test("live flow invalidates footprint while Tape keeps one coherent viewport", () => {
-  assert.match(flow, /incoming\.length && state\.historyOffset === 0/);
+  assert.match(flow, /batch\.trades\.length && state\.historyOffset === 0/);
+  assert.doesNotMatch(flow, /incoming\.length && state\.historyOffset === 0/);
   assert.match(orderbook, /state\.priceViewport = advanceTapePriceViewport/);
   assert.match(orderbook, /projectWaterTapeNodes\([\s\S]*recentRaw,[\s\S]*state\.priceViewport,[\s\S]*state\.pathProjectionScratch/);
   assert.match(orderbook, /const baseX = tapeTimeX\(item\.time, window, rect\.width\)/);
@@ -128,8 +129,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-88-split-market-public-feed-v1/);
-  assert.match(app, /orderbook\.js\?v=26-88-split-market-public-feed-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-88-split-market-public-feed-v1/);
-  assert.match(sw, /26-88-split-market-public-feed-v1/);
+  assert.match(index, /26-89-core-feed-footprint-runtime-v1/);
+  assert.match(app, /orderbook\.js\?v=26-89-core-feed-footprint-runtime-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-89-core-feed-footprint-runtime-v1/);
+  assert.match(sw, /26-89-core-feed-footprint-runtime-v1/);
 });
