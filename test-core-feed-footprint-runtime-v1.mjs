@@ -55,5 +55,19 @@ test("REST 24h ticker fields are converted to the miniTicker contract used by Sy
     v: "123.45",
     q: "7890000.25",
   });
+
+  const compactFallback = normalizeBinanceRestMiniTicker({
+    E: 123,
+    s: "ethusdt",
+    c: "3500.25",
+    o: "3400",
+    h: "3550",
+    l: "3350",
+    v: "10",
+    q: "35000",
+  }, 99);
+  assert.equal(compactFallback?.E, 123);
+  assert.equal(compactFallback?.s, "ETHUSDT");
+  assert.equal(compactFallback?.c, "3500.25");
   assert.equal(normalizeBinanceRestMiniTicker({ symbol: "BROKEN", lastPrice: "0" }, 99), null);
 });
