@@ -1,6 +1,6 @@
 import { clearInPulsRuntime } from "./pwa-reset.js";
 
-const BUILD = "26-79-agg-center-tape-scale-settings-v1";
+const BUILD = "26-91-runtime-boot-cache-feed-v1";
 const button = document.getElementById("refresh");
 const status = document.getElementById("status");
 
