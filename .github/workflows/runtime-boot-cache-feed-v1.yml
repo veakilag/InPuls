@@ -39,7 +39,23 @@ jobs:
           node --check sw.js
 
       - name: Full regression suite
-        run: npm test
+        id: regression
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee /tmp/inpuls-npm-test.log
+          status=${PIPESTATUS[0]}
+          echo "exit_code=${status}" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Upload regression diagnostics
+        if: failure() && steps.regression.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-regression-diagnostics
+          path: /tmp/inpuls-npm-test.log
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Install Chromium smoke runtime
         run: |
@@ -106,7 +122,10 @@ jobs:
             }));
 
             await page.addInitScript(() => {
-              localStorage.setItem("inpuls-runtime-boot-build-v1", "stale-build");
+              if (!sessionStorage.getItem("inpuls-smoke-cache-seeded")) {
+                localStorage.setItem("inpuls-runtime-boot-build-v1", "stale-build");
+                sessionStorage.setItem("inpuls-smoke-cache-seeded", "1");
+              }
             });
             await page.goto("http://127.0.0.1:4173/", { waitUntil: "domcontentloaded", timeout: 30_000 });
             await page.waitForFunction((build) => localStorage.getItem("inpuls-runtime-boot-build-v1") === build, BUILD, { timeout: 10_000 });
