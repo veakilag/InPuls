@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-import { TAPE_SWEEP_WINDOW_MS, aggregateTapeSweeps } from "./orderbook.js?v=26-88-split-market-public-feed-v1";
-import { selectFootprintTapeBatch } from "./orderbook-flow-workspace.js?v=26-88-split-market-public-feed-v1";
+import { TAPE_SWEEP_WINDOW_MS, aggregateTapeSweeps } from "./orderbook.js?v=26-89-core-feed-footprint-runtime-v1";
+import { selectFootprintTapeBatch } from "./orderbook-flow-workspace.js?v=26-89-core-feed-footprint-runtime-v1";
 
 const trade = (id, eventTime, receivedAt, price, side, quote = 1_000) => ({
   id, firstTradeId: id, lastTradeId: id, eventTime, tradeTime: eventTime,

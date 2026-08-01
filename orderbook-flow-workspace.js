@@ -1369,7 +1369,7 @@ function acceptTape(event) {
     const state = cardStates.get(card);
     if (
       state
-      && (detail?.replace || (incoming.length && state.historyOffset === 0))
+      && (detail?.replace || (batch.trades.length && state.historyOffset === 0))
     ) {
       state.hasFrame = false;
     }

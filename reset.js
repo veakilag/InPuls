@@ -1,6 +1,6 @@
 import { clearInPulsRuntime } from "./pwa-reset.js";
 
-const BUILD = "26-88-split-market-public-feed-v1";
+const BUILD = "26-89-core-feed-footprint-runtime-v1";
 const WORKER_URL = `./sw.js?v=${BUILD}`;
 const APP_URL = `./?build=${BUILD}`;
 const button = document.getElementById("reset");

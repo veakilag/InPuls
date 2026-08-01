@@ -323,7 +323,7 @@ test("browser raw lab stays isolated while production remains on documented aggT
   assert.doesNotMatch(worker, /`\$\{name\}@trade`/);
   assert.match(worker, /if \(aggregateEvent && this\.insertTrade\(trade, true\)\)/);
   assert.match(worker, /if \(decision\.emit && this\.insertAggregationTrade\(trade, true\)\)/);
-  assert.match(serviceWorker, /inpuls-26-88-split-market-public-feed-v1/);
+  assert.match(serviceWorker, /inpuls-26-89-core-feed-footprint-runtime-v1/);
   assert.match(serviceWorker, /raw-stability-lab\.html/);
   assert.match(serviceWorker, /raw-stability-lab\.js\?v=3/);
   assert.match(serviceWorker, /raw-stability-core\.js\?v=3/);

@@ -1,4 +1,4 @@
-import { buildBinanceChannelStreams, buildBinanceChannelTransports, isBinanceSubscriptionError, isCoreMiniTickerPacket, nextBinanceTransportIndex } from "./binance-stream-routing.js?v=26-88-split-market-public-feed-v1";
+import { buildBinanceChannelStreams, buildBinanceChannelTransports, isBinanceSubscriptionError, isCoreMiniTickerPacket, nextBinanceTransportIndex } from "./binance-stream-routing.js?v=26-89-core-feed-footprint-runtime-v1";
 import {
   DEFAULT_SETTINGS,
   SymbolState,
@@ -8,7 +8,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=26-65-structured-signal-collection-v1";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-88-split-market-public-feed-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-89-core-feed-footprint-runtime-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -211,8 +211,12 @@ class BinanceFeed {
     this.trackedAggTrades = new Set();
     this.requestId = 1;
     this.manualClose = false;
+    this.marketBootstrapTimer = null;
+    this.marketBootstrapInFlight = false;
+    this.lastMarketBootstrapAt = 0;
     this.channels = new Map([
-      ["market", this.#createChannelState()],
+      ["core", this.#createChannelState()],
+      ["auxiliary", this.#createChannelState()],
       ["public", this.#createChannelState()],
     ]);
   }
@@ -232,8 +236,14 @@ class BinanceFeed {
 
   connect() {
     this.manualClose = false;
-    this.#connectChannel("market");
+    this.#connectChannel("core");
+    this.#connectChannel("auxiliary");
     this.#connectChannel("public");
+    this.#scheduleMarketBootstrap(3_500);
+  }
+
+  #requiredPacketReceived(kind, channel) {
+    return kind === "core" ? channel.corePacketReceived : channel.packetReceived;
   }
 
   #connectChannel(kind) {
@@ -255,7 +265,7 @@ class BinanceFeed {
     const streams = buildBinanceChannelStreams(kind, this.trackedAggTrades);
     const transports = buildBinanceChannelTransports(kind, streams);
     const transport = transports[channel.transportIndex % transports.length];
-    if (kind === "market") setConnection("connecting", "Подключение к Binance…");
+    if (kind === "core") setConnection("connecting", "Подключение к Binance…");
 
     let socket;
     try {
@@ -267,7 +277,10 @@ class BinanceFeed {
         false,
       );
       channel.reconnectAttempt += 1;
-      if (kind === "market") setConnection("offline", "Ошибка подключения Binance");
+      if (kind === "core") {
+        setConnection("offline", "Ошибка подключения Binance");
+        this.#scheduleMarketBootstrap(0);
+      }
       channel.reconnectTimer = setTimeout(() => this.#connectChannel(kind), 750);
       return;
     }
@@ -275,19 +288,17 @@ class BinanceFeed {
 
     channel.watchdogTimer = setTimeout(() => {
       if (channel.socket !== socket || generation !== channel.generation) return;
-      const requiredPacketReceived = kind === "market"
-        ? channel.corePacketReceived
-        : channel.packetReceived;
-      if (requiredPacketReceived) return;
-      if (kind === "market") {
-        setConnection("offline", "Нет miniTicker · резервный market-поток");
+      if (this.#requiredPacketReceived(kind, channel)) return;
+      if (kind === "core") {
+        setConnection("offline", "Нет miniTicker · резервный поток");
+        this.#scheduleMarketBootstrap(0);
       }
       try { socket.close(); } catch {}
-    }, 10_000);
+    }, kind === "core" ? 4_000 : 10_000);
 
     socket.addEventListener("open", () => {
       if (channel.socket !== socket || generation !== channel.generation) return;
-      if (kind === "market") setConnection("connecting", "Синхронизация рынка…");
+      if (kind === "core") setConnection("connecting", "Синхронизация рынка…");
       if (transport.subscribeOnOpen) this.#send(kind, "SUBSCRIBE", streams);
     });
 
@@ -300,7 +311,7 @@ class BinanceFeed {
         return;
       }
       if (isBinanceSubscriptionError(payload)) {
-        if (kind === "market") setConnection("offline", "Ошибка подписки Binance");
+        if (kind === "core") setConnection("offline", "Ошибка подписки Binance");
         try { socket.close(); } catch {}
         return;
       }
@@ -308,17 +319,19 @@ class BinanceFeed {
 
       const data = payload?.data ?? payload;
       channel.packetReceived = true;
-      if (kind === "public") {
-        clearTimeout(channel.watchdogTimer);
-        channel.watchdogTimer = null;
-        channel.reconnectAttempt = 0;
-      } else if (isCoreMiniTickerPacket(data)) {
+      if (kind === "core" && isCoreMiniTickerPacket(data)) {
         channel.corePacketReceived = true;
         clearTimeout(channel.watchdogTimer);
+        clearTimeout(this.marketBootstrapTimer);
         channel.watchdogTimer = null;
+        this.marketBootstrapTimer = null;
         channel.reconnectAttempt = 0;
         state.connectedAt = Date.now();
         setConnection("online", "Онлайн");
+      } else if (kind !== "core") {
+        clearTimeout(channel.watchdogTimer);
+        channel.watchdogTimer = null;
+        channel.reconnectAttempt = 0;
       }
       this.#handle(data);
     });
@@ -328,9 +341,7 @@ class BinanceFeed {
       channel.socket = null;
       clearTimeout(channel.watchdogTimer);
       channel.watchdogTimer = null;
-      const requiredPacketReceived = kind === "market"
-        ? channel.corePacketReceived
-        : channel.packetReceived;
+      const requiredPacketReceived = this.#requiredPacketReceived(kind, channel);
       channel.transportIndex = nextBinanceTransportIndex(
         channel.transportIndex,
         transports.length,
@@ -340,44 +351,79 @@ class BinanceFeed {
       const delay = requiredPacketReceived
         ? Math.min(30_000, 1000 * 2 ** Math.min(channel.reconnectAttempt, 5))
         : 750;
-      if (kind === "market") {
+      if (kind === "core") {
         setConnection("offline", `Переподключение через ${Math.max(1, Math.round(delay / 1000))}с`);
+        this.#scheduleMarketBootstrap(0);
       }
       channel.reconnectTimer = setTimeout(() => this.#connectChannel(kind), delay);
     });
 
     socket.addEventListener("error", () => {
       if (channel.socket !== socket || generation !== channel.generation) return;
-      if (kind === "market") setConnection("offline", "Ошибка market-потока");
+      if (kind === "core") setConnection("offline", "Ошибка market-потока");
       try { socket.close(); } catch {}
     });
   }
 
   updateAggTradeSubscriptions(symbols) {
     const next = new Set(normalizeSymbolList(symbols));
-    const subscribe = [...next].filter((symbol) => !this.trackedAggTrades.has(symbol));
-    const unsubscribe = [...this.trackedAggTrades].filter((symbol) => !next.has(symbol));
+    const changed = next.size !== this.trackedAggTrades.size
+      || [...next].some((symbol) => !this.trackedAggTrades.has(symbol));
     this.trackedAggTrades = next;
-    if (unsubscribe.length) {
-      this.#send(
-        "market",
-        "UNSUBSCRIBE",
-        unsubscribe.map((symbol) => `${symbol.toLowerCase()}@aggTrade`),
-      );
-    }
-    if (subscribe.length) {
-      this.#send(
-        "market",
-        "SUBSCRIBE",
-        subscribe.map((symbol) => `${symbol.toLowerCase()}@aggTrade`),
-      );
-    }
+    if (changed) this.#connectChannel("auxiliary");
   }
 
   #send(kind, method, params) {
     const socket = this.channels.get(kind)?.socket;
     if (socket?.readyState !== WebSocket.OPEN || !params.length) return;
     socket.send(JSON.stringify({ method, params, id: this.requestId++ }));
+  }
+
+  #scheduleMarketBootstrap(delay = 0) {
+    const core = this.channels.get("core");
+    if (core?.corePacketReceived || this.marketBootstrapTimer || this.marketBootstrapInFlight) return;
+    const minimumGap = Math.max(0, 10_000 - (Date.now() - this.lastMarketBootstrapAt));
+    const wait = Math.max(0, Number(delay) || 0, minimumGap);
+    this.marketBootstrapTimer = setTimeout(() => {
+      this.marketBootstrapTimer = null;
+      this.#bootstrapMarketFromRest();
+    }, wait);
+  }
+
+  async #bootstrapMarketFromRest() {
+    const core = this.channels.get("core");
+    if (core?.corePacketReceived || this.marketBootstrapInFlight) return;
+    this.marketBootstrapInFlight = true;
+    this.lastMarketBootstrapAt = Date.now();
+    const hosts = ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"];
+    let rows = null;
+    for (const host of hosts) {
+      try {
+        const response = await Promise.race([
+          fetch(`https://${host}/fapi/v1/ticker/24hr`, { cache: "no-store" }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 3_500)),
+        ]);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        if (Array.isArray(payload) && payload.length) {
+          rows = payload;
+          break;
+        }
+      } catch {
+        // Try the next public Futures REST host.
+      }
+    }
+    this.marketBootstrapInFlight = false;
+    if (!rows || this.channels.get("core")?.corePacketReceived) return;
+    const now = Date.now();
+    const normalized = rows.map((ticker) => ({
+      ...ticker,
+      e: "24hrMiniTicker",
+      E: Number(ticker?.E) || now,
+    }));
+    this.#handle(normalized);
+    setConnection("offline", "REST-резерв · WS переподключается");
+    this.#scheduleMarketBootstrap(10_000);
   }
 
   #handle(data) {
@@ -427,6 +473,7 @@ class BinanceFeed {
 
 const marketSizeScanner = new MarketwideSizeScanner();
 const feed = new BinanceFeed();
+const marketRowsBySymbol = new Map();
 let scheduledMarketRender = null;
 function scheduleRender() {
   if (scheduledMarketRender !== null) return;
@@ -980,8 +1027,22 @@ function render() {
     return true;
   }).slice(0, state.settings.maxRows);
 
+  const activeRowSymbols = new Set();
   const fragment = document.createDocumentFragment();
-  for (const item of filtered) fragment.append(createRow(item));
+  for (const item of filtered) {
+    activeRowSymbols.add(item.symbol);
+    let row = marketRowsBySymbol.get(item.symbol);
+    if (!row) {
+      row = createRow(item);
+      marketRowsBySymbol.set(item.symbol, row);
+    } else {
+      updateRow(row, item);
+    }
+    fragment.append(row);
+  }
+  for (const symbol of marketRowsBySymbol.keys()) {
+    if (!activeRowSymbols.has(symbol)) marketRowsBySymbol.delete(symbol);
+  }
   if (observability.enabled) {
     observability.record("app.render.rows", performance.now() - phaseStartedAt, {
       rows: filtered.length,
@@ -1080,18 +1141,25 @@ function collectInPlayRules() {
 
 function createRow(item) {
   const row = els.tbodyTemplate.content.firstElementChild.cloneNode(true);
-  row.dataset.symbol = item.symbol;
+  const symbol = item.symbol;
+  row.dataset.symbol = symbol;
+  row.querySelector(".favorite-button").addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleFavorite(symbol);
+  });
+  row.addEventListener("click", () => selectChartSymbol(symbol, true));
+  return updateRow(row, item);
+}
+
+function updateRow(row, item) {
   row.classList.toggle("has-signal", Boolean(item.primarySignal));
   row.classList.toggle("is-hot", item.score >= state.settings.alertScore);
   row.classList.toggle("is-selected", item.symbol === state.selectedChartSymbol);
 
   const favorite = row.querySelector(".favorite-button");
-  favorite.classList.toggle("is-active", state.favorites.has(item.symbol));
-  favorite.setAttribute("aria-label", `${state.favorites.has(item.symbol) ? "Убрать" : "Добавить"} ${item.symbol} ${state.favorites.has(item.symbol) ? "из" : "в"} избранное`);
-  favorite.addEventListener("click", (event) => {
-    event.stopPropagation();
-    toggleFavorite(item.symbol);
-  });
+  const isFavorite = state.favorites.has(item.symbol);
+  favorite.classList.toggle("is-active", isFavorite);
+  favorite.setAttribute("aria-label", `${isFavorite ? "Убрать" : "Добавить"} ${item.symbol} ${isFavorite ? "из" : "в"} избранное`);
 
   row.querySelector(".pair-name").textContent = item.symbol.replace("USDT", "");
   row.querySelector(".pair-quote").textContent = "/USDT";
@@ -1106,7 +1174,6 @@ function createRow(item) {
   renderSignal(row.querySelector(".signal-cell"), item);
   row.querySelector(".score-value").textContent = item.score;
   row.querySelector(".score-ring").style.setProperty("--score", `${item.score * 3.6}deg`);
-  row.addEventListener("click", () => selectChartSymbol(item.symbol, true));
   return row;
 }
 
@@ -3378,7 +3445,7 @@ updateClock();
 scheduleClockTick();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-88-split-market-public-feed-v1";
+const INPULS_RUNTIME_BUILD = "26-89-core-feed-footprint-runtime-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

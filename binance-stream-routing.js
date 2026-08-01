@@ -1,15 +1,28 @@
 const CHANNEL_BASES = Object.freeze({
   market: Object.freeze({
     combined: "wss://fstream.binance.com/market/stream",
-    control: "wss://fstream.binance.com/market/ws",
+    raw: "wss://fstream.binance.com/market/ws",
   }),
   public: Object.freeze({
     combined: "wss://fstream.binance.com/public/stream",
-    control: "wss://fstream.binance.com/public/ws",
+    raw: "wss://fstream.binance.com/public/ws",
   }),
 });
 
+const CHANNEL_ROUTES = Object.freeze({
+  core: "market",
+  auxiliary: "market",
+  market: "market",
+  public: "public",
+});
+
 const GLOBAL_STREAMS = Object.freeze({
+  core: Object.freeze(["!miniTicker@arr"]),
+  auxiliary: Object.freeze([
+    "!markPrice@arr@1s",
+    "!forceOrder@arr",
+  ]),
+  // Compatibility contract for existing diagnostics and tests.
   market: Object.freeze([
     "!miniTicker@arr",
     "!markPrice@arr@1s",
@@ -27,7 +40,7 @@ function normalizeSymbols(symbols) {
 export function buildBinanceChannelStreams(kind, symbols = []) {
   if (!(kind in GLOBAL_STREAMS)) throw new TypeError(`Unknown Binance channel: ${kind}`);
   const streams = [...GLOBAL_STREAMS[kind]];
-  if (kind === "market") {
+  if (kind === "auxiliary" || kind === "market") {
     for (const symbol of normalizeSymbols(symbols)) {
       streams.push(`${symbol.toLowerCase()}@aggTrade`);
     }
@@ -36,21 +49,29 @@ export function buildBinanceChannelStreams(kind, symbols = []) {
 }
 
 export function buildBinanceChannelTransports(kind, streams) {
-  const bases = CHANNEL_BASES[kind];
+  const route = CHANNEL_ROUTES[kind];
+  const bases = CHANNEL_BASES[route];
   if (!bases) throw new TypeError(`Unknown Binance channel: ${kind}`);
   const normalized = [...new Set((streams ?? []).map(String).filter(Boolean))];
   if (!normalized.length) throw new TypeError(`Binance ${kind} channel requires streams`);
+  const fallback = normalized.length === 1
+    ? {
+        name: `${kind} · raw-path`,
+        url: `${bases.raw}/${normalized[0]}`,
+        subscribeOnOpen: false,
+      }
+    : {
+        name: `${kind} · subscribe`,
+        url: bases.raw,
+        subscribeOnOpen: true,
+      };
   return [
     {
       name: `${kind} · combined`,
       url: `${bases.combined}?streams=${normalized.join("/")}`,
       subscribeOnOpen: false,
     },
-    {
-      name: `${kind} · subscribe`,
-      url: bases.control,
-      subscribeOnOpen: true,
-    },
+    fallback,
   ];
 }
 
