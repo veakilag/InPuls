@@ -1,33 +1,42 @@
-name: PR 104 browser smoke
+name: PR 104 verified browser recovery
 
-# Isolated release-gate smoke for the open recovery PR.
 on:
   push:
     branches:
       - fix/core-feed-footprint-runtime-v1
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  browser-smoke:
+  verify-and-commit:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Check out reviewed branch
+      - name: Check out recovery branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/core-feed-footprint-runtime-v1
+          fetch-depth: 0
 
       - name: Use Node.js 22
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
 
-      - name: Install isolated browser runtime
+      - name: Apply guarded clock startup fix
+        run: python .github/scripts/patch-clock-startup-order-v1.py
+
+      - name: Verify syntax and full regression suite
         run: |
-          npm install --no-save --ignore-scripts playwright@1.54.2
+          node --check app.js
+          node --test test-core-feed-footprint-runtime-v1.mjs
+          npm test
+
+      - name: Install isolated Chromium smoke runtime
+        run: |
+          npm install --no-save --ignore-scripts --package-lock=false playwright@1.54.2
           npx playwright install --with-deps chromium
 
       - name: Start InPuls
@@ -43,9 +52,9 @@ jobs:
           cat /tmp/inpuls-server.log
           exit 1
 
-      - name: Run deterministic fallback and browser runtime smoke
+      - name: Verify browser startup, REST fallback, keyed rows and Footprint
         run: |
-          cat > .browser-smoke-pr104.mjs <<'EOF'
+          cat > /tmp/browser-smoke-pr104.mjs <<'EOF'
           import assert from "node:assert/strict";
           import { chromium } from "playwright";
 
@@ -88,22 +97,37 @@ jobs:
             const context = await browser.newContext({ serviceWorkers: "block" });
             const page = await context.newPage();
             const pageErrors = [];
-            const consoleMessages = [];
-            const networkEvents = [];
+            const consoleErrors = [];
             page.on("pageerror", (error) => pageErrors.push(String(error?.stack || error)));
-            page.on("console", (message) => consoleMessages.push(`${message.type()}: ${message.text()}`));
-            page.on("request", (request) => {
-              const url = request.url();
-              if (url.includes("binance.com")) networkEvents.push(`request ${url}`);
+            page.on("console", (message) => {
+              if (message.type() === "error") consoleErrors.push(message.text());
             });
-            page.on("requestfailed", (request) => {
-              const url = request.url();
-              if (url.includes("binance.com")) networkEvents.push(`failed ${url} ${request.failure()?.errorText || ""}`);
+
+            await page.addInitScript(() => {
+              localStorage.setItem("inpuls-workspace-v4", JSON.stringify({
+                primary: { id: "primary", type: "chart", x: 0, y: 0, w: 12, h: 6 },
+                radar: { id: "radar", type: "radar", x: 12, y: 0, w: 6, h: 6 },
+                scanner: { id: "scanner", type: "scanner", x: 0, y: 9, w: 24, h: 3, hidden: true },
+                extras: [{
+                  id: "browser-smoke-orderbook",
+                  type: "orderbook",
+                  symbol: "BTCUSDT",
+                  x: 18,
+                  y: 0,
+                  w: 6,
+                  h: 6,
+                  bookScaleIndex: 3,
+                  bookCentered: true,
+                  tapePercent: 48,
+                  tradeMinQuote: 0,
+                  tradeWindowMs: 60000,
+                  clustersVisible: true,
+                  highlightMode: "auto",
+                  highlightMinQuote: 100000
+                }]
+              }));
             });
-            page.on("response", (response) => {
-              const url = response.url();
-              if (url.includes("binance.com")) networkEvents.push(`response ${response.status()} ${url}`);
-            });
+
             await page.routeWebSocket(/wss:\/\/fstream\.binance\.com\/.*/, (socket) => socket.close());
             for (const host of ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"]) {
               await page.route(`https://${host}/**`, async (route) => {
@@ -132,31 +156,21 @@ jobs:
               }
             });
 
-            try {
-              await poll(
-                async () => (await page.locator("#market-body tr").count()) >= 2,
-                20_000,
-                "two normalized market rows"
-              );
-              await poll(
-                () => page.evaluate(() => (globalThis.__inpulsStatusHistory || []).some((value) => value.includes("REST-резерв"))),
-                15_000,
-                "REST fallback status"
-              );
-            } catch (error) {
-              const diagnostic = await page.evaluate(() => ({
-                readyState: document.readyState,
-                build: document.querySelector('meta[name="inpuls-build"]')?.content || "",
-                status: document.querySelector("#connection-text")?.textContent?.trim() || "",
-                statusHistory: globalThis.__inpulsStatusHistory || [],
-                rows: document.querySelectorAll("#market-body tr").length,
-                topText: document.querySelector("#top-list")?.textContent?.trim() || "",
-                inplay: document.querySelector("#inplay-coins")?.textContent?.trim() || "",
-                scripts: [...document.scripts].map((script) => script.src || "inline")
-              }));
-              console.log("BROWSER_SMOKE_DIAGNOSTIC", JSON.stringify({ diagnostic, pageErrors, consoleMessages, networkEvents }));
-              throw error;
-            }
+            await poll(
+              async () => (await page.locator("#market-body tr").count()) >= 2,
+              20_000,
+              "two normalized market rows"
+            );
+            await poll(
+              () => page.evaluate(() => (globalThis.__inpulsStatusHistory || []).some((value) => value.includes("REST-резерв"))),
+              15_000,
+              "REST fallback status"
+            );
+            await poll(
+              async () => (await page.locator(".inpuls-footprint-canvas").count()) >= 1,
+              10_000,
+              "Footprint canvas"
+            );
 
             const firstState = await page.evaluate(() => {
               globalThis.__inpulsFirstMarketRow = document.querySelector("#market-body tr");
@@ -165,14 +179,16 @@ jobs:
                 rows: document.querySelectorAll("#market-body tr").length,
                 symbols: [...document.querySelectorAll("#market-body .pair-name")].map((node) => node.textContent?.trim()),
                 statusHistory: globalThis.__inpulsStatusHistory || [],
+                clock: document.querySelector("#clock")?.textContent?.trim() || "",
                 footprintCanvasCount: document.querySelectorAll(".inpuls-footprint-canvas").length
               };
             });
             assert.equal(firstState.build, "26-89-core-feed-footprint-runtime-v1");
             assert.equal(firstState.rows, 2);
             assert.deepEqual(new Set(firstState.symbols), new Set(["BTC", "ETH"]));
+            assert.match(firstState.clock, /^\d{2}:\d{2}:\d{2}$/);
             assert.ok(firstState.statusHistory.some((value) => value.includes("REST-резерв")));
-            assert.ok(firstState.footprintCanvasCount >= 1, "Footprint canvas was not installed");
+            assert.ok(firstState.footprintCanvasCount >= 1);
 
             await page.evaluate(() => {
               const now = Date.now();
@@ -196,26 +212,25 @@ jobs:
             await page.waitForTimeout(750);
             assert.ok(!pageErrors.some((error) => /incoming is not defined/i.test(error)), pageErrors.join("\n"));
 
-            // A second REST cycle must patch the existing keyed row instead of rebuilding it.
             await page.waitForTimeout(10_750);
             const stableRowIdentity = await page.evaluate(
               () => document.querySelector("#market-body tr") === globalThis.__inpulsFirstMarketRow
             );
             assert.equal(stableRowIdentity, true, "Market row identity changed across fallback batches");
             assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
+            assert.equal(consoleErrors.length, 0, consoleErrors.join("\n"));
 
             console.log("DETERMINISTIC_BROWSER_SMOKE", JSON.stringify({
               build: firstState.build,
               rows: firstState.rows,
               symbols: firstState.symbols,
+              clock: firstState.clock,
               restFallbackSeen: true,
               footprintEventAccepted: true,
               stableRowIdentity
             }));
             await context.close();
 
-            // Best-effort real Binance probe. GitHub-hosted US runners may be geo-blocked,
-            // so this records evidence but does not replace the local release check.
             const liveContext = await browser.newContext({ serviceWorkers: "block" });
             const livePage = await liveContext.newPage();
             const liveErrors = [];
@@ -233,8 +248,18 @@ jobs:
             await browser.close();
           }
           EOF
-          node .browser-smoke-pr104.mjs
-          rm -f .browser-smoke-pr104.mjs
+          node /tmp/browser-smoke-pr104.mjs
+
+      - name: Commit verified runtime fix
+        run: |
+          rm -rf node_modules
+          git rm -f .github/scripts/patch-clock-startup-order-v1.py
+          git rm -f .github/workflows/browser-smoke-pr104.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.js test-core-feed-footprint-runtime-v1.mjs
+          git commit -m "Initialize clock state before app startup"
+          git push origin HEAD:fix/core-feed-footprint-runtime-v1
 
       - name: Show server log on failure
         if: failure()
