@@ -85,6 +85,22 @@ export function isBinanceSubscriptionError(payload) {
   return Boolean(payload && typeof payload === "object" && Number.isFinite(Number(payload.code)));
 }
 
+export function normalizeBinanceRestMiniTicker(ticker, now = Date.now()) {
+  if (!ticker || typeof ticker !== "object") return null;
+  const normalized = {
+    e: "24hrMiniTicker",
+    E: Number(ticker.closeTime) || Number(ticker.E) || Number(now) || Date.now(),
+    s: String(ticker.symbol ?? ticker.s ?? "").trim().toUpperCase(),
+    c: ticker.lastPrice ?? ticker.c,
+    o: ticker.openPrice ?? ticker.o,
+    h: ticker.highPrice ?? ticker.h,
+    l: ticker.lowPrice ?? ticker.l,
+    v: ticker.volume ?? ticker.v,
+    q: ticker.quoteVolume ?? ticker.q,
+  };
+  return isCoreMiniTickerPacket([normalized]) ? normalized : null;
+}
+
 export function isCoreMiniTickerPacket(data) {
   return Array.isArray(data) && data.some((ticker) =>
     ticker?.e === "24hrMiniTicker"

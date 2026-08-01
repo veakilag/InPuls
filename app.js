@@ -1,4 +1,4 @@
-import { buildBinanceChannelStreams, buildBinanceChannelTransports, isBinanceSubscriptionError, isCoreMiniTickerPacket, nextBinanceTransportIndex } from "./binance-stream-routing.js?v=26-89-core-feed-footprint-runtime-v1";
+import { buildBinanceChannelStreams, buildBinanceChannelTransports, isBinanceSubscriptionError, isCoreMiniTickerPacket, nextBinanceTransportIndex, normalizeBinanceRestMiniTicker } from "./binance-stream-routing.js?v=26-89-core-feed-footprint-runtime-v1";
 import {
   DEFAULT_SETTINGS,
   SymbolState,
@@ -416,11 +416,13 @@ class BinanceFeed {
     this.marketBootstrapInFlight = false;
     if (!rows || this.channels.get("core")?.corePacketReceived) return;
     const now = Date.now();
-    const normalized = rows.map((ticker) => ({
-      ...ticker,
-      e: "24hrMiniTicker",
-      E: Number(ticker?.E) || now,
-    }));
+    const normalized = rows
+      .map((ticker) => normalizeBinanceRestMiniTicker(ticker, now))
+      .filter(Boolean);
+    if (!normalized.length) {
+      this.#scheduleMarketBootstrap(10_000);
+      return;
+    }
     this.#handle(normalized);
     setConnection("offline", "REST-резерв · WS переподключается");
     this.#scheduleMarketBootstrap(10_000);

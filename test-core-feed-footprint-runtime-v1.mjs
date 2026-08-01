@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { normalizeBinanceRestMiniTicker } from "./binance-stream-routing.js";
 
 const source = (name) => readFile(new URL(`./${name}`, import.meta.url), "utf8");
 
@@ -28,6 +29,31 @@ test("critical market discovery has a REST bootstrap while WebSocket reconnects"
   assert.match(app, /#bootstrapMarketFromRest\(\)/);
   assert.match(app, /fapi1\.binance\.com/);
   assert.match(app, /fapi2\.binance\.com/);
-  assert.match(app, /e: "24hrMiniTicker"/);
+  assert.match(app, /normalizeBinanceRestMiniTicker\(ticker, now\)/);
   assert.match(app, /setConnection\("online", "Онлайн"\)/);
+});
+
+test("REST 24h ticker fields are converted to the miniTicker contract used by SymbolState", () => {
+  const normalized = normalizeBinanceRestMiniTicker({
+    symbol: "BTCUSDT",
+    closeTime: 1_725_000_000_000,
+    lastPrice: "64000.5",
+    openPrice: "62500.0",
+    highPrice: "64500.0",
+    lowPrice: "62000.0",
+    volume: "123.45",
+    quoteVolume: "7890000.25",
+  }, 99);
+  assert.deepEqual(normalized, {
+    e: "24hrMiniTicker",
+    E: 1_725_000_000_000,
+    s: "BTCUSDT",
+    c: "64000.5",
+    o: "62500.0",
+    h: "64500.0",
+    l: "62000.0",
+    v: "123.45",
+    q: "7890000.25",
+  });
+  assert.equal(normalizeBinanceRestMiniTicker({ symbol: "BROKEN", lastPrice: "0" }, 99), null);
 });
