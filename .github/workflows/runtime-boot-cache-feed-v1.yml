@@ -1,0 +1,156 @@
+name: Runtime boot cache feed v1
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate-test-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out hotfix branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/runtime-boot-cache-feed-v1
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply runtime migration
+        run: python .github/scripts/apply-runtime-boot-cache-feed-v1.py
+
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check chart.js
+          node --check orderbook.js
+          node --check orderbook-worker.js
+          node --check runtime-boot-recovery.js
+          node --check binance-stream-routing.js
+          node --check sw.js
+
+      - name: Full regression suite
+        run: npm test
+
+      - name: Install Chromium smoke runtime
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.54.2
+          npx playwright install --with-deps chromium
+
+      - name: Start InPuls
+        run: |
+          npm start > /tmp/inpuls-runtime.log 2>&1 &
+          echo $! > /tmp/inpuls-runtime.pid
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/inpuls-runtime.log
+          exit 1
+
+      - name: Browser startup, cache recovery and data fallback smoke
+        run: |
+          cat > .runtime-smoke.mjs <<'EOF'
+          import assert from "node:assert/strict";
+          import { chromium } from "playwright";
+
+          const BUILD = "26-91-runtime-boot-cache-feed-v1";
+          const browser = await chromium.launch({ headless: true });
+          try {
+            const context = await browser.newContext({ serviceWorkers: "block" });
+            const page = await context.newPage();
+            const pageErrors = [];
+            page.on("pageerror", (error) => pageErrors.push(String(error?.stack || error)));
+
+            const ticker = {
+              symbol: "BTCUSDT",
+              lastPrice: "64000",
+              openPrice: "63000",
+              highPrice: "65000",
+              lowPrice: "62000",
+              volume: "1000",
+              quoteVolume: "64000000",
+              closeTime: Date.now(),
+            };
+            const candles = Array.from({ length: 120 }, (_, index) => {
+              const time = Date.now() - (119 - index) * 60_000;
+              const open = 63000 + index;
+              return [time, String(open), String(open + 20), String(open - 20), String(open + 5), "10", time + 59_999];
+            });
+
+            await page.route("**/fapi/v1/ticker/24hr**", (route) => route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify([ticker]),
+            }));
+            await page.route("**/fapi/v1/klines**", (route) => route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify(candles),
+            }));
+            await page.route("**/fapi/v1/premiumIndex**", (route) => route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({ symbol: "BTCUSDT", lastFundingRate: "0.0001", nextFundingTime: Date.now() + 8 * 60 * 60 * 1000 }),
+            }));
+
+            await page.addInitScript(() => {
+              localStorage.setItem("inpuls-runtime-boot-build-v1", "stale-build");
+            });
+            await page.goto("http://127.0.0.1:4173/", { waitUntil: "domcontentloaded", timeout: 30_000 });
+            await page.waitForFunction((build) => localStorage.getItem("inpuls-runtime-boot-build-v1") === build, BUILD, { timeout: 10_000 });
+            await page.waitForFunction(() => /^\d{2}:\d{2}:\d{2}$/.test(document.querySelector("#clock")?.textContent?.trim() || ""), null, { timeout: 10_000 });
+            const firstClock = await page.locator("#clock").textContent();
+            await page.waitForTimeout(1_200);
+            const secondClock = await page.locator("#clock").textContent();
+            assert.notEqual(firstClock, secondClock, "header clock must advance after boot");
+
+            await page.waitForFunction(() => document.querySelectorAll("#market-body tr").length > 0, null, { timeout: 15_000 });
+            await page.waitForFunction(() => document.querySelector("#price-chart")?.width > 0, null, { timeout: 10_000 });
+
+            const state = await page.evaluate(() => ({
+              build: document.querySelector('meta[name="inpuls-build"]')?.content || "",
+              rows: document.querySelectorAll("#market-body tr").length,
+              clock: document.querySelector("#clock")?.textContent?.trim() || "",
+              status: document.querySelector("#connection-text")?.textContent?.trim() || "",
+              price: document.querySelector("#chart-price")?.textContent?.trim() || "",
+              recoveryQuery: new URL(location.href).searchParams.get("_inpuls_recovery"),
+            }));
+
+            assert.equal(state.build, BUILD);
+            assert.ok(state.rows > 0);
+            assert.match(state.clock, /^\d{2}:\d{2}:\d{2}$/);
+            assert.notEqual(state.price, "—");
+            assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
+            console.log("RUNTIME_SMOKE", JSON.stringify(state));
+          } finally {
+            await browser.close();
+          }
+          EOF
+          node .runtime-smoke.mjs
+          rm -f .runtime-smoke.mjs
+
+      - name: Show server log on failure
+        if: failure()
+        run: cat /tmp/inpuls-runtime.log || true
+
+      - name: Commit verified hotfix
+        run: |
+          git rm .github/scripts/apply-runtime-boot-cache-feed-v1.py
+          git rm .github/workflows/runtime-boot-cache-feed-v1.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix runtime boot cache and Binance feed routing"
+          git push origin HEAD:fix/runtime-boot-cache-feed-v1
