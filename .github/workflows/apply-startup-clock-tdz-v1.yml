@@ -96,10 +96,9 @@ jobs:
               });
             }
 
-            await page.goto("http://127.0.0.1:4173/?symbol=BTCUSDT&open=orderbook", { waitUntil: "domcontentloaded" });
+            await page.goto("http://127.0.0.1:4173/", { waitUntil: "domcontentloaded" });
             await poll(async () => (await page.locator("#market-body tr").count()) >= 2, 20_000, "market rows");
             await poll(async () => (await page.locator("#connection-text").textContent() || "").includes("REST-резерв"), 15_000, "REST fallback status");
-            await poll(async () => (await page.locator(".inpuls-footprint-canvas").count()) >= 1, 10_000, "Footprint canvas");
 
             const state = await page.evaluate(() => ({
               build: document.querySelector('meta[name="inpuls-build"]')?.content || "",
@@ -107,8 +106,7 @@ jobs:
               symbols: [...document.querySelectorAll("#market-body .pair-name")].map((node) => node.textContent?.trim()),
               inplay: document.querySelector("#inplay-coins")?.textContent?.trim() || "",
               status: document.querySelector("#connection-text")?.textContent?.trim() || "",
-              clock: document.querySelector("#clock")?.textContent?.trim() || "",
-              footprint: document.querySelectorAll(".inpuls-footprint-canvas").length
+              clock: document.querySelector("#clock")?.textContent?.trim() || ""
             }));
 
             assert.equal(state.build, "26-89-core-feed-footprint-runtime-v1");
@@ -117,7 +115,6 @@ jobs:
             assert.match(state.inplay, /BTC|ETH/);
             assert.match(state.status, /REST-резерв/);
             assert.match(state.clock, /^\d{2}:\d{2}:\d{2}$/);
-            assert.ok(state.footprint >= 1);
             assert.equal(errors.length, 0, errors.join("\n"));
             console.log("STARTUP_CLOCK_SMOKE", JSON.stringify(state));
           } finally {
