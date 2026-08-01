@@ -3399,6 +3399,9 @@ els.installButton.addEventListener("click", async () => {
   els.installButton.hidden = true;
 });
 
+let lastHeaderClockText = "";
+let clockTickTimer = null;
+
 bindEvents();
 if (initialNavigation.symbol) {
   selectChartSymbol(initialNavigation.symbol);
@@ -3420,8 +3423,6 @@ loadChartStats(state.selectedChartSymbol);
 setInterval(updateTrackedSymbols, 15_000);
 setTimeout(warmupRadarHistory, 1500);
 setInterval(warmupRadarHistory, 5000);
-let lastHeaderClockText = "";
-let clockTickTimer = null;
 function updateClock(date = new Date()) {
   const zone = state.timeZone === "local"
     ? Intl.DateTimeFormat().resolvedOptions().timeZone
