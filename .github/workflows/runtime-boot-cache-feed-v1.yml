@@ -106,6 +106,16 @@ jobs:
           import { chromium } from "playwright";
 
           const BUILD = "26-91-runtime-boot-cache-feed-v1";
+
+          async function poll(check, timeoutMs, label) {
+            const started = Date.now();
+            while (Date.now() - started < timeoutMs) {
+              if (await check()) return;
+              await new Promise((resolve) => setTimeout(resolve, 200));
+            }
+            throw new Error(`Timed out waiting for ${label}`);
+          }
+
           const browser = await chromium.launch({ headless: true });
           try {
             const context = await browser.newContext({ serviceWorkers: "block" });
@@ -152,24 +162,36 @@ jobs:
               }
             });
             await page.goto("http://127.0.0.1:4173/", { waitUntil: "domcontentloaded", timeout: 30_000 });
-            await page.waitForFunction((build) => localStorage.getItem("inpuls-runtime-boot-build-v1") === build, BUILD, { timeout: 10_000 });
-            await page.waitForFunction(() => /^\d{2}:\d{2}:\d{2}$/.test(document.querySelector("#clock")?.textContent?.trim() || ""), null, { timeout: 10_000 });
+
+            await poll(async () => {
+              const build = await page.locator('meta[name="inpuls-build"]').getAttribute("content");
+              return build === BUILD;
+            }, 10_000, "current build");
+
+            await poll(async () => {
+              const value = (await page.locator("#clock").textContent() || "").trim();
+              return /^\d{2}:\d{2}:\d{2}$/.test(value);
+            }, 10_000, "header clock");
+
             const firstClock = await page.locator("#clock").textContent();
             await page.waitForTimeout(1_200);
             const secondClock = await page.locator("#clock").textContent();
             assert.notEqual(firstClock, secondClock, "header clock must advance after boot");
 
-            await page.waitForFunction(() => document.querySelectorAll("#market-body tr").length > 0, null, { timeout: 15_000 });
-            await page.waitForFunction(() => document.querySelector("#price-chart")?.width > 0, null, { timeout: 10_000 });
+            await poll(async () => (await page.locator("#market-body tr").count()) > 0, 15_000, "market rows");
+            await poll(async () => {
+              const box = await page.locator("#price-chart").boundingBox();
+              return Boolean(box && box.width > 0 && box.height > 0);
+            }, 10_000, "chart canvas");
 
-            const state = await page.evaluate(() => ({
-              build: document.querySelector('meta[name="inpuls-build"]')?.content || "",
-              rows: document.querySelectorAll("#market-body tr").length,
-              clock: document.querySelector("#clock")?.textContent?.trim() || "",
-              status: document.querySelector("#connection-text")?.textContent?.trim() || "",
-              price: document.querySelector("#chart-price")?.textContent?.trim() || "",
-              recoveryQuery: new URL(location.href).searchParams.get("_inpuls_recovery"),
-            }));
+            const state = {
+              build: await page.locator('meta[name="inpuls-build"]').getAttribute("content") || "",
+              rows: await page.locator("#market-body tr").count(),
+              clock: (await page.locator("#clock").textContent() || "").trim(),
+              status: (await page.locator("#connection-text").textContent() || "").trim(),
+              price: (await page.locator("#chart-price").textContent() || "").trim(),
+              recoveryQuery: new URL(page.url()).searchParams.get("_inpuls_recovery"),
+            };
 
             assert.equal(state.build, BUILD);
             assert.ok(state.rows > 0);
