@@ -1,0 +1,138 @@
+name: Apply Tape Series stage 1
+
+on:
+  push:
+    branches:
+      - feature/tape-series-stage1-v1
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out Series branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/tape-series-stage1-v1
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply isolated Series migration
+        run: python .github/scripts/apply-tape-series-stage1-v1.py
+
+      - name: Syntax checks
+        run: |
+          node --check orderbook.js
+          node --check orderbook-worker.js
+          node --check orderbook-flow-workspace.js
+          node --check app.js
+          node --check sw.js
+          node --check runtime-boot-recovery.js
+          node --check test-tape-series-stage1-v1.mjs
+
+      - name: Focused Series regressions
+        run: |
+          node --test test-tape-series-stage1-v1.mjs
+          node --test test-orderbook-tape-v2-core.mjs
+          node --test test-orderbook-runtime-stability.mjs
+          node --test test-orderbook-seamless-resume.mjs
+          node --test test-orderbook-flow-workspace.mjs
+
+      - name: Full regression suite
+        run: npm test
+
+      - name: Install browser runtime
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.54.2
+          npx playwright install --with-deps chromium
+
+      - name: Start InPuls
+        run: |
+          npm start > /tmp/inpuls-series-server.log 2>&1 &
+          echo $! > /tmp/inpuls-series-server.pid
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/inpuls-series-server.log
+          exit 1
+
+      - name: Browser mode-cycle smoke
+        run: |
+          cat > .tape-series-browser-smoke.mjs <<'EOF'
+          import assert from "node:assert/strict";
+          import { chromium } from "playwright";
+
+          async function poll(check, timeout, label) {
+            const started = Date.now();
+            while (Date.now() - started < timeout) {
+              if (await check()) return;
+              await new Promise((resolve) => setTimeout(resolve, 200));
+            }
+            throw new Error(`Timed out waiting for ${label}`);
+          }
+
+          const browser = await chromium.launch({ headless: true });
+          try {
+            const context = await browser.newContext({ serviceWorkers: "block" });
+            const page = await context.newPage();
+            const errors = [];
+            page.on("pageerror", (error) => errors.push(String(error?.stack || error)));
+            await page.goto("http://127.0.0.1:4173/?symbol=ETHUSDT&open=orderbook", {
+              waitUntil: "domcontentloaded",
+              timeout: 30_000,
+            });
+            await poll(async () => (await page.locator("[data-inpuls-tape-mode]").count()) > 0, 15_000, "Tape mode button");
+            const button = page.locator("[data-inpuls-tape-mode]").first();
+            await button.evaluate((node) => {
+              localStorage.setItem("inpuls-tape-mode-v2", "raw");
+              node.click();
+            });
+            await poll(async () => (await button.textContent() || "").trim() === "AGG", 3_000, "AGG mode");
+            await button.click();
+            await poll(async () => (await button.textContent() || "").trim() === "СЕРИЯ", 3_000, "Series mode");
+            assert.equal(await button.getAttribute("data-mode"), "sweep");
+            assert.ok(await button.evaluate((node) => node.classList.contains("is-sweep")));
+            await button.click();
+            await poll(async () => (await button.textContent() || "").trim() === "RAW", 3_000, "RAW mode");
+
+            const state = await page.evaluate(() => ({
+              build: document.querySelector('meta[name="inpuls-build"]')?.content || "",
+              mode: localStorage.getItem("inpuls-tape-mode-v2"),
+              cards: document.querySelectorAll(".orderbook-card").length,
+            }));
+            assert.equal(state.build, "26-92-tape-series-stage1-v1");
+            assert.equal(state.mode, "raw");
+            assert.ok(state.cards >= 1);
+            assert.equal(errors.length, 0, errors.join("\n"));
+            console.log("TAPE_SERIES_BROWSER_SMOKE", JSON.stringify(state));
+          } finally {
+            await browser.close();
+          }
+          EOF
+          node .tape-series-browser-smoke.mjs
+          rm -f .tape-series-browser-smoke.mjs
+
+      - name: Show server log on failure
+        if: failure()
+        run: cat /tmp/inpuls-series-server.log || true
+
+      - name: Commit verified Series stage
+        run: |
+          git rm .github/scripts/apply-tape-series-stage1-v1.py
+          git rm .github/workflows/apply-tape-series-stage1-v1.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Restore isolated Tape Series mode"
+          git push origin HEAD:feature/tape-series-stage1-v1
