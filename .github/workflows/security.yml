@@ -28,6 +28,9 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Locate obsolete Service Worker cache assertion
+        run: grep -R -n --exclude-dir=.git "Service worker cache name must be versioned" . || true
+
       - name: Check JavaScript syntax
         run: find . -type f -name '*.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
 
