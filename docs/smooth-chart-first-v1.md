@@ -17,6 +17,10 @@ A fixed `render()` of the whole application was running on every exact second. A
 - Cache clock formatters and skip timezone-map scans while the dialog is closed.
 - Keep the price in each additional chart header updated directly from its own feed.
 
+## Startup invariant
+
+The lightweight clock stores its state on the clock functions rather than in late module-level `let` bindings. This keeps `applySelectedTimeZone()` safe when it calls the clock during the initial event-binding phase.
+
 ## Safety boundary
 
 The change does not alter candle values, Binance streams, signal formulas, order-book sequencing, Tape data, workspace storage, or Signal Lab history. It changes only UI scheduling and allocation on the live chart path.
