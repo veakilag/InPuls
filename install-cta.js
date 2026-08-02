@@ -3,22 +3,80 @@
   if (!slider) return;
 
   const root = document.documentElement;
-  const thumb = slider.closest(".comfort-control")?.querySelector(".comfort-thumb-icon") ?? null;
+  const control = slider.closest(".comfort-control");
+  const thumb = control?.querySelector(".comfort-thumb-icon") ?? null;
+  const sun = thumb?.querySelector(".comfort-sun") ?? null;
+  const moon = thumb?.querySelector(".comfort-moon") ?? null;
+  const PREVIEW_INTERVAL_MS = 34;
+  const PREVIEW_MAX_DEFER_MS = 102;
   let pointerDragging = false;
   let committingTheme = false;
   let pendingValue = Number(slider.value || 55);
   let thumbFrame = null;
+  let previewTimer = null;
+  let lastPreviewAt = Number.NEGATIVE_INFINITY;
+  let previewDeferredAt = 0;
 
   function normalizedValue() {
     return Math.max(0, Math.min(100, Number(slider.value) || 0));
   }
 
-  function flushThumbPosition() {
-    thumbFrame = null;
-    root.style.setProperty("--comfort-position", `${pendingValue}%`);
+  function clockNow() {
+    return globalThis.performance?.now?.() ?? Date.now();
+  }
+
+  function pendingFlowWork() {
+    try {
+      return Number(globalThis.__INPULS_RENDER_LANES__?.pending?.().flow) || 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  function applyThumbVisual() {
+    const amount = pendingValue / 100;
+    const moonProgress = Math.max(0, Math.min(1, (amount - .2) / .7));
+    thumb?.style.setProperty("left", `${pendingValue}%`);
+    sun?.style.setProperty("opacity", String(1 - moonProgress));
+    sun?.style.setProperty("transform", `scale(${1 - moonProgress}) rotate(${moonProgress * 38}deg)`);
+    moon?.style.setProperty("opacity", String(moonProgress));
+    moon?.style.setProperty("transform", `scale(${moonProgress}) rotate(${(1 - moonProgress) * -24}deg)`);
+  }
+
+  function clearThumbVisual() {
+    thumb?.style.removeProperty("left");
+    sun?.style.removeProperty("opacity");
+    sun?.style.removeProperty("transform");
+    moon?.style.removeProperty("opacity");
+    moon?.style.removeProperty("transform");
+  }
+
+  function flushPalettePreview() {
+    previewTimer = null;
+    if (!pointerDragging) return;
+    const now = clockNow();
+    if (pendingFlowWork() > 0 && now - previewDeferredAt < PREVIEW_MAX_DEFER_MS) {
+      schedulePalettePreview(16);
+      return;
+    }
+    lastPreviewAt = now;
+    previewDeferredAt = now;
     globalThis.dispatchEvent(new CustomEvent("inpuls:comfort-preview", {
       detail: { value: pendingValue },
     }));
+  }
+
+  function schedulePalettePreview(delayOverride = null) {
+    if (previewTimer !== null) return;
+    const elapsed = clockNow() - lastPreviewAt;
+    const delay = delayOverride ?? Math.max(0, PREVIEW_INTERVAL_MS - elapsed);
+    previewTimer = globalThis.setTimeout(flushPalettePreview, delay);
+  }
+
+  function flushThumbPosition() {
+    thumbFrame = null;
+    applyThumbVisual();
+    schedulePalettePreview();
   }
 
   function scheduleThumbPosition() {
@@ -26,21 +84,32 @@
     thumbFrame = requestAnimationFrame(flushThumbPosition);
   }
 
-  function commitThemeOnce() {
+  function cancelPendingPreview() {
     if (thumbFrame !== null) {
       cancelAnimationFrame(thumbFrame);
       thumbFrame = null;
     }
+    if (previewTimer !== null) {
+      globalThis.clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+  }
+
+  function commitThemeOnce() {
+    cancelPendingPreview();
     pendingValue = normalizedValue();
-    flushThumbPosition();
+    applyThumbVisual();
     committingTheme = true;
     slider.dispatchEvent(new Event("input", { bubbles: true }));
     committingTheme = false;
+    clearThumbVisual();
   }
 
   slider.addEventListener("pointerdown", (event) => {
     pointerDragging = true;
     pendingValue = normalizedValue();
+    previewDeferredAt = clockNow();
+    root.dataset.comfortDragging = "true";
     thumb?.style.setProperty("transition", "none");
     try { slider.setPointerCapture(event.pointerId); } catch {}
   }, { passive: true });
@@ -58,8 +127,9 @@
     try {
       if (slider.hasPointerCapture?.(event.pointerId)) slider.releasePointerCapture(event.pointerId);
     } catch {}
-    thumb?.style.removeProperty("transition");
     commitThemeOnce();
+    delete root.dataset.comfortDragging;
+    thumb?.style.removeProperty("transition");
   }
 
   slider.addEventListener("pointerup", finishPointerDrag);

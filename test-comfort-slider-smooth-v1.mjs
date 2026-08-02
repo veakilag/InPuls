@@ -6,6 +6,7 @@ import vm from "node:vm";
 const installCta = readFileSync(new URL("./install-cta.js", import.meta.url), "utf8");
 const app = readFileSync(new URL("./app.js", import.meta.url), "utf8");
 const index = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 const comfortGuard = installCta.slice(0, installCta.indexOf("\n\n(() => {", 1));
 
 class FakeEvent {
@@ -16,23 +17,16 @@ class FakeEvent {
     this.detail = init.detail ?? null;
     this.immediateStopped = false;
   }
-
-  stopImmediatePropagation() {
-    this.immediateStopped = true;
-  }
+  stopImmediatePropagation() { this.immediateStopped = true; }
 }
 
 class FakeTarget {
-  constructor() {
-    this.listeners = new Map();
-  }
-
+  constructor() { this.listeners = new Map(); }
   addEventListener(type, listener) {
     const listeners = this.listeners.get(type) ?? [];
     listeners.push(listener);
     this.listeners.set(type, listeners);
   }
-
   dispatchEvent(event) {
     event.target = this;
     for (const listener of this.listeners.get(event.type) ?? []) {
@@ -43,82 +37,108 @@ class FakeTarget {
   }
 }
 
-function buildHarness() {
-  const rootValues = new Map();
-  const thumbValues = new Map();
-  const animationFrames = new Map();
-  const previewValues = [];
-  let nextFrameId = 1;
-  let capturedPointer = null;
-
-  const thumb = {
+function styleStore() {
+  const values = new Map();
+  return {
+    values,
     style: {
-      setProperty(name, value) { thumbValues.set(name, value); },
-      removeProperty(name) { thumbValues.delete(name); },
+      setProperty(name, value) { values.set(name, value); },
+      removeProperty(name) { values.delete(name); },
     },
   };
+}
 
+function buildHarness() {
+  const thumbStore = styleStore();
+  const sunStore = styleStore();
+  const moonStore = styleStore();
+  const animationFrames = new Map();
+  const timers = new Map();
+  const previewValues = [];
+  let nextFrameId = 1;
+  let nextTimerId = 1;
+  let capturedPointer = null;
+  let now = 0;
+  let flowPending = 0;
+
+  const sun = { style: sunStore.style };
+  const moon = { style: moonStore.style };
+  const thumb = {
+    style: thumbStore.style,
+    querySelector(selector) {
+      if (selector === ".comfort-sun") return sun;
+      if (selector === ".comfort-moon") return moon;
+      return null;
+    },
+  };
+  const control = { querySelector: () => thumb };
   const slider = new FakeTarget();
   slider.value = "55";
-  slider.closest = () => ({ querySelector: () => thumb });
+  slider.closest = () => control;
   slider.setPointerCapture = (pointerId) => { capturedPointer = pointerId; };
   slider.hasPointerCapture = (pointerId) => capturedPointer === pointerId;
   slider.releasePointerCapture = (pointerId) => {
     if (capturedPointer === pointerId) capturedPointer = null;
   };
 
+  const rootDataset = {};
   const context = {
     document: {
-      documentElement: {
-        style: {
-          setProperty(name, value) { rootValues.set(name, value); },
-        },
-      },
-      querySelector(selector) {
-        return selector === "#comfort-slider" ? slider : null;
-      },
+      documentElement: { dataset: rootDataset },
+      querySelector(selector) { return selector === "#comfort-slider" ? slider : null; },
     },
     Event: FakeEvent,
     CustomEvent: FakeEvent,
+    Date,
+    performance: { now: () => now },
+    __INPULS_RENDER_LANES__: { pending: () => ({ chart: 0, flow: flowPending }) },
     dispatchEvent(event) {
       if (event.type === "inpuls:comfort-preview") previewValues.push(event.detail?.value);
       return true;
     },
     requestAnimationFrame(callback) {
-      const id = nextFrameId;
-      nextFrameId += 1;
+      const id = nextFrameId++;
       animationFrames.set(id, callback);
       return id;
     },
-    cancelAnimationFrame(id) {
-      animationFrames.delete(id);
+    cancelAnimationFrame(id) { animationFrames.delete(id); },
+    setTimeout(callback, delay = 0) {
+      const id = nextTimerId++;
+      timers.set(id, { callback, delay });
+      return id;
     },
+    clearTimeout(id) { timers.delete(id); },
   };
 
   vm.runInNewContext(comfortGuard, context);
 
   return {
     slider,
-    rootValues,
-    thumbValues,
+    rootDataset,
+    thumbValues: thumbStore.values,
     previewValues,
+    setFlowPending(value) { flowPending = value; },
     flushFrames() {
       const pending = [...animationFrames.values()];
       animationFrames.clear();
-      for (const callback of pending) callback();
+      for (const callback of pending) callback(now);
     },
+    flushOneTimer(advance = 34) {
+      now += advance;
+      const first = timers.entries().next().value;
+      if (!first) return;
+      const [id, task] = first;
+      timers.delete(id);
+      task.callback();
+    },
+    timerCount() { return timers.size; },
   };
 }
 
-test("comfort drag updates its thumb and live palette preview per frame", () => {
-  assert.match(comfortGuard, /let pointerDragging = false;/);
-  assert.match(comfortGuard, /event\.stopImmediatePropagation\(\);/);
-  assert.match(comfortGuard, /new CustomEvent\("inpuls:comfort-preview"/);
-  assert.doesNotMatch(comfortGuard, /localStorage|render\(|applyComfort/);
-
+test("thumb stays frame-smooth while palette preview is throttled", () => {
   const harness = buildHarness();
-  let committedUpdates = 0;
-  harness.slider.addEventListener("input", () => { committedUpdates += 1; });
+  let commits = 0;
+  harness.slider.addEventListener("input", () => { commits += 1; });
 
   harness.slider.dispatchEvent(new FakeEvent("pointerdown", { pointerId: 7 }));
   harness.slider.value = "68";
@@ -126,51 +146,67 @@ test("comfort drag updates its thumb and live palette preview per frame", () => 
   harness.slider.value = "82";
   harness.slider.dispatchEvent(new FakeEvent("input", { pointerId: 7 }));
 
-  assert.equal(committedUpdates, 0);
-  assert.equal(harness.thumbValues.get("transition"), "none");
+  assert.equal(commits, 0);
   harness.flushFrames();
-  assert.equal(harness.rootValues.get("--comfort-position"), "82%");
+  assert.equal(harness.thumbValues.get("left"), "82%");
+  assert.deepEqual(harness.previewValues, []);
+  assert.equal(harness.timerCount(), 1);
+
+  harness.flushOneTimer();
   assert.deepEqual(harness.previewValues, [82]);
 
   harness.slider.dispatchEvent(new FakeEvent("pointerup", { pointerId: 7 }));
-  assert.equal(committedUpdates, 1);
-  assert.equal(harness.rootValues.get("--comfort-position"), "82%");
-  assert.equal(harness.previewValues.at(-1), 82);
-  assert.equal(harness.thumbValues.has("transition"), false);
+  assert.equal(commits, 1);
+  assert.equal(harness.thumbValues.has("left"), false);
+  assert.equal(harness.rootDataset.comfortDragging, undefined);
 });
 
-test("lightweight preview changes visible palette without repainting canvases", () => {
-  const previewStart = app.indexOf("function applyComfortPreview(rawValue) {");
-  const previewEnd = app.indexOf("\n\nfunction applyComfort(rawValue)", previewStart);
-  const preview = app.slice(previewStart, previewEnd);
-  assert.ok(previewStart >= 0 && previewEnd > previewStart);
+test("palette preview yields while Tape has pending flow work", () => {
+  const harness = buildHarness();
+  harness.setFlowPending(1);
+  harness.slider.dispatchEvent(new FakeEvent("pointerdown", { pointerId: 5 }));
+  harness.slider.value = "73";
+  harness.slider.dispatchEvent(new FakeEvent("input", { pointerId: 5 }));
+  harness.flushFrames();
+  harness.flushOneTimer(34);
+  assert.deepEqual(harness.previewValues, []);
+  assert.equal(harness.timerCount(), 1);
+
+  harness.setFlowPending(0);
+  harness.flushOneTimer(16);
+  assert.deepEqual(harness.previewValues, [73]);
+});
+
+test("drag preview updates only surface colors and never Canvas theme", () => {
+  const start = app.indexOf("function applyComfortPreview(rawValue) {");
+  const end = app.indexOf("\n\nfunction applyComfort(rawValue)", start);
+  const preview = app.slice(start, end);
   assert.match(preview, /--bg/);
   assert.match(preview, /--panel/);
   assert.match(preview, /--panel-2/);
-  assert.match(preview, /--chart-bg/);
-  assert.match(preview, /--comfort-position/);
-  assert.doesNotMatch(preview, /setTheme|localStorage|inpuls:theme-change/);
-  assert.match(app, /addEventListener\("inpuls:comfort-preview"/);
+  assert.match(preview, /--line/);
+  assert.doesNotMatch(preview, /--text|--muted|--chart-bg|--chart-bear-fill/);
+  assert.doesNotMatch(preview, /setTheme|inpuls:theme-change|localStorage/);
+  assert.match(comfortGuard, /PREVIEW_INTERVAL_MS = 34/);
+  assert.match(comfortGuard, /pendingFlowWork\(\)/);
+  assert.match(styles, /data-comfort-dragging/);
 });
 
-test("release persists and repaints heavy visual modules exactly once", () => {
-  const handler = app.match(
-    /els\.comfortSlider\.addEventListener\("input", \(\) => \{([\s\S]*?)\n  \}\);/,
-  )?.[1] ?? "";
-  assert.match(handler, /state\.comfort = Number\(els\.comfortSlider\.value\);/);
-  assert.match(handler, /localStorage\.setItem\(STORAGE_KEYS\.comfort/);
-  assert.match(handler, /applyComfort\(state\.comfort\);/);
-  assert.doesNotMatch(handler, /render\(/);
-
-  const commitStart = app.indexOf("function applyComfort(rawValue) {");
-  const commitEnd = app.indexOf("\n\nglobalThis.addEventListener(\"inpuls:comfort-preview\"", commitStart);
-  const commit = app.slice(commitStart, commitEnd);
+test("release applies the complete palette and heavy visual modules once", () => {
+  const start = app.indexOf("function applyComfort(rawValue) {");
+  const end = app.indexOf("\n\nglobalThis.addEventListener(\"inpuls:comfort-preview\"", start);
+  const commit = app.slice(start, end);
+  assert.match(commit, /--text/);
+  assert.match(commit, /--muted/);
+  assert.match(commit, /--chart-bg/);
   assert.match(commit, /priceChart\.setTheme\(activeChartTheme\)/);
   assert.match(commit, /panel\.chart\.setTheme\(activeChartTheme\)/);
   assert.match(commit, /inpuls:theme-change/);
 });
 
-test("comfort preview ships with a fresh browser cache key", () => {
-  assert.match(index, /install-cta\.js\?v=comfort-live-preview-v1/);
-  assert.match(index, /app\.js\?v=26-98-live-comfort-preview-v1/);
+test("Tape-priority comfort build ships fresh cache keys", () => {
+  assert.match(index, /styles\.css\?v=26-99-tape-priority-comfort-v1/);
+  assert.match(index, /runtime-boot-recovery\.js\?v=26-99-tape-priority-comfort-v1/);
+  assert.match(index, /install-cta\.js\?v=comfort-tape-priority-v1/);
+  assert.match(index, /app\.js\?v=26-99-tape-priority-comfort-v1/);
 });
