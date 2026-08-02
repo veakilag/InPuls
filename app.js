@@ -7,7 +7,7 @@ import {
   isUsdtPerpetualSymbol,
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=26-65-structured-signal-collection-v1";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=23";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-97-smooth-chart-first-v1";
 import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-91-runtime-boot-cache-feed-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
@@ -457,12 +457,13 @@ class BinanceFeed {
       if (this.trackedAggTrades.has(data.s)) {
         getSymbol(data.s, Number(data.E) || Date.now())?.updateBookTicker(data);
       }
-      scheduleRender();
+      // State stays current; the next miniTicker packet owns the expensive
+      // market DOM refresh. Chart and Tape rendering are independent.
       return;
     }
     if (data.e === "aggTrade" && filterUsdtPerpetualTicker(data) && this.trackedAggTrades.has(data.s)) {
       getSymbol(data.s)?.updateTrade(data);
-      scheduleRender();
+      // Trade statistics update immediately without rebuilding every radar row.
       return;
     }
     if (data.e === "forceOrder") {
@@ -480,10 +481,15 @@ const feed = new BinanceFeed();
 let scheduledMarketRender = null;
 function scheduleRender() {
   if (scheduledMarketRender !== null) return;
-  scheduledMarketRender = setTimeout(() => {
+  const run = () => {
     scheduledMarketRender = null;
     render();
-  }, 180);
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    scheduledMarketRender = window.requestIdleCallback(run, { timeout: 450 });
+  } else {
+    scheduledMarketRender = setTimeout(run, 180);
+  }
 }
 const radarHistoryLoaded = new Set();
 const radarHistoryLoading = new Set();
@@ -1692,7 +1698,18 @@ function mountExtraChart(model) {
   chart.setFontScale(state.fontScale / 100);
   if (activeChartTheme) chart.setTheme(activeChartTheme);
   const panel = { model, element: article, chart, feed: null };
-  panel.feed = new KlineFeed({ onData: (candles, meta) => chart.setData(candles, meta), onStatus() {} });
+  panel.feed = new KlineFeed({
+    onData: (candles, meta) => {
+      chart.setData(candles, meta);
+      const currentPrice = Number(candles.at(-1)?.close);
+      const priceNode = article.querySelector("[data-mini-price]");
+      if (priceNode && Number.isFinite(currentPrice)) {
+        const nextText = formatPrice(currentPrice);
+        if (priceNode.textContent !== nextText) priceNode.textContent = nextText;
+      }
+    },
+    onStatus() {},
+  });
   extraCharts.set(model.id, panel);
   bindChartToolbox(article, chart);
   article.querySelector(".chart-quote h2").title = "Нажми, чтобы скопировать тикер";
@@ -2926,10 +2943,27 @@ function timeZoneOffset(zone) {
   } catch { return ""; }
 }
 
-function timeZoneClock(zone, date = new Date()) {
+const timeFormatterCache = new Map();
+function cachedTimeFormatter(zone, withSeconds = false) {
+  const key = `${zone}:${withSeconds ? "seconds" : "minutes"}`;
+  let formatter = timeFormatterCache.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("ru-RU", {
+      timeZone: zone,
+      hour: "2-digit",
+      minute: "2-digit",
+      ...(withSeconds ? { second: "2-digit" } : {}),
+      hour12: false,
+    });
+    timeFormatterCache.set(key, formatter);
+  }
+  return formatter;
+}
+
+function timeZoneClock(zone, date = new Date(), withSeconds = false) {
   try {
-    return new Intl.DateTimeFormat("ru-RU", { timeZone: zone, hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
-  } catch { return "--:--"; }
+    return cachedTimeFormatter(zone, withSeconds).format(date);
+  } catch { return withSeconds ? "--:--:--" : "--:--"; }
 }
 
 function applySelectedTimeZone(zone, city = null) {
@@ -3014,12 +3048,17 @@ function renderTimeZoneLines() {
   els.timeZoneZoneLines.replaceChildren(fragment);
 }
 
-function updateTimeZoneClocks() {
+let timeZoneClockMinuteKey = null;
+function updateTimeZoneClocks(date = new Date()) {
+  if (!els.timeZoneDialog?.open) return;
+  const minuteKey = Math.floor(date.getTime() / 60_000);
+  if (minuteKey === timeZoneClockMinuteKey) return;
+  timeZoneClockMinuteKey = minuteKey;
   for (const marker of els.timeZoneMarkers?.querySelectorAll(".timezone-marker") ?? []) {
     const item = TIME_ZONE_CITIES.find((city) => city.zone === marker.dataset.zone && marker.getAttribute("aria-label")?.startsWith(city.city));
-    if (item) marker.dataset.city = `${item.city} · ${timeZoneClock(item.zone)}`;
+    if (item) marker.dataset.city = `${item.city} · ${timeZoneClock(item.zone, date)}`;
   }
-  if (els.timeZoneDialog?.open) renderTimeZoneResults();
+  renderTimeZoneResults();
 }
 
 function applyMapTransform() {
@@ -3377,21 +3416,36 @@ els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.datas
 renderTimeframePickers();
 klineFeed.select(state.selectedChartSymbol, state.chartInterval, state.chartRange);
 loadChartStats(state.selectedChartSymbol);
-setInterval(render, 1000);
+// Rendering is event-driven. A fixed full-app rebuild on each exact second
+// caused a visible main-thread stall in every open chart.
 setInterval(updateTrackedSymbols, 15_000);
 setTimeout(warmupRadarHistory, 1500);
 setInterval(warmupRadarHistory, 5000);
-function updateClock() {
-  els.clock.textContent = new Intl.DateTimeFormat("ru-RU", {
-    ...(state.timeZone === "local" ? {} : { timeZone: state.timeZone }),
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(new Date());
-  updateTimeZoneClocks();
+let lastHeaderClockText = "";
+let clockTickTimer = null;
+function updateClock(date = new Date()) {
+  const zone = state.timeZone === "local"
+    ? Intl.DateTimeFormat().resolvedOptions().timeZone
+    : state.timeZone;
+  const nextText = timeZoneClock(zone, date, true);
+  if (nextText !== lastHeaderClockText) {
+    lastHeaderClockText = nextText;
+    els.clock.textContent = nextText;
+  }
+  updateTimeZoneClocks(date);
 }
-setInterval(updateClock, 1000);
+function scheduleClockTick() {
+  clearTimeout(clockTickTimer);
+  const delay = Math.max(40, 1_000 - (Date.now() % 1_000) + 12);
+  clockTickTimer = setTimeout(() => {
+    requestAnimationFrame(() => {
+      updateClock(new Date());
+      scheduleClockTick();
+    });
+  }, delay);
+}
 updateClock();
+scheduleClockTick();
 render();
 
 const INPULS_RUNTIME_BUILD = "26-91-runtime-boot-cache-feed-v1";
