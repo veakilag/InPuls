@@ -3421,23 +3421,21 @@ loadChartStats(state.selectedChartSymbol);
 setInterval(updateTrackedSymbols, 15_000);
 setTimeout(warmupRadarHistory, 1500);
 setInterval(warmupRadarHistory, 5000);
-let lastHeaderClockText = "";
-let clockTickTimer = null;
 function updateClock(date = new Date()) {
   const zone = state.timeZone === "local"
     ? Intl.DateTimeFormat().resolvedOptions().timeZone
     : state.timeZone;
   const nextText = timeZoneClock(zone, date, true);
-  if (nextText !== lastHeaderClockText) {
-    lastHeaderClockText = nextText;
+  if (nextText !== updateClock.lastText) {
+    updateClock.lastText = nextText;
     els.clock.textContent = nextText;
   }
   updateTimeZoneClocks(date);
 }
 function scheduleClockTick() {
-  clearTimeout(clockTickTimer);
+  clearTimeout(scheduleClockTick.timer);
   const delay = Math.max(40, 1_000 - (Date.now() % 1_000) + 12);
-  clockTickTimer = setTimeout(() => {
+  scheduleClockTick.timer = setTimeout(() => {
     requestAnimationFrame(() => {
       updateClock(new Date());
       scheduleClockTick();

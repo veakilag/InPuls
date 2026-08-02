@@ -37,6 +37,9 @@ test("clock work avoids hidden timezone scans and cached modules are refreshed",
   assert.match(app, /if \(!els\.timeZoneDialog\?\.open\) return/);
   assert.match(app, /const timeFormatterCache = new Map\(\)/);
   assert.doesNotMatch(app, /setInterval\(updateClock,\s*1000\)/);
+  assert.doesNotMatch(app, /let lastHeaderClockText|let clockTickTimer/);
+  assert.match(app, /updateClock\.lastText/);
+  assert.match(app, /scheduleClockTick\.timer/);
   assert.match(html, /app\.js\?v=26-97-smooth-chart-first-v1/);
   assert.match(app, /chart\.js\?v=26-97-smooth-chart-first-v1/);
 });
