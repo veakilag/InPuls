@@ -12,7 +12,7 @@ const sw = readFileSync(new URL("./sw.js", import.meta.url), "utf8");
 const reset = readFileSync(new URL("./reset-v26.html", import.meta.url), "utf8");
 
 test("normal reload keeps one consistent runtime build", () => {
-  assert.match(index, /app\.js\?v=26-91-runtime-boot-cache-feed-v1/);
+  assert.match(index, /app\.js\?v=26-97-smooth-chart-first-v1/);
   assert.match(app, /orderbook\.js\?v=26-91-runtime-boot-cache-feed-v1/);
   assert.match(app, /render-scheduler\.js\?v=render-scheduler-v1/);
   assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-91-runtime-boot-cache-feed-v1/);

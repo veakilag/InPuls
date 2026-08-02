@@ -45,6 +45,20 @@ export function upsertCandle(candles, candle, limit = 180) {
   return next.slice(-limit);
 }
 
+export function upsertLiveCandleInPlace(candles, candle, limit = 180) {
+  if (!Array.isArray(candles) || !candle || !Number.isFinite(candle.time)) return candles;
+  const last = candles.at(-1);
+  if (last?.time === candle.time) candles[candles.length - 1] = candle;
+  else if (!last || candle.time > last.time) candles.push(candle);
+  else {
+    const index = candles.findIndex((item) => item.time === candle.time);
+    if (index >= 0) candles[index] = candle;
+  }
+  const overflow = candles.length - Math.max(1, Math.floor(Number(limit) || 1));
+  if (overflow > 0) candles.splice(0, overflow);
+  return candles;
+}
+
 export function scaleFromDrag(initialScale, delta, sensitivity = 120) {
   return Math.max(.15, Math.min(8, initialScale * Math.exp(delta / sensitivity)));
 }
@@ -195,6 +209,10 @@ export class KlineFeed {
     this.generation = 0;
     this.seriesCache = new Map();
     this.historyFlushTimer = null;
+    this.liveEmitHandle = null;
+    this.liveEmitKind = null;
+    this.pendingLiveMeta = null;
+    this.cacheFlushTimer = null;
   }
 
   async select(symbol, interval = "1m", range = "1h") {
@@ -287,6 +305,48 @@ export class KlineFeed {
     this.historyFlushTimer = setTimeout(() => secondHistoryStore.set(key, this.candles), 900);
   }
 
+  #scheduleLiveEmit(meta) {
+    this.pendingLiveMeta = meta;
+    if (this.liveEmitHandle !== null) return;
+    const emit = () => {
+      this.liveEmitHandle = null;
+      this.liveEmitKind = null;
+      const pending = this.pendingLiveMeta;
+      this.pendingLiveMeta = null;
+      if (!pending) return;
+      this.onData(this.candles, pending);
+    };
+    if (typeof globalThis.requestAnimationFrame === "function") {
+      this.liveEmitKind = "raf";
+      this.liveEmitHandle = globalThis.requestAnimationFrame(emit);
+    } else {
+      this.liveEmitKind = "timeout";
+      this.liveEmitHandle = setTimeout(emit, 16);
+    }
+  }
+
+  #scheduleSeriesCacheFlush() {
+    if (this.cacheFlushTimer !== null || !this.symbol || !this.interval) return;
+    this.cacheFlushTimer = setTimeout(() => {
+      this.cacheFlushTimer = null;
+      if (!this.symbol || !this.interval) return;
+      const limit = this.interval.endsWith("s") ? 30_000 : 1_500;
+      this.seriesCache.set(`${this.symbol}:${this.interval}`, this.candles.slice(-limit));
+    }, 250);
+  }
+
+  #cancelLiveEmit() {
+    if (this.liveEmitHandle === null) return;
+    if (this.liveEmitKind === "raf" && typeof globalThis.cancelAnimationFrame === "function") {
+      globalThis.cancelAnimationFrame(this.liveEmitHandle);
+    } else {
+      clearTimeout(this.liveEmitHandle);
+    }
+    this.liveEmitHandle = null;
+    this.liveEmitKind = null;
+    this.pendingLiveMeta = null;
+  }
+
   destroy() {
     this.generation += 1;
     this.#cleanup();
@@ -313,9 +373,9 @@ export class KlineFeed {
           candle.low = Math.min(last.low, candle.low);
           candle.volume += last.volume;
         }
-        this.candles = upsertCandle(this.candles, candle, secondsMode ? 30_000 : 1500);
-        this.seriesCache.set(`${this.symbol}:${this.interval}`, this.candles.slice());
-        this.onData(this.candles, { symbol: this.symbol, interval: this.interval, range: this.range });
+        upsertLiveCandleInPlace(this.candles, candle, secondsMode ? 30_000 : 1_500);
+        this.#scheduleSeriesCacheFlush();
+        this.#scheduleLiveEmit({ symbol: this.symbol, interval: this.interval, range: this.range });
         if (secondsMode) this.#scheduleSecondHistorySave();
       } catch {
         // Ignore one malformed market message and keep the stream alive.
@@ -334,6 +394,9 @@ export class KlineFeed {
   #cleanup() {
     clearTimeout(this.reconnectTimer);
     clearTimeout(this.historyFlushTimer);
+    clearTimeout(this.cacheFlushTimer);
+    this.cacheFlushTimer = null;
+    this.#cancelLiveEmit();
     this.abortController?.abort();
     if (this.socket) {
       this.socket.onclose = null;
