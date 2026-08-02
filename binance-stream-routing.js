@@ -30,6 +30,22 @@ const GLOBAL_STREAMS = Object.freeze({
   public: Object.freeze(["!bookTicker"]),
 });
 
+const FAST_MARKET_BOOTSTRAP_HOSTS = Object.freeze([
+  "fapi.binance.com",
+  "fapi1.binance.com",
+  "fapi2.binance.com",
+]);
+const FAST_MARKET_BOOTSTRAP_TIMEOUT_MS = 3_000;
+const FAST_HISTORY_TIMEOUT_MS = 250;
+const FAST_HISTORY_INTERVAL_MS = 1_000;
+
+const nativeSetTimeout = typeof globalThis.setTimeout === "function"
+  ? globalThis.setTimeout.bind(globalThis)
+  : null;
+const nativeSetInterval = typeof globalThis.setInterval === "function"
+  ? globalThis.setInterval.bind(globalThis)
+  : null;
+
 function normalizeSymbols(symbols) {
   return [...new Set([...(symbols ?? [])]
     .map((symbol) => String(symbol ?? "").trim().toUpperCase())
@@ -98,6 +114,13 @@ export function normalizeBinanceRestMiniTicker(ticker, now = Date.now()) {
   return isCoreMiniTickerPacket([normalized]) ? normalized : null;
 }
 
+export function normalizeBinanceRestMiniTickerRows(rows, now = Date.now()) {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((ticker) => normalizeBinanceRestMiniTicker(ticker, now))
+    .filter(Boolean);
+}
+
 export function isCoreMiniTickerPacket(data) {
   return Array.isArray(data) && data.some((ticker) =>
     ticker?.e === "24hrMiniTicker"
@@ -107,3 +130,157 @@ export function isCoreMiniTickerPacket(data) {
     && Number(ticker.c) > 0,
   );
 }
+
+export function isBinanceCoreMiniTickerUrl(value) {
+  try {
+    const url = new URL(String(value));
+    if (url.protocol !== "wss:" || url.hostname !== "fstream.binance.com") return false;
+    return decodeURIComponent(`${url.pathname}${url.search}`).includes("!miniTicker@arr");
+  } catch {
+    return false;
+  }
+}
+
+export function acceleratedHistoryDelay(callbackName, delay, timerKind) {
+  const numericDelay = Math.max(0, Number(delay) || 0);
+  if (callbackName !== "warmupRadarHistory") return numericDelay;
+  if (timerKind === "timeout" && numericDelay === 1_500) return FAST_HISTORY_TIMEOUT_MS;
+  if (timerKind === "interval" && numericDelay === 5_000) return FAST_HISTORY_INTERVAL_MS;
+  return numericDelay;
+}
+
+function extractCoreMiniTickerSymbols(eventData) {
+  try {
+    const payload = JSON.parse(eventData);
+    const rows = payload?.data ?? payload;
+    if (!Array.isArray(rows)) return [];
+    return rows
+      .filter((ticker) => ticker?.e === "24hrMiniTicker")
+      .map((ticker) => String(ticker.s ?? "").trim().toUpperCase())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function fetchJsonWithTimeout(url, timeoutMs = FAST_MARKET_BOOTSTRAP_TIMEOUT_MS) {
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timeout = nativeSetTimeout?.(() => controller?.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    if (!Array.isArray(payload) || !payload.length) throw new Error("Empty market snapshot");
+    return payload;
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
+async function loadFastMarketBootstrapSnapshot() {
+  const rows = await Promise.any(FAST_MARKET_BOOTSTRAP_HOSTS.map((host) =>
+    fetchJsonWithTimeout(`https://${host}/fapi/v1/ticker/24hr`),
+  ));
+  return normalizeBinanceRestMiniTickerRows(rows, Date.now());
+}
+
+function installFastMarketBootstrap() {
+  if (
+    typeof window === "undefined"
+    || typeof globalThis.WebSocket !== "function"
+    || typeof globalThis.fetch !== "function"
+    || typeof globalThis.MessageEvent !== "function"
+  ) return;
+
+  const NativeWebSocket = globalThis.WebSocket;
+  const snapshotPromise = loadFastMarketBootstrapSnapshot().catch(() => []);
+
+  class InPulsFastStartWebSocket extends NativeWebSocket {
+    constructor(url, protocols) {
+      if (protocols === undefined) super(url);
+      else super(url, protocols);
+      if (!isBinanceCoreMiniTickerUrl(url)) return;
+
+      const seenSymbols = new Set();
+      let opened = this.readyState === NativeWebSocket.OPEN;
+      let injected = false;
+      let dispatchingBootstrap = false;
+
+      this.addEventListener("message", (event) => {
+        if (dispatchingBootstrap) return;
+        for (const symbol of extractCoreMiniTickerSymbols(event.data)) seenSymbols.add(symbol);
+      });
+
+      const injectMissingSnapshot = (snapshot) => {
+        if (!opened || injected || !Array.isArray(snapshot) || !snapshot.length) return;
+        injected = true;
+        const missing = snapshot.filter((ticker) => !seenSymbols.has(ticker.s));
+        if (!missing.length) return;
+        dispatchingBootstrap = true;
+        try {
+          this.dispatchEvent(new MessageEvent("message", {
+            data: JSON.stringify(missing),
+          }));
+        } finally {
+          dispatchingBootstrap = false;
+        }
+      };
+
+      this.addEventListener("open", () => {
+        opened = true;
+        snapshotPromise.then(injectMissingSnapshot);
+      }, { once: true });
+
+      if (opened) snapshotPromise.then(injectMissingSnapshot);
+    }
+  }
+
+  Object.defineProperty(InPulsFastStartWebSocket, "name", {
+    value: "WebSocket",
+    configurable: true,
+  });
+  globalThis.WebSocket = InPulsFastStartWebSocket;
+}
+
+function installFastHistoryWarmupTimers() {
+  if (typeof window === "undefined" || !nativeSetTimeout || !nativeSetInterval) return;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalSetInterval = globalThis.setInterval;
+  let timeoutAccelerated = false;
+  let intervalAccelerated = false;
+  let restored = false;
+
+  const restore = () => {
+    if (restored) return;
+    restored = true;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.setInterval = originalSetInterval;
+  };
+  const restoreWhenReady = () => {
+    if (timeoutAccelerated && intervalAccelerated) restore();
+  };
+
+  globalThis.setTimeout = function inpulsFastStartTimeout(callback, delay, ...args) {
+    const nextDelay = acceleratedHistoryDelay(callback?.name, delay, "timeout");
+    if (nextDelay !== Number(delay)) timeoutAccelerated = true;
+    const handle = nativeSetTimeout(callback, nextDelay, ...args);
+    restoreWhenReady();
+    return handle;
+  };
+
+  globalThis.setInterval = function inpulsFastStartInterval(callback, delay, ...args) {
+    const nextDelay = acceleratedHistoryDelay(callback?.name, delay, "interval");
+    if (nextDelay !== Number(delay)) intervalAccelerated = true;
+    const handle = nativeSetInterval(callback, nextDelay, ...args);
+    restoreWhenReady();
+    return handle;
+  };
+
+  nativeSetTimeout(restore, 30_000);
+}
+
+installFastMarketBootstrap();
+installFastHistoryWarmupTimers();
