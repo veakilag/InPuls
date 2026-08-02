@@ -19,10 +19,12 @@ test("lite shell preserves user-created workspace panels", () => {
   assert.doesNotMatch(source, /workspace\.extras = \[\];/);
 });
 
-test("hidden primary chart no longer performs heavy REST history requests", () => {
+test("hidden primary chart no longer performs heavy history requests or kline streaming", () => {
   assert.match(source, /limit === 120 \|\| limit === 1500/);
   assert.match(source, /new Response\("\[\]"/);
-  assert.match(source, /hasVisibleUserChart/);
+  assert.match(source, /class InPulsLiteWebSocket extends EventTarget/);
+  assert.match(source, /value\.includes\("@kline_"\)/);
+  assert.match(source, /hasVisibleUserChartForKlineUrl/);
 });
 
 test("first market render is immediate and subsequent renders are paced", () => {
