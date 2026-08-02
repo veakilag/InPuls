@@ -172,4 +172,5 @@ test("release persists and repaints heavy visual modules exactly once", () => {
 
 test("comfort preview ships with a fresh browser cache key", () => {
   assert.match(index, /install-cta\.js\?v=comfort-live-preview-v1/);
+  assert.match(index, /app\.js\?v=26-98-live-comfort-preview-v1/);
 });
