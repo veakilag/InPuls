@@ -1,4 +1,70 @@
 (() => {
+  const slider = document.querySelector("#comfort-slider");
+  if (!slider) return;
+
+  const root = document.documentElement;
+  const thumb = slider.closest(".comfort-control")?.querySelector(".comfort-thumb-icon") ?? null;
+  let pointerDragging = false;
+  let committingTheme = false;
+  let pendingValue = Number(slider.value || 55);
+  let thumbFrame = null;
+
+  function normalizedValue() {
+    return Math.max(0, Math.min(100, Number(slider.value) || 0));
+  }
+
+  function flushThumbPosition() {
+    thumbFrame = null;
+    root.style.setProperty("--comfort-position", `${pendingValue}%`);
+  }
+
+  function scheduleThumbPosition() {
+    if (thumbFrame !== null) return;
+    thumbFrame = requestAnimationFrame(flushThumbPosition);
+  }
+
+  function commitThemeOnce() {
+    if (thumbFrame !== null) {
+      cancelAnimationFrame(thumbFrame);
+      thumbFrame = null;
+    }
+    pendingValue = normalizedValue();
+    flushThumbPosition();
+    committingTheme = true;
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+    committingTheme = false;
+  }
+
+  slider.addEventListener("pointerdown", (event) => {
+    pointerDragging = true;
+    pendingValue = normalizedValue();
+    thumb?.style.setProperty("transition", "none");
+    try { slider.setPointerCapture(event.pointerId); } catch {}
+  }, { passive: true });
+
+  slider.addEventListener("input", (event) => {
+    if (committingTheme || !pointerDragging) return;
+    event.stopImmediatePropagation();
+    pendingValue = normalizedValue();
+    scheduleThumbPosition();
+  });
+
+  function finishPointerDrag(event) {
+    if (!pointerDragging) return;
+    pointerDragging = false;
+    try {
+      if (slider.hasPointerCapture?.(event.pointerId)) slider.releasePointerCapture(event.pointerId);
+    } catch {}
+    thumb?.style.removeProperty("transition");
+    commitThemeOnce();
+  }
+
+  slider.addEventListener("pointerup", finishPointerDrag);
+  slider.addEventListener("pointercancel", finishPointerDrag);
+  slider.addEventListener("lostpointercapture", finishPointerDrag);
+})();
+
+(() => {
   const installButton = document.querySelector("#install-app");
   if (!installButton) return;
 
