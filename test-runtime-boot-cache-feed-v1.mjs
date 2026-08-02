@@ -8,7 +8,8 @@ import {
   normalizeBinanceRestMiniTicker,
 } from "./binance-stream-routing.js";
 
-const BUILD = "26-91-runtime-boot-cache-feed-v1";
+const APP_BUILD = "26-91-runtime-boot-cache-feed-v1";
+const STABLE_SW_BUILD = "26-95-stable-network-only-sw-v1";
 const app = fs.readFileSync(new URL("./app.js", import.meta.url), "utf8");
 const index = fs.readFileSync(new URL("./index.html", import.meta.url), "utf8");
 const sw = fs.readFileSync(new URL("./sw.js", import.meta.url), "utf8");
@@ -19,10 +20,15 @@ assert.ok(app.includes('this.#connectChannel("core")'));
 assert.ok(app.includes('this.#connectChannel("auxiliary")'));
 assert.ok(app.includes('this.#connectChannel("public")'));
 assert.ok(index.indexOf("runtime-boot-recovery.js") < index.indexOf("app.js?v="));
-assert.ok(index.includes(BUILD));
-assert.ok(sw.includes(BUILD));
-assert.ok(sw.includes("runtime-boot-recovery.js"));
-assert.ok(sw.includes("binance-stream-routing.js"));
+assert.ok(index.includes(APP_BUILD));
+assert.ok(sw.includes(STABLE_SW_BUILD));
+assert.ok(sw.includes('key.startsWith("inpuls-")'));
+assert.ok(sw.includes('fetch(event.request, { cache: "no-store" })'));
+assert.ok(sw.includes("SIGNAL_LAB_COLLECTOR_STATUS_MESSAGE"));
+assert.ok(!sw.includes("caches.open("));
+assert.ok(!sw.includes("cache.addAll("));
+assert.ok(!sw.includes("cache.put("));
+assert.ok(!sw.includes("caches.match("));
 assert.ok(boot.includes("serviceWorker"));
 assert.ok(boot.includes("caches.keys"));
 assert.ok(boot.includes("isInPulsRegistration"));
@@ -61,4 +67,4 @@ const restTicker = normalizeBinanceRestMiniTicker({
 assert.equal(restTicker?.e, "24hrMiniTicker");
 assert.ok(isCoreMiniTickerPacket([restTicker]));
 
-console.log("runtime boot/cache/feed contracts passed");
+console.log("runtime boot/network-only-sw/feed contracts passed");
