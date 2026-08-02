@@ -2,31 +2,34 @@ name: Security checks
 
 on:
   pull_request:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 concurrency:
-  group: security-diagnostic-${{ github.ref }}
+  group: security-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 10
     steps:
       - name: Check out reviewed revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - name: Locate obsolete assertion
-        shell: bash
-        run: grep -R -n --exclude-dir=.git "Service worker cache name must be versioned" . > obsolete-sw-assertion.txt
-
-      - name: Upload assertion location
-        uses: actions/upload-artifact@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          name: obsolete-sw-assertion
-          path: obsolete-sw-assertion.txt
-          if-no-files-found: error
+          node-version: "22"
+
+      - name: Check JavaScript syntax
+        run: find . -type f -name '*.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
+
+      - name: Run regression and security tests
+        run: npm test
