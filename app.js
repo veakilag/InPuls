@@ -658,7 +658,20 @@ function buildComfortTheme(rawValue) {
 
 function applyComfortPreview(rawValue) {
   const theme = buildComfortTheme(rawValue);
-  const { value, amount, palette } = theme;
+  const { value, palette } = theme;
+  const root = document.documentElement;
+  root.style.setProperty("--bg", palette.bg);
+  root.style.setProperty("--panel", palette.panel);
+  root.style.setProperty("--panel-2", palette.panel2);
+  root.style.setProperty("--line", palette.line);
+  root.style.setProperty("--line-soft", `${palette.line}55`);
+  root.dataset.comfortPreview = String(Math.round(value));
+  return theme;
+}
+
+function applyComfort(rawValue) {
+  const theme = buildComfortTheme(rawValue);
+  const { value, amount, turquoise, cyan, blue, violet, red, palette } = theme;
   const root = document.documentElement;
   root.style.setProperty("--bg", palette.bg);
   root.style.setProperty("--panel", palette.panel);
@@ -668,23 +681,6 @@ function applyComfortPreview(rawValue) {
   root.style.setProperty("--text", palette.text);
   root.style.setProperty("--muted", palette.muted);
   root.style.setProperty("--chart-bg", palette.chart);
-  root.style.setProperty("--chart-bear-fill", palette.bear);
-  root.style.setProperty("--theme-level", String(amount));
-  root.style.setProperty("--comfort-position", `${value}%`);
-  const moonProgress = Math.max(0, Math.min(1, (amount - .2) / .7));
-  root.style.setProperty("--comfort-sun-opacity", String(1 - moonProgress));
-  root.style.setProperty("--comfort-moon-opacity", String(moonProgress));
-  root.style.setProperty("--comfort-sun-rotate", `${moonProgress * 38}deg`);
-  root.style.setProperty("--comfort-moon-rotate", `${(1 - moonProgress) * -24}deg`);
-  root.style.colorScheme = "dark";
-  root.dataset.comfortPreview = String(Math.round(value));
-  return theme;
-}
-
-function applyComfort(rawValue) {
-  const theme = applyComfortPreview(rawValue);
-  const { value, turquoise, cyan, blue, violet, red, palette } = theme;
-  const root = document.documentElement;
   root.style.setProperty("--accent", cyan);
   root.style.setProperty("--cyan", cyan);
   root.style.setProperty("--violet", violet);
@@ -693,7 +689,16 @@ function applyComfort(rawValue) {
   root.style.setProperty("--red", red);
   root.style.setProperty("--chart-bull-fill", palette.bull);
   root.style.setProperty("--chart-bull-stroke", palette.bull);
+  root.style.setProperty("--chart-bear-fill", palette.bear);
   root.style.setProperty("--chart-bear-stroke", palette.bearStroke);
+  root.style.setProperty("--theme-level", String(amount));
+  root.style.setProperty("--comfort-position", `${value}%`);
+  const moonProgress = Math.max(0, Math.min(1, (amount - .2) / .7));
+  root.style.setProperty("--comfort-sun-opacity", String(1 - moonProgress));
+  root.style.setProperty("--comfort-moon-opacity", String(moonProgress));
+  root.style.setProperty("--comfort-sun-rotate", `${moonProgress * 38}deg`);
+  root.style.setProperty("--comfort-moon-rotate", `${(1 - moonProgress) * -24}deg`);
+  root.style.colorScheme = "dark";
   root.dataset.comfort = String(Math.round(value));
   delete root.dataset.comfortPreview;
   const themeMeta = document.querySelector('meta[name="theme-color"]');

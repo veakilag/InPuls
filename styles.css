@@ -29,6 +29,7 @@
 * { box-sizing: border-box; }
 html, body { height: 100%; overflow: hidden; background: var(--bg); }
 body, .topbar, .chart-card, .top-card, .workspace-panel, .timeframes, .search-box, thead, .detail-panel, .settings-dialog { transition: color .16s ease, background-color .16s ease, border-color .16s ease; }
+html[data-comfort-dragging="true"] body, html[data-comfort-dragging="true"] .topbar, html[data-comfort-dragging="true"] .chart-card, html[data-comfort-dragging="true"] .top-card, html[data-comfort-dragging="true"] .workspace-panel, html[data-comfort-dragging="true"] .timeframes, html[data-comfort-dragging="true"] .search-box, html[data-comfort-dragging="true"] thead, html[data-comfort-dragging="true"] .detail-panel, html[data-comfort-dragging="true"] .settings-dialog { transition: none; }
 body { margin: 0; min-width: 320px; color: var(--text); background: var(--bg); }
 button, input, select, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }

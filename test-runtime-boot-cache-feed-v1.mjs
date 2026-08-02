@@ -8,7 +8,7 @@ import {
   normalizeBinanceRestMiniTicker,
 } from "./binance-stream-routing.js";
 
-const APP_BUILD = "26-91-runtime-boot-cache-feed-v1";
+const APP_BUILD = "26-99-tape-priority-comfort-v1";
 const STABLE_SW_BUILD = "26-95-stable-network-only-sw-v1";
 const app = fs.readFileSync(new URL("./app.js", import.meta.url), "utf8");
 const index = fs.readFileSync(new URL("./index.html", import.meta.url), "utf8");

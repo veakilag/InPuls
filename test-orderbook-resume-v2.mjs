@@ -65,7 +65,7 @@ test("a delayed feed retries independently", () => {
 });
 
 test("Resume v2 ships one consistent runtime", () => {
-  assert.match(index, /app\.js\?v=26-98-live-comfort-preview-v1/);
+  assert.match(index, /app\.js\?v=26-99-tape-priority-comfort-v1/);
   assert.match(app, /orderbook\.js\?v=26-91-runtime-boot-cache-feed-v1/);
   assert.match(app, /render-scheduler\.js\?v=render-scheduler-v1/);
   assert.match(orderbook, /orderbook-worker\.js\?v=26-91-runtime-boot-cache-feed-v1/);
