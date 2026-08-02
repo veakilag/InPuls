@@ -76,6 +76,72 @@
     };
   }
 
+  function hasVisibleUserChartForKlineUrl(value) {
+    try {
+      const socketUrl = new URL(String(value));
+      const stream = decodeURIComponent(socketUrl.pathname).split("/").at(-1) || "";
+      const match = stream.match(/^([a-z0-9]+)@kline_/i);
+      if (!match) return false;
+      const symbol = match[1].toUpperCase();
+      return [...document.querySelectorAll(".secondary-chart")].some((panel) => {
+        if (!isElementVisible(panel)) return false;
+        const label = panel.querySelector("h2")?.textContent?.replace(/[^A-Z0-9]/gi, "").toUpperCase() || "";
+        return label.startsWith(symbol);
+      });
+    } catch {
+      return false;
+    }
+  }
+
+  function installPrimaryChartSocketGate() {
+    if (typeof window.WebSocket !== "function" || typeof window.EventTarget !== "function") return;
+    const NativeWebSocket = window.WebSocket;
+
+    class InPulsLiteWebSocket extends EventTarget {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+
+      constructor(socketUrl, protocols) {
+        super();
+        const value = String(socketUrl);
+        const isKline = value.includes("@kline_");
+        if (!isKline || hasVisibleUserChartForKlineUrl(value)) {
+          return protocols === undefined
+            ? new NativeWebSocket(socketUrl)
+            : new NativeWebSocket(socketUrl, protocols);
+        }
+
+        this.url = value;
+        this.readyState = InPulsLiteWebSocket.CONNECTING;
+        this.bufferedAmount = 0;
+        this.extensions = "";
+        this.protocol = "";
+        this.binaryType = "blob";
+        queueMicrotask(() => {
+          if (this.readyState !== InPulsLiteWebSocket.CONNECTING) return;
+          this.readyState = InPulsLiteWebSocket.OPEN;
+          this.dispatchEvent(new Event("open"));
+        });
+      }
+
+      send() {}
+
+      close() {
+        if (this.readyState === InPulsLiteWebSocket.CLOSED) return;
+        this.readyState = InPulsLiteWebSocket.CLOSED;
+        this.dispatchEvent(new CloseEvent("close", { code: 1000, reason: "lite-shell" }));
+      }
+    }
+
+    Object.defineProperty(InPulsLiteWebSocket, "name", {
+      value: "WebSocket",
+      configurable: true,
+    });
+    window.WebSocket = InPulsLiteWebSocket;
+  }
+
   function installRenderPacing() {
     const nativeSetTimeout = window.setTimeout.bind(window);
     const nativeSetInterval = window.setInterval.bind(window);
@@ -163,6 +229,7 @@
     persistLiteWorkspace();
     enforceLiteShellDom();
     installPrimaryChartNetworkGate();
+    installPrimaryChartSocketGate();
     installRenderPacing();
 
     const observer = new MutationObserver(() => {
