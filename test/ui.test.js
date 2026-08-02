@@ -84,13 +84,17 @@ test("browser entry points carry a restrictive CSP and reset scripts stay extern
   assert.match(pages[4], /reset\.js\?v=26-91-runtime-boot-cache-feed-v1/);
 });
 
-test("Service Worker installs atomically and validates cached response types", async () => {
+test("Service Worker removes retired app-shell caches and stays network-only", async () => {
   const worker = await source("sw.js");
-  assert.match(worker, /cache\.addAll\(SHELL\)/);
-  assert.match(worker, /isCacheableResponse/);
-  assert.match(worker, /content-type/);
-  assert.match(worker, /await caches\.delete\(CACHE\)/);
-  assert.doesNotMatch(worker, /Promise\.allSettled\(SHELL/);
+  assert.match(worker, /26-95-stable-network-only-sw-v1/);
+  assert.match(worker, /await caches\.keys\(\)/);
+  assert.match(worker, /key === CACHE \|\| key\.startsWith\("inpuls-"\)/);
+  assert.match(worker, /\.map\(\(key\) => caches\.delete\(key\)\)/);
+  assert.match(worker, /fetch\(event\.request, \{ cache: "no-store" \}\)/);
+  assert.doesNotMatch(worker, /caches\.open\(/);
+  assert.doesNotMatch(worker, /cache\.addAll\(/);
+  assert.doesNotMatch(worker, /cache\.put\(/);
+  assert.doesNotMatch(worker, /caches\.match\(/);
 });
 
 test("chart pointer work is coalesced through animation frames and first-anchor snapping is available", async () => {

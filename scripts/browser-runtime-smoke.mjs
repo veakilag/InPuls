@@ -68,6 +68,31 @@ function send(socket, method, params = {}) {
   });
 }
 
+async function readState(socket) {
+  const evaluation = await send(socket, "Runtime.evaluate", {
+    expression: `(() => ({
+      href: location.href,
+      title: document.title,
+      clock: document.querySelector('#clock')?.textContent?.trim() ?? null,
+      status: document.querySelector('#connection-text')?.textContent?.trim() ?? null,
+      statusState: document.querySelector('#connection-status')?.dataset?.status ?? null,
+      marketRows: document.querySelectorAll('#market-body tr').length,
+      topRows: document.querySelectorAll('#top-list .top-row, #top-list [data-symbol]').length,
+      inplayText: document.querySelector('#inplay-coins')?.textContent?.trim() ?? null,
+      appBuild: document.querySelector('meta[name="inpuls-build"]')?.content ?? null,
+      serviceWorker: navigator.serviceWorker?.controller?.scriptURL ?? null,
+    }))()`,
+    returnByValue: true,
+  });
+  return evaluation.result?.value ?? null;
+}
+
+function runtimeStarted(state) {
+  return /^\d{2}:\d{2}:\d{2}$/.test(state?.clock || "")
+    && state?.statusState === "online"
+    && Number(state?.marketRows || 0) > 0;
+}
+
 try {
   await waitForDebugger();
   const target = await fetchJson(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(targetUrl)}`, { method: "PUT" });
@@ -114,27 +139,24 @@ try {
   ]);
 
   await delay(18_000);
-  const evaluation = await send(socket, "Runtime.evaluate", {
-    expression: `(() => ({
-      href: location.href,
-      title: document.title,
-      clock: document.querySelector('#clock')?.textContent?.trim() ?? null,
-      status: document.querySelector('#connection-text')?.textContent?.trim() ?? null,
-      statusState: document.querySelector('#connection-status')?.dataset?.status ?? null,
-      marketRows: document.querySelectorAll('#market-body tr').length,
-      topRows: document.querySelectorAll('#top-list .top-row, #top-list [data-symbol]').length,
-      inplayText: document.querySelector('#inplay-coins')?.textContent?.trim() ?? null,
-      appBuild: document.querySelector('meta[name="inpuls-build"]')?.content ?? null,
-      serviceWorker: navigator.serviceWorker?.controller?.scriptURL ?? null,
-    }))()`,
-    returnByValue: true,
-  });
+  const firstState = await readState(socket);
 
-  const state = evaluation.result?.value ?? null;
-  console.log(JSON.stringify({ targetUrl, state, exceptions, failedRequests, messages }, null, 2));
+  await send(socket, "Page.reload", { ignoreCache: false });
+  await delay(15_000);
+  const reloadState = await readState(socket);
 
-  const runtimeStarted = /^\d{2}:\d{2}:\d{2}$/.test(state?.clock || "");
-  if (!runtimeStarted || exceptions.length) process.exitCode = 1;
+  console.log(JSON.stringify({
+    targetUrl,
+    firstState,
+    reloadState,
+    exceptions,
+    failedRequests,
+    messages,
+  }, null, 2));
+
+  if (!runtimeStarted(firstState) || !runtimeStarted(reloadState) || exceptions.length) {
+    process.exitCode = 1;
+  }
   socket.close();
 } catch (error) {
   console.error(error?.stack || error);

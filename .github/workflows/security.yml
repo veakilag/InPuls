@@ -32,4 +32,16 @@ jobs:
         run: find . -type f -name '*.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
 
       - name: Run regression and security tests
-        run: npm test
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee npm-test.log
+
+      - name: Preserve regression output
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: npm-test-log-${{ github.run_id }}
+          path: npm-test.log
+          if-no-files-found: error
+          retention-days: 1
