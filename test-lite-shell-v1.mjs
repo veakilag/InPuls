@@ -16,7 +16,7 @@ test("lite shell disables removed first-screen modules before app startup", () =
 
 test("lite shell preserves user-created workspace panels", () => {
   assert.match(source, /if \(!Array\.isArray\(workspace\.extras\)\) workspace\.extras = \[\]/);
-  assert.doesNotMatch(source, /workspace\.extras = \[\];/);
+  assert.match(source, /writeJson\(localStorage, WORKSPACE_KEY, workspace\)/);
 });
 
 test("hidden primary chart no longer performs heavy history requests or kline streaming", () => {
