@@ -51,11 +51,13 @@ jobs:
         run: node scripts/browser-runtime-smoke.mjs "http://127.0.0.1:4173/rescue-26-94.html?smoke=${GITHUB_SHA}"
 
       - name: Production browser startup smoke
+        if: github.event_name != 'pull_request'
         env:
           CHROME_BIN: google-chrome
         run: node scripts/browser-runtime-smoke.mjs "https://veakilag.github.io/InPuls/?smoke=${GITHUB_SHA}"
 
       - name: Production rescue path smoke
+        if: github.event_name != 'pull_request'
         env:
           CHROME_BIN: google-chrome
         run: node scripts/browser-runtime-smoke.mjs "https://veakilag.github.io/InPuls/rescue-26-94.html?smoke=${GITHUB_SHA}"
