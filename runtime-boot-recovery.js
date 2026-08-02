@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const APP_BUILD = "26-96-independent-tape-chart-lanes-v1";
+  const APP_BUILD = "26-95-lite-shell-pr90-speed-v1";
   const RECOVERY_REVISION = "26-93-runtime-self-heal-v1";
   const LITE_MODE_REVISION = "26-95-lite-shell-pr90-speed-v1";
   const STORAGE_KEY = "inpuls-runtime-boot-build-v1";
@@ -142,191 +142,6 @@
     window.WebSocket = InPulsLiteWebSocket;
   }
 
-  function installRenderLaneIsolation() {
-    const revision = "26-96-independent-tape-chart-lanes-v1";
-    if (globalThis.__INPULS_RENDER_LANES__?.revision === revision) return;
-    if (typeof window.requestAnimationFrame !== "function"
-      || typeof window.cancelAnimationFrame !== "function") return;
-
-    const nativeRequestFrame = window.requestAnimationFrame.bind(window);
-    const nativeCancelFrame = window.cancelAnimationFrame.bind(window);
-    const nativeSetTimeout = window.setTimeout.bind(window);
-    const nativeNow = () => performance.now();
-    const chartQueue = [];
-    const flowQueue = [];
-    const tasks = new Map();
-    const stats = {
-      chartFrames: 0,
-      chartCallbacks: 0,
-      chartMaxFrameMs: 0,
-      flowFrames: 0,
-      flowCallbacks: 0,
-      flowMaxTaskMs: 0,
-      cancelled: 0,
-    };
-    const CHART_BUDGET_MS = 7;
-    const CHART_MAX_PER_FRAME = 2;
-    const FLOW_BUDGET_MS = 4;
-    const FLOW_MAX_PER_TASK = 1;
-    let nextVirtualHandle = -1;
-    let chartFrame = 0;
-    let flowFrame = 0;
-    let flowTaskPending = false;
-    let pendingFlowTimestamp = 0;
-    let pendingFlowFlush = null;
-
-    const channel = typeof MessageChannel === "function" ? new MessageChannel() : null;
-    if (channel) {
-      channel.port1.onmessage = () => {
-        const flush = pendingFlowFlush;
-        pendingFlowFlush = null;
-        flowTaskPending = false;
-        flush?.();
-      };
-    }
-
-    function classifyRenderLane(callback) {
-      if (typeof callback !== "function") return null;
-      const name = String(callback.name || "");
-      let body = "";
-      try { body = Function.prototype.toString.call(callback); } catch {}
-
-      if (
-        name === "runTapeDrawFrame"
-        || name === "drainTapeIngest"
-        || (name === "runDrawFrame" && body.includes("dirtyCards"))
-      ) return "flow";
-
-      if (
-        body.includes("this.renderFrame = null")
-        && body.includes("this.render()")
-      ) return "chart";
-
-      return null;
-    }
-
-    function takeNext(queue, lane) {
-      while (queue.length) {
-        const handle = queue.shift();
-        const task = tasks.get(handle);
-        if (!task || task.lane !== lane) continue;
-        tasks.delete(handle);
-        return task;
-      }
-      return null;
-    }
-
-    function pendingIn(queue, lane) {
-      return queue.some((handle) => tasks.get(handle)?.lane === lane);
-    }
-
-    function invoke(task, timestamp) {
-      try {
-        task.callback(timestamp);
-      } catch (error) {
-        nativeSetTimeout(() => { throw error; }, 0);
-      }
-    }
-
-    function ensureChartFrame() {
-      if (chartFrame || !pendingIn(chartQueue, "chart")) return;
-      chartFrame = nativeRequestFrame((timestamp) => {
-        chartFrame = 0;
-        const startedAt = nativeNow();
-        let processed = 0;
-        while (processed < CHART_MAX_PER_FRAME) {
-          const task = takeNext(chartQueue, "chart");
-          if (!task) break;
-          invoke(task, timestamp);
-          processed += 1;
-          if (nativeNow() - startedAt >= CHART_BUDGET_MS) break;
-        }
-        const duration = nativeNow() - startedAt;
-        stats.chartFrames += 1;
-        stats.chartCallbacks += processed;
-        stats.chartMaxFrameMs = Math.max(stats.chartMaxFrameMs, duration);
-        ensureChartFrame();
-      });
-    }
-
-    function flushFlowLane(timestamp) {
-      const startedAt = nativeNow();
-      let processed = 0;
-      while (processed < FLOW_MAX_PER_TASK) {
-        const task = takeNext(flowQueue, "flow");
-        if (!task) break;
-        invoke(task, timestamp);
-        processed += 1;
-        if (nativeNow() - startedAt >= FLOW_BUDGET_MS) break;
-      }
-      const duration = nativeNow() - startedAt;
-      stats.flowFrames += 1;
-      stats.flowCallbacks += processed;
-      stats.flowMaxTaskMs = Math.max(stats.flowMaxTaskMs, duration);
-      ensureFlowFrame();
-    }
-
-    function queuePostPaintFlow(timestamp) {
-      pendingFlowTimestamp = timestamp;
-      if (flowTaskPending) return;
-      flowTaskPending = true;
-      const flush = () => flushFlowLane(pendingFlowTimestamp || nativeNow());
-      if (channel) {
-        pendingFlowFlush = flush;
-        channel.port2.postMessage(0);
-      } else {
-        nativeSetTimeout(() => {
-          flowTaskPending = false;
-          flush();
-        }, 0);
-      }
-    }
-
-    function ensureFlowFrame() {
-      if (flowFrame || flowTaskPending || !pendingIn(flowQueue, "flow")) return;
-      flowFrame = nativeRequestFrame((timestamp) => {
-        flowFrame = 0;
-        queuePostPaintFlow(timestamp);
-      });
-    }
-
-    window.requestAnimationFrame = function inpulsLaneRequestAnimationFrame(callback) {
-      const lane = classifyRenderLane(callback);
-      if (!lane) return nativeRequestFrame(callback);
-      const handle = nextVirtualHandle--;
-      tasks.set(handle, { handle, lane, callback });
-      if (lane === "chart") {
-        chartQueue.push(handle);
-        ensureChartFrame();
-      } else {
-        flowQueue.push(handle);
-        ensureFlowFrame();
-      }
-      return handle;
-    };
-
-    window.cancelAnimationFrame = function inpulsLaneCancelAnimationFrame(handle) {
-      if (Number(handle) < 0 && tasks.delete(handle)) {
-        stats.cancelled += 1;
-        return;
-      }
-      nativeCancelFrame(handle);
-    };
-
-    globalThis.__INPULS_RENDER_LANES__ = {
-      revision,
-      chart: Object.freeze({ budgetMs: CHART_BUDGET_MS, maxPerFrame: CHART_MAX_PER_FRAME }),
-      flow: Object.freeze({ budgetMs: FLOW_BUDGET_MS, maxPerTask: FLOW_MAX_PER_TASK, phase: "post-paint" }),
-      stats,
-      pending() {
-        return {
-          chart: [...tasks.values()].filter((task) => task.lane === "chart").length,
-          flow: [...tasks.values()].filter((task) => task.lane === "flow").length,
-        };
-      },
-    };
-  }
-
   function installRenderPacing() {
     const nativeSetTimeout = window.setTimeout.bind(window);
     const nativeSetInterval = window.setInterval.bind(window);
@@ -415,7 +230,6 @@
     enforceLiteShellDom();
     installPrimaryChartNetworkGate();
     installPrimaryChartSocketGate();
-    installRenderLaneIsolation();
     installRenderPacing();
 
     const observer = new MutationObserver(() => {
