@@ -5,6 +5,7 @@ import vm from "node:vm";
 
 const installCta = readFileSync(new URL("./install-cta.js", import.meta.url), "utf8");
 const app = readFileSync(new URL("./app.js", import.meta.url), "utf8");
+const index = readFileSync(new URL("./index.html", import.meta.url), "utf8");
 const comfortGuard = installCta.slice(0, installCta.indexOf("\n\n(() => {", 1));
 
 class FakeEvent {
@@ -12,6 +13,7 @@ class FakeEvent {
     this.type = type;
     this.bubbles = Boolean(init.bubbles);
     this.pointerId = init.pointerId ?? 1;
+    this.detail = init.detail ?? null;
     this.immediateStopped = false;
   }
 
@@ -45,6 +47,7 @@ function buildHarness() {
   const rootValues = new Map();
   const thumbValues = new Map();
   const animationFrames = new Map();
+  const previewValues = [];
   let nextFrameId = 1;
   let capturedPointer = null;
 
@@ -76,6 +79,11 @@ function buildHarness() {
       },
     },
     Event: FakeEvent,
+    CustomEvent: FakeEvent,
+    dispatchEvent(event) {
+      if (event.type === "inpuls:comfort-preview") previewValues.push(event.detail?.value);
+      return true;
+    },
     requestAnimationFrame(callback) {
       const id = nextFrameId;
       nextFrameId += 1;
@@ -93,6 +101,7 @@ function buildHarness() {
     slider,
     rootValues,
     thumbValues,
+    previewValues,
     flushFrames() {
       const pending = [...animationFrames.values()];
       animationFrames.clear();
@@ -101,14 +110,15 @@ function buildHarness() {
   };
 }
 
-test("comfort drag updates only its thumb until pointer release", () => {
+test("comfort drag updates its thumb and live palette preview per frame", () => {
   assert.match(comfortGuard, /let pointerDragging = false;/);
   assert.match(comfortGuard, /event\.stopImmediatePropagation\(\);/);
+  assert.match(comfortGuard, /new CustomEvent\("inpuls:comfort-preview"/);
   assert.doesNotMatch(comfortGuard, /localStorage|render\(|applyComfort/);
 
   const harness = buildHarness();
-  let paletteUpdates = 0;
-  harness.slider.addEventListener("input", () => { paletteUpdates += 1; });
+  let committedUpdates = 0;
+  harness.slider.addEventListener("input", () => { committedUpdates += 1; });
 
   harness.slider.dispatchEvent(new FakeEvent("pointerdown", { pointerId: 7 }));
   harness.slider.value = "68";
@@ -116,29 +126,34 @@ test("comfort drag updates only its thumb until pointer release", () => {
   harness.slider.value = "82";
   harness.slider.dispatchEvent(new FakeEvent("input", { pointerId: 7 }));
 
-  assert.equal(paletteUpdates, 0);
+  assert.equal(committedUpdates, 0);
   assert.equal(harness.thumbValues.get("transition"), "none");
   harness.flushFrames();
   assert.equal(harness.rootValues.get("--comfort-position"), "82%");
+  assert.deepEqual(harness.previewValues, [82]);
 
   harness.slider.dispatchEvent(new FakeEvent("pointerup", { pointerId: 7 }));
-  assert.equal(paletteUpdates, 1);
+  assert.equal(committedUpdates, 1);
   assert.equal(harness.rootValues.get("--comfort-position"), "82%");
+  assert.equal(harness.previewValues.at(-1), 82);
   assert.equal(harness.thumbValues.has("transition"), false);
 });
 
-test("keyboard input still updates the palette immediately", () => {
-  const harness = buildHarness();
-  let paletteUpdates = 0;
-  harness.slider.addEventListener("input", () => { paletteUpdates += 1; });
-
-  harness.slider.value = "61";
-  harness.slider.dispatchEvent(new FakeEvent("input"));
-
-  assert.equal(paletteUpdates, 1);
+test("lightweight preview changes visible palette without repainting canvases", () => {
+  const previewStart = app.indexOf("function applyComfortPreview(rawValue) {");
+  const previewEnd = app.indexOf("\n\nfunction applyComfort(rawValue)", previewStart);
+  const preview = app.slice(previewStart, previewEnd);
+  assert.ok(previewStart >= 0 && previewEnd > previewStart);
+  assert.match(preview, /--bg/);
+  assert.match(preview, /--panel/);
+  assert.match(preview, /--panel-2/);
+  assert.match(preview, /--chart-bg/);
+  assert.match(preview, /--comfort-position/);
+  assert.doesNotMatch(preview, /setTheme|localStorage|inpuls:theme-change/);
+  assert.match(app, /addEventListener\("inpuls:comfort-preview"/);
 });
 
-test("existing app owns the single persisted palette update", () => {
+test("release persists and repaints heavy visual modules exactly once", () => {
   const handler = app.match(
     /els\.comfortSlider\.addEventListener\("input", \(\) => \{([\s\S]*?)\n  \}\);/,
   )?.[1] ?? "";
@@ -146,4 +161,16 @@ test("existing app owns the single persisted palette update", () => {
   assert.match(handler, /localStorage\.setItem\(STORAGE_KEYS\.comfort/);
   assert.match(handler, /applyComfort\(state\.comfort\);/);
   assert.doesNotMatch(handler, /render\(/);
+
+  const commitStart = app.indexOf("function applyComfort(rawValue) {");
+  const commitEnd = app.indexOf("\n\nglobalThis.addEventListener(\"inpuls:comfort-preview\"", commitStart);
+  const commit = app.slice(commitStart, commitEnd);
+  assert.match(commit, /priceChart\.setTheme\(activeChartTheme\)/);
+  assert.match(commit, /panel\.chart\.setTheme\(activeChartTheme\)/);
+  assert.match(commit, /inpuls:theme-change/);
+});
+
+test("comfort preview ships with a fresh browser cache key", () => {
+  assert.match(index, /install-cta\.js\?v=comfort-live-preview-v1/);
+  assert.match(index, /app\.js\?v=26-98-live-comfort-preview-v1/);
 });

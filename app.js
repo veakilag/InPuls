@@ -629,7 +629,7 @@ function mixColor(left, right, amount) {
   return `#${a.map((value, index) => Math.round(value + (b[index] - value) * amount).toString(16).padStart(2, "0")).join("")}`;
 }
 
-function applyComfort(rawValue) {
+function buildComfortTheme(rawValue) {
   const value = Math.max(0, Math.min(100, Number(rawValue) || 0));
   const amount = value / 100;
   const turquoise = "#42d9b1";
@@ -653,6 +653,12 @@ function applyComfort(rawValue) {
     crosshairFill: mixColor("#505861", "#252b32", amount),
     crosshairText: "#f7f9fa",
   };
+  return { value, amount, turquoise, cyan, blue, violet, red, palette };
+}
+
+function applyComfortPreview(rawValue) {
+  const theme = buildComfortTheme(rawValue);
+  const { value, amount, palette } = theme;
   const root = document.documentElement;
   root.style.setProperty("--bg", palette.bg);
   root.style.setProperty("--panel", palette.panel);
@@ -662,16 +668,7 @@ function applyComfort(rawValue) {
   root.style.setProperty("--text", palette.text);
   root.style.setProperty("--muted", palette.muted);
   root.style.setProperty("--chart-bg", palette.chart);
-  root.style.setProperty("--accent", cyan);
-  root.style.setProperty("--cyan", cyan);
-  root.style.setProperty("--violet", violet);
-  root.style.setProperty("--green", turquoise);
-  root.style.setProperty("--blue", blue);
-  root.style.setProperty("--red", red);
-  root.style.setProperty("--chart-bull-fill", palette.bull);
-  root.style.setProperty("--chart-bull-stroke", palette.bull);
   root.style.setProperty("--chart-bear-fill", palette.bear);
-  root.style.setProperty("--chart-bear-stroke", palette.bearStroke);
   root.style.setProperty("--theme-level", String(amount));
   root.style.setProperty("--comfort-position", `${value}%`);
   const moonProgress = Math.max(0, Math.min(1, (amount - .2) / .7));
@@ -680,7 +677,25 @@ function applyComfort(rawValue) {
   root.style.setProperty("--comfort-sun-rotate", `${moonProgress * 38}deg`);
   root.style.setProperty("--comfort-moon-rotate", `${(1 - moonProgress) * -24}deg`);
   root.style.colorScheme = "dark";
+  root.dataset.comfortPreview = String(Math.round(value));
+  return theme;
+}
+
+function applyComfort(rawValue) {
+  const theme = applyComfortPreview(rawValue);
+  const { value, turquoise, cyan, blue, violet, red, palette } = theme;
+  const root = document.documentElement;
+  root.style.setProperty("--accent", cyan);
+  root.style.setProperty("--cyan", cyan);
+  root.style.setProperty("--violet", violet);
+  root.style.setProperty("--green", turquoise);
+  root.style.setProperty("--blue", blue);
+  root.style.setProperty("--red", red);
+  root.style.setProperty("--chart-bull-fill", palette.bull);
+  root.style.setProperty("--chart-bull-stroke", palette.bull);
+  root.style.setProperty("--chart-bear-stroke", palette.bearStroke);
   root.dataset.comfort = String(Math.round(value));
+  delete root.dataset.comfortPreview;
   const themeMeta = document.querySelector('meta[name="theme-color"]');
   if (themeMeta) themeMeta.content = palette.bg;
   activeChartTheme = {
@@ -700,6 +715,11 @@ function applyComfort(rawValue) {
   for (const panel of extraCharts.values()) panel.chart.setTheme(activeChartTheme);
   globalThis.dispatchEvent(new CustomEvent("inpuls:theme-change"));
 }
+
+globalThis.addEventListener("inpuls:comfort-preview", (event) => {
+  const value = Number(event.detail?.value);
+  if (Number.isFinite(value)) applyComfortPreview(value);
+});
 
 function applyFontScale(rawValue) {
   const value = Math.max(80, Math.min(200, Number(rawValue) || 100));
