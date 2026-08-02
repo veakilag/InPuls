@@ -1,0 +1,38 @@
+name: Apply Tape heartbeat isolation
+
+on:
+  push:
+    branches:
+      - perf/tape-heartbeat-isolation-v1
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-tape-heartbeat-isolation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out patch branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: perf/tape-heartbeat-isolation-v1
+          fetch-depth: 0
+
+      - name: Apply scoped Tape patch
+        run: python3 scripts/apply-tape-heartbeat-isolation.py
+
+      - name: Commit isolated Tape runtime
+        run: |
+          rm .github/workflows/apply-tape-heartbeat-isolation.yml
+          rm scripts/apply-tape-heartbeat-isolation.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "perf: isolate Tape heartbeat from canvas rendering"
+          git push origin HEAD:perf/tape-heartbeat-isolation-v1
