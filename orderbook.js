@@ -1872,6 +1872,7 @@ const liquidityLastDrawBySymbol = new Map();
 const tapeRecentRateBySymbol = new Map();
 const tapeDataVersionBySymbol = new Map();
 const tapeCardStates = new WeakMap();
+const boundTapeCards = new Set();
 let tapeDrawFrame = 0;
 let tapeDrawTimer = 0;
 let tapeLastDrawAt = 0;
@@ -2702,9 +2703,19 @@ function formatObservedAge(value) {
 }
 
 function decorateDensityAges(card, state = tapeCardStates.get(card)) {
+  if (!state?.densityAgeVisible) {
+    if (state?.densityAgeDecorated) {
+      card.querySelectorAll(".orderbook-rows .book-size[data-density-age]").forEach((size) => {
+        size.removeAttribute("data-density-age");
+        if (size.title?.startsWith("Наблюдаемый возраст плотности")) size.removeAttribute("title");
+      });
+      state.densityAgeDecorated = false;
+    }
+    return;
+  }
   const rows = [...card.querySelectorAll(".orderbook-rows .book-ladder-row")];
   for (const row of rows) row.querySelector(".book-size")?.removeAttribute("data-density-age");
-  if (!state?.densityAgeVisible) return;
+  state.densityAgeDecorated = false;
   const symbol = cardSymbol(card);
   const data = symbol ? latestBookDataBySymbol.get(symbol) : null;
   const densities = data?.densityLifecycle?.densities;
@@ -2730,8 +2741,10 @@ function decorateDensityAges(card, state = tapeCardStates.get(card)) {
       : Math.max(0, Number(density.ageMs) || 0);
     const size = row.querySelector(".book-size");
     if (size) {
-      size.dataset.densityAge = formatObservedAge(age);
-      size.title = `Наблюдаемый возраст плотности ${formatObservedAge(age)} · ${density.state || "active"}`;
+      const ageLabel = formatObservedAge(age);
+      size.dataset.densityAge = ageLabel;
+      size.title = `Наблюдаемый возраст плотности ${ageLabel} · ${density.state || "active"}`;
+      state.densityAgeDecorated = true;
     }
   }
 }
@@ -2787,6 +2800,7 @@ function ensureTapeUi(card) {
       context: null,
       mode: localStorage.getItem(TAPE_MODE_KEY) === "agg" ? "agg" : "raw",
       densityAgeVisible: localStorage.getItem(DENSITY_AGE_VISIBLE_KEY) === "1",
+      densityAgeDecorated: false,
       minQuote: savedMinimum === null ? 0 : Math.max(0, Number(savedMinimum) || 0),
       timeScale: clampTape(
         savedTimeScale === null ? TAPE_TIME_SCALE_DEFAULT : Number(savedTimeScale),
@@ -3124,10 +3138,16 @@ function acceptBookData(event) {
   if (!symbol.endsWith("USDT") || !data) return;
   latestBookDataBySymbol.set(symbol, data);
   scheduleLiquidityForSymbol(symbol);
-  requestAnimationFrame(() => {
-    document.querySelectorAll(".orderbook-card").forEach((card) => {
-      if (cardSymbol(card) === symbol) decorateDensityAges(card);
-    });
+  requestAnimationFrame(function refreshVisibleDensityAgesAfterBookData() {
+    for (const card of boundTapeCards) {
+      if (!card?.isConnected) {
+        boundTapeCards.delete(card);
+        continue;
+      }
+      const state = tapeCardStates.get(card);
+      if (!state?.densityAgeVisible || cardSymbol(card) !== symbol) continue;
+      decorateDensityAges(card, state);
+    }
   });
 }
 
@@ -4653,6 +4673,8 @@ function acceptTapeData(event) {
 }
 
 function bindTapeCard(card) {
+  if (!card?.isConnected) return;
+  boundTapeCards.add(card);
   arrangeOrderBookChrome(card);
   ensureTapeUi(card);
   scheduleTapeDraw(true, card);
@@ -4719,20 +4741,30 @@ function installOrderBookRuntime() {
     setTimeout(() => scheduleTapeDraw(false, card), 0);
   }, { capture: true, passive: true });
 
-  clearInterval(tapeStateTimer);
-  tapeStateTimer = setInterval(() => {
-    if (tapeDocumentHidden) return;
-    scanTapeCards(document);
-    document.querySelectorAll(".orderbook-card").forEach((card) => {
+  clearTimeout(tapeStateTimer);
+  const refreshTapeStateHeartbeat = () => {
+    for (const card of boundTapeCards) {
+      if (!card?.isConnected) {
+        boundTapeCards.delete(card);
+        continue;
+      }
       const state = tapeCardStates.get(card);
-      if (!state) return;
-      decorateDensityAges(card, state);
+      if (!state) {
+        boundTapeCards.delete(card);
+        continue;
+      }
       const symbol = cardSymbol(card);
       const suffix = staleTradeSuffix(symbol);
       if (suffix) setTapeState(state, `НЕТ НОВЫХ СДЕЛОК${suffix}`, "attention");
-      else if (state.status?.textContent?.startsWith("НЕТ НОВЫХ СДЕЛОК")) setTapeState(state, "");
-    });
-  }, TAPE_STATE_REFRESH_MS);
+      else if (state.lastStatusText?.startsWith("НЕТ НОВЫХ СДЕЛОК")) setTapeState(state, "");
+    }
+  };
+  const runTapeStateHeartbeat = () => {
+    tapeStateTimer = 0;
+    if (!tapeDocumentHidden) refreshTapeStateHeartbeat();
+    tapeStateTimer = setTimeout(runTapeStateHeartbeat, TAPE_STATE_REFRESH_MS);
+  };
+  tapeStateTimer = setTimeout(runTapeStateHeartbeat, TAPE_STATE_REFRESH_MS);
 
   scheduleTapeDraw(true);
 }
