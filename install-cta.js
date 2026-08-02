@@ -16,6 +16,9 @@
   function flushThumbPosition() {
     thumbFrame = null;
     root.style.setProperty("--comfort-position", `${pendingValue}%`);
+    globalThis.dispatchEvent(new CustomEvent("inpuls:comfort-preview", {
+      detail: { value: pendingValue },
+    }));
   }
 
   function scheduleThumbPosition() {
