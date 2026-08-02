@@ -35,15 +35,20 @@ test("REST rows become one valid miniTicker market batch", () => {
   assert.equal(rows[0].e, "24hrMiniTicker");
 });
 
-test("history warmup is accelerated only for the known startup timers", () => {
-  assert.equal(acceleratedHistoryDelay("warmupRadarHistory", 1_500, "timeout"), 250);
-  assert.equal(acceleratedHistoryDelay("warmupRadarHistory", 5_000, "interval"), 1_000);
+test("history warmup waits for the base list and then advances in bounded batches", () => {
+  assert.equal(acceleratedHistoryDelay("warmupRadarHistory", 1_500, "timeout"), 1_200);
+  assert.equal(acceleratedHistoryDelay("warmupRadarHistory", 5_000, "interval"), 1_500);
   assert.equal(acceleratedHistoryDelay("render", 1_000, "interval"), 1_000);
   assert.equal(acceleratedHistoryDelay("warmupRadarHistory", 2_000, "timeout"), 2_000);
 });
 
+test("market bootstrap uses sequential fallback instead of three duplicate downloads", () => {
+  assert.match(source, /for \(const host of FAST_MARKET_BOOTSTRAP_HOSTS\)/);
+  assert.match(source, /await fetchJsonWithTimeout\(`https:\/\/\$\{host\}\/fapi\/v1\/ticker\/24hr`\)/);
+  assert.doesNotMatch(source, /Promise\.any\(FAST_MARKET_BOOTSTRAP_HOSTS/);
+});
+
 test("browser shim is bounded and does not touch user storage", () => {
-  assert.match(source, /Promise\.any\(FAST_MARKET_BOOTSTRAP_HOSTS/);
   assert.match(source, /class InPulsFastStartWebSocket extends NativeWebSocket/);
   assert.match(source, /new MessageEvent\("message"/);
   assert.match(source, /snapshot\.filter\(\(ticker\) => !seenSymbols\.has\(ticker\.s\)\)/);

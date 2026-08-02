@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 const targetUrl = process.argv[2];
 if (!targetUrl) throw new Error("Usage: node scripts/browser-runtime-smoke.mjs <url>");
 
+const target = new URL(targetUrl);
+const requireLiteShell = ["127.0.0.1", "localhost"].includes(target.hostname);
 const chromeBinary = process.env.CHROME_BIN || "google-chrome";
 const port = 9222 + Math.floor(Math.random() * 500);
 const profile = `/tmp/inpuls-chrome-${process.pid}`;
@@ -81,6 +83,11 @@ async function readState(socket) {
       inplayText: document.querySelector('#inplay-coins')?.textContent?.trim() ?? null,
       appBuild: document.querySelector('meta[name="inpuls-build"]')?.content ?? null,
       serviceWorker: navigator.serviceWorker?.controller?.scriptURL ?? null,
+      liteMode: globalThis.__INPULS_LITE_MODE__?.revision ?? null,
+      primaryHidden: document.querySelector('.primary-chart')?.hidden ?? null,
+      activityHidden: document.querySelector('.workspace-panel')?.hidden ?? null,
+      eventRadarTogglePresent: Boolean(document.querySelector('#event-radar-beta-toggle')),
+      eventRadarPanelPresent: Boolean(document.querySelector('#event-radar-beta')),
     }))()`,
     returnByValue: true,
   });
@@ -88,15 +95,35 @@ async function readState(socket) {
 }
 
 function runtimeStarted(state) {
-  return /^\d{2}:\d{2}:\d{2}$/.test(state?.clock || "")
+  const baseReady = /^\d{2}:\d{2}:\d{2}$/.test(state?.clock || "")
     && state?.statusState === "online"
-    && Number(state?.marketRows || 0) > 0;
+    && Number(state?.topRows || 0) > 0;
+  if (!baseReady || !requireLiteShell) return baseReady;
+  return Boolean(state?.liteMode)
+    && state?.primaryHidden === true
+    && state?.activityHidden === true
+    && state?.eventRadarTogglePresent === false
+    && state?.eventRadarPanelPresent === false
+    && Number(state?.marketRows || 0) === 0;
+}
+
+async function waitForRuntime(socket, timeoutMs) {
+  const startedAt = Date.now();
+  let state = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    state = await readState(socket);
+    if (runtimeStarted(state)) {
+      return { state, readyAfterMs: Date.now() - startedAt };
+    }
+    await delay(250);
+  }
+  return { state, readyAfterMs: null };
 }
 
 try {
   await waitForDebugger();
-  const target = await fetchJson(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(targetUrl)}`, { method: "PUT" });
-  const socket = await connectCdp(target.webSocketDebuggerUrl);
+  const page = await fetchJson(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(targetUrl)}`, { method: "PUT" });
+  const socket = await connectCdp(page.webSocketDebuggerUrl);
 
   socket.addEventListener("message", (event) => {
     const payload = JSON.parse(event.data);
@@ -138,23 +165,24 @@ try {
     send(socket, "Network.enable"),
   ]);
 
-  await delay(18_000);
-  const firstState = await readState(socket);
+  const first = await waitForRuntime(socket, 15_000);
 
   await send(socket, "Page.reload", { ignoreCache: false });
-  await delay(15_000);
-  const reloadState = await readState(socket);
+  const reload = await waitForRuntime(socket, 12_000);
 
   console.log(JSON.stringify({
     targetUrl,
-    firstState,
-    reloadState,
+    requireLiteShell,
+    firstState: first.state,
+    firstReadyAfterMs: first.readyAfterMs,
+    reloadState: reload.state,
+    reloadReadyAfterMs: reload.readyAfterMs,
     exceptions,
     failedRequests,
     messages,
   }, null, 2));
 
-  if (!runtimeStarted(firstState) || !runtimeStarted(reloadState) || exceptions.length) {
+  if (!runtimeStarted(first.state) || !runtimeStarted(reload.state) || exceptions.length) {
     process.exitCode = 1;
   }
   socket.close();

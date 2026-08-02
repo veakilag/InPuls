@@ -36,8 +36,8 @@ const FAST_MARKET_BOOTSTRAP_HOSTS = Object.freeze([
   "fapi2.binance.com",
 ]);
 const FAST_MARKET_BOOTSTRAP_TIMEOUT_MS = 3_000;
-const FAST_HISTORY_TIMEOUT_MS = 250;
-const FAST_HISTORY_INTERVAL_MS = 1_000;
+const FAST_HISTORY_TIMEOUT_MS = 1_200;
+const FAST_HISTORY_INTERVAL_MS = 1_500;
 
 const nativeSetTimeout = typeof globalThis.setTimeout === "function"
   ? globalThis.setTimeout.bind(globalThis)
@@ -181,10 +181,16 @@ async function fetchJsonWithTimeout(url, timeoutMs = FAST_MARKET_BOOTSTRAP_TIMEO
 }
 
 async function loadFastMarketBootstrapSnapshot() {
-  const rows = await Promise.any(FAST_MARKET_BOOTSTRAP_HOSTS.map((host) =>
-    fetchJsonWithTimeout(`https://${host}/fapi/v1/ticker/24hr`),
-  ));
-  return normalizeBinanceRestMiniTickerRows(rows, Date.now());
+  let lastError = null;
+  for (const host of FAST_MARKET_BOOTSTRAP_HOSTS) {
+    try {
+      const rows = await fetchJsonWithTimeout(`https://${host}/fapi/v1/ticker/24hr`);
+      return normalizeBinanceRestMiniTickerRows(rows, Date.now());
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("Market bootstrap unavailable");
 }
 
 function installFastMarketBootstrap() {
