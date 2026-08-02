@@ -1,0 +1,43 @@
+name: Fix smooth chart clock init
+
+on:
+  push:
+    branches:
+      - perf/restore-smooth-charts-v1
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-smooth-chart-clock-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: perf/restore-smooth-charts-v1
+          fetch-depth: 0
+
+      - name: Apply clock init fix
+        run: python3 scripts/fix-smooth-chart-clock-init.py
+
+      - name: Run focused checks
+        run: |
+          node --check app.js
+          node --test test-smooth-chart-first-v1.mjs
+
+      - name: Commit fix
+        run: |
+          rm .github/workflows/fix-smooth-chart-clock-init.yml
+          rm scripts/fix-smooth-chart-clock-init.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: initialize lightweight clock safely"
+          git push origin HEAD:perf/restore-smooth-charts-v1
