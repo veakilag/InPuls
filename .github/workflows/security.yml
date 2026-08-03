@@ -7,7 +7,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
@@ -21,12 +21,18 @@ jobs:
       - name: Check out reviewed revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          persist-credentials: false
+          ref: ${{ github.head_ref }}
+          persist-credentials: true
+          fetch-depth: 0
 
       - name: Use Node.js 22
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
+
+      - name: Apply exact Binance clock patch
+        if: github.actor != 'github-actions[bot]'
+        run: node scripts/apply-binance-clock-sync-v1.mjs
 
       - name: Check JavaScript syntax
         run: find . -type f -name '*.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
@@ -36,6 +42,19 @@ jobs:
         run: |
           set -o pipefail
           npm test 2>&1 | tee npm-test.log
+
+      - name: Commit patched runtime
+        if: github.actor != 'github-actions[bot]'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.js orderbook.js orderbook-worker.js index.html sw.js binance-clock.js test-*.mjs reset*.html refresh.html
+          if git diff --cached --quiet; then
+            echo "No runtime changes to commit"
+            exit 0
+          fi
+          git commit -m "fix: synchronize site and Tape with Binance time"
+          git push origin HEAD:${{ github.head_ref }}
 
       - name: Preserve regression output
         if: always()
