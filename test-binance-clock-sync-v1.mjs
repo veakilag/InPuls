@@ -26,6 +26,22 @@ test("Binance clock estimator uses the fastest midpoint-compensated samples", ()
   assert.deepEqual(estimate.hosts, ["a", "b", "c"]);
 });
 
+test("first calibration replaces an inaccurate local fallback with Binance time", () => {
+  let localNow = 20_000;
+  let perfNow = 100;
+  const clock = new BinanceClock({
+    dateNow: () => localNow,
+    perfNow: () => perfNow,
+    fetchImpl: null,
+    setIntervalFn: () => 0,
+    clearIntervalFn: () => {},
+  });
+
+  assert.equal(clock.now(), 20_000, "the pre-sync fallback may follow an inaccurate device clock");
+  assert.equal(clock.calibrate({ offsetMs: -10_000, rttMs: 20, sampleCount: 3 }, localNow, perfNow), true);
+  assert.equal(clock.now(), 10_000, "the first valid Binance sample must become the real live edge immediately");
+});
+
 test("calibrated Binance time advances from a monotonic performance anchor", () => {
   let localNow = 10_000;
   let perfNow = 500;
@@ -69,6 +85,8 @@ test("browser clock, flow window and Tape use one shared calibrated source", () 
   const app = read("./app.js");
   const orderbook = read("./orderbook.js");
   const worker = read("./orderbook-worker.js");
+  const clock = read("./binance-clock.js");
+  const canvasPreview = read("./canvas-comfort-preview.js");
   const index = read("./index.html");
   const sw = read("./sw.js");
 
@@ -79,6 +97,12 @@ test("browser clock, flow window and Tape use one shared calibrated source", () 
   assert.match(orderbook, /binanceClock\.now\(perfNow\)/);
   assert.match(orderbook, /formatTapeClock\(time\)[\s\S]*binanceClock\.formatTime/);
   assert.match(worker, /setInterval\(\(\) => syncServerClock\(true\)/);
+  assert.match(clock, /canvas-comfort-preview\.js\?v=26-102-tape-edge-canvas-preview-v1/);
+  assert.match(clock, /if \(wasCalibrated\) this\.now\(perf\);[\s\S]*else this\.lastNowMs = this\.anchorExchangeMs/);
+  assert.match(canvasPreview, /\.chart-stage canvas/);
+  assert.match(canvasPreview, /\.trade-flow canvas/);
+  assert.match(canvasPreview, /inpuls:comfort-preview/);
+  assert.match(canvasPreview, /inpuls:theme-change/);
   assert.match(index, /app\.js\?v=26-101-binance-clock-sync-v1/);
   assert.match(sw, /binance-clock\.js\?v=26-101-binance-clock-sync-v1/);
 });
