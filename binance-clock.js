@@ -1,5 +1,4 @@
 import "./binance-clock-core.js?v=26-101-binance-clock-sync-v1";
-import "./canvas-comfort-preview.js?v=26-102-tape-edge-canvas-preview-v1";
 
 const BINANCE_TIME_HOSTS = Object.freeze([
   "fapi.binance.com",
