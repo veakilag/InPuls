@@ -208,5 +208,5 @@ test("Tape-priority comfort build ships fresh cache keys", () => {
   assert.match(index, /styles\.css\?v=26-99-tape-priority-comfort-v1/);
   assert.match(index, /runtime-boot-recovery\.js\?v=26-99-tape-priority-comfort-v1/);
   assert.match(index, /install-cta\.js\?v=comfort-tape-priority-v1/);
-  assert.match(index, /app\.js\?v=26-101-binance-clock-sync-v1/);
+  assert.match(index, /app\.js\?v=26-102-tape-live-edge-minute-boundary-v1/);
 });
