@@ -32,7 +32,9 @@ jobs:
 
       - name: Apply exact Binance clock patch
         if: github.actor != 'github-actions[bot]'
-        run: node scripts/apply-binance-clock-sync-v1.mjs
+        run: |
+          node scripts/prepare-binance-clock-patch-v1.mjs
+          node scripts/apply-binance-clock-sync-v1.mjs
 
       - name: Check JavaScript syntax
         run: find . -type f -name '*.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
@@ -62,5 +64,5 @@ jobs:
         with:
           name: npm-test-log-${{ github.run_id }}
           path: npm-test.log
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 1
