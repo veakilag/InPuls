@@ -10,6 +10,7 @@ const RELEASE_ASSETS = Object.freeze([
   "./app.js?v=26-101-binance-clock-sync-v1",
   "./binance-clock-core.js?v=26-101-binance-clock-sync-v1",
   "./binance-clock.js?v=26-101-binance-clock-sync-v1",
+  "./canvas-comfort-preview.js?v=26-102-tape-edge-canvas-preview-v1",
   "./event-radar-beta.js?v=event-radar-beta-v1",
   "./event-radar-beta.css?v=event-radar-beta-v1",
   "./chart.js?v=23",
