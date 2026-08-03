@@ -6,11 +6,13 @@ if (
   const root = document.documentElement;
   const chartCanvases = new Set();
   const tapeCanvases = new Set();
+  const footprintCanvases = new Set();
   const originalFilters = new WeakMap();
 
   let baselineValue = null;
   let lastChartBrightness = null;
   let lastTapeBrightness = null;
+  let lastFootprintBrightness = null;
 
   function clamp(value, minimum, maximum) {
     return Math.max(minimum, Math.min(maximum, Number(value) || 0));
@@ -54,11 +56,15 @@ if (
     if (!(node instanceof Element)) return;
     if (node.matches(".chart-stage canvas")) rememberCanvas(node, chartCanvases);
     if (node.matches(".trade-flow canvas")) rememberCanvas(node, tapeCanvases);
+    if (node.matches(".inpuls-footprint-canvas")) rememberCanvas(node, footprintCanvases);
     for (const canvas of node.querySelectorAll?.(".chart-stage canvas") ?? []) {
       rememberCanvas(canvas, chartCanvases);
     }
     for (const canvas of node.querySelectorAll?.(".trade-flow canvas") ?? []) {
       rememberCanvas(canvas, tapeCanvases);
+    }
+    for (const canvas of node.querySelectorAll?.(".inpuls-footprint-canvas") ?? []) {
+      rememberCanvas(canvas, footprintCanvases);
     }
   }
 
@@ -76,7 +82,10 @@ if (
   }
 
   function clearPreview() {
-    for (const bucket of [chartCanvases, tapeCanvases]) {
+    if (directPreviewFrame) cancelAnimationFrame(directPreviewFrame);
+    directPreviewFrame = 0;
+    directPreviewValue = null;
+    for (const bucket of [chartCanvases, tapeCanvases, footprintCanvases]) {
       for (const canvas of bucket) {
         if (!canvas.isConnected) {
           bucket.delete(canvas);
@@ -88,7 +97,25 @@ if (
     baselineValue = null;
     lastChartBrightness = null;
     lastTapeBrightness = null;
+    lastFootprintBrightness = null;
   }
+
+  const comfortSlider = document.querySelector("#comfort-slider");
+  let directPreviewFrame = 0;
+  let directPreviewValue = null;
+  const flushDirectPreview = () => {
+    directPreviewFrame = 0;
+    if (!Number.isFinite(directPreviewValue)) return;
+    globalThis.dispatchEvent(new CustomEvent("inpuls:comfort-preview", {
+      detail: { value: directPreviewValue, source: "slider-capture" },
+    }));
+  };
+  comfortSlider?.addEventListener("input", (event) => {
+    const value = Number(event.currentTarget?.value ?? event.target?.value);
+    if (!Number.isFinite(value)) return;
+    directPreviewValue = value;
+    if (!directPreviewFrame) directPreviewFrame = requestAnimationFrame(flushDirectPreview);
+  }, { capture: true, passive: true });
 
   scanNode(document.documentElement);
   new MutationObserver((records) => {
@@ -105,6 +132,7 @@ if (
     }
     const chartBrightness = brightnessRatio(value, "#1f2227", "#090b0e", baselineValue);
     const tapeBrightness = brightnessRatio(value, "#2d3137", "#111419", baselineValue);
+    const footprintBrightness = brightnessRatio(value, "#353a41", "#15191e", baselineValue);
     if (chartBrightness !== lastChartBrightness) {
       lastChartBrightness = chartBrightness;
       applyBucket(chartCanvases, chartBrightness);
@@ -112,6 +140,10 @@ if (
     if (tapeBrightness !== lastTapeBrightness) {
       lastTapeBrightness = tapeBrightness;
       applyBucket(tapeCanvases, tapeBrightness);
+    }
+    if (footprintBrightness !== lastFootprintBrightness) {
+      lastFootprintBrightness = footprintBrightness;
+      applyBucket(footprintCanvases, footprintBrightness);
     }
   });
 

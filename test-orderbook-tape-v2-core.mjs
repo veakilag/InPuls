@@ -29,7 +29,11 @@ test("water renderer owns stable event geometry", () => {
   assert.match(orderbook, /function refreshTapeRenderModel\(/);
   assert.match(orderbook, /Object\.freeze\(\{/);
   assert.match(painter, /projectWaterTapeNodes/);
-  assert.match(painter, /const baseX = tapeTimeX\(item\.time, window, rect\.width\)/);
+  assert.match(painter, /const baseX = tapeTradeX\(item\.time, window, rect\.width\)/);
+  assert.match(
+    orderbook,
+    /function tapeTradeX\(time, window, width\) \{[\s\S]*tapeSecondSlotTime\(time, window\)[\s\S]*tapeTimeX\(slotTime \?\? time, window, width\)/,
+  );
   assert.doesNotMatch(painter, /layoutTapeSequence|buildReadableTapeLayout|nearestVisibleRow|tapePricePosition/);
   assert.doesNotMatch(painter, /adaptiveRawDiameter\(strength, item\.density/);
   assert.match(orderbook, /function activeTapeCards\(\)/);
@@ -44,14 +48,16 @@ test("water renderer owns stable event geometry", () => {
 
 test("Flow Workspace cache and reset page point to water runtime", () => {
   assert.match(orderbook, /inpuls-orderbook-runtime-26-91-runtime-boot-cache-feed-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-91-runtime-boot-cache-feed-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-103-footprint-poc-second-theme-preview-v1/);
   assert.match(serviceWorker, /inpuls-26-91-runtime-boot-cache-feed-v1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=26-102-tape-live-edge-minute-boundary-v1/);
+  assert.match(serviceWorker, /app\.js\?v=26-103-footprint-poc-second-theme-preview-v1/);
+  assert.match(serviceWorker, /canvas-comfort-preview\.js\?v=26-103-footprint-poc-second-theme-preview-v1/);
+  assert.match(serviceWorker, /orderbook\.js\?v=26-103-footprint-poc-second-theme-preview-v1/);
   assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
   assert.match(serviceWorker, /orderbook-worker\.js\?v=26-101-binance-clock-sync-v1/);
   assert.match(serviceWorker, /orderbook-tape-layout\.js\?v=stable-tape-v4/);
   assert.match(serviceWorker, /orderbook-tape-latency\.js\?v=worker-bp-v1/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-91-runtime-boot-cache-feed-v1/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-103-footprint-poc-second-theme-preview-v1/);
   assert.match(resetPage, /Resume v2/);
   assert.match(resetPage, /reset\.js\?v=26-91-runtime-boot-cache-feed-v1/);
   assert.match(resetScript, /sw\.js\?v=\$\{BUILD\}/);

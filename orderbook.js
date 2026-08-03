@@ -6,7 +6,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-91-runtime-boot-cache-feed-v1";
+import "./orderbook-flow-workspace.js?v=26-103-footprint-poc-second-theme-preview-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -3519,6 +3519,22 @@ function tapeTimeX(time, window, width) {
   return clampTape(ratio * safeRight, 1, safeRight);
 }
 
+export function tapeSecondSlotTime(time, window = null) {
+  const value = Number(time);
+  if (!Number.isFinite(value)) return null;
+  const center = Math.floor(value / TAPE_SECOND_MS) * TAPE_SECOND_MS + TAPE_SECOND_MS / 2;
+  if (!window) return center;
+  const start = Number(window.startTime);
+  const end = Number(window.endTime);
+  if (![start, end].every(Number.isFinite) || end <= start) return center;
+  return clampTape(center, start + 1, end - 1);
+}
+
+function tapeTradeX(time, window, width) {
+  const slotTime = tapeSecondSlotTime(time, window);
+  return tapeTimeX(slotTime ?? time, window, width);
+}
+
 function layoutTapeSequence(items, window, width) {
   return buildReadableTapeLayout(items, window, width);
 }
@@ -4155,7 +4171,7 @@ function drawTapeCard(card) {
     let previous = null;
     for (const projected of pathItems) {
       const item = projected.source;
-      const x = tapeTimeX(item.time, window, rect.width);
+      const x = tapeTradeX(item.time, window, rect.width);
       const y = projected.position.y;
       if (!previous || item.time - previous.time > 1_500) context.moveTo(x, y);
       else context.lineTo(x, y);
@@ -4220,7 +4236,7 @@ function drawTapeCard(card) {
     const buy = item.buyQuote >= item.sellQuote;
     const stroke = buy ? "rgba(88, 239, 184, .9)" : "rgba(255, 121, 137, .9)";
     const strength = stableTapeQuoteStrength(item.quote);
-    const baseX = tapeTimeX(item.time, window, rect.width);
+    const baseX = tapeTradeX(item.time, window, rect.width);
 
     if (state.mode === "raw") {
       if (minQuote > 0) {
