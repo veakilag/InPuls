@@ -1,3 +1,4 @@
+# Temporary migration workflow; remove after generated contract commit.
 name: Refresh Tape minute contracts v1
 
 on:
