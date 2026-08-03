@@ -87,6 +87,7 @@ export class BinanceClock extends EventTarget {
 
   setTimeZone(zone) {
     const requested = String(zone || "Europe/Moscow");
+    if (requested === this.selectedTimeZone) return this.selectedTimeZone;
     try {
       new Intl.DateTimeFormat("ru-RU", { timeZone: requested }).format(0);
       this.selectedTimeZone = requested;
