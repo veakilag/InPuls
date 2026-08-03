@@ -58,5 +58,9 @@ test("renderer does not feed historical items through collision layout", () => {
   const painter = tapePainter();
   assert.doesNotMatch(painter, /layoutTapeSequence|nearestVisibleRow|tapePricePosition/);
   assert.match(painter, /projectWaterTapeNodes/);
-  assert.match(painter, /tapeTimeX\(item\.time, window, rect\.width\)/);
+  assert.match(painter, /tapeTradeX\(item\.time, window, rect\.width\)/);
+  assert.match(
+    source,
+    /function tapeTradeX\(time, window, width\) \{[\s\S]*tapeSecondSlotTime\(time, window\)[\s\S]*tapeTimeX\(slotTime \?\? time, window, width\)/,
+  );
 });
