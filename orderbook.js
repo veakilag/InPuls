@@ -1,3 +1,4 @@
+import { binanceClock } from "./binance-clock.js?v=26-101-binance-clock-sync-v1";
 import {
   adaptiveRawDiameter,
   buildReadableTapeLayout,
@@ -701,7 +702,7 @@ export function aggregateTradePath(trades, minimumQuote = 0, priceStep = .01, li
 export function tradeTimeWindow(now, durationMs, offsetMs = 0) {
   const requestedNow = Number(now);
   const duration = Math.max(5_000, Number(durationMs) || 60_000);
-  const safeNow = Number.isFinite(requestedNow) ? requestedNow : Date.now();
+  const safeNow = Number.isFinite(requestedNow) ? requestedNow : binanceClock.now();
   const latest = Number(latestTradeEventTime);
   const latestIsFresh = latest > 0
     && latest <= safeNow + 5_000
@@ -1413,7 +1414,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-91-runtime-boot-cache-feed-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-101-binance-clock-sync-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1939,7 +1940,7 @@ function clampTape(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
 }
 
-export function resolveTapeWindowEnd(latestTime, frozen, now = Date.now()) {
+export function resolveTapeWindowEnd(latestTime, frozen, now = binanceClock.now()) {
   const latest = Number(latestTime) || Number(now) || Date.now();
   return latest + (frozen ? 1 : TAPE_LIVE_EDGE_LEAD_MS);
 }
@@ -3423,17 +3424,23 @@ export function advanceWaterTapeClock(
   packetAt,
   nowPerf,
   frozen = false,
+  exchangeNow = null,
 ) {
   const latest = Number(latestTradeTime);
   const now = Number(nowPerf);
   const packet = Number(packetAt);
+  const exchange = Number(exchangeNow);
   if (!Number.isFinite(latest) || !Number.isFinite(now)) return null;
   const hasPrevious = previousEnd !== null
     && previousEnd !== undefined
     && Number.isFinite(Number(previousEnd));
   if (frozen) return hasPrevious ? Number(previousEnd) : latest + 1;
   const packetAge = Number.isFinite(packet) ? Math.max(0, now - packet) : 0;
-  const desired = latest + packetAge + TAPE_LIVE_EDGE_LEAD_MS;
+  const packetAdvanced = latest + packetAge;
+  const target = Number.isFinite(exchange)
+    ? Math.max(exchange, packetAdvanced)
+    : packetAdvanced;
+  const desired = target + TAPE_LIVE_EDGE_LEAD_MS;
   if (!hasPrevious) return desired;
   const previous = Number(previousEnd);
   const previousTime = Number(previousAt);
@@ -3441,6 +3448,7 @@ export function advanceWaterTapeClock(
     ? Math.max(0, Math.min(250, now - previousTime))
     : 0;
   const base = previous + elapsed;
+  if (desired - base > 500) return Math.max(previous, desired);
   const alpha = 1 - Math.exp(-elapsed / TAPE_CLOCK_CORRECTION_TAU_MS);
   const corrected = base + (desired - base) * alpha;
   return Math.max(previous, corrected);
@@ -3469,7 +3477,7 @@ function buildContinuousTapeWindow(
 ) {
   const safeWidth = Math.max(1, Number(width) || 1);
   const duration = tapeSecondsForScale(safeWidth, scalePercent) * TAPE_SECOND_MS;
-  const latest = Number(latestTime) || Date.now();
+  const latest = Number(latestTime) || binanceClock.now();
   const requested = Number(requestedEndTime);
   const endTime = Number.isFinite(requested)
     ? Math.max(latest + 1, requested)
@@ -3501,9 +3509,7 @@ function snapTapeCoordinate(value, dpr = 1) {
 }
 
 function formatTapeClock(time) {
-  const date = new Date(Number(time));
-  const pad = (value) => String(value).padStart(2, "0");
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  return binanceClock.formatTime(time, { seconds: true });
 }
 
 function drawTapeTimeline(context, rect, window) {
@@ -4076,10 +4082,11 @@ function drawTapeCard(card) {
   const meta = tapeMetaBySymbol.get(symbol) ?? {};
   state.aggregationSource = meta.aggregationSource === "raw" ? "raw" : "agg";
   syncTapeModeButton(state.controls?.querySelector("[data-inpuls-tape-mode]"), state);
+  const exchangeNow = binanceClock.now(perfNow);
   const latestTime = Number(meta.lastTradeTime)
     || Number(stored[0]?.time)
     || Number(aggregationStored[0]?.time)
-    || Date.now();
+    || exchangeNow;
   const endTime = advanceWaterTapeClock(
     state.clockEndTime,
     state.clockPerfAt,
@@ -4087,6 +4094,7 @@ function drawTapeCard(card) {
     meta.lastPacketPerfAt,
     perfNow,
     frozen,
+    exchangeNow,
   );
   state.clockEndTime = endTime;
   state.clockPerfAt = perfNow;

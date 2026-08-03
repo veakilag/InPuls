@@ -1,4 +1,5 @@
 import { buildBinanceChannelStreams, buildBinanceChannelTransports, isBinanceSubscriptionError, isCoreMiniTickerPacket, nextBinanceTransportIndex, normalizeBinanceRestMiniTicker } from "./binance-stream-routing.js?v=26-91-runtime-boot-cache-feed-v1";
+import { binanceClock } from "./binance-clock.js?v=26-101-binance-clock-sync-v1";
 import {
   DEFAULT_SETTINGS,
   SymbolState,
@@ -8,7 +9,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=26-65-structured-signal-collection-v1";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-97-smooth-chart-first-v1";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-100-tape-heartbeat-isolation-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-101-binance-clock-sync-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -2405,7 +2406,7 @@ function renderTradeFlow(panel, trades, flow) {
   const detail = flow.querySelector(".trade-flow-detail");
   const width = Math.max(80, flow.getBoundingClientRect().width);
   const height = Math.max(70, flow.getBoundingClientRect().height);
-  const window = tradeTimeWindow(Date.now(), panel.model.tradeWindowMs, panel.tradeOffsetMs);
+  const window = tradeTimeWindow(binanceClock.now(), panel.model.tradeWindowMs, panel.tradeOffsetMs);
   const visibleTrades = [];
   for (const trade of trades) {
     if (trade.time > window.end) continue;
@@ -2520,11 +2521,11 @@ function formatTradeWindow(duration) {
 }
 
 function formatTradeClock(time, duration) {
-  return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", second: duration <= 2 * 60_000 ? "2-digit" : undefined }).format(new Date(time));
+  return binanceClock.formatTime(time, { seconds: duration <= 2 * 60_000 });
 }
 
 function formatTradeAge(time) {
-  const age = Math.max(0, Date.now() - Number(time));
+  const age = Math.max(0, binanceClock.now() - Number(time));
   if (age < 1_000) return "сейчас";
   if (age < 60_000) return `${Math.floor(age / 1_000)}с назад`;
   return `${Math.floor(age / 60_000)}м назад`;
@@ -2995,6 +2996,7 @@ function applySelectedTimeZone(zone, city = null) {
   if (zone === "local") zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   try { new Intl.DateTimeFormat("ru-RU", { timeZone: zone }).format(); } catch { zone = "Europe/Moscow"; }
   state.timeZone = zone;
+  binanceClock.setTimeZone(zone);
   state.selectedTimeZoneCity = city || state.selectedTimeZoneCity || cityForZone(zone);
   if (!TIME_ZONE_CITIES.some((item) => item.city === state.selectedTimeZoneCity && item.zone === zone)) state.selectedTimeZoneCity = cityForZone(zone);
   localStorage.setItem(STORAGE_KEYS.timeZone, zone);
@@ -3446,32 +3448,54 @@ loadChartStats(state.selectedChartSymbol);
 setInterval(updateTrackedSymbols, 15_000);
 setTimeout(warmupRadarHistory, 1500);
 setInterval(warmupRadarHistory, 5000);
-function updateClock(date = new Date()) {
+function updateClock(date = new Date(binanceClock.now())) {
   const zone = state.timeZone === "local"
     ? Intl.DateTimeFormat().resolvedOptions().timeZone
     : state.timeZone;
+  binanceClock.setTimeZone(zone);
   const nextText = timeZoneClock(zone, date, true);
   if (nextText !== updateClock.lastText) {
     updateClock.lastText = nextText;
     els.clock.textContent = nextText;
   }
+  const clockState = binanceClock.snapshot();
+  els.clock.dataset.source = clockState.status;
+  if (clockState.status === "live") {
+    const rtt = Number.isFinite(clockState.rttMs) ? Math.round(clockState.rttMs) : null;
+    const offset = Number.isFinite(clockState.offsetMs) ? Math.round(clockState.offsetMs) : null;
+    els.clock.title = `Время Binance Futures · ${rtt === null ? "RTT —" : `RTT ${rtt} мс`} · ${offset === null ? "поправка —" : `поправка ${offset >= 0 ? "+" : ""}${offset} мс`}`;
+  } else if (clockState.status === "syncing") {
+    els.clock.title = "Синхронизация времени с Binance Futures…";
+  } else if (clockState.status === "stale") {
+    els.clock.title = "Время Binance Futures · калибровка устарела, выполняется повторная синхронизация";
+  } else {
+    els.clock.title = "Локальное резервное время · Binance Futures пока недоступен";
+  }
   updateTimeZoneClocks(date);
 }
 function scheduleClockTick() {
   clearTimeout(scheduleClockTick.timer);
-  const delay = Math.max(40, 1_000 - (Date.now() % 1_000) + 12);
+  const delay = binanceClock.delayToNextSecond(12);
   scheduleClockTick.timer = setTimeout(() => {
     requestAnimationFrame(() => {
-      updateClock(new Date());
+      updateClock(new Date(binanceClock.now()));
       scheduleClockTick();
     });
   }, delay);
 }
-updateClock();
+binanceClock.setTimeZone(state.timeZone === "local"
+  ? Intl.DateTimeFormat().resolvedOptions().timeZone
+  : state.timeZone);
+binanceClock.addEventListener("statechange", () => {
+  updateClock(new Date(binanceClock.now()));
+  scheduleClockTick();
+});
+binanceClock.start();
+updateClock(new Date(binanceClock.now()));
 scheduleClockTick();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-91-runtime-boot-cache-feed-v1";
+const INPULS_RUNTIME_BUILD = "26-101-binance-clock-sync-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

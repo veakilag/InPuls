@@ -64,7 +64,10 @@ export class BinanceClock extends EventTarget {
   }
 
   now(perfAt = null) {
-    const perf = Number.isFinite(Number(perfAt)) ? Number(perfAt) : Number(this.perfNow());
+    const hasExplicitPerf = perfAt !== null
+      && perfAt !== undefined
+      && Number.isFinite(Number(perfAt));
+    const perf = hasExplicitPerf ? Number(perfAt) : Number(this.perfNow());
     const local = Number(this.dateNow());
     const candidate = this.isCalibrated() && Number.isFinite(perf)
       ? Number(this.anchorExchangeMs) + (perf - Number(this.anchorPerfMs))
@@ -99,7 +102,10 @@ export class BinanceClock extends EventTarget {
 
   formatTime(epochMs, options = {}) {
     const seconds = options.seconds !== false;
-    const zone = this.setTimeZone(options.timeZone ?? this.selectedTimeZone);
+    const requestedZone = String(options.timeZone ?? this.selectedTimeZone);
+    const zone = requestedZone === this.selectedTimeZone
+      ? this.selectedTimeZone
+      : this.setTimeZone(requestedZone);
     const key = `${zone}:${seconds ? "seconds" : "minutes"}`;
     let formatter = this.formatters.get(key);
     if (!formatter) {

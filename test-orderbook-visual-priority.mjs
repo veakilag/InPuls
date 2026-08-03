@@ -125,8 +125,8 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-91-runtime-boot-cache-feed-v1/);
-  assert.match(app, /orderbook\.js\?v=26-100-tape-heartbeat-isolation-v1/);
+  assert.match(index, /26-101-binance-clock-sync-v1/);
+  assert.match(app, /orderbook\.js\?v=26-101-binance-clock-sync-v1/);
   assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-91-runtime-boot-cache-feed-v1/);
   assert.match(sw, /26-91-runtime-boot-cache-feed-v1/);
 });

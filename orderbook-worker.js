@@ -1,3 +1,4 @@
+importScripts("./binance-clock-core.js?v=26-101-binance-clock-sync-v1");
 importScripts("./orderbook-tape-guard.js?v=worker-bp-v1");
 importScripts("./orderbook-tape-latency.js?v=worker-bp-v1");
 importScripts("./orderbook-network.js?v=obs-pr1-1");
@@ -236,44 +237,47 @@ async function syncServerClock(force = false) {
 
   serverClockSyncPromise = (async () => {
     const hosts = ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"];
-    diagnose("", "clock.rest", { state: "scheduled", hosts: hosts.length });
-    let result = null;
-    try {
-      result = await self.InPulsOrderBookNetwork.firstSuccessful(
-        hosts,
-        async (host, { signal }) => {
-          const startedAt = Date.now();
-          const data = await fetchJson(`https://${host}/fapi/v1/time`, 1_800, signal);
-          const finishedAt = Date.now();
-          const serverTime = Number(data?.serverTime);
-          if (!Number.isFinite(serverTime)) throw new Error("invalid server time");
-          return {
-            rtt: Math.max(0, finishedAt - startedAt),
-            offset: serverTime - (startedAt + finishedAt) / 2,
-          };
-        },
-        {
-          onAttempt: (event) => diagnose("", "clock.rest.host", {
-            ...event,
-            host: event.target,
-            target: undefined,
-          }),
-        },
-      );
-    } catch {}
-    const best = result?.value;
-    if (best) {
-      serverClockOffsetMs = best.offset;
-      serverClockRttMs = best.rtt;
+    const samples = [];
+    diagnose("", "clock.rest", { state: "scheduled", hosts: hosts.length, requestedSamples: 3 });
+    for (let index = 0; index < 3; index += 1) {
+      const targets = hosts.slice(index).concat(hosts.slice(0, index));
+      try {
+        const result = await self.InPulsOrderBookNetwork.firstSuccessful(
+          targets,
+          async (host, { signal }) => {
+            const sentAt = Date.now();
+            const data = await fetchJson(`https://${host}/fapi/v1/time`, 1_800, signal);
+            const receivedAt = Date.now();
+            const serverTime = Number(data?.serverTime);
+            if (!Number.isFinite(serverTime)) throw new Error("invalid server time");
+            return { sentAt, receivedAt, serverTime, host };
+          },
+          {
+            onAttempt: (event) => diagnose("", "clock.rest.host", {
+              ...event,
+              sample: index + 1,
+              host: event.target,
+              target: undefined,
+            }),
+          },
+        );
+        if (result?.value) samples.push(result.value);
+      } catch {}
+    }
+    const estimate = self.InPulsBinanceClockCore?.estimateClockOffset?.(samples, 3) ?? null;
+    if (estimate && Number.isFinite(Number(estimate.offsetMs))) {
+      serverClockOffsetMs = Number(estimate.offsetMs);
+      serverClockRttMs = Number.isFinite(Number(estimate.rttMs)) ? Number(estimate.rttMs) : null;
       serverClockSyncAt = Date.now();
       diagnose("", "clock.rest", {
         state: "succeeded",
-        host: result.target,
-        durationMs: result.durationMs,
-        rttMs: best.rtt,
+        rttMs: serverClockRttMs,
+        offsetMs: serverClockOffsetMs,
+        sampleCount: estimate.sampleCount,
+        totalSampleCount: estimate.totalSampleCount,
       });
     } else {
-      diagnose("", "clock.rest", { state: "failed" });
+      diagnose("", "clock.rest", { state: "failed", sampleCount: samples.length });
     }
     return serverClockOffsetMs;
   })().finally(() => {
@@ -1718,5 +1722,6 @@ self.addEventListener("message", (event) => {
 });
 
 syncServerClock(true).catch(() => {});
+setInterval(() => syncServerClock(true).catch(() => {}), CLOCK_SYNC_INTERVAL_MS);
 scheduleWatchdog();
 post("ready", "");
