@@ -1,5 +1,5 @@
 import { buildBinanceChannelStreams, buildBinanceChannelTransports, isBinanceSubscriptionError, isCoreMiniTickerPacket, nextBinanceTransportIndex, normalizeBinanceRestMiniTicker } from "./binance-stream-routing.js?v=26-91-runtime-boot-cache-feed-v1";
-import { binanceClock } from "./binance-clock.js?v=26-101-binance-clock-sync-v1";
+import { binanceClock } from "./binance-clock.js?v=26-102-tape-live-edge-minute-boundary-v1";
 import {
   DEFAULT_SETTINGS,
   SymbolState,
@@ -8,8 +8,8 @@ import {
   isUsdtPerpetualSymbol,
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=26-65-structured-signal-collection-v1";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-97-smooth-chart-first-v1";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-101-binance-clock-sync-v1";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-102-tape-live-edge-minute-boundary-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-102-tape-live-edge-minute-boundary-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -2416,9 +2416,13 @@ function renderTradeFlow(panel, trades, flow) {
   const timeColumns = Math.max(4, Math.min(28, Math.floor(width / (panel.model.clustersVisible ? 48 : 25))));
   const bucketMs = Math.max(250, Math.ceil(window.duration / timeColumns / 250) * 250);
   const clusterStep = Math.max(panel.baseTick || Number.EPSILON, panel.priceStep / (panel.model.clustersVisible ? 2 : 5));
-  const items = panel.model.clustersVisible
+  let items = panel.model.clustersVisible
     ? aggregateFootprintClusters(visibleTrades, panel.model.tradeMinQuote, clusterStep, bucketMs)
     : aggregateTradePath(visibleTrades, panel.model.tradeMinQuote, clusterStep, 260, bucketMs);
+  if (panel.model.clustersVisible) {
+    const livePrice = Number(visibleTrades[0]?.price ?? trades[0]?.price ?? items.at(-1)?.price);
+    items = ensureFootprintLiveBucket(items, livePrice, window.end, bucketMs);
+  }
   if (!items.length) {
     nodesRoot.innerHTML = '<div class="orderbook-empty">Жду сделки…</div>';
     line.replaceChildren();
@@ -2458,7 +2462,8 @@ function renderTradeFlow(panel, trades, flow) {
     const cellWidth = Math.max(29, Math.min(72, (bucketMs / window.duration) * width * .88));
     nodesRoot.innerHTML = positioned.map((cluster) => {
       const selected = panel.selectedTradePathKey === cluster.key;
-      return `<button class="footprint-cell${cluster.quote >= anomaly ? " is-anomaly" : ""}${selected ? " is-selected" : ""}" data-trade-path-key="${cluster.key}" type="button" style="--x:${cluster.x.toFixed(2)}%;--y:${cluster.y.toFixed(2)}%;--cell-w:${cellWidth.toFixed(1)}px" title="${cluster.count} исполнений · ${formatPrice(cluster.price)}"><span>${formatCompactUsd(cluster.sellQuote).replace("$", "")}</span><strong>${formatCompactUsd(cluster.buyQuote).replace("$", "")}</strong></button>`;
+      const empty = cluster.empty === true;
+      return `<button class="footprint-cell${empty ? " is-empty" : ""}${!empty && cluster.quote >= anomaly ? " is-anomaly" : ""}${selected ? " is-selected" : ""}" data-trade-path-key="${cluster.key}" type="button" style="--x:${cluster.x.toFixed(2)}%;--y:${cluster.y.toFixed(2)}%;--cell-w:${cellWidth.toFixed(1)}px" title="${empty ? "Текущий интервал · исполнений пока нет" : `${cluster.count} исполнений · ${formatPrice(cluster.price)}`}"><span>${empty ? "—" : formatCompactUsd(cluster.sellQuote).replace("$", "")}</span><strong>${empty ? "—" : formatCompactUsd(cluster.buyQuote).replace("$", "")}</strong></button>`;
     }).join("");
   } else {
     line.innerHTML = `<path d="${smoothTradePath(positioned)}" />`;

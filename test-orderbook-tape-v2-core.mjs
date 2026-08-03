@@ -46,7 +46,7 @@ test("Flow Workspace cache and reset page point to water runtime", () => {
   assert.match(orderbook, /inpuls-orderbook-runtime-26-91-runtime-boot-cache-feed-v1/);
   assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-91-runtime-boot-cache-feed-v1/);
   assert.match(serviceWorker, /inpuls-26-91-runtime-boot-cache-feed-v1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=26-101-binance-clock-sync-v1/);
+  assert.match(serviceWorker, /orderbook\.js\?v=26-102-tape-live-edge-minute-boundary-v1/);
   assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
   assert.match(serviceWorker, /orderbook-worker\.js\?v=26-101-binance-clock-sync-v1/);
   assert.match(serviceWorker, /orderbook-tape-layout\.js\?v=stable-tape-v4/);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
-import { upsertLiveCandleInPlace } from "./chart.js?v=26-97-smooth-chart-first-v1";
+import { upsertLiveCandleInPlace } from "./chart.js?v=26-102-tape-live-edge-minute-boundary-v1";
 
 const app = fs.readFileSync(new URL("./app.js", import.meta.url), "utf8");
 const chart = fs.readFileSync(new URL("./chart.js", import.meta.url), "utf8");
@@ -40,6 +40,6 @@ test("clock work avoids hidden timezone scans and cached modules are refreshed",
   assert.doesNotMatch(app, /let lastHeaderClockText|let clockTickTimer/);
   assert.match(app, /updateClock\.lastText/);
   assert.match(app, /scheduleClockTick\.timer/);
-  assert.match(html, /app\.js\?v=26-101-binance-clock-sync-v1/);
-  assert.match(app, /chart\.js\?v=26-97-smooth-chart-first-v1/);
+  assert.match(html, /app\.js\?v=26-102-tape-live-edge-minute-boundary-v1/);
+  assert.match(app, /chart\.js\?v=26-102-tape-live-edge-minute-boundary-v1/);
 });
