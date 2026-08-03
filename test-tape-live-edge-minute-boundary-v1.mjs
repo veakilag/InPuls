@@ -5,7 +5,8 @@ import test from "node:test";
 import { buildProvisionalCandle } from "./chart.js";
 import { ensureFootprintLiveBucket } from "./orderbook.js";
 
-const BUILD = "26-102-tape-live-edge-minute-boundary-v1";
+const RUNTIME_BUILD = "26-103-footprint-poc-second-theme-preview-v1";
+const CHART_BUILD = "26-102-tape-live-edge-minute-boundary-v1";
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 
 test("minute boundary creates a zero-volume provisional candle from the last close", () => {
@@ -35,9 +36,9 @@ test("runtime loads the live Canvas preview and fresh boundary build", () => {
   const app = read("./app.js");
   const chart = read("./chart.js");
   const sw = read("./sw.js");
-  assert.match(index, new RegExp(`canvas-comfort-preview\\.js\\?v=${BUILD}`));
-  assert.match(index, new RegExp(`app\\.js\\?v=${BUILD}`));
-  assert.match(app, new RegExp(`chart\\.js\\?v=${BUILD}`));
+  assert.match(index, new RegExp(`canvas-comfort-preview\\.js\\?v=${RUNTIME_BUILD}`));
+  assert.match(index, new RegExp(`app\\.js\\?v=${RUNTIME_BUILD}`));
+  assert.match(app, new RegExp(`chart\\.js\\?v=${CHART_BUILD}`));
   assert.match(chart, /#scheduleBoundaryTick/);
-  assert.match(sw, new RegExp(`canvas-comfort-preview\\.js\\?v=${BUILD}`));
+  assert.match(sw, new RegExp(`canvas-comfort-preview\\.js\\?v=${RUNTIME_BUILD}`));
 });
