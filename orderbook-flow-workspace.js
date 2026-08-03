@@ -1,3 +1,4 @@
+import { binanceClock } from "./binance-clock.js?v=26-102-tape-live-edge-minute-boundary-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 
 export const FLOW_WORKSPACE = Object.freeze({
@@ -39,6 +40,14 @@ const FOOTPRINT_MAX_VISIBLE_COLUMNS = 16;
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
+}
+
+function footprintExchangeNow() {
+  const perfNow = typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : undefined;
+  const exchangeNow = binanceClock.now(perfNow);
+  return Number.isFinite(Number(exchangeNow)) ? Number(exchangeNow) : Date.now();
 }
 
 export function footprintColumnWidthForWheel(currentWidth, deltaY) {
@@ -706,17 +715,32 @@ function rowStep(rows) {
 }
 
 function nearestRow(rows, price) {
-  if (!rows.length) return null;
+  const target = Number(price);
+  if (!rows.length || !Number.isFinite(target)) return null;
+  const orderedPrices = [...new Set(rows.map((row) => Number(row.price)).filter(Number.isFinite))]
+    .sort((left, right) => left - right);
+  if (!orderedPrices.length) return null;
+  let step = Infinity;
+  for (let index = 1; index < orderedPrices.length; index += 1) {
+    const gap = orderedPrices[index] - orderedPrices[index - 1];
+    if (gap > Number.EPSILON && gap < step) step = gap;
+  }
+  const tolerance = Number.isFinite(step)
+    ? step * .55
+    : Math.max(Number.EPSILON, Math.abs(orderedPrices.at(-1) - orderedPrices[0]) * .01);
+  if (target < orderedPrices[0] - tolerance || target > orderedPrices.at(-1) + tolerance) {
+    return null;
+  }
   let best = rows[0];
-  let distance = Math.abs(price - best.price);
+  let distance = Math.abs(target - Number(best.price));
   for (let index = 1; index < rows.length; index += 1) {
-    const nextDistance = Math.abs(price - rows[index].price);
+    const nextDistance = Math.abs(target - Number(rows[index].price));
     if (nextDistance < distance) {
       best = rows[index];
       distance = nextDistance;
     }
   }
-  return best;
+  return distance <= tolerance ? best : null;
 }
 
 function injectStyles() {
@@ -1086,7 +1110,7 @@ function ensureCard(card) {
     const maximumOffset = footprintHistoryOffsetLimit(
       accumulator,
       state.timeframeMs,
-      Date.now(),
+      footprintExchangeNow(),
     );
 
     const move = (moveEvent) => {
@@ -1167,9 +1191,10 @@ function renderCard(card, state) {
   }
 
   const accumulator = footprintBySymbol.get(symbol) ?? createFootprintAccumulator();
+  const exchangeNow = footprintExchangeNow();
   state.historyOffset = Math.min(
     state.historyOffset,
-    footprintHistoryOffsetLimit(accumulator, state.timeframeMs, Date.now()),
+    footprintHistoryOffsetLimit(accumulator, state.timeframeMs, exchangeNow),
   );
   const visibleColumnLimit = Math.max(
     1,
@@ -1181,7 +1206,7 @@ function renderCard(card, state) {
   const intervals = stableFootprintIntervals(state, footprintIntervalHistory(
     accumulator,
     state.timeframeMs,
-    Date.now(),
+    exchangeNow,
     visibleColumnLimit,
     state.historyOffset,
   ));
@@ -1298,7 +1323,7 @@ function renderCard(card, state) {
 
         const volumeText = formatQuoteVolume(cluster.quote);
         state.context.fillStyle = theme.text;
-        state.context.font = "850 6.7px Inter, system-ui, sans-serif";
+        state.context.font = "850 8px Inter, system-ui, sans-serif";
         state.context.textAlign = "center";
         state.context.fillText(
           volumeText,

@@ -9,7 +9,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=26-65-structured-signal-collection-v1";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-102-tape-live-edge-minute-boundary-v1";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-103-footprint-poc-second-theme-preview-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-104-tape-cluster-theme-clock-sync-v2";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -659,14 +659,52 @@ function buildComfortTheme(rawValue) {
 
 function applyComfortPreview(rawValue) {
   const theme = buildComfortTheme(rawValue);
-  const { value, palette } = theme;
+  const { value, amount, turquoise, cyan, blue, violet, red, palette } = theme;
   const root = document.documentElement;
   root.style.setProperty("--bg", palette.bg);
   root.style.setProperty("--panel", palette.panel);
   root.style.setProperty("--panel-2", palette.panel2);
   root.style.setProperty("--line", palette.line);
   root.style.setProperty("--line-soft", `${palette.line}55`);
+  root.style.setProperty("--text", palette.text);
+  root.style.setProperty("--muted", palette.muted);
+  root.style.setProperty("--chart-bg", palette.chart);
+  root.style.setProperty("--accent", cyan);
+  root.style.setProperty("--cyan", cyan);
+  root.style.setProperty("--violet", violet);
+  root.style.setProperty("--green", turquoise);
+  root.style.setProperty("--blue", blue);
+  root.style.setProperty("--red", red);
+  root.style.setProperty("--chart-bull-fill", palette.bull);
+  root.style.setProperty("--chart-bull-stroke", palette.bull);
+  root.style.setProperty("--chart-bear-fill", palette.bear);
+  root.style.setProperty("--chart-bear-stroke", palette.bearStroke);
+  root.style.setProperty("--theme-level", String(amount));
+  root.style.setProperty("--comfort-position", `${value}%`);
+  const moonProgress = Math.max(0, Math.min(1, (amount - .2) / .7));
+  root.style.setProperty("--comfort-sun-opacity", String(1 - moonProgress));
+  root.style.setProperty("--comfort-moon-opacity", String(moonProgress));
+  root.style.setProperty("--comfort-sun-rotate", `${moonProgress * 38}deg`);
+  root.style.setProperty("--comfort-moon-rotate", `${(1 - moonProgress) * -24}deg`);
   root.dataset.comfortPreview = String(Math.round(value));
+  const previewChartTheme = {
+    background: palette.chart,
+    bullFill: palette.bull,
+    bullStroke: palette.bull,
+    bearFill: palette.bear,
+    bearStroke: palette.bearStroke,
+    grid: palette.grid,
+    text: palette.muted,
+    crosshair: palette.crosshair,
+    crosshairFill: palette.crosshairFill,
+    crosshairText: palette.crosshairText,
+    session: violet,
+  };
+  priceChart.setTheme(previewChartTheme);
+  for (const panel of extraCharts.values()) panel.chart.setTheme(previewChartTheme);
+  globalThis.dispatchEvent(new CustomEvent("inpuls:theme-change", {
+    detail: { preview: true, value },
+  }));
   return theme;
 }
 

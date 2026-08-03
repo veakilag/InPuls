@@ -40,9 +40,9 @@ test("POC selects the largest traded price and resolves ties near the close", ()
   assert.equal(footprintPocCluster(clusters, 100)?.row.price, 100.1);
 });
 
-test("Tape places executions into the matching exchange-second slot", () => {
+test("Tape preserves exact execution time while the shared clock owns the live edge", () => {
   const tradeTime = 1_700_000_031_123;
-  assert.equal(tapeSecondSlotTime(tradeTime), 1_700_000_031_500);
+  assert.equal(tapeSecondSlotTime(tradeTime), tradeTime);
 
   const window = {
     startTime: 1_700_000_000_000,
@@ -50,14 +50,24 @@ test("Tape places executions into the matching exchange-second slot", () => {
     duration: 31_200,
     plotRight: 1_000,
   };
-  assert.equal(tapeSecondSlotTime(tradeTime, window), window.endTime - 1);
+  assert.equal(tapeSecondSlotTime(tradeTime, window), tradeTime);
+  assert.equal(tapeSecondSlotTime(window.endTime + 400, window), window.endTime - 1);
 });
 
-test("comfort preview listens before the drag guard and includes Footprint Canvas", () => {
+test("comfort preview covers the full palette and all live Canvas surfaces", () => {
   const preview = read("./canvas-comfort-preview.js");
   assert.match(preview, /#comfort-slider/);
   assert.match(preview, /capture:\s*true/);
   assert.match(preview, /requestAnimationFrame\(flushDirectPreview\)/);
   assert.match(preview, /inpuls:comfort-preview/);
   assert.match(preview, /\.inpuls-footprint-canvas/);
+  const app = read("./app.js");
+  const start = app.indexOf("function applyComfortPreview(rawValue) {");
+  const end = app.indexOf("\n\nfunction applyComfort(rawValue)", start);
+  const block = app.slice(start, end);
+  assert.match(block, /--text/);
+  assert.match(block, /--muted/);
+  assert.match(block, /--chart-bg/);
+  assert.match(block, /priceChart\.setTheme\(previewChartTheme\)/);
+  assert.match(block, /inpuls:theme-change/);
 });

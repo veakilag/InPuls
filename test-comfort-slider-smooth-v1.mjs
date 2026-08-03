@@ -177,7 +177,7 @@ test("palette preview yields while Tape has pending flow work", () => {
   assert.deepEqual(harness.previewValues, [73]);
 });
 
-test("drag preview updates only surface colors and never Canvas theme", () => {
+test("drag preview updates the complete site palette and Canvas theme", () => {
   const start = app.indexOf("function applyComfortPreview(rawValue) {");
   const end = app.indexOf("\n\nfunction applyComfort(rawValue)", start);
   const preview = app.slice(start, end);
@@ -185,8 +185,13 @@ test("drag preview updates only surface colors and never Canvas theme", () => {
   assert.match(preview, /--panel/);
   assert.match(preview, /--panel-2/);
   assert.match(preview, /--line/);
-  assert.doesNotMatch(preview, /--text|--muted|--chart-bg|--chart-bear-fill/);
-  assert.doesNotMatch(preview, /setTheme|inpuls:theme-change|localStorage/);
+  assert.match(preview, /--text/);
+  assert.match(preview, /--muted/);
+  assert.match(preview, /--chart-bg/);
+  assert.match(preview, /--chart-bear-fill/);
+  assert.match(preview, /priceChart\.setTheme\(previewChartTheme\)/);
+  assert.match(preview, /inpuls:theme-change/);
+  assert.doesNotMatch(preview, /localStorage/);
   assert.match(comfortGuard, /PREVIEW_INTERVAL_MS = 34/);
   assert.match(comfortGuard, /pendingFlowWork\(\)/);
   assert.match(styles, /data-comfort-dragging/);
@@ -208,5 +213,5 @@ test("Tape-priority comfort build ships fresh cache keys", () => {
   assert.match(index, /styles\.css\?v=26-99-tape-priority-comfort-v1/);
   assert.match(index, /runtime-boot-recovery\.js\?v=26-99-tape-priority-comfort-v1/);
   assert.match(index, /install-cta\.js\?v=comfort-tape-priority-v1/);
-  assert.match(index, /app\.js\?v=26-103-footprint-poc-second-theme-preview-v1/);
+  assert.match(index, /app\.js\?v=26-104-tape-cluster-theme-clock-sync-v2/);
 });
