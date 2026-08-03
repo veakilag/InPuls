@@ -819,3 +819,13 @@ body { background: var(--bg); }
   .font-scale-control { grid-template-columns: 1fr 52px; }
   .font-scale-control > span { grid-column: 1 / -1; }
 }
+
+.footprint-cell.is-empty {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--muted) 42%, transparent);
+  color: color-mix(in srgb, var(--muted) 72%, transparent);
+  background: color-mix(in srgb, var(--panel-2) 68%, transparent);
+  box-shadow: none;
+  opacity: .7;
+}
+.footprint-cell.is-empty span, .footprint-cell.is-empty strong { color: inherit; }

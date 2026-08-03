@@ -1,4 +1,4 @@
-import { binanceClock } from "./binance-clock.js?v=26-101-binance-clock-sync-v1";
+import { binanceClock } from "./binance-clock.js?v=26-102-tape-live-edge-minute-boundary-v1";
 import {
   adaptiveRawDiameter,
   buildReadableTapeLayout,
@@ -710,6 +710,26 @@ export function tradeTimeWindow(now, durationMs, offsetMs = 0) {
   const liveAnchor = latestIsFresh ? latest : safeNow;
   const end = liveAnchor - Math.max(0, Number(offsetMs) || 0);
   return { start: end - duration, end, duration };
+}
+
+export function ensureFootprintLiveBucket(items, currentPrice, endTime, bucketMs = 5_000) {
+  const source = Array.isArray(items) ? items : [];
+  const price = Number(currentPrice);
+  const end = Number(endTime);
+  const duration = Math.max(250, Math.floor(Number(bucketMs) || 5_000));
+  if (![price, end].every(Number.isFinite) || price <= 0) return source;
+  const time = Math.floor(Math.max(0, end - 1) / duration) * duration;
+  if (source.some((item) => Number(item?.time) === time)) return source;
+  return [...source, {
+    key: `empty-live:${time}`,
+    time,
+    price,
+    quote: 0,
+    buyQuote: 0,
+    sellQuote: 0,
+    count: 0,
+    empty: true,
+  }];
 }
 
 export function aggregateFootprintClusters(trades, minimumQuote = 0, priceStep = .01, bucketMs = 5_000) {

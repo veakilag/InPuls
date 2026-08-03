@@ -53,6 +53,9 @@ test("calibrated Binance time advances from a monotonic performance anchor", () 
     clearIntervalFn: () => {},
   });
 
+  assert.equal(clock.now(perfNow), null, "Tape must not seed its live edge from workstation time before calibration");
+  assert.equal(clock.now(), localNow, "the visible clock may use local fallback during calibration");
+
   assert.equal(clock.calibrate({ offsetMs: 250, rttMs: 20, sampleCount: 3 }, localNow, perfNow), true);
   assert.equal(clock.now(), 10_250);
 
@@ -90,7 +93,7 @@ test("browser clock, flow window and Tape use one shared calibrated source", () 
   const index = read("./index.html");
   const sw = read("./sw.js");
 
-  assert.match(app, /import \{ binanceClock \} from "\.\/binance-clock\.js\?v=26-101-binance-clock-sync-v1"/);
+  assert.match(app, /import \{ binanceClock \} from "\.\/binance-clock\.js\?v=26-102-tape-live-edge-minute-boundary-v1"/);
   assert.match(app, /tradeTimeWindow\(binanceClock\.now\(\)/);
   assert.match(app, /binanceClock\.delayToNextSecond\(12\)/);
   assert.match(app, /updateClock\(new Date\(binanceClock\.now\(\)\)\)/);
@@ -103,6 +106,6 @@ test("browser clock, flow window and Tape use one shared calibrated source", () 
   assert.match(canvasPreview, /\.trade-flow canvas/);
   assert.match(canvasPreview, /inpuls:comfort-preview/);
   assert.match(canvasPreview, /inpuls:theme-change/);
-  assert.match(index, /app\.js\?v=26-101-binance-clock-sync-v1/);
-  assert.match(sw, /binance-clock\.js\?v=26-101-binance-clock-sync-v1/);
+  assert.match(index, /app\.js\?v=26-102-tape-live-edge-minute-boundary-v1/);
+  assert.match(sw, /binance-clock\.js\?v=26-102-tape-live-edge-minute-boundary-v1/);
 });

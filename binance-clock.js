@@ -70,6 +70,10 @@ export class BinanceClock extends EventTarget {
       && Number.isFinite(Number(perfAt));
     const perf = hasExplicitPerf ? Number(perfAt) : Number(this.perfNow());
     const local = Number(this.dateNow());
+    // Tape passes an explicit performance timestamp. Before Binance calibration,
+    // returning the workstation clock here can seed the moving live edge several
+    // seconds in the future. Display clocks may still use the local fallback.
+    if (!this.isCalibrated() && hasExplicitPerf) return null;
     const candidate = this.isCalibrated() && Number.isFinite(perf)
       ? Number(this.anchorExchangeMs) + (perf - Number(this.anchorPerfMs))
       : local;

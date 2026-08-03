@@ -1,3 +1,5 @@
+import { binanceClock } from "./binance-clock.js?v=26-102-tape-live-edge-minute-boundary-v1";
+
 const MARKET_WS = "wss://fstream.binance.com/market/ws";
 const KLINES_REST = "https://fapi.binance.com/fapi/v1/klines";
 const AGG_TRADES_REST = "https://fapi.binance.com/fapi/v1/aggTrades";
@@ -57,6 +59,25 @@ export function upsertLiveCandleInPlace(candles, candle, limit = 180) {
   const overflow = candles.length - Math.max(1, Math.floor(Number(limit) || 1));
   if (overflow > 0) candles.splice(0, overflow);
   return candles;
+}
+
+export function buildProvisionalCandle(previous, bucketStart, bucketMs) {
+  const source = previous && typeof previous === "object" ? previous : null;
+  const time = Number(bucketStart);
+  const duration = Number(bucketMs);
+  const close = Number(source?.close);
+  if (![time, duration, close].every(Number.isFinite) || duration <= 0 || time <= Number(source?.time)) return null;
+  return {
+    time,
+    open: close,
+    high: close,
+    low: close,
+    close,
+    volume: 0,
+    closeTime: time + duration - 1,
+    closed: false,
+    provisional: true,
+  };
 }
 
 export function scaleFromDrag(initialScale, delta, sensitivity = 120) {
@@ -213,6 +234,9 @@ export class KlineFeed {
     this.liveEmitKind = null;
     this.pendingLiveMeta = null;
     this.cacheFlushTimer = null;
+    this.boundaryTimer = null;
+    this.clockStateHandler = () => this.#scheduleBoundaryTick(this.generation);
+    binanceClock.addEventListener("statechange", this.clockStateHandler);
   }
 
   async select(symbol, interval = "1m", range = "1h") {
@@ -263,7 +287,10 @@ export class KlineFeed {
       }
     }
 
-    if (generation === this.generation) this.#connect(generation);
+    if (generation === this.generation) {
+      this.#connect(generation);
+      this.#scheduleBoundaryTick(generation);
+    }
   }
 
   async #fetchSecondCandles(symbol, bucketMs, desiredCandles, generation) {
@@ -347,9 +374,54 @@ export class KlineFeed {
     this.pendingLiveMeta = null;
   }
 
+  #scheduleBoundaryTick(generation) {
+    clearTimeout(this.boundaryTimer);
+    this.boundaryTimer = null;
+    const intervalMs = Number(INTERVAL_MS[this.interval]);
+    if (generation !== this.generation || !Number.isFinite(intervalMs) || intervalMs < 60_000) return;
+    const now = Number(binanceClock.now());
+    if (!Number.isFinite(now)) return;
+    const nextBoundary = Math.floor(now / intervalMs) * intervalMs + intervalMs;
+    const delay = Math.max(20, Math.min(2_000_000_000, nextBoundary - now + 12));
+    this.boundaryTimer = setTimeout(() => this.#advanceBoundary(generation), delay);
+  }
+
+  #advanceBoundary(generation) {
+    this.boundaryTimer = null;
+    const intervalMs = Number(INTERVAL_MS[this.interval]);
+    const now = Number(binanceClock.now());
+    if (generation !== this.generation || !Number.isFinite(intervalMs) || intervalMs < 60_000 || !Number.isFinite(now)) return;
+    const currentBucket = Math.floor(now / intervalMs) * intervalMs;
+    let previous = this.candles.at(-1);
+    let changed = false;
+    let guard = 0;
+    while (previous && Number(previous.time) < currentBucket && guard < 120) {
+      const provisional = buildProvisionalCandle(previous, Number(previous.time) + intervalMs, intervalMs);
+      if (!provisional) break;
+      upsertLiveCandleInPlace(this.candles, provisional, 1_500);
+      previous = this.candles.at(-1);
+      changed = true;
+      guard += 1;
+    }
+    if (changed) {
+      this.#scheduleSeriesCacheFlush();
+      this.#scheduleLiveEmit({
+        symbol: this.symbol,
+        interval: this.interval,
+        range: this.range,
+        provisionalBoundary: true,
+      });
+      globalThis.dispatchEvent?.(new CustomEvent("inpuls:kline-boundary", {
+        detail: { symbol: this.symbol, interval: this.interval, time: currentBucket },
+      }));
+    }
+    this.#scheduleBoundaryTick(generation);
+  }
+
   destroy() {
     this.generation += 1;
     this.#cleanup();
+    binanceClock.removeEventListener("statechange", this.clockStateHandler);
   }
 
   #connect(generation) {
@@ -395,7 +467,9 @@ export class KlineFeed {
     clearTimeout(this.reconnectTimer);
     clearTimeout(this.historyFlushTimer);
     clearTimeout(this.cacheFlushTimer);
+    clearTimeout(this.boundaryTimer);
     this.cacheFlushTimer = null;
+    this.boundaryTimer = null;
     this.#cancelLiveEmit();
     this.abortController?.abort();
     if (this.socket) {
