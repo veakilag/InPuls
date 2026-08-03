@@ -59,20 +59,13 @@ patch = replaceRequired(
   newServiceWorkerBlock,
   "Service Worker release block",
 );
+patch = replaceRequired(
+  patch,
+  "patchBrowserClock();\npatchApp();",
+  "patchApp();",
+  "already-normalized Binance clock module",
+);
 fs.writeFileSync(patchPath, patch);
-
-let clock = fs.readFileSync("binance-clock.js", "utf8");
-const oldPerfSource = `    const perf = Number.isFinite(Number(perfAt)) ? Number(perfAt) : Number(this.perfNow());`;
-const newPerfSource = `    const hasExplicitPerf = perfAt !== null
-      && perfAt !== undefined
-      && Number.isFinite(Number(perfAt));
-    const perf = hasExplicitPerf ? Number(perfAt) : Number(this.perfNow());`;
-if (clock.includes(oldPerfSource)) {
-  clock = clock.replace(oldPerfSource, newPerfSource);
-} else if (!clock.includes(newPerfSource)) {
-  throw new Error("Missing preparation anchor: explicit performance timestamp");
-}
-fs.writeFileSync("binance-clock.js", clock);
 
 const testFiles = walk(".").filter((name) => {
   const normalized = name.replaceAll("\\", "/");
