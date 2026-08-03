@@ -63,6 +63,7 @@ if (
   }
 
   function applyBucket(bucket, brightness) {
+    // A compositor filter gives immediate feedback without rebuilding chart or Tape data.
     const value = Number(brightness).toFixed(3);
     for (const canvas of bucket) {
       if (!canvas.isConnected) {
