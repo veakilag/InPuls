@@ -2,6 +2,10 @@
 name: Refresh Tape minute contracts v1
 
 on:
+  pull_request:
+    types: [reopened]
+    branches:
+      - main
   push:
     branches:
       - fix/tape-live-edge-minute-boundary-v1
@@ -11,7 +15,7 @@ permissions:
 
 jobs:
   refresh:
-    if: ${{ !contains(github.event.head_commit.message, 'Refresh Tape minute boundary contracts') }}
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, 'Refresh Tape minute boundary contracts') }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out branch
