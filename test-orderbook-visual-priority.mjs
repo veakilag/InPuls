@@ -115,7 +115,11 @@ test("live flow invalidates footprint while Tape keeps one coherent viewport", (
   assert.match(flow, /incoming\.length && state\.historyOffset === 0/);
   assert.match(orderbook, /state\.priceViewport = advanceTapePriceViewport/);
   assert.match(orderbook, /projectWaterTapeNodes\([\s\S]*recentRaw,[\s\S]*state\.priceViewport,[\s\S]*state\.pathProjectionScratch/);
-  assert.match(orderbook, /const baseX = tapeTimeX\(item\.time, window, rect\.width\)/);
+  assert.match(orderbook, /const baseX = tapeTradeX\(item\.time, window, rect\.width\)/);
+  assert.match(
+    orderbook,
+    /function tapeTradeX\(time, window, width\) \{[\s\S]*tapeSecondSlotTime\(time, window\)[\s\S]*tapeTimeX\(slotTime \?\? time, window, width\)/,
+  );
   assert.doesNotMatch(orderbook, /row\.y \+ \(Number\([^)]*yOffset/);
   assert.match(flow, /state\.hasFrame = false/);
 });
@@ -125,8 +129,10 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-102-tape-live-edge-minute-boundary-v1/);
-  assert.match(app, /orderbook\.js\?v=26-102-tape-live-edge-minute-boundary-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-91-runtime-boot-cache-feed-v1/);
-  assert.match(sw, /26-91-runtime-boot-cache-feed-v1/);
+  assert.match(index, /26-103-footprint-poc-second-theme-preview-v1/);
+  assert.match(app, /orderbook\.js\?v=26-103-footprint-poc-second-theme-preview-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-103-footprint-poc-second-theme-preview-v1/);
+  assert.match(sw, /app\.js\?v=26-103-footprint-poc-second-theme-preview-v1/);
+  assert.match(sw, /orderbook\.js\?v=26-103-footprint-poc-second-theme-preview-v1/);
+  assert.match(sw, /orderbook-flow-workspace\.js\?v=26-103-footprint-poc-second-theme-preview-v1/);
 });
