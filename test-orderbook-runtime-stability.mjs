@@ -16,7 +16,7 @@ test("normal reload keeps one consistent runtime build", () => {
   assert.match(app, /orderbook\.js\?v=26-102-tape-live-edge-minute-boundary-v1/);
   assert.match(app, /render-scheduler\.js\?v=render-scheduler-v1/);
   assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-91-runtime-boot-cache-feed-v1/);
-  assert.match(orderbook, /orderbook-worker\.js\?v=26-102-tape-live-edge-minute-boundary-v1/);
+  assert.match(orderbook, /orderbook-worker\.js\?v=26-101-binance-clock-sync-v1/);
   assert.match(sw, /inpuls-26-91-runtime-boot-cache-feed-v1/);
   assert.match(reset, /Resume v2/);
   assert.doesNotMatch(app, /getRegistrations\(\).*unregister/s);
