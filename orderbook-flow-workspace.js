@@ -20,6 +20,8 @@ const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
 const FOOTPRINT_BASE_BUCKET_MS = 1_000;
 const FOOTPRINT_RETAIN_MS = 30 * 60_000;
 const FOOTPRINT_MAX_RETAINED_CELLS = 40_000;
+const FOOTPRINT_MAX_RETAINED_TRADE_KEYS = 120_000;
+const FOOTPRINT_MAX_SEALED_INTERVALS = 160;
 const FOOTPRINT_INTERVAL_MS = Object.freeze({
   "1s": 1_000, "5s": 5_000, "15s": 15_000,
   "1m": 60_000, "3m": 180_000, "5m": 300_000,
@@ -196,6 +198,49 @@ export function buildFootprintColumns(trades, options = {}) {
     }));
 }
 
+export function footprintPocCluster(clusters, referencePrice = null) {
+  let best = null;
+  const reference = Number(referencePrice);
+  for (const cluster of clusters ?? []) {
+    const quote = Math.max(0, Number(cluster?.quote) || 0);
+    if (quote <= 0) continue;
+    if (!best || quote > Number(best.quote)) {
+      best = cluster;
+      continue;
+    }
+    if (quote !== Number(best.quote) || !Number.isFinite(reference)) continue;
+    const distance = Math.abs(Number(cluster?.row?.price ?? cluster?.price) - reference);
+    const bestDistance = Math.abs(Number(best?.row?.price ?? best?.price) - reference);
+    if (distance < bestDistance) best = cluster;
+  }
+  return best;
+}
+
+function cloneFootprintInterval(interval) {
+  return Object.freeze({
+    ...interval,
+    cells: Object.freeze((interval?.cells ?? []).map((cell) => Object.freeze({ ...cell }))),
+  });
+}
+
+function stableFootprintIntervals(state, intervals) {
+  if (!(state.sealedIntervals instanceof Map)) state.sealedIntervals = new Map();
+  const result = intervals.map((interval) => {
+    if (interval.partial) return interval;
+    const key = `${interval.timeframe}:${interval.startTime}`;
+    let sealed = state.sealedIntervals.get(key);
+    if (!sealed) {
+      sealed = cloneFootprintInterval(interval);
+      state.sealedIntervals.set(key, sealed);
+    }
+    return sealed;
+  });
+  while (state.sealedIntervals.size > FOOTPRINT_MAX_SEALED_INTERVALS) {
+    state.sealedIntervals.delete(state.sealedIntervals.keys().next().value);
+  }
+  return result;
+}
+
 export function footprintTone(cell) {
   const buy = Math.max(0, Number(cell?.buyQuote) || 0);
   const sell = Math.max(0, Number(cell?.sellQuote) || 0);
@@ -264,6 +309,7 @@ export function createFootprintAccumulator() {
     lastObservedAt: null,
     retainedFromAt: null,
     cellCount: 0,
+    tradeKeyCount: 0,
   };
 }
 
@@ -280,6 +326,7 @@ function footprintSecondBucket(accumulator, startTime) {
     highPrice: null,
     lowPrice: null,
     cells: new Map(),
+    tradeKeys: new Set(),
   };
   accumulator.seconds.set(startTime, bucket);
   return bucket;
@@ -289,6 +336,10 @@ function removeFootprintBucket(accumulator, startTime) {
   const bucket = accumulator.seconds.get(startTime);
   if (!bucket) return false;
   accumulator.cellCount = Math.max(0, Number(accumulator.cellCount) - bucket.cells.size);
+  accumulator.tradeKeyCount = Math.max(
+    0,
+    Number(accumulator.tradeKeyCount) - Number(bucket.tradeKeys?.size || 0),
+  );
   accumulator.seconds.delete(startTime);
   return true;
 }
@@ -307,6 +358,14 @@ function pruneFootprintAccumulator(accumulator, referenceTime = Date.now()) {
     const oldest = accumulator.seconds.keys().next().value;
     if (!removeFootprintBucket(accumulator, oldest)) break;
   }
+  if (Number(accumulator.tradeKeyCount) > FOOTPRINT_MAX_RETAINED_TRADE_KEYS) {
+    for (const bucket of accumulator.seconds.values()) {
+      if (Number(accumulator.tradeKeyCount) <= FOOTPRINT_MAX_RETAINED_TRADE_KEYS) break;
+      const size = Number(bucket.tradeKeys?.size || 0);
+      bucket.tradeKeys?.clear?.();
+      accumulator.tradeKeyCount = Math.max(0, Number(accumulator.tradeKeyCount) - size);
+    }
+  }
   const retained = accumulator.seconds.keys().next().value;
   accumulator.retainedFromAt = Number.isFinite(Number(retained)) ? Number(retained) : null;
 }
@@ -319,6 +378,7 @@ export function ingestFootprintTrades(accumulator, incoming, { replace = false }
     target.lastObservedAt = null;
     target.retainedFromAt = null;
     target.cellCount = 0;
+    target.tradeKeyCount = 0;
   }
   let latestTime = 0;
   for (const rawTrade of incoming ?? []) {
@@ -333,6 +393,10 @@ export function ingestFootprintTrades(accumulator, incoming, { replace = false }
       : Math.max(target.lastObservedAt, trade.time);
     const startTime = Math.floor(trade.time / FOOTPRINT_BASE_BUCKET_MS) * FOOTPRINT_BASE_BUCKET_MS;
     const bucket = footprintSecondBucket(target, startTime);
+    const tradeKey = flowTradeKey(trade);
+    if (bucket.tradeKeys.has(tradeKey)) continue;
+    bucket.tradeKeys.add(tradeKey);
+    target.tradeKeyCount = Math.max(0, Number(target.tradeKeyCount) || 0) + 1;
     const priceKey = Number(trade.price).toPrecision(15);
     const existingCell = bucket.cells.get(priceKey);
     const cell = existingCell ?? {
@@ -594,6 +658,7 @@ function footprintTheme() {
     panel2,
     text: readThemeColor("--text", "#edf1f4"),
     muted: readThemeColor("--muted", "#9ba4ad"),
+    violet: readThemeColor("--violet", "#aa86ff"),
     green: mixHex(panel2, green, .55),
     red: mixHex(panel2, red, .55),
     bullFill: readThemeColor("--chart-bull-fill", green),
@@ -955,6 +1020,7 @@ function ensureCard(card) {
     historyOffset: 0,
     hasFrame: false,
     lastSymbol: null,
+    sealedIntervals: new Map(),
   };
   cardStates.set(card, state);
 
@@ -1079,6 +1145,7 @@ function renderCard(card, state) {
     state.lastSymbol = symbol;
     state.historyOffset = 0;
     state.hasFrame = false;
+    state.sealedIntervals.clear();
   }
   const frozen = flowRecoveryFrozen(symbol);
   if (frozen && state.hasFrame) {
@@ -1111,13 +1178,13 @@ function renderCard(card, state) {
       Math.floor(width / Math.max(FOOTPRINT_MIN_COLUMN_PX, state.columnWidthPx)),
     ),
   );
-  const intervals = footprintIntervalHistory(
+  const intervals = stableFootprintIntervals(state, footprintIntervalHistory(
     accumulator,
     state.timeframeMs,
     Date.now(),
     visibleColumnLimit,
     state.historyOffset,
-  );
+  ));
   const columns = intervals.map((interval) => {
     const clustersByRow = new Map();
     for (const source of interval.cells) {
@@ -1136,7 +1203,12 @@ function renderCard(card, state) {
       cluster.count += source.count;
       clustersByRow.set(row.index, cluster);
     }
-    return { interval, clusters: [...clustersByRow.values()] };
+    const clusters = [...clustersByRow.values()];
+    return {
+      interval,
+      clusters,
+      poc: footprintPocCluster(clusters, interval.closePrice),
+    };
   });
 
   const dpr = Math.max(1, Math.min(1.5, globalThis.devicePixelRatio || 1));
@@ -1171,7 +1243,7 @@ function renderCard(card, state) {
   state.context.textBaseline = "middle";
 
   if (state.visible) {
-    columns.forEach(({ interval, clusters }, columnIndex) => {
+    columns.forEach(({ interval, clusters, poc }, columnIndex) => {
       const columnLeft = columnsLeft + columnIndex * columnWidth;
       const labelX = columnLeft + columnWidth / 2;
       const candleBodyWidth = Math.max(3, Math.min(7, columnWidth * .14));
@@ -1193,6 +1265,7 @@ function renderCard(card, state) {
         const sellWidth = cellWidth * sellShare;
         const buyWidth = Math.max(0, cellWidth - sellWidth);
         const alpha = .58 + clusterStrength * .4;
+        const isPoc = cluster === poc;
 
         state.context.fillStyle = theme.panel2;
         state.context.fillRect(cellLeft, cellTop, cellWidth, cellHeight);
@@ -1205,13 +1278,23 @@ function renderCard(card, state) {
           state.context.fillRect(cellLeft + sellWidth, cellTop, buyWidth, cellHeight);
         }
 
-        state.context.strokeStyle = dominantSide === "B"
-          ? rgbaHex(theme.green, .98)
-          : dominantSide === "S"
-            ? rgbaHex(theme.red, .98)
-            : rgbaHex(theme.muted, .52);
-        state.context.lineWidth = 1.15;
-        state.context.strokeRect(cellLeft, cellTop, cellWidth, cellHeight);
+        if (isPoc) {
+          state.context.fillStyle = rgbaHex(theme.violet, .2);
+          state.context.fillRect(cellLeft, cellTop, cellWidth, cellHeight);
+          state.context.strokeStyle = rgbaHex(theme.violet, .98);
+          state.context.lineWidth = 1.7;
+          state.context.strokeRect(cellLeft + .5, cellTop + .5, Math.max(0, cellWidth - 1), Math.max(0, cellHeight - 1));
+          state.context.fillStyle = rgbaHex(theme.violet, .98);
+          state.context.fillRect(cellLeft, cellTop, Math.min(2.2, cellWidth), cellHeight);
+        } else {
+          state.context.strokeStyle = dominantSide === "B"
+            ? rgbaHex(theme.green, .98)
+            : dominantSide === "S"
+              ? rgbaHex(theme.red, .98)
+              : rgbaHex(theme.muted, .52);
+          state.context.lineWidth = 1.15;
+          state.context.strokeRect(cellLeft, cellTop, cellWidth, cellHeight);
+        }
 
         const volumeText = formatQuoteVolume(cluster.quote);
         state.context.fillStyle = theme.text;
@@ -1299,6 +1382,7 @@ function acceptTape(event) {
   document.querySelectorAll(".orderbook-card").forEach((card) => {
     if (cardSymbol(card) !== symbol) return;
     const state = cardStates.get(card);
+    if (state && detail?.replace) state.sealedIntervals.clear();
     if (
       state
       && (detail?.replace || (incoming.length && state.historyOffset === 0))
