@@ -1,4 +1,5 @@
 import "./binance-clock-core.js?v=26-101-binance-clock-sync-v1";
+import "./canvas-comfort-preview.js?v=26-102-tape-edge-canvas-preview-v1";
 
 const BINANCE_TIME_HOSTS = Object.freeze([
   "fapi.binance.com",
@@ -149,6 +150,7 @@ export class BinanceClock extends EventTarget {
     const local = Number(localNow);
     const perf = Number(perfNow);
     if (![offset, local, perf].every(Number.isFinite)) return false;
+    const wasCalibrated = this.isCalibrated();
     this.offsetMs = offset;
     this.rttMs = Number.isFinite(rtt) ? rtt : null;
     this.anchorExchangeMs = local + offset;
@@ -157,7 +159,8 @@ export class BinanceClock extends EventTarget {
     this.samplesUsed = Math.max(0, Number(estimate?.sampleCount) || 0);
     this.totalSamples = Math.max(this.samplesUsed, Number(estimate?.totalSampleCount) || 0);
     this.lastError = null;
-    this.now(perf);
+    if (wasCalibrated) this.now(perf);
+    else this.lastNowMs = this.anchorExchangeMs;
     dispatchState(this);
     return true;
   }
