@@ -37,10 +37,10 @@ jobs:
 
           path = Path('chart.js')
           source = path.read_text()
-          anchor = '''    const intervalMs = Number(INTERVAL_MS[this.interval]);
+          schedule_anchor = '''    const intervalMs = Number(INTERVAL_MS[this.interval]);
     if (generation !== this.generation || !Number.isFinite(intervalMs) || intervalMs < 60_000) return;
     const now = Number(binanceClock.now());'''
-          replacement = '''    const intervalMs = Number(INTERVAL_MS[this.interval]);
+          schedule_replacement = '''    const intervalMs = Number(INTERVAL_MS[this.interval]);
     if (
       generation !== this.generation
       || !Number.isFinite(intervalMs)
@@ -48,10 +48,25 @@ jobs:
       || !binanceClock.isCalibrated()
     ) return;
     const now = Number(binanceClock.now());'''
-          count = source.count(anchor)
-          if count != 2:
-              raise SystemExit(f'chart boundary anchor count: {count}')
-          path.write_text(source.replace(anchor, replacement))
+          advance_anchor = '''    const intervalMs = Number(INTERVAL_MS[this.interval]);
+    const now = Number(binanceClock.now());
+    if (generation !== this.generation || !Number.isFinite(intervalMs) || intervalMs < 60_000 || !Number.isFinite(now)) return;'''
+          advance_replacement = '''    const intervalMs = Number(INTERVAL_MS[this.interval]);
+    if (
+      generation !== this.generation
+      || !Number.isFinite(intervalMs)
+      || intervalMs < 60_000
+      || !binanceClock.isCalibrated()
+    ) return;
+    const now = Number(binanceClock.now());
+    if (!Number.isFinite(now)) return;'''
+          if source.count(schedule_anchor) != 1:
+              raise SystemExit(f'schedule anchor count: {source.count(schedule_anchor)}')
+          if source.count(advance_anchor) != 1:
+              raise SystemExit(f'advance anchor count: {source.count(advance_anchor)}')
+          source = source.replace(schedule_anchor, schedule_replacement)
+          source = source.replace(advance_anchor, advance_replacement)
+          path.write_text(source)
           PY
 
       - name: Run full regression suite
