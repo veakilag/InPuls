@@ -5,7 +5,7 @@ import test from "node:test";
 import { buildProvisionalCandle } from "./chart.js";
 import { ensureFootprintLiveBucket } from "./orderbook.js";
 
-const RUNTIME_BUILD = "26-103-footprint-poc-second-theme-preview-v1";
+const RUNTIME_BUILD = "26-104-tape-cluster-theme-clock-sync-v2";
 const CHART_BUILD = "26-102-tape-live-edge-minute-boundary-v1";
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 

@@ -6,7 +6,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-103-footprint-poc-second-theme-preview-v1";
+import "./orderbook-flow-workspace.js?v=26-104-tape-cluster-theme-clock-sync-v2";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -3522,12 +3522,13 @@ function tapeTimeX(time, window, width) {
 export function tapeSecondSlotTime(time, window = null) {
   const value = Number(time);
   if (!Number.isFinite(value)) return null;
-  const center = Math.floor(value / TAPE_SECOND_MS) * TAPE_SECOND_MS + TAPE_SECOND_MS / 2;
-  if (!window) return center;
+  // Preserve exact exchange time. BinanceClock owns the live edge; executions
+  // must retain their natural spacing instead of collapsing to second centers.
+  if (!window) return value;
   const start = Number(window.startTime);
   const end = Number(window.endTime);
-  if (![start, end].every(Number.isFinite) || end <= start) return center;
-  return clampTape(center, start + 1, end - 1);
+  if (![start, end].every(Number.isFinite) || end <= start) return value;
+  return clampTape(value, start + 1, end - 1);
 }
 
 function tapeTradeX(time, window, width) {
