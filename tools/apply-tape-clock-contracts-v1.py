@@ -73,6 +73,14 @@ for candidate in list(ROOT.glob("*.js")) + list(ROOT.glob("*.mjs")) + list(ROOT.
     if OLD_KEY in content:
         candidate.write_text(content.replace(OLD_KEY, NEW_KEY), encoding="utf-8")
 
+# Replace the PR129 source-level assertion with the new separation contract.
+path = "test-tape-now-live-footprint-buckets-v1.mjs"
+text = read(path)
+old_contract = '''test("Tape display time includes bounded receive latency", () => {\n  const source = read("./orderbook.js");\n  assert.match(source, /const displayTime = time \\+ latency/);\n  assert.match(source, /tradeTime: Number\\.isFinite\\(tradeTime\\)/);\n});'''
+new_contract = '''test("Tape display time stays separate from execution time", () => {\n  const source = read("./orderbook.js");\n  assert.match(source, /const displayTime = tapeVisualTime\\(time, eventTime, rxLatencyMs\\)/);\n  assert.match(source, /time,\\n\\s+displayTime: Number\\.isFinite\\(displayTime\\) \\? displayTime : time/);\n  assert.match(source, /trade\\.displayTime \\?\\? trade\\.time/);\n  assert.match(source, /tradeTime: Number\\.isFinite\\(tradeTime\\)/);\n});'''
+text = replace_once(text, old_contract, new_contract, "update Tape display-time contract")
+write(path, text)
+
 # Focused regression coverage for the three independent time contracts.
 test = ROOT / "test-tape-clock-contracts-v1.mjs"
 test.write_text('''import test from "node:test";\nimport assert from "node:assert/strict";\n\nimport { tapeVisualTime } from "./orderbook.js?v=26-107-tape-clock-contracts-v1";\nimport {\n  createFootprintAccumulator,\n  footprintIntervalSnapshot,\n  ingestFootprintTrades,\n  stableFootprintPriceStep,\n} from "./orderbook-flow-workspace.js?v=26-107-tape-clock-contracts-v1";\n\ntest("Tape visual time uses calibrated receive time", () => {\n  assert.equal(tapeVisualTime(10_000, 10_150, 200), 10_350);\n  assert.equal(tapeVisualTime(10_500, 10_000, 100), 10_500);\n});\n\ntest("footprint step ignores an off-grid current-price row", () => {\n  const rows = [1, 1.01, 1.02, 1.025, 1.03, 1.04, 1.05].map((price) => ({ price }));\n  assert.equal(stableFootprintPriceStep(rows), .01);\n});\n\ntest("new live interval exists before its first trade", () => {\n  const accumulator = createFootprintAccumulator();\n  ingestFootprintTrades(accumulator, [{\n    id: 1,\n    price: 42,\n    quantity: 1,\n    quote: 42,\n    time: 59_500,\n    side: "buy",\n  }]);\n  const snapshot = footprintIntervalSnapshot(accumulator, "1m", 60_250);\n  assert.equal(snapshot.startTime, 60_000);\n  assert.equal(snapshot.partial, true);\n  assert.equal(snapshot.count, 0);\n  assert.equal(snapshot.openPrice, 42);\n  assert.equal(snapshot.closePrice, 42);\n  assert.equal(snapshot.cells.length, 0);\n});\n''', encoding="utf-8")
