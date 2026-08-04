@@ -29,6 +29,7 @@ jobs:
       - name: Assemble and apply patch
         shell: bash
         run: |
+          # Chunks are concatenated byte-for-byte into one temporary patcher.
           cat tools/raw-series-v1/chunk*.pyfrag > /tmp/apply-raw-series-v1.py
           python /tmp/apply-raw-series-v1.py
 
