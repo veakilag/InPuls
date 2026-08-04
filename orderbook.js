@@ -6,7 +6,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-105-tape-clock-frozen-projection-v1";
+import "./orderbook-flow-workspace.js?v=26-106-tape-now-live-price-buckets-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1858,6 +1858,8 @@ const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
 const TAPE_MAX_STORED = 4_000;
 const TAPE_MAX_RAW_VISIBLE = TAPE_MAX_STORED;
 const TAPE_MAX_AGG_VISIBLE = 1_000;
+const TAPE_RETENTION_MS = 2 * 60_000;
+const TAPE_LIVE_EDGE_GUTTER_PX = 10;
 const TAPE_SECOND_MS = 1_000;
 const TAPE_LIVE_EDGE_LEAD_MS = 0;
 const TAPE_MIN_SECOND_WIDTH = 22;
@@ -2131,7 +2133,8 @@ function installOrderBookStyles() {
       font: 700 10px/20px Inter, system-ui, sans-serif;
     }
     .orderbook-card .inpuls-tape-time-scale {
-      min-width: 116px;
+      flex: 0 1 174px;
+      min-width: 156px;
       height: 22px;
       display: inline-flex;
       align-items: center;
@@ -2144,16 +2147,11 @@ function installOrderBookStyles() {
       font: 800 7px/1 Inter, system-ui, sans-serif;
     }
     .orderbook-card .inpuls-tape-time-scale input {
-      width: 54px;
-      min-width: 42px;
+      flex: 1 1 118px;
+      width: 118px;
+      min-width: 92px;
       accent-color: var(--accent);
       cursor: ew-resize;
-    }
-    .orderbook-card .inpuls-tape-time-scale output {
-      width: 29px;
-      color: var(--text);
-      text-align: right;
-      font-variant-numeric: tabular-nums;
     }
     .orderbook-card .inpuls-tape-mode {
       margin-left: auto;
@@ -2917,10 +2915,9 @@ function ensureTapeUi(card) {
         <span>ОТ $</span>
         <input data-inpuls-trade-min type="number" min="0" step="100" value="${state.minQuote}" aria-label="Минимальный объём отображаемой сделки или агрегата" />
       </label>
-      <label class="inpuls-tape-time-scale" title="Временной диапазон ленты. Меньше — крупнее текущий поток; больше — длиннее история.">
+      <label class="inpuls-tape-time-scale" title="Точный временной масштаб ленты. История ограничена последними двумя минутами.">
         <span>ВРЕМЯ</span>
-        <input data-inpuls-tape-time-scale type="range" min="${TAPE_TIME_SCALE_MIN}" max="${TAPE_TIME_SCALE_MAX}" step="5" value="${state.timeScale}" aria-label="Временной масштаб ленты" />
-        <output data-inpuls-tape-time-scale-value>${Math.round(state.timeScale)}%</output>
+        <input data-inpuls-tape-time-scale type="range" min="${TAPE_TIME_SCALE_MIN}" max="${TAPE_TIME_SCALE_MAX}" step="1" value="${state.timeScale}" aria-label="Временной масштаб ленты" />
       </label>
       <button data-inpuls-tape-mode class="inpuls-tape-mode" type="button"></button>`;
     toolbar.append(controls);
@@ -2928,7 +2925,6 @@ function ensureTapeUi(card) {
 
     const minInput = controls.querySelector("[data-inpuls-trade-min]");
     const timeScaleInput = controls.querySelector("[data-inpuls-tape-time-scale]");
-    const timeScaleValue = controls.querySelector("[data-inpuls-tape-time-scale-value]");
     const modeButton = controls.querySelector("[data-inpuls-tape-mode]");
     const syncTimeScale = () => {
       state.timeScale = clampTape(
@@ -2937,7 +2933,6 @@ function ensureTapeUi(card) {
         TAPE_TIME_SCALE_MAX,
       );
       timeScaleInput.value = String(state.timeScale);
-      timeScaleValue.textContent = `${Math.round(state.timeScale)}%`;
       localStorage.setItem(TAPE_TIME_SCALE_KEY, String(state.timeScale));
       scheduleTapeDraw(true, card);
     };
@@ -2961,10 +2956,8 @@ function ensureTapeUi(card) {
   } else {
     const minInput = state.controls.querySelector("[data-inpuls-trade-min]");
     const timeScaleInput = state.controls.querySelector("[data-inpuls-tape-time-scale]");
-    const timeScaleValue = state.controls.querySelector("[data-inpuls-tape-time-scale-value]");
     if (minInput && document.activeElement !== minInput) minInput.value = String(state.minQuote);
     if (timeScaleInput && document.activeElement !== timeScaleInput) timeScaleInput.value = String(state.timeScale);
-    if (timeScaleValue) timeScaleValue.textContent = `${Math.round(state.timeScale)}%`;
     syncTapeModeButton(state.controls.querySelector("[data-inpuls-tape-mode]"), state);
   }
 
@@ -2983,9 +2976,7 @@ function ensureTapeUi(card) {
       );
       localStorage.setItem(TAPE_TIME_SCALE_KEY, String(activeState.timeScale));
       const input = activeState.controls?.querySelector("[data-inpuls-tape-time-scale]");
-      const output = activeState.controls?.querySelector("[data-inpuls-tape-time-scale-value]");
       if (input) input.value = String(activeState.timeScale);
-      if (output) output.textContent = `${Math.round(activeState.timeScale)}%`;
       scheduleTapeDraw(true, card);
     }, { passive: false });
   }
@@ -3486,7 +3477,7 @@ export function tapeSecondsForScale(width, scalePercent = TAPE_TIME_SCALE_DEFAUL
     TAPE_TIME_SCALE_MIN,
     TAPE_TIME_SCALE_MAX,
   );
-  return clampTape(baseSeconds * scale / 100, 4, 180);
+  return clampTape(baseSeconds * scale / 100, 4, TAPE_RETENTION_MS / TAPE_SECOND_MS);
 }
 
 function buildContinuousTapeWindow(
@@ -3506,7 +3497,7 @@ function buildContinuousTapeWindow(
     duration,
     startTime: endTime - duration,
     endTime,
-    plotRight: safeWidth,
+    plotRight: Math.max(1, safeWidth - TAPE_LIVE_EDGE_GUTTER_PX),
   };
 }
 
@@ -3584,6 +3575,25 @@ function drawTapeTimeline(context, rect, window) {
   context.restore();
 }
 
+function drawTapeLiveEdge(context, rect, window) {
+  const x = Math.max(1, Math.min(Number(window?.plotRight) || rect.width, rect.width - 1));
+  context.save();
+  context.setLineDash([3, 3]);
+  context.lineWidth = 1;
+  context.strokeStyle = "rgba(66, 225, 173, .58)";
+  context.beginPath();
+  context.moveTo(x, 3);
+  context.lineTo(x, Math.max(3, rect.height - 15));
+  context.stroke();
+  context.setLineDash([]);
+  context.fillStyle = "rgba(93, 225, 181, .9)";
+  context.font = "800 7px Inter, system-ui, sans-serif";
+  context.textAlign = "right";
+  context.textBaseline = "top";
+  context.fillText("NOW · LIVE", x - 3, 4);
+  context.restore();
+}
+
 function rawTapeItemsContinuous(trades, rows, window) {
   return trades
     .slice(0, TAPE_MAX_RAW_VISIBLE)
@@ -3645,7 +3655,7 @@ export function aggregateTapeZeroMs(trades) {
     // The marker is anchored to the first execution. Its volume may grow while
     // OPEN, but it never jumps between price rows.
     current.price = current.firstPrice;
-    current.lastTime = current.eventTime;
+    current.lastTime = current.time;
     current.bucketStart = current.eventTime;
     current.bucketEnd = current.eventTime;
     current.bucketMs = TAPE_AGGREGATION_PERIOD_MS;
@@ -3654,7 +3664,8 @@ export function aggregateTapeZeroMs(trades) {
   };
 
   for (const trade of ordered) {
-    const eventTime = Number(trade.time);
+    const eventTime = Number(trade.tradeTime ?? trade.eventTime ?? trade.time);
+    const displayTime = Number(trade.displayTime ?? trade.time);
     const side = trade.side === "sell" ? "sell" : "buy";
     const price = Number(trade.price);
     const quote = Number(trade.quote);
@@ -3669,8 +3680,8 @@ export function aggregateTapeZeroMs(trades) {
       finish();
       current = {
         key: `agg0:${eventTime}:${side}:${tapeTradeKey(trade)}`,
-        time: eventTime,
-        lastTime: eventTime,
+        time: displayTime,
+        lastTime: displayTime,
         eventTime,
         side,
         firstPrice: price,
@@ -3687,6 +3698,8 @@ export function aggregateTapeZeroMs(trades) {
       };
     }
 
+    current.time = Math.max(Number(current.time) || displayTime, displayTime);
+    current.lastTime = current.time;
     current.lastPrice = price;
     current.minPrice = Math.min(current.minPrice, price);
     current.maxPrice = Math.max(current.maxPrice, price);
@@ -3860,9 +3873,10 @@ function refreshTapeRenderModel(state, symbol, stored, aggregationStored = store
 
 function visibleWaterTapeNodes(nodes, window, output = []) {
   output.length = 0;
+  const retentionStart = Math.max(window.startTime, window.endTime - TAPE_RETENTION_MS);
   for (const item of nodes ?? []) {
     const time = Number(item.time);
-    if (time < window.startTime) continue;
+    if (time < retentionStart) continue;
     if (time > window.endTime) break;
     output.push(item);
   }
@@ -4157,6 +4171,7 @@ function drawTapeCard(card) {
   paintTapeSurface(context, rect);
   state.hasFrame = false;
   drawTapeTimeline(context, rect, window);
+  drawTapeLiveEdge(context, rect, window);
 
   const minQuote = Math.max(0, Number(state.minQuote) || 0);
   const pathItems = projectWaterTapeNodes(
@@ -4461,6 +4476,8 @@ function normalizeTapeTrade(trade) {
   const eventTime = Number(trade?.eventTime ?? time);
   const receivedAt = Number(trade?.receivedAt);
   const rxLatencyMs = Number(trade?.rxLatencyMs);
+  const latency = Number.isFinite(rxLatencyMs) ? clampTape(rxLatencyMs, 0, 5_000) : 0;
+  const displayTime = time + latency;
   if (![price, quantity, quote, time].every(Number.isFinite) || quote <= 0) return null;
   return {
     id: trade?.id ?? `${time}-${price}-${quantity}`,
@@ -4470,7 +4487,8 @@ function normalizeTapeTrade(trade) {
     price,
     quantity,
     quote,
-    time,
+    time: displayTime,
+    displayTime,
     tradeTime: Number.isFinite(tradeTime) ? tradeTime : time,
     eventTime: Number.isFinite(eventTime) ? eventTime : time,
     receivedAt: Number.isFinite(receivedAt) ? receivedAt : null,
@@ -4480,7 +4498,8 @@ function normalizeTapeTrade(trade) {
 }
 
 function tapeTradeKey(trade) {
-  return `${String(trade.id)}:${trade.time}:${trade.price}:${trade.quantity}`;
+  const executionTime = Number(trade?.tradeTime ?? trade?.eventTime ?? trade?.time);
+  return `${String(trade.id)}:${executionTime}:${trade.price}:${trade.quantity}`;
 }
 
 function mergeTapeHistory(current, incoming, replace = false) {
