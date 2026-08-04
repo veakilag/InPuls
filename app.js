@@ -9,7 +9,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=26-65-structured-signal-collection-v1";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-102-tape-live-edge-minute-boundary-v1";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-104-tape-cluster-theme-clock-sync-v2";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-105-tape-clock-frozen-projection-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -39,6 +39,7 @@ const STORAGE_KEYS = {
   topSort: "inpuls-radar-sort-v1",
   favoriteTimeframes: "inpuls-favorite-timeframes-v1",
   inplayOrder: "inpuls-inplay-order-v1",
+  clockPosition: "inpuls-clock-position-v1",
 };
 
 const DEFAULT_INPLAY = Object.freeze({ minV24: 100, minNatr1: null, minNatr5: null, minGrowth24: null });
@@ -3471,6 +3472,7 @@ els.installButton.addEventListener("click", async () => {
 });
 
 bindEvents();
+enableClockDrag();
 if (initialNavigation.symbol) {
   selectChartSymbol(initialNavigation.symbol);
   if (initialNavigation.open === "orderbook") {
@@ -3526,6 +3528,103 @@ function scheduleClockTick() {
     });
   }, delay);
 }
+
+function clampClockPosition(left, top, width = 84, height = 22) {
+  return {
+    left: Math.max(8, Math.min(Number(left) || 8, Math.max(8, window.innerWidth - width - 8))),
+    top: Math.max(8, Math.min(Number(top) || 8, Math.max(8, window.innerHeight - height - 8))),
+  };
+}
+
+function enableClockDrag() {
+  const clock = els.clock;
+  if (!clock) return;
+  let floating = false;
+
+  const apply = (position, persist = true) => {
+    const rect = clock.getBoundingClientRect();
+    const next = clampClockPosition(
+      position?.left,
+      position?.top,
+      rect.width || 84,
+      rect.height || 22,
+    );
+    floating = true;
+    clock.style.position = "fixed";
+    clock.style.left = `${next.left}px`;
+    clock.style.top = `${next.top}px`;
+    clock.style.zIndex = "1200";
+    clock.style.padding = "2px 6px";
+    clock.style.borderRadius = "6px";
+    clock.style.background = "color-mix(in srgb, var(--panel) 92%, transparent)";
+    clock.style.boxShadow = "0 4px 18px rgba(0, 0, 0, .22)";
+    if (persist) {
+      localStorage.setItem(STORAGE_KEYS.clockPosition, JSON.stringify(next));
+    }
+  };
+
+  const reset = () => {
+    floating = false;
+    localStorage.removeItem(STORAGE_KEYS.clockPosition);
+    for (const property of [
+      "position",
+      "left",
+      "top",
+      "zIndex",
+      "padding",
+      "borderRadius",
+      "background",
+      "boxShadow",
+    ]) {
+      clock.style[property] = "";
+    }
+  };
+
+  clock.style.touchAction = "none";
+  clock.style.cursor = "grab";
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem(STORAGE_KEYS.clockPosition) || "null",
+    );
+    if (saved && typeof saved === "object") apply(saved, false);
+  } catch {}
+
+  clock.addEventListener("dblclick", reset);
+  clock.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const rect = clock.getBoundingClientRect();
+    const originLeft = rect.left;
+    const originTop = rect.top;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    clock.setPointerCapture?.(event.pointerId);
+    clock.style.cursor = "grabbing";
+    if (!floating) apply({ left: originLeft, top: originTop }, false);
+
+    const move = (moveEvent) => apply({
+      left: originLeft + moveEvent.clientX - startX,
+      top: originTop + moveEvent.clientY - startY,
+    });
+    const stop = () => {
+      clock.style.cursor = "grab";
+      clock.releasePointerCapture?.(event.pointerId);
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", stop, true);
+      window.removeEventListener("pointercancel", stop, true);
+    };
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", stop, true);
+    window.addEventListener("pointercancel", stop, true);
+  });
+
+  window.addEventListener("resize", () => {
+    if (!floating) return;
+    const rect = clock.getBoundingClientRect();
+    apply({ left: rect.left, top: rect.top });
+  });
+}
+
 binanceClock.setTimeZone(state.timeZone === "local"
   ? Intl.DateTimeFormat().resolvedOptions().timeZone
   : state.timeZone);

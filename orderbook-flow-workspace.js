@@ -716,31 +716,53 @@ function rowStep(rows) {
 
 function nearestRow(rows, price) {
   const target = Number(price);
-  if (!rows.length || !Number.isFinite(target)) return null;
-  const orderedPrices = [...new Set(rows.map((row) => Number(row.price)).filter(Number.isFinite))]
-    .sort((left, right) => left - right);
-  if (!orderedPrices.length) return null;
+  const ordered = (rows ?? [])
+    .map((row) => ({
+      index: Number(row?.index),
+      price: Number(row?.price),
+      y: Number(row?.y),
+      height: Math.max(1, Number(row?.height) || 1),
+    }))
+    .filter((row) => Number.isFinite(row.price) && Number.isFinite(row.y))
+    .sort((left, right) => left.price - right.price);
+  if (!ordered.length || !Number.isFinite(target)) return null;
+  if (ordered.length === 1) {
+    return Math.abs(target - ordered[0].price) <= Number.EPSILON
+      ? { ...ordered[0], price: target }
+      : null;
+  }
+
   let step = Infinity;
-  for (let index = 1; index < orderedPrices.length; index += 1) {
-    const gap = orderedPrices[index] - orderedPrices[index - 1];
+  for (let index = 1; index < ordered.length; index += 1) {
+    const gap = ordered[index].price - ordered[index - 1].price;
     if (gap > Number.EPSILON && gap < step) step = gap;
   }
-  const tolerance = Number.isFinite(step)
-    ? step * .55
-    : Math.max(Number.EPSILON, Math.abs(orderedPrices.at(-1) - orderedPrices[0]) * .01);
-  if (target < orderedPrices[0] - tolerance || target > orderedPrices.at(-1) + tolerance) {
-    return null;
-  }
-  let best = rows[0];
-  let distance = Math.abs(target - Number(best.price));
-  for (let index = 1; index < rows.length; index += 1) {
-    const nextDistance = Math.abs(target - Number(rows[index].price));
-    if (nextDistance < distance) {
-      best = rows[index];
-      distance = nextDistance;
+  if (!Number.isFinite(step)) return null;
+
+  const low = ordered[0];
+  const high = ordered.at(-1);
+  const tolerance = step * .55 + Number.EPSILON;
+  if (target < low.price - tolerance || target > high.price + tolerance) return null;
+
+  const interpolate = (left, right) => {
+    const span = right.price - left.price;
+    const ratio = Math.abs(span) <= Number.EPSILON ? 0 : (target - left.price) / span;
+    return {
+      index: ratio < .5 ? left.index : right.index,
+      price: target,
+      y: left.y + (right.y - left.y) * ratio,
+      height: left.height + (right.height - left.height) * ratio,
+    };
+  };
+
+  if (target <= low.price) return interpolate(low, ordered[1]);
+  if (target >= high.price) return interpolate(ordered.at(-2), high);
+  for (let index = 1; index < ordered.length; index += 1) {
+    if (target <= ordered[index].price) {
+      return interpolate(ordered[index - 1], ordered[index]);
     }
   }
-  return distance <= tolerance ? best : null;
+  return null;
 }
 
 function injectStyles() {
@@ -1211,24 +1233,19 @@ function renderCard(card, state) {
     state.historyOffset,
   ));
   const columns = intervals.map((interval) => {
-    const clustersByRow = new Map();
-    for (const source of interval.cells) {
-      const row = nearestRow(rows, source.price);
-      if (!row) continue;
-      const cluster = clustersByRow.get(row.index) ?? {
-        row,
-        buyQuote: 0,
-        sellQuote: 0,
-        quote: 0,
-        count: 0,
-      };
-      cluster.buyQuote += source.buyQuote;
-      cluster.sellQuote += source.sellQuote;
-      cluster.quote += source.quote;
-      cluster.count += source.count;
-      clustersByRow.set(row.index, cluster);
-    }
-    const clusters = [...clustersByRow.values()];
+    const clusters = interval.cells
+      .map((source) => {
+        const row = nearestRow(rows, source.price);
+        return row ? {
+          row,
+          buyQuote: source.buyQuote,
+          sellQuote: source.sellQuote,
+          quote: source.quote,
+          count: source.count,
+          price: source.price,
+        } : null;
+      })
+      .filter(Boolean);
     return {
       interval,
       clusters,

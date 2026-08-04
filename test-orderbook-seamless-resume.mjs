@@ -52,9 +52,9 @@ test("every resume starts a clean live-only Tape without REST history", () => {
 test("cache versions keep seamless resume while shipping Resume v2", () => {
   assert.match(orderbook, /orderbook-worker\.js\?v=26-101-binance-clock-sync-v1/);
   assert.match(serviceWorker, /inpuls-26-91-runtime-boot-cache-feed-v1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=26-104-tape-cluster-theme-clock-sync-v2/);
+  assert.match(serviceWorker, /orderbook\.js\?v=26-105-tape-clock-frozen-projection-v1/);
   assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
   assert.match(serviceWorker, /orderbook-worker\.js\?v=26-101-binance-clock-sync-v1/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-104-tape-cluster-theme-clock-sync-v2/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-105-tape-clock-frozen-projection-v1/);
   assert.doesNotMatch(serviceWorker, /v26-22-background-restart/);
 });

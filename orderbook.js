@@ -6,7 +6,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-104-tape-cluster-theme-clock-sync-v2";
+import "./orderbook-flow-workspace.js?v=26-105-tape-clock-frozen-projection-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1859,7 +1859,7 @@ const TAPE_MAX_STORED = 4_000;
 const TAPE_MAX_RAW_VISIBLE = TAPE_MAX_STORED;
 const TAPE_MAX_AGG_VISIBLE = 1_000;
 const TAPE_SECOND_MS = 1_000;
-const TAPE_LIVE_EDGE_LEAD_MS = 180;
+const TAPE_LIVE_EDGE_LEAD_MS = 0;
 const TAPE_MIN_SECOND_WIDTH = 22;
 const TAPE_MIN_SECONDS = 12;
 const TAPE_MAX_SECONDS = 45;
