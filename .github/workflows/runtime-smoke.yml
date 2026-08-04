@@ -43,8 +43,23 @@ jobs:
           node --check orderbook-worker.js
           node --check orderbook-flow-workspace.js
 
+      - name: Run targeted raw series tests
+        shell: bash
+        run: |
+          set +e
+          node --test test-raw-series-execution-candles-v1.mjs > /tmp/raw-series-test.log 2>&1
+          status=$?
+          cat /tmp/raw-series-test.log
+          exit $status
+
       - name: Run full tests
-        run: npm test
+        shell: bash
+        run: |
+          set +e
+          npm test > /tmp/npm-test.log 2>&1
+          status=$?
+          tail -n 400 /tmp/npm-test.log
+          exit $status
 
       - name: Start local static server
         run: |
