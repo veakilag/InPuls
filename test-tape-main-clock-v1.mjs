@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+// One shared UI clock must align Tape and footprint with NOW · LIVE.
 import { tapeDisplayTimeFromReceipt } from "./orderbook.js?v=26-109-tape-main-clock-v1";
 import { flowDisplayTimeFromReceipt } from "./orderbook-flow-workspace.js?v=26-109-tape-main-clock-v1";
 
