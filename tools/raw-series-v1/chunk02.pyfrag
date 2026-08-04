@@ -1,0 +1,40 @@
+ceKind: "live-trade-dual" },\n      );\n    }\n  }'''
+new_flush = '''  flushTapeBatch() {\n    this.tapeTimer = 0;\n    if (!tabVisible) {\n      this.tapeBatch.clear();\n      this.aggregationTapeBatch.clear();\n      this.seriesTapeBatch.clear();\n      return;\n    }\n    const latest = this.tapeBatch.takeLatest(MAX_TAPE_BATCH_PER_POST);\n    const aggregationLatest = this.aggregationTapeBatch.takeLatest(MAX_TAPE_BATCH_PER_POST);\n    const seriesLatest = this.seriesRawHealthy\n      ? this.seriesTapeBatch.takeLatest(MAX_TAPE_BATCH_PER_POST)\n      : { items: [], dropped: 0 };\n    const trades = latest.items;\n    const aggregationTrades = aggregationLatest.items;\n    const seriesTrades = seriesLatest.items;\n    const seriesReplace = this.seriesReplacePending;\n    this.tapeDroppedInWindow += latest.dropped + aggregationLatest.dropped + seriesLatest.dropped;\n    if (trades.length || aggregationTrades.length || seriesTrades.length || seriesReplace) {\n      const sourceEventTimeMs = [...trades, ...aggregationTrades, ...seriesTrades].reduce(\n        (latestTime, trade) => Math.max(latestTime, Number(trade?.eventTime) || 0),\n        0,\n      );\n      const guard = this.tapeGuard.snapshot();\n      post(\n        "tape",\n        this.symbol,\n        {\n          replace: false,\n          live: true,\n          liveOnly: true,\n          trades,\n          aggregationTrades,\n          aggregationSource: guard.mode,\n          aggregationHealth: guard,\n          seriesTrades,\n          seriesReplace,\n          seriesSource: this.seriesRawHealthy ? "raw" : "warming",\n          seriesHealth: this.seriesHealth(),\n          backpressure: {\n            dropped: latest.dropped + aggregationLatest.dropped + seriesLatest.dropped,\n            pending: this.tapeBatch.length + this.aggregationTapeBatch.length + this.seriesTapeBatch.length,\n          },\n        },\n        observabilityEnabled ? performance.now() : null,\n        { sourceEventTimeMs, sourceKind: "live-trade-triple" },\n      );\n      this.seriesReplacePending = false;\n    }\n  }'''
+worker = replace_once(worker, old_flush, new_flush, 'worker triple flush')
+write(worker_path, worker)
+
+# ---------------------------------------------------------------------------
+# Main Tape runtime: ingest the raw-only SERIES channel independently from AGG.
+# ---------------------------------------------------------------------------
+order_path = Path('orderbook.js')
+order = read(order_path)
+order = replace_once(
+    order,
+    '''          aggregationTrades: Array.isArray(message.aggregationTrades) ? message.aggregationTrades : [],\n          aggregationSource: message.aggregationSource === "raw" ? "raw" : "agg",\n          aggregationHealth: message.aggregationHealth ?? null,''',
+    '''          aggregationTrades: Array.isArray(message.aggregationTrades) ? message.aggregationTrades : [],\n          aggregationSource: message.aggregationSource === "raw" ? "raw" : "agg",\n          aggregationHealth: message.aggregationHealth ?? null,\n          seriesTrades: Array.isArray(message.seriesTrades) ? message.seriesTrades : [],\n          seriesReplace: Boolean(message.seriesReplace),\n          seriesSource: message.seriesSource === "raw" ? "raw" : "warming",\n          seriesHealth: message.seriesHealth ?? null,''',
+    'main worker event forwarding',
+)
+order = replace_once(
+    order,
+    '''const tapeTradesBySymbol = new Map();\nconst tapeAggregationTradesBySymbol = new Map();\nconst latestBookDataBySymbol = new Map();''',
+    '''const tapeTradesBySymbol = new Map();\nconst tapeAggregationTradesBySymbol = new Map();\nconst tapeSeriesTradesBySymbol = new Map();\nconst latestBookDataBySymbol = new Map();''',
+    'main series map',
+)
+new_sync = '''function syncTapeModeButton(button, state) {\n  if (!button) return;\n  const mode = normalizeTapeMode(state.mode);\n  const aggregationSource = state.aggregationSource === "raw" ? "@trade RAW" : "@aggTrade fallback";\n  const seriesReady = state.seriesSource === "raw";\n  button.textContent = mode === "series" ? "СЕРИЯ" : mode.toUpperCase();\n  button.dataset.mode = mode;\n  button.dataset.aggregationSource = state.aggregationSource === "raw" ? "raw" : "agg";\n  button.dataset.seriesSource = seriesReady ? "raw" : "warming";\n  button.classList.toggle("is-active", mode !== "raw");\n  button.setAttribute("aria-pressed", String(mode !== "raw"));\n  button.setAttribute("aria-label", `Режим ленты ${button.textContent}. Нажмите для переключения.`);\n  if (mode === "series") {\n    button.title = seriesReady\n      ? `СЕРИЯ RAW ≤${TAPE_SERIES_MAX_GAP_MS} мс: непрерывный агрессивный покупатель или продавец. Первая встречная рыночная сделка немедленно закрывает серию.`\n      : "СЕРИЯ проверяет непрерывность отдельного @trade RAW. Во время warm-up, gap или reconnect серия не строится из aggTrade.";\n  } else if (mode === "agg") {\n    button.title = `AGG 0 мс · ${aggregationSource}: объединяются последовательные исполнения с одинаковым биржевым временем и направлением.`;\n  } else {\n    button.title = "RAW: каждое исполнение стабильного визуального @aggTrade-потока отображается отдельно";\n  }\n}'''
+order = replace_between(order, 'function syncTapeModeButton(button, state) {', 'function formatObservedAge', new_sync, 'replace sync tape mode')
+order = replace_once(
+    order,
+    '''      aggregationSource: "agg",\n      tapeVisible:''',
+    '''      aggregationSource: "agg",\n      seriesSource: "warming",\n      seriesHealth: null,\n      tapeVisible:''',
+    'main state series source',
+)
+order = replace_once(
+    order,
+    '''function refreshTapeRenderModel(state, symbol, stored, aggregationStored = stored) {\n  const version = Number(tapeDataVersionBySymbol.get(symbol)) || 0;\n  const modelKey = [symbol, version, "zero-ms-series-500"].join(":");''',
+    '''function refreshTapeRenderModel(state, symbol, stored, aggregationStored = stored, seriesStored = []) {\n  const version = Number(tapeDataVersionBySymbol.get(symbol)) || 0;\n  const modelKey = [symbol, version, state.seriesSource, "zero-ms-raw-series-500"].join(":");''',
+    'main refresh series signature',
+)
+order = replace_once(
+    order,
+    '''  const aggregationInput = aggregationStored?.length ? aggregationStored : stored;\n  state.aggSourceBuckets = aggregateTapeZeroMs(aggregationInput);\n  state.seriesSourceBuckets = aggregateTapeSeries(aggregationInput);''',
+    '''  const aggregationInput = aggregationStored?.length ? aggregationStored : stored;\n  state.aggSourceBuckets = aggregateTapeZeroMs(aggregationInput);\n  state.seriesSourceBuckets = state.seriesSource === "raw"
