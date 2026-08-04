@@ -23,13 +23,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
 
       - name: Apply focused runtime fix
         run: python tools/apply-pr128-fix.py
-
-      - name: Install dependencies
-        run: npm ci
 
       - name: Run full tests
         run: npm test
