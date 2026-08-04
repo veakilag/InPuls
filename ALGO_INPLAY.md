@@ -1,27 +1,26 @@
-# Current INPLAY universe backtests
+# Current InPuls INPLAY backtests
 
-The batch runner combines a stable comparison universe with a fresh current InPuls INPLAY snapshot.
+The algorithmic research module can test the stable comparison set together with a fresh current INPLAY snapshot.
+
+## Current selection rules
+
+The selector mirrors the current InPuls rule dimensions:
+
+- minimum 24-hour quote turnover (`V24`);
+- minimum `NATR 1`;
+- minimum `NATR 5`;
+- minimum 24-hour growth;
+- up to 18 symbols.
+
+The fixed comparison universe remains BTCUSDT, ETHUSDT, SOLUSDT and XRPUSDT. Each symbol is labelled by source in the output.
+
+## CLI
 
 ```bash
 node algo-universe-backtest.mjs --interval 1m --days 30
 ```
 
-Default fixed symbols:
-
-- BTCUSDT
-- ETHUSDT
-- SOLUSDT
-- XRPUSDT
-
-Current INPLAY uses the same rule dimensions as the screen:
-
-- minimum V24 in millions of USDT;
-- minimum NATR 1;
-- minimum NATR 5;
-- minimum 24-hour growth;
-- up to 18 coins by default.
-
-Example:
+Example with explicit current INPLAY rules:
 
 ```bash
 node algo-universe-backtest.mjs \
@@ -34,10 +33,24 @@ node algo-universe-backtest.mjs \
   --inplay-limit 18
 ```
 
-Each symbol is labeled as `fixed`, `current-inplay`, or `fixed+current-inplay`.
+## Private browser dashboard
 
-## Selection-bias boundary
+The browser workflow is available in `owner-algo-lab.html` and documented in `ALGO_LAB.md`.
 
-Testing today's INPLAY coins on older history is a useful diagnostic, but it is not an honest simulation of the historical selector because today's leaders are already known.
+Use it only through the local server for now:
 
-Before paper trading, the research pipeline must also reconstruct which coins satisfied INPLAY rules at each historical moment and test the strategy on that point-in-time universe.
+```bash
+npm start
+```
+
+```text
+http://127.0.0.1:4173/owner-algo-lab.html
+```
+
+It is intentionally absent from public navigation and from the Service Worker cache. Do not publish it on public GitHub Pages and do not treat a hidden URL as authentication.
+
+## Research limitation
+
+A current INPLAY snapshot is a present-time selection. Testing today's active symbols on old candles can produce selection bias. These runs are useful for diagnosis and infrastructure validation, but they are not sufficient evidence for paper or real trading.
+
+The required next research layer is point-in-time INPLAY reconstruction: each historical test window must contain only symbols that passed the INPLAY rules at that historical time.
