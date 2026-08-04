@@ -40,6 +40,6 @@ test("clock work avoids hidden timezone scans and cached modules are refreshed",
   assert.doesNotMatch(app, /let lastHeaderClockText|let clockTickTimer/);
   assert.match(app, /updateClock\.lastText/);
   assert.match(app, /scheduleClockTick\.timer/);
-  assert.match(html, /app\.js\?v=26-110-low-latency-active-tape-v1/);
+  assert.match(html, /app\.js\?v=26-111-header-command-bar-v1/);
   assert.match(app, /chart\.js\?v=26-102-tape-live-edge-minute-boundary-v1/);
 });

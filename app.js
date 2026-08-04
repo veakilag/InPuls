@@ -9,7 +9,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=26-65-structured-signal-collection-v1";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-102-tape-live-edge-minute-boundary-v1";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-110-low-latency-active-tape-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-111-header-command-bar-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -120,6 +120,7 @@ const els = {
   status: document.querySelector("#connection-status"),
   statusText: document.querySelector("#connection-text"),
   clock: document.querySelector("#clock"),
+  clockDock: document.querySelector("[data-clock-dock]"),
   comfortSlider: document.querySelector("#comfort-slider"),
   timeZoneOpen: document.querySelector("#timezone-open"),
   timeZoneCity: document.querySelector("#timezone-city"),
@@ -2875,6 +2876,8 @@ function toggleFavorite(symbol) {
 function setConnection(status, text) {
   els.status.dataset.status = status;
   els.statusText.textContent = text;
+  els.status.title = text;
+  els.status.setAttribute("aria-label", text);
 }
 
 function setChange(element, value) {
@@ -3538,34 +3541,12 @@ function clampClockPosition(left, top, width = 84, height = 22) {
 
 function enableClockDrag() {
   const clock = els.clock;
-  if (!clock) return;
+  const dock = els.clockDock;
+  if (!clock || !dock) return;
   let floating = false;
+  let lastPosition = null;
 
-  const apply = (position, persist = true) => {
-    const rect = clock.getBoundingClientRect();
-    const next = clampClockPosition(
-      position?.left,
-      position?.top,
-      rect.width || 84,
-      rect.height || 22,
-    );
-    floating = true;
-    clock.style.position = "fixed";
-    clock.style.left = `${next.left}px`;
-    clock.style.top = `${next.top}px`;
-    clock.style.zIndex = "1200";
-    clock.style.padding = "2px 6px";
-    clock.style.borderRadius = "6px";
-    clock.style.background = "color-mix(in srgb, var(--panel) 92%, transparent)";
-    clock.style.boxShadow = "0 4px 18px rgba(0, 0, 0, .22)";
-    if (persist) {
-      localStorage.setItem(STORAGE_KEYS.clockPosition, JSON.stringify(next));
-    }
-  };
-
-  const reset = () => {
-    floating = false;
-    localStorage.removeItem(STORAGE_KEYS.clockPosition);
+  const clearFloatingStyles = () => {
     for (const property of [
       "position",
       "left",
@@ -3575,21 +3556,67 @@ function enableClockDrag() {
       "borderRadius",
       "background",
       "boxShadow",
-    ]) {
-      clock.style[property] = "";
-    }
+    ]) clock.style[property] = "";
+    delete clock.dataset.floating;
+  };
+
+  const dockClock = (persist = true) => {
+    floating = false;
+    lastPosition = null;
+    clearFloatingStyles();
+    dock.append(clock);
+    dock.classList.remove("is-snap-target", "is-clock-away");
+    if (persist) localStorage.removeItem(STORAGE_KEYS.clockPosition);
+  };
+
+  const applyFloating = (position, persist = true) => {
+    const rect = clock.getBoundingClientRect();
+    const next = clampClockPosition(
+      position?.left,
+      position?.top,
+      rect.width || 84,
+      rect.height || 22,
+    );
+    floating = true;
+    lastPosition = next;
+    if (clock.parentElement !== document.body) document.body.append(clock);
+    dock.classList.add("is-clock-away");
+    clock.dataset.floating = "true";
+    clock.style.position = "fixed";
+    clock.style.left = `${next.left}px`;
+    clock.style.top = `${next.top}px`;
+    clock.style.zIndex = "1200";
+    clock.style.padding = "5px 9px";
+    clock.style.borderRadius = "8px";
+    clock.style.background = "color-mix(in srgb, var(--panel) 94%, transparent)";
+    clock.style.boxShadow = "0 6px 22px rgba(0, 0, 0, .32), 0 0 0 1px var(--line-soft)";
+    if (persist) localStorage.setItem(STORAGE_KEYS.clockPosition, JSON.stringify(next));
+  };
+
+  const inSnapZone = (clientX, clientY) => {
+    const rect = dock.getBoundingClientRect();
+    const margin = 28;
+    return clientX >= rect.left - margin
+      && clientX <= rect.right + margin
+      && clientY >= rect.top - margin
+      && clientY <= rect.bottom + margin;
   };
 
   clock.style.touchAction = "none";
   clock.style.cursor = "grab";
+  clock.title = `${clock.title || "Время Binance Futures"} · перетащи, двойной клик — вернуть в шапку`;
   try {
-    const saved = JSON.parse(
-      localStorage.getItem(STORAGE_KEYS.clockPosition) || "null",
-    );
-    if (saved && typeof saved === "object") apply(saved, false);
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.clockPosition) || "null");
+    if (saved && typeof saved === "object") applyFloating(saved, false);
   } catch {}
 
-  clock.addEventListener("dblclick", reset);
+  clock.addEventListener("dblclick", () => dockClock());
+  clock.addEventListener("keydown", (event) => {
+    if (event.key === "Home" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      dockClock();
+    }
+  });
   clock.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -3598,20 +3625,33 @@ function enableClockDrag() {
     const originTop = rect.top;
     const startX = event.clientX;
     const startY = event.clientY;
+    let moved = false;
+    let snap = false;
+    lastPosition = { left: originLeft, top: originTop };
     clock.setPointerCapture?.(event.pointerId);
     clock.style.cursor = "grabbing";
-    if (!floating) apply({ left: originLeft, top: originTop }, false);
+    document.documentElement.dataset.clockDragging = "true";
 
-    const move = (moveEvent) => apply({
-      left: originLeft + moveEvent.clientX - startX,
-      top: originTop + moveEvent.clientY - startY,
-    });
+    const move = (moveEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
+      if (!moved && Math.hypot(deltaX, deltaY) < 3) return;
+      moved = true;
+      applyFloating({ left: originLeft + deltaX, top: originTop + deltaY }, false);
+      snap = inSnapZone(moveEvent.clientX, moveEvent.clientY);
+      dock.classList.toggle("is-snap-target", snap);
+    };
     const stop = () => {
       clock.style.cursor = "grab";
+      delete document.documentElement.dataset.clockDragging;
+      dock.classList.remove("is-snap-target");
       clock.releasePointerCapture?.(event.pointerId);
       window.removeEventListener("pointermove", move, true);
       window.removeEventListener("pointerup", stop, true);
       window.removeEventListener("pointercancel", stop, true);
+      if (!moved) return;
+      if (snap) dockClock();
+      else applyFloating(lastPosition, true);
     };
     window.addEventListener("pointermove", move, true);
     window.addEventListener("pointerup", stop, true);
@@ -3621,7 +3661,7 @@ function enableClockDrag() {
   window.addEventListener("resize", () => {
     if (!floating) return;
     const rect = clock.getBoundingClientRect();
-    apply({ left: rect.left, top: rect.top });
+    applyFloating({ left: rect.left, top: rect.top });
   });
 }
 

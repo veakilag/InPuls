@@ -24,6 +24,6 @@ test("legacy fallback uses the same 4 ms target", () => {
 test("new Worker build is consistent across runtime", () => {
   const orderbook = read("./orderbook.js");
   const serviceWorker = read("./sw.js");
-  assert.match(orderbook, /orderbook-worker\.js\?v=26-110-low-latency-active-tape-v1/);
-  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-110-low-latency-active-tape-v1/);
+  assert.match(orderbook, /orderbook-worker\.js\?v=26-111-header-command-bar-v1/);
+  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-111-header-command-bar-v1/);
 });
