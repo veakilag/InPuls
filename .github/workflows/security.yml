@@ -16,7 +16,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - name: Check out reviewed revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -37,24 +37,6 @@ jobs:
           set -o pipefail
           npm test 2>&1 | tee npm-test.log
 
-      - name: Run temporary official-archive baseline
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p archive-data
-          for symbol in BTCUSDT ETHUSDT SOLUSDT XRPUSDT; do
-            file="${symbol}-1m-2026-07.zip"
-            curl --fail --location --silent --show-error \
-              --retry 2 --retry-delay 2 --retry-all-errors \
-              "https://data.binance.vision/data/futures/um/monthly/klines/${symbol}/1m/${file}" \
-              --output "archive-data/${file}"
-            unzip -p "archive-data/${file}" > "archive-data/${symbol}.csv"
-          done
-          node algo-archive-backtest.mjs \
-            --days 7 \
-            --inputs BTCUSDT=archive-data/BTCUSDT.csv,ETHUSDT=archive-data/ETHUSDT.csv,SOLUSDT=archive-data/SOLUSDT.csv,XRPUSDT=archive-data/XRPUSDT.csv \
-            | tee archive-baseline.json
-
       - name: Preserve regression output
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -63,12 +45,3 @@ jobs:
           path: npm-test.log
           if-no-files-found: error
           retention-days: 1
-
-      - name: Preserve archive baseline
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: archive-baseline-${{ github.run_id }}
-          path: archive-baseline.json
-          if-no-files-found: warn
-          retention-days: 7
