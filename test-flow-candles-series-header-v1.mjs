@@ -6,8 +6,8 @@ import fs from "node:fs";
 import {
   projectFootprintPriceRow,
   stableFootprintProjectionRows,
-} from "./orderbook-flow-workspace.js?v=26-113-flow-candles-series-header-v1";
-import { aggregateTapeSeries } from "./orderbook.js?v=26-113-flow-candles-series-header-v1";
+} from "./orderbook-flow-workspace.js?v=26-114-raw-series-execution-candles-v1";
+import { aggregateTapeSeries } from "./orderbook.js?v=26-114-raw-series-execution-candles-v1";
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -63,6 +63,6 @@ test("brightness is between Download and Sound and runtime key is atomic", () =>
   assert.ok(header.indexOf('id="install-app"') < header.indexOf('id="comfort-slider"'));
   assert.ok(header.indexOf('id="comfort-slider"') < header.indexOf('id="sound-toggle"'));
   for (const path of ["./index.html", "./app.js", "./orderbook.js", "./sw.js"]) {
-    assert.match(read(path), /26-113-flow-candles-series-header-v1/);
+    assert.match(read(path), /26-114-raw-series-execution-candles-v1/);
   }
 });

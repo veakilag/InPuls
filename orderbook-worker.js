@@ -364,6 +364,15 @@ class SymbolFeed {
     this.aggregationTrades = new self.InPulsOrderBookBuffers.RecentRingBuffer(MAX_TRADE_HISTORY);
     this.aggregationTradeIds = new Set();
     this.aggregationTapeBatch = new self.InPulsOrderBookBuffers.LatestBatchQueue(MAX_PENDING_TAPE_TRADES);
+    this.seriesTapeBatch = new self.InPulsOrderBookBuffers.LatestBatchQueue(MAX_PENDING_TAPE_TRADES);
+    this.seriesWarmup = [];
+    this.seriesLastRawTradeId = null;
+    this.seriesRawStreak = 0;
+    this.seriesRawHealthy = false;
+    this.seriesReplacePending = true;
+    this.seriesGapCount = 0;
+    this.seriesOutOfOrderCount = 0;
+    this.seriesLastReason = "startup";
     this.tapeTimer = 0;
     this.resumeTimer = 0;
     this.backgroundPaused = false;
@@ -431,6 +440,73 @@ class SymbolFeed {
     this.tapeGuard.reset({ lastOutputTradeId: this.aggregationBoundary() });
   }
 
+  seriesHealth() {
+    return {
+      source: this.seriesRawHealthy ? "raw" : "warming",
+      healthy: this.seriesRawHealthy,
+      rawStreak: this.seriesRawStreak,
+      lastRawTradeId: this.seriesLastRawTradeId,
+      gapCount: this.seriesGapCount,
+      outOfOrderCount: this.seriesOutOfOrderCount,
+      reason: this.seriesLastReason,
+    };
+  }
+
+  resetSeriesSource(reason = "reset", notify = false) {
+    this.seriesLastRawTradeId = null;
+    this.seriesRawStreak = 0;
+    this.seriesRawHealthy = false;
+    this.seriesWarmup = [];
+    this.seriesTapeBatch.clear();
+    this.seriesReplacePending = true;
+    this.seriesLastReason = reason;
+    if (notify) this.scheduleTapeFlush();
+  }
+
+  ingestSeriesRawTrade(trade) {
+    if (trade?.source !== "raw") return false;
+    const tradeId = Number(trade.id);
+    if (!Number.isInteger(tradeId) || tradeId < 0) return false;
+
+    const previous = this.seriesLastRawTradeId;
+    if (previous !== null) {
+      if (tradeId === previous) return false;
+      if (tradeId !== previous + 1) {
+        if (tradeId > previous + 1) this.seriesGapCount += tradeId - previous - 1;
+        else this.seriesOutOfOrderCount += 1;
+        this.resetSeriesSource(tradeId > previous ? "raw-gap" : "raw-out-of-order");
+      }
+    }
+
+    if (this.seriesLastRawTradeId === null) {
+      this.seriesLastRawTradeId = tradeId;
+      this.seriesRawStreak = 1;
+      this.seriesWarmup = [trade];
+      this.scheduleTapeFlush();
+      return false;
+    }
+
+    this.seriesLastRawTradeId = tradeId;
+    this.seriesRawStreak += 1;
+    if (!this.seriesRawHealthy) {
+      this.seriesWarmup.push(trade);
+      if (this.seriesWarmup.length > 6) this.seriesWarmup.shift();
+      if (this.seriesRawStreak < 6) return false;
+      this.seriesRawHealthy = true;
+      this.seriesLastReason = "raw-ready";
+      this.seriesTapeBatch.clear();
+      for (const warmTrade of this.seriesWarmup) this.seriesTapeBatch.push(warmTrade);
+      this.seriesWarmup = [];
+      this.seriesReplacePending = true;
+      this.scheduleTapeFlush();
+      return true;
+    }
+
+    this.seriesTapeBatch.push(trade);
+    this.scheduleTapeFlush();
+    return true;
+  }
+
   addSubscriber() {
     const wasZero = this.subscribers === 0;
     const wasCoolingDown = Boolean(this.closeTimer);
@@ -472,6 +548,7 @@ class SymbolFeed {
     this.syncing = false;
     this.backgroundPaused = false;
     this.resetTapeGuard();
+    this.resetSeriesSource("start");
     this.resetBook("start");
     this.setStatus("loading", "Подключение Worker");
     const generation = this.generation;
@@ -486,6 +563,10 @@ class SymbolFeed {
       trades: [],
       aggregationTrades: [],
       aggregationSource: "agg",
+      seriesTrades: [],
+      seriesReplace: true,
+      seriesSource: "warming",
+      seriesHealth: this.seriesHealth(),
     });
     this.connectDepth(generation);
     this.connectTrades(generation);
@@ -516,6 +597,8 @@ class SymbolFeed {
     clearTimeout(this.resumeTimer);
     this.tapeBatch.clear();
     this.aggregationTapeBatch.clear();
+    this.seriesTapeBatch.clear();
+    this.seriesWarmup = [];
   }
 
   resetBook(reason = "reset") {
@@ -600,6 +683,7 @@ class SymbolFeed {
     this.tradeLatency.reset();
     this.tapeBatch.clear();
     this.aggregationTapeBatch.clear();
+    this.resetSeriesSource("background-pause");
     clearTimeout(this.tapeTimer);
     clearTimeout(this.resumeTimer);
     this.tapeTimer = 0;
@@ -1378,6 +1462,7 @@ class SymbolFeed {
         transportName: transport.name,
       });
       this.tapeGuard.connect();
+      this.resetSeriesSource("socket-open", true);
       if (transport.subscribe) {
         socket.send(JSON.stringify({
           method: "SUBSCRIBE",
@@ -1428,6 +1513,7 @@ class SymbolFeed {
           });
         }
 
+        if (rawEvent) this.ingestSeriesRawTrade(trade);
         const decision = this.tapeGuard.ingest(trade, this.lastTradeAt);
         let changed = false;
 
@@ -1469,6 +1555,7 @@ class SymbolFeed {
       this.tradeSocket = null;
       this.tradeConnected = false;
       this.tapeGuard.disconnect("socket-close");
+      this.resetSeriesSource("socket-close", true);
       this.tradeTransportIndex += 1;
       diagnose(this.symbol, "tape.ws.close", {
         state: "closed",
@@ -1568,15 +1655,21 @@ class SymbolFeed {
     if (!tabVisible) {
       this.tapeBatch.clear();
       this.aggregationTapeBatch.clear();
+      this.seriesTapeBatch.clear();
       return;
     }
     const latest = this.tapeBatch.takeLatest(MAX_TAPE_BATCH_PER_POST);
     const aggregationLatest = this.aggregationTapeBatch.takeLatest(MAX_TAPE_BATCH_PER_POST);
+    const seriesLatest = this.seriesRawHealthy
+      ? this.seriesTapeBatch.takeLatest(MAX_TAPE_BATCH_PER_POST)
+      : { items: [], dropped: 0 };
     const trades = latest.items;
     const aggregationTrades = aggregationLatest.items;
-    this.tapeDroppedInWindow += latest.dropped + aggregationLatest.dropped;
-    if (trades.length || aggregationTrades.length) {
-      const sourceEventTimeMs = [...trades, ...aggregationTrades].reduce(
+    const seriesTrades = seriesLatest.items;
+    const seriesReplace = this.seriesReplacePending;
+    this.tapeDroppedInWindow += latest.dropped + aggregationLatest.dropped + seriesLatest.dropped;
+    if (trades.length || aggregationTrades.length || seriesTrades.length || seriesReplace) {
+      const sourceEventTimeMs = [...trades, ...aggregationTrades, ...seriesTrades].reduce(
         (latestTime, trade) => Math.max(latestTime, Number(trade?.eventTime) || 0),
         0,
       );
@@ -1592,14 +1685,19 @@ class SymbolFeed {
           aggregationTrades,
           aggregationSource: guard.mode,
           aggregationHealth: guard,
+          seriesTrades,
+          seriesReplace,
+          seriesSource: this.seriesRawHealthy ? "raw" : "warming",
+          seriesHealth: this.seriesHealth(),
           backpressure: {
-            dropped: latest.dropped + aggregationLatest.dropped,
-            pending: this.tapeBatch.length + this.aggregationTapeBatch.length,
+            dropped: latest.dropped + aggregationLatest.dropped + seriesLatest.dropped,
+            pending: this.tapeBatch.length + this.aggregationTapeBatch.length + this.seriesTapeBatch.length,
           },
         },
         observabilityEnabled ? performance.now() : null,
-        { sourceEventTimeMs, sourceKind: "live-trade-dual" },
+        { sourceEventTimeMs, sourceKind: "live-trade-triple" },
       );
+      this.seriesReplacePending = false;
     }
   }
 

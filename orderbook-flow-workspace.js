@@ -86,7 +86,7 @@ export function normalizeFlowTrade(trade) {
   const price = Number(trade?.price);
   const quantity = Number(trade?.quantity);
   const quote = Number(trade?.quote ?? price * quantity);
-  const executionTime = Number(trade?.time ?? trade?.tradeTime ?? trade?.eventTime);
+  const executionTime = Number(trade?.tradeTime ?? trade?.eventTime ?? trade?.time);
   const receivedAt = Number(trade?.receivedAt);
   const alignedTime = flowDisplayTimeFromReceipt(receivedAt, executionTime);
   const legacyDisplayTime = Number(trade?.displayTime);
@@ -104,16 +104,20 @@ export function normalizeFlowTrade(trade) {
     quantity,
     quote,
     time,
+    executionTime,
     side: trade?.side === "sell" ? "sell" : "buy",
   };
 }
 
 function flowTradeKey(trade) {
-  return `${String(trade.id)}:${trade.time}:${trade.price}:${trade.quantity}`;
+  const executionTime = Number(trade?.executionTime ?? trade?.time);
+  return `${String(trade.id)}:${executionTime}:${trade.price}:${trade.quantity}`;
 }
 
 function compareFlowTrades(left, right) {
-  return right.time - left.time || String(right.id).localeCompare(String(left.id));
+  const leftTime = Number(left?.executionTime ?? left?.time);
+  const rightTime = Number(right?.executionTime ?? right?.time);
+  return rightTime - leftTime || String(right.id).localeCompare(String(left.id));
 }
 
 function mergeSortedFlowTrades(current, incoming, limit) {
@@ -189,8 +193,9 @@ export function buildFootprintColumns(trades, options = {}) {
   const cells = new Map();
   for (const rawTrade of trades ?? []) {
     const trade = normalizeFlowTrade(rawTrade);
-    if (!trade || trade.time < startTime || trade.time > endTime) continue;
-    const timeIndex = Math.floor((trade.time - startTime) / bucketMs);
+    const executionTime = Number(trade?.executionTime ?? trade?.time);
+    if (!trade || executionTime < startTime || executionTime > endTime) continue;
+    const timeIndex = Math.floor((executionTime - startTime) / bucketMs);
     const priceIndex = Math.round(trade.price / priceStep);
     const key = `${timeIndex}:${priceIndex}`;
     const cell = cells.get(key) ?? {
@@ -316,7 +321,7 @@ export function footprintCellIntensity(value, maximum) {
 export function visibleFlowCount(trades, startTime, endTime) {
   let count = 0;
   for (const trade of trades ?? []) {
-    const time = Number(trade?.time);
+    const time = Number(trade?.executionTime ?? trade?.time);
     if (Number.isFinite(time) && time >= startTime && time <= endTime) count += 1;
   }
   return count;
@@ -443,14 +448,15 @@ export function ingestFootprintTrades(accumulator, incoming, { replace = false }
   for (const rawTrade of incoming ?? []) {
     const trade = normalizeFlowTrade(rawTrade);
     if (!trade) continue;
-    latestTime = Math.max(latestTime, trade.time);
+    const executionTime = Number(trade.executionTime ?? trade.time);
+    latestTime = Math.max(latestTime, executionTime);
     target.firstObservedAt = target.firstObservedAt === null
-      ? trade.time
-      : Math.min(target.firstObservedAt, trade.time);
+      ? executionTime
+      : Math.min(target.firstObservedAt, executionTime);
     target.lastObservedAt = target.lastObservedAt === null
-      ? trade.time
-      : Math.max(target.lastObservedAt, trade.time);
-    const startTime = Math.floor(trade.time / FOOTPRINT_BASE_BUCKET_MS) * FOOTPRINT_BASE_BUCKET_MS;
+      ? executionTime
+      : Math.max(target.lastObservedAt, executionTime);
+    const startTime = Math.floor(executionTime / FOOTPRINT_BASE_BUCKET_MS) * FOOTPRINT_BASE_BUCKET_MS;
     const bucket = footprintSecondBucket(target, startTime);
     const tradeKey = flowTradeKey(trade);
     if (bucket.tradeKeys.has(tradeKey)) continue;
@@ -472,12 +478,12 @@ export function ingestFootprintTrades(accumulator, incoming, { replace = false }
     bucket.cells.set(priceKey, cell);
     bucket.quote += trade.quote;
     bucket.count += 1;
-    if (trade.time < bucket.firstTradeTime) {
-      bucket.firstTradeTime = trade.time;
+    if (executionTime < bucket.firstTradeTime) {
+      bucket.firstTradeTime = executionTime;
       bucket.openPrice = trade.price;
     }
-    if (trade.time >= bucket.lastTradeTime) {
-      bucket.lastTradeTime = trade.time;
+    if (executionTime >= bucket.lastTradeTime) {
+      bucket.lastTradeTime = executionTime;
       bucket.closePrice = trade.price;
     }
     bucket.highPrice = bucket.highPrice === null ? trade.price : Math.max(bucket.highPrice, trade.price);
