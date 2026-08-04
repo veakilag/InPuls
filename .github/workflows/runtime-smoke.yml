@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Check out patch branch
+      - name: Check out raw series branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: agent/raw-series-execution-candles-v1
@@ -31,11 +31,43 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Apply raw series patch
+      - name: Finalize SERIES state fields
         shell: bash
         run: |
-          cat tools/raw-series-v1/chunk*.pyfrag > /tmp/apply-raw-series-v1.py
-          python /tmp/apply-raw-series-v1.py
+          python3 - <<'PY'
+          from pathlib import Path
+
+          worker_path = Path('orderbook-worker.js')
+          worker = worker_path.read_text(encoding='utf-8')
+          old = '''    this.seriesRawStreak = 0;
+              this.seriesGapCount = 0;
+              this.seriesReady = false;
+              this.seriesResetPending = true;
+              this.seriesLastReason = "startup";'''
+          new = '''    this.seriesRawStreak = 0;
+              this.seriesRawHealthy = false;
+              this.seriesReplacePending = true;
+              this.seriesGapCount = 0;
+              this.seriesOutOfOrderCount = 0;
+              this.seriesLastReason = "startup";'''
+          if worker.count(old) != 1:
+              raise SystemExit(f'expected one SERIES constructor block, found {worker.count(old)}')
+          worker_path.write_text(worker.replace(old, new, 1), encoding='utf-8')
+
+          test_path = Path('test-raw-series-execution-candles-v1.mjs')
+          test = test_path.read_text(encoding='utf-8')
+          anchor = '  assert.match(worker, /trade\\?\\.source !== "raw"/);\n'
+          addition = (
+              anchor
+              + '  assert.match(worker, /this\\.seriesRawHealthy = false/);\n'
+              + '  assert.match(worker, /this\\.seriesReplacePending = true/);\n'
+              + '  assert.match(worker, /this\\.seriesOutOfOrderCount = 0/);\n'
+              + '  assert.doesNotMatch(worker, /this\\.seriesReady = false/);\n'
+          )
+          if test.count(anchor) != 1:
+              raise SystemExit(f'expected one SERIES test anchor, found {test.count(anchor)}')
+          test_path.write_text(test.replace(anchor, addition, 1), encoding='utf-8')
+          PY
 
       - name: Check runtime syntax
         run: |
@@ -44,22 +76,10 @@ jobs:
           node --check orderbook-flow-workspace.js
 
       - name: Run targeted raw series tests
-        shell: bash
         run: node --test test-raw-series-execution-candles-v1.mjs
 
       - name: Run full tests
-        shell: bash
-        run: |
-          set +e
-          npm test > /tmp/npm-test.log 2>&1
-          status=$?
-          if [ "$status" -ne 0 ]; then
-            echo "===== FAILURES ====="
-            grep -n -B 8 -A 35 '^not ok' /tmp/npm-test.log || true
-            echo "===== SUMMARY ====="
-            tail -n 20 /tmp/npm-test.log
-          fi
-          exit $status
+        run: npm test
 
       - name: Start local static server
         run: |
@@ -82,27 +102,13 @@ jobs:
           CHROME_BIN: google-chrome
         run: node scripts/browser-runtime-smoke.mjs "http://127.0.0.1:4173/rescue-26-94.html?smoke=${GITHUB_SHA}"
 
-      - name: Commit verified runtime
+      - name: Commit clean verified runtime
         shell: bash
         run: |
           git checkout origin/main -- .github/workflows/runtime-smoke.yml
-          rm -rf tools/raw-series-v1
-          rm -f .github/workflows/apply-raw-series-execution-candles-v1.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --quiet && exit 0
-          git commit -m "Use raw executions for Tape series"
+          git commit -m "Finalize raw Tape series state"
           git push origin HEAD:agent/raw-series-execution-candles-v1
-
-      - name: Production browser startup smoke
-        if: github.event_name != 'pull_request'
-        env:
-          CHROME_BIN: google-chrome
-        run: node scripts/browser-runtime-smoke.mjs "https://veakilag.github.io/InPuls/?smoke=${GITHUB_SHA}"
-
-      - name: Production rescue path smoke
-        if: github.event_name != 'pull_request'
-        env:
-          CHROME_BIN: google-chrome
-        run: node scripts/browser-runtime-smoke.mjs "https://veakilag.github.io/InPuls/rescue-26-94.html?smoke=${GITHUB_SHA}"
