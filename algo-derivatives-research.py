@@ -134,14 +134,14 @@ def main():
   xt,fams=matrix(tr);xv,_=matrix(va,fams);xh,_=matrix(ho,fams);w=1+np.minimum(np.abs(tr.net_r.to_numpy()),5);cl=HistGradientBoostingClassifier(max_iter=160,learning_rate=.05,max_leaf_nodes=15,min_samples_leaf=35,l2_regularization=1,random_state=42);rg=HistGradientBoostingRegressor(max_iter=160,learning_rate=.05,max_leaf_nodes=15,min_samples_leaf=35,l2_regularization=1,random_state=42);cl.fit(xt,tr.win,sample_weight=w);rg.fit(xt,tr.net_r.clip(-5,6),sample_weight=w)
   va=va.copy();ho=ho.copy();va['prob']=cl.predict_proba(xv)[:,1];va['pred']=rg.predict(xv);ho['prob']=cl.predict_proba(xh)[:,1];ho['pred']=rg.predict(xh);va['score']=va.prob+np.clip(va.pred,-2,4)/6;ho['score']=ho.prob+np.clip(ho.pred,-2,4)/6
   th=[]
-  for pr in [.5,.55,.6,.65,.7,.75]:
-   for rr in [-.25,0,.25,.5,.75,1]:
+  for pr in [.2,.25,.3,.35,.4,.45,.5,.55,.6]:
+   for rr in [-2,-1.5,-1,-.75,-.5,-.25,0,.25,.5]:
     q=deoverlap(va[(va.prob>=pr)&(va.pred>=rr)]);st=stats(q)
     if st['trades']>=35 and st['symbols']>=4:th.append((score(st),pr,rr,st))
   for sc,pr,rr,sv in sorted(th,reverse=True)[:3]:
    chosen=deoverlap(ho[(ho.prob>=pr)&(ho.pred>=rr)])
    cands.append({'exit':ex,'pr':pr,'rr':rr,'validationScore':sc,'validation':sv,'hold':chosen,'holdout':stats(chosen)})
- if not cands:raise RuntimeError('no validation candidate')
+ if not cands:raise RuntimeError('no validation candidate even after diagnostic threshold expansion')
  finals=sorted(cands,key=lambda x:x['validationScore'],reverse=True)[:12];res=[]
  keycols=['symbol','time','family','side']
  for c in finals:
@@ -150,5 +150,5 @@ def main():
   for x in (st,dl):x['score']=1.
   ss=stats(deoverlap(st));ds=stats(deoverlap(dl));h=c['holdout'];ok=h['trades']>=a.minimum_holdout_trades and h['profitFactor']>2 and h['winRate']>.4 and h['averageR']>1 and h['positiveSymbols']>=4 and ss['profitFactor']>1 and ss['averageR']>0 and ds['profitFactor']>1 and ds['averageR']>0
   res.append({'id':f"meta::{c['exit'].name}::p{c['pr']}::r{c['rr']}",'exitConfig':asdict(c['exit']),'probabilityThreshold':c['pr'],'expectedRThreshold':c['rr'],'strictPass':ok,'validation':c['validation'],'holdout':h,'doubledCostsHoldout':ss,'oneBarDelayHoldout':ds})
- res.sort(key=lambda x:(x['strictPass'],x['holdout']['averageR'],x['holdout']['profitFactor'],x['holdout']['trades']),reverse=True);report={'methodology':{'source':'Binance public mirror via linxy/USDT-M_Perpetual_Futures','symbolsRequested':syms,'symbolsLoaded':sorted(fs),'loadFailures':fail,'interval':'5m','start':start.isoformat(),'trainEnd':te.isoformat(),'validationEnd':ve.isoformat(),'holdoutEnd':he.isoformat(),'embargo':'1d','events':len(e),'families':sorted(e.family.unique()),'baseCosts':{'feePerSide':fee,'slippagePerSide':slip},'gate':{'minimumTrades':a.minimum_holdout_trades,'PF':'>2','WR':'>40%','averageR':'>1','positiveSymbols':'>=4','doubledCosts':'positive','oneBarDelay':'positive'},'limitations':['fixed liquid panel, not full historical INPLAY','Coinglass heatmap unavailable without owner API key','liquidations inferred from OI collapse, impulse, volume and flow']},'strictCandidatesFound':sum(x['strictPass'] for x in res),'top':res[:10]};Path(a.output).write_text(json.dumps(clean(report),ensure_ascii=False,indent=2));print(json.dumps(clean(report),ensure_ascii=False,indent=2))
+ res.sort(key=lambda x:(x['strictPass'],x['holdout']['averageR'],x['holdout']['profitFactor'],x['holdout']['trades']),reverse=True);report={'methodology':{'source':'Binance public mirror via linxy/USDT-M_Perpetual_Futures','symbolsRequested':syms,'symbolsLoaded':sorted(fs),'loadFailures':fail,'interval':'5m','start':start.isoformat(),'trainEnd':te.isoformat(),'validationEnd':ve.isoformat(),'holdoutEnd':he.isoformat(),'embargo':'1d','events':len(e),'families':sorted(e.family.unique()),'baseCosts':{'feePerSide':fee,'slippagePerSide':slip},'gate':{'minimumTrades':a.minimum_holdout_trades,'PF':'>2','WR':'>40%','averageR':'>1','positiveSymbols':'>=4','doubledCosts':'positive','oneBarDelay':'positive'},'candidateSelectionNote':'diagnostic thresholds were expanded only on validation; the final holdout gate was not lowered','limitations':['fixed liquid panel, not full historical INPLAY','Coinglass heatmap unavailable without owner API key','liquidations inferred from OI collapse, impulse, volume and flow']},'strictCandidatesFound':sum(x['strictPass'] for x in res),'top':res[:10]};Path(a.output).write_text(json.dumps(clean(report),ensure_ascii=False,indent=2));print(json.dumps(clean(report),ensure_ascii=False,indent=2))
 if __name__=='__main__':main()
