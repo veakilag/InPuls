@@ -46,4 +46,4 @@ jobs:
           git commit -m "Fix Tape and footprint clocks" -m "Separate execution, display and interval time; stabilize footprint price buckets and seed the live candle at the exact boundary."
           git push origin HEAD:agent/tape-now-live-contracts
 
-# Registered workflow.
+# Trigger focused verification.
