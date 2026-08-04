@@ -1,0 +1,52 @@
+name: Apply header command bar
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+    paths:
+      - .github/workflows/agent-header-command-bar-v1.yml
+      - tools/apply-header-command-bar-v1.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'agent/header-command-bar-v1'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/header-command-bar-v1
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Apply focused patch
+        run: python tools/apply-header-command-bar-v1.py
+
+      - name: Check runtime syntax
+        run: |
+          node --check app.js
+          node --check sw.js
+
+      - name: Run full tests
+        run: npm test
+
+      - name: Commit verified runtime
+        run: |
+          rm -f tools/apply-header-command-bar-v1.py .github/workflows/agent-header-command-bar-v1.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Redesign compact header controls" -m "Use the supplied InPuls logo, keep four header commands, enlarge online status and add a magnetic clock dock."
+          git push origin HEAD:agent/header-command-bar-v1
