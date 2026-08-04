@@ -498,13 +498,33 @@ function footprintSnapshotAt(accumulator, timeframeValue, startTime, now) {
       cells.set(priceKey, cell);
     }
   }
+  const partial = Number(now) < endTime;
+  if (partial && count === 0) {
+    let previousClose = null;
+    let previousTradeTime = -Infinity;
+    for (const bucket of accumulator?.seconds?.values?.() ?? []) {
+      if (bucket.startTime >= startTime) continue;
+      const candidateTime = Number(bucket.lastTradeTime);
+      const candidateClose = Number(bucket.closePrice);
+      if (Number.isFinite(candidateClose) && candidateTime > previousTradeTime) {
+        previousTradeTime = candidateTime;
+        previousClose = candidateClose;
+      }
+    }
+    if (Number.isFinite(previousClose)) {
+      openPrice = previousClose;
+      closePrice = previousClose;
+      highPrice = previousClose;
+      lowPrice = previousClose;
+    }
+  }
   const firstObservedAt = Number(accumulator?.firstObservedAt);
   const retainedFromAt = Number(accumulator?.retainedFromAt);
   return {
     timeframe,
     startTime,
     endTime,
-    partial: Number(now) < endTime,
+    partial,
     sessionPartial: !Number.isFinite(firstObservedAt)
       || firstObservedAt > startTime + FOOTPRINT_BASE_BUCKET_MS
       || (Number.isFinite(retainedFromAt) && retainedFromAt > startTime),
@@ -729,14 +749,34 @@ function visibleRows(card, pane) {
     .filter((row) => row.visible && Number.isFinite(row.price));
 }
 
-function rowStep(rows) {
-  const prices = [...new Set(rows.map((row) => row.price))].sort((a, b) => a - b);
-  let step = Infinity;
+export function stableFootprintPriceStep(rows) {
+  const prices = [...new Set((rows ?? [])
+    .map((row) => Number(row?.price))
+    .filter(Number.isFinite))]
+    .sort((left, right) => left - right);
+  const frequencies = new Map();
   for (let index = 1; index < prices.length; index += 1) {
     const gap = prices[index] - prices[index - 1];
-    if (gap > Number.EPSILON && gap < step) step = gap;
+    if (!(gap > Number.EPSILON)) continue;
+    const normalized = Number(gap.toPrecision(12));
+    const key = String(normalized);
+    const entry = frequencies.get(key) ?? { value: normalized, count: 0 };
+    entry.count += 1;
+    frequencies.set(key, entry);
   }
-  return Number.isFinite(step) ? step : .01;
+  let best = null;
+  for (const entry of frequencies.values()) {
+    if (
+      !best
+      || entry.count > best.count
+      || (entry.count === best.count && entry.value < best.value)
+    ) best = entry;
+  }
+  return best?.value ?? .01;
+}
+
+function rowStep(rows) {
+  return stableFootprintPriceStep(rows);
 }
 
 function nearestRow(rows, price) {

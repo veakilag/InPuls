@@ -35,8 +35,10 @@ test("Tape ships a right-side NOW line and a precise slider", () => {
   assert.match(source, /width: 118px/);
 });
 
-test("Tape display time includes bounded receive latency", () => {
+test("Tape display time stays separate from execution time", () => {
   const source = read("./orderbook.js");
-  assert.match(source, /const displayTime = time \+ latency/);
+  assert.match(source, /const displayTime = tapeVisualTime\(time, eventTime, rxLatencyMs\)/);
+  assert.match(source, /time,\n\s+displayTime: Number\.isFinite\(displayTime\) \? displayTime : time/);
+  assert.match(source, /trade\.displayTime \?\? trade\.time/);
   assert.match(source, /tradeTime: Number\.isFinite\(tradeTime\)/);
 });

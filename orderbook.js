@@ -6,7 +6,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-106-tape-now-live-price-buckets-v1";
+import "./orderbook-flow-workspace.js?v=26-107-tape-clock-contracts-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -3854,8 +3854,8 @@ function refreshTapeRenderModel(state, symbol, stored, aggregationStored = store
     const node = previousNodes.get(key) ?? Object.freeze({
       key,
       id: trade.id,
-      time: Number(trade.time),
-      lastTime: Number(trade.time),
+      time: Number(trade.displayTime ?? trade.time),
+      lastTime: Number(trade.displayTime ?? trade.time),
       price: Number(trade.price),
       quote: Number(trade.quote),
       buyQuote: trade.side === "buy" ? Number(trade.quote) : 0,
@@ -4467,6 +4467,20 @@ function scheduleTapeDraw(force = false, card = null) {
   if (!tapeDrawFrame) tapeDrawFrame = requestAnimationFrame(runTapeDrawFrame);
 }
 
+export function tapeVisualTime(tradeTime, eventTime, rxLatencyMs) {
+  const trade = Number(tradeTime);
+  const event = Number(eventTime);
+  const latency = Number.isFinite(Number(rxLatencyMs))
+    ? clampTape(Number(rxLatencyMs), 0, 10_000)
+    : 0;
+  const source = Number.isFinite(event) ? event : trade;
+  if (!Number.isFinite(source)) return null;
+  const receivedExchangeTime = source + latency;
+  return Number.isFinite(trade)
+    ? Math.max(trade, receivedExchangeTime)
+    : receivedExchangeTime;
+}
+
 function normalizeTapeTrade(trade) {
   const price = Number(trade?.price);
   const quantity = Number(trade?.quantity);
@@ -4476,8 +4490,7 @@ function normalizeTapeTrade(trade) {
   const eventTime = Number(trade?.eventTime ?? time);
   const receivedAt = Number(trade?.receivedAt);
   const rxLatencyMs = Number(trade?.rxLatencyMs);
-  const latency = Number.isFinite(rxLatencyMs) ? clampTape(rxLatencyMs, 0, 5_000) : 0;
-  const displayTime = time + latency;
+  const displayTime = tapeVisualTime(time, eventTime, rxLatencyMs);
   if (![price, quantity, quote, time].every(Number.isFinite) || quote <= 0) return null;
   return {
     id: trade?.id ?? `${time}-${price}-${quantity}`,
@@ -4487,8 +4500,8 @@ function normalizeTapeTrade(trade) {
     price,
     quantity,
     quote,
-    time: displayTime,
-    displayTime,
+    time,
+    displayTime: Number.isFinite(displayTime) ? displayTime : time,
     tradeTime: Number.isFinite(tradeTime) ? tradeTime : time,
     eventTime: Number.isFinite(eventTime) ? eventTime : time,
     receivedAt: Number.isFinite(receivedAt) ? receivedAt : null,
