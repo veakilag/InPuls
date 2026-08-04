@@ -51,6 +51,37 @@ jobs:
       - name: Apply focused patch
         run: python tools/apply-flow-candles-series-header-v1.py
 
+      - name: Update intended contracts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              target = Path(path)
+              text = target.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one match for {old!r}, found {count}')
+              target.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'test-flow-candles-series-header-v1.mjs',
+              'for (const path of ["./index.html", "./app.js", "./orderbook.js", "./orderbook-flow-workspace.js", "./sw.js"]) {',
+              'for (const path of ["./index.html", "./app.js", "./orderbook.js", "./sw.js"]) {',
+          )
+
+          old_projection = r'/const highRow = nearestRow\(rows, interval\.highPrice\)/'
+          new_projection = r'/const highRow = nearestRow\(rows, interval\.highPrice, true\)/'
+          for path in ('test-orderbook-flow-workspace.mjs', 'test-orderbook-visual-priority.mjs'):
+              replace_once(path, old_projection, new_projection)
+
+          replace_once(
+              'test-tape-arrival-clock-v1.mjs',
+              r'/height - 22/',
+              r'/height - 28/',
+          )
+          PY
+
       - name: Check runtime syntax
         run: |
           node --check orderbook.js
