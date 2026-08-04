@@ -129,10 +129,10 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-107-tape-clock-contracts-v1/);
-  assert.match(app, /orderbook\.js\?v=26-107-tape-clock-contracts-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-107-tape-clock-contracts-v1/);
-  assert.match(sw, /app\.js\?v=26-107-tape-clock-contracts-v1/);
-  assert.match(sw, /orderbook\.js\?v=26-107-tape-clock-contracts-v1/);
-  assert.match(sw, /orderbook-flow-workspace\.js\?v=26-107-tape-clock-contracts-v1/);
+  assert.match(index, /26-108-tape-arrival-clock-v1/);
+  assert.match(app, /orderbook\.js\?v=26-108-tape-arrival-clock-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-108-tape-arrival-clock-v1/);
+  assert.match(sw, /app\.js\?v=26-108-tape-arrival-clock-v1/);
+  assert.match(sw, /orderbook\.js\?v=26-108-tape-arrival-clock-v1/);
+  assert.match(sw, /orderbook-flow-workspace\.js\?v=26-108-tape-arrival-clock-v1/);
 });

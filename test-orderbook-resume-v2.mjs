@@ -65,15 +65,15 @@ test("a delayed feed retries independently", () => {
 });
 
 test("Resume v2 ships one consistent runtime", () => {
-  assert.match(index, /app\.js\?v=26-107-tape-clock-contracts-v1/);
-  assert.match(app, /orderbook\.js\?v=26-107-tape-clock-contracts-v1/);
+  assert.match(index, /app\.js\?v=26-108-tape-arrival-clock-v1/);
+  assert.match(app, /orderbook\.js\?v=26-108-tape-arrival-clock-v1/);
   assert.match(app, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(orderbook, /orderbook-worker\.js\?v=26-101-binance-clock-sync-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-107-tape-clock-contracts-v1/);
+  assert.match(orderbook, /orderbook-worker\.js\?v=26-108-tape-arrival-clock-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-108-tape-arrival-clock-v1/);
   assert.match(worker, /orderbook-tape-latency\.js\?v=worker-bp-v1/);
-  assert.match(sw, /app\.js\?v=26-107-tape-clock-contracts-v1/);
-  assert.match(sw, /orderbook\.js\?v=26-107-tape-clock-contracts-v1/);
-  assert.match(sw, /orderbook-flow-workspace\.js\?v=26-107-tape-clock-contracts-v1/);
+  assert.match(sw, /app\.js\?v=26-108-tape-arrival-clock-v1/);
+  assert.match(sw, /orderbook\.js\?v=26-108-tape-arrival-clock-v1/);
+  assert.match(sw, /orderbook-flow-workspace\.js\?v=26-108-tape-arrival-clock-v1/);
   assert.match(reset, /Resume v2/);
 });
 

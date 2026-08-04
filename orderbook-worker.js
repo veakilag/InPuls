@@ -150,6 +150,14 @@ function normalizeTrade(event, sourceHint = null, receivedAt = null) {
   const quantity = Number(event?.q);
   const timing = self.InPulsTapeLatency.normalizeTiming(event, receivedAt, serverClockOffsetMs);
   const time = timing.tradeTime;
+  const localReceivedAt = Number(receivedAt);
+  const clockOffset = Number(serverClockOffsetMs);
+  const calibratedReceivedTime = Number.isFinite(localReceivedAt) && Number.isFinite(clockOffset)
+    ? localReceivedAt + clockOffset
+    : Number(timing.eventTime);
+  const displayTime = Number.isFinite(calibratedReceivedTime)
+    ? Math.max(time, calibratedReceivedTime)
+    : time;
   const id = source === "raw" ? Number(event?.t) : Number(event?.a);
   const firstTradeId = source === "raw" ? id : Number(event?.f);
   const lastTradeId = source === "raw" ? id : Number(event?.l);
@@ -165,6 +173,7 @@ function normalizeTrade(event, sourceHint = null, receivedAt = null) {
     quantity,
     quote: price * quantity,
     time,
+    displayTime,
     tradeTime: timing.tradeTime,
     eventTime: timing.eventTime,
     receivedAt: timing.receivedAt,
