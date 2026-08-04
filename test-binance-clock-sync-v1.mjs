@@ -101,12 +101,12 @@ test("browser clock, flow window and Tape use one shared calibrated source", () 
   assert.match(orderbook, /formatTapeClock\(time\)[\s\S]*binanceClock\.formatTime/);
   assert.match(worker, /setInterval\(\(\) => syncServerClock\(true\)/);
   assert.doesNotMatch(clock, /canvas-comfort-preview\.js/, "clock must not load UI preview as a side effect");
-  assert.match(index, /canvas-comfort-preview\.js\?v=26-112-tape-series-v1/);
+  assert.match(index, /canvas-comfort-preview\.js\?v=26-113-flow-candles-series-header-v1/);
   assert.match(clock, /if \(wasCalibrated\) this\.now\(perf\);[\s\S]*else this\.lastNowMs = this\.anchorExchangeMs/);
   assert.match(canvasPreview, /\.chart-stage canvas/);
   assert.match(canvasPreview, /\.trade-flow canvas/);
   assert.match(canvasPreview, /inpuls:comfort-preview/);
   assert.match(canvasPreview, /inpuls:theme-change/);
-  assert.match(index, /app\.js\?v=26-112-tape-series-v1/);
+  assert.match(index, /app\.js\?v=26-113-flow-candles-series-header-v1/);
   assert.match(sw, /binance-clock\.js\?v=26-102-tape-live-edge-minute-boundary-v1/);
 });

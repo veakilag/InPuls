@@ -895,3 +895,31 @@ html[data-clock-dragging="true"] .clock-dock { border-color: color-mix(in srgb, 
   .clock-dock { width: 66px; flex-basis: 66px; }
   .clock { min-width: 62px; font-size: calc(10 * var(--font-scale)); }
 }
+
+
+/* v26.113 flow candles, Tape series staircase and header brightness */
+.header-comfort-control {
+  width: 96px;
+  min-width: 76px;
+  height: 32px;
+  flex: 0 1 96px;
+  padding: 0 8px;
+  border-radius: 8px;
+}
+.header-comfort-control .comfort-track { width: 80px; }
+.header-comfort-control input { inset: 0 8px; width: 80px; }
+@media (max-width: 1180px) {
+  .header-comfort-control { width: 78px; flex-basis: 78px; }
+  .header-comfort-control .comfort-track,
+  .header-comfort-control input { width: 62px; }
+}
+@media (max-width: 720px) {
+  .header-comfort-control { display: grid !important; width: 68px; min-width: 68px; height: 30px; flex-basis: 68px; padding-inline: 6px; }
+  .header-comfort-control .comfort-track,
+  .header-comfort-control input { width: 56px; }
+}
+@media (max-width: 470px) {
+  .header-comfort-control { width: 58px; min-width: 58px; flex-basis: 58px; }
+  .header-comfort-control .comfort-track,
+  .header-comfort-control input { width: 46px; }
+}

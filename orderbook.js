@@ -6,7 +6,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-112-tape-series-v1";
+import "./orderbook-flow-workspace.js?v=26-113-flow-candles-series-header-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1441,7 +1441,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-112-tape-series-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-113-flow-candles-series-header-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -3592,10 +3592,10 @@ function drawTapeTimeline(context, rect, window) {
   const firstTick = Math.ceil(window.startTime / stepMs) * stepMs;
 
   context.save();
-  context.lineWidth = .7;
-  context.strokeStyle = "rgba(112, 137, 149, .18)";
-  context.fillStyle = "rgba(145, 165, 175, .72)";
-  context.font = "700 7px Inter, system-ui, sans-serif";
+  context.lineWidth = .95;
+  context.strokeStyle = "rgba(66, 225, 173, .46)";
+  context.fillStyle = "rgba(177, 205, 197, .88)";
+  context.font = "750 8px Inter, system-ui, sans-serif";
   context.textAlign = "center";
   context.textBaseline = "bottom";
 
@@ -3603,10 +3603,10 @@ function drawTapeTimeline(context, rect, window) {
     const x = tapeTimeX(time, window, rect.width);
     if (x < 20 || x > right - 20) continue;
     context.beginPath();
-    context.moveTo(x, rect.height - 4);
+    context.moveTo(x, rect.height - 6);
     context.lineTo(x, rect.height);
     context.stroke();
-    context.fillText(formatTapeClock(time), x, rect.height - 5);
+    context.fillText(formatTapeClock(time), x, rect.height - 7);
   }
 
   context.restore();
@@ -3766,22 +3766,17 @@ export function aggregateTapeSeries(trades, maximumGapMs = TAPE_SERIES_MAX_GAP_M
       if (timeDelta) return timeDelta;
       const leftId = Number(left.id);
       const rightId = Number(right.id);
-      if (Number.isFinite(leftId) && Number.isFinite(rightId) && leftId !== rightId) {
-        return leftId - rightId;
-      }
+      if (Number.isFinite(leftId) && Number.isFinite(rightId) && leftId !== rightId) return leftId - rightId;
       return String(left.id).localeCompare(String(right.id));
     });
 
   const groups = [];
   const ordinalByTime = new Map();
   let current = null;
-
   const finish = () => {
     if (!current) return;
-    current.vwapPrice = current.quantity > 0
-      ? current.quote / current.quantity
-      : current.firstPrice;
-    current.price = (current.minPrice + current.maxPrice) / 2;
+    current.vwapPrice = current.quantity > 0 ? current.quote / current.quantity : current.firstPrice;
+    current.price = current.lastPrice;
     current.lastTime = current.time;
     current.durationMs = Math.max(0, current.lastEventTime - current.firstEventTime);
     current.bucketStart = current.firstEventTime;
@@ -3803,9 +3798,7 @@ export function aggregateTapeSeries(trades, maximumGapMs = TAPE_SERIES_MAX_GAP_M
     const quantity = Number.isFinite(Number(trade.quantity)) && Number(trade.quantity) > 0
       ? Number(trade.quantity)
       : quote / price;
-    const continues = current
-      && current.side === side
-      && executionTime - current.lastEventTime <= gapLimit;
+    const continues = current && current.side === side && executionTime - current.lastEventTime <= gapLimit;
 
     if (!continues) {
       finish();
@@ -3828,6 +3821,7 @@ export function aggregateTapeSeries(trades, maximumGapMs = TAPE_SERIES_MAX_GAP_M
         buyQuote: 0,
         sellQuote: 0,
         count: 0,
+        steps: [],
       };
     }
 
@@ -3841,12 +3835,20 @@ export function aggregateTapeSeries(trades, maximumGapMs = TAPE_SERIES_MAX_GAP_M
     current.quote += quote;
     current[side === "sell" ? "sellQuote" : "buyQuote"] += quote;
     current.count += 1;
+
+    const previousStep = current.steps.at(-1);
+    if (previousStep && previousStep.time === displayTime) {
+      previousStep.price = price;
+      previousStep.quote += quote;
+      previousStep.count += 1;
+    } else {
+      current.steps.push({ time: displayTime, eventTime: executionTime, price, quote, count: 1 });
+    }
   }
 
   finish();
   return groups;
 }
-
 export function materializeZeroMsAggregates(state, groups, output = []) {
   if (!(state.aggSnapshots instanceof Map)) state.aggSnapshots = new Map();
   output.length = 0;
@@ -4220,6 +4222,48 @@ function drawRawTapeMarkerBatches(context, batches) {
   }
 }
 
+
+function drawTapeSeriesLadder(context, item, viewport, window, rect, stroke, openSeries) {
+  const points = [];
+  for (const step of item?.steps ?? []) {
+    const position = projectTapePrice(viewport, step.price);
+    if (!position) continue;
+    points.push({
+      x: tapeTradeX(step.time, window, rect.width),
+      y: position.y,
+      time: step.time,
+      price: step.price,
+    });
+  }
+  if (!points.length) return null;
+
+  context.save();
+  context.beginPath();
+  context.rect(0, 0, Math.max(1, window.plotRight), Math.max(1, rect.height - 16));
+  context.clip();
+  context.strokeStyle = stroke;
+  context.lineWidth = openSeries ? 1.65 : 1.2;
+  context.lineJoin = "round";
+  context.lineCap = "square";
+  context.globalAlpha = openSeries ? .98 : .82;
+  context.beginPath();
+  context.moveTo(points[0].x, points[0].y);
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const next = points[index];
+    context.lineTo(next.x, previous.y);
+    context.lineTo(next.x, next.y);
+  }
+  context.stroke();
+  const terminal = points.at(-1);
+  context.beginPath();
+  context.arc(terminal.x, terminal.y, openSeries ? 2.4 : 1.8, 0, Math.PI * 2);
+  context.fillStyle = stroke;
+  context.fill();
+  context.restore();
+  return terminal;
+}
+
 function drawTapeCard(card) {
   const drawStartedAt = performance.now();
   const initialSymbol = cardSymbol(card);
@@ -4471,6 +4515,52 @@ function drawTapeCard(card) {
     const stroke = buy ? "rgba(88, 239, 184, .9)" : "rgba(255, 121, 137, .9)";
     const strength = stableTapeQuoteStrength(item.quote);
     const baseX = tapeTradeX(item.time, window, rect.width);
+
+    if (state.mode === "series") {
+      const openSeries = item.status === "open";
+      const terminal = drawTapeSeriesLadder(
+        context,
+        item,
+        state.priceViewport,
+        window,
+        rect,
+        stroke,
+        openSeries,
+      );
+      if (!terminal) continue;
+      const label = formatTapeUsd(item.quote);
+      const labelHeight = clampTape(8 + strength * 5, 8, 14);
+      const measured = context.measureText(label).width;
+      const labelWidth = clampTape(measured + 10, 22, Math.min(88, rect.width * .28));
+      const labelX = clampTape(
+        terminal.x,
+        labelWidth / 2 + .5,
+        Math.max(labelWidth / 2 + .5, window.plotRight - labelWidth / 2 - .5),
+      );
+      const labelY = clampTape(
+        terminal.y,
+        labelHeight / 2 + .5,
+        Math.max(labelHeight / 2 + .5, rect.height - 17 - labelHeight / 2),
+      );
+      roundedRectPath(
+        context,
+        labelX - labelWidth / 2,
+        labelY - labelHeight / 2,
+        labelWidth,
+        labelHeight,
+        labelHeight * .28,
+      );
+      context.fillStyle = buy
+        ? `rgba(42, 191, 137, ${openSeries ? .7 : .78})`
+        : `rgba(222, 70, 87, ${openSeries ? .72 : .8})`;
+      context.fill();
+      context.lineWidth = 1;
+      context.strokeStyle = stroke;
+      context.stroke();
+      context.fillStyle = "rgba(244, 250, 248, .99)";
+      context.fillText(label, labelX, labelY + .2);
+      continue;
+    }
 
     if (state.mode === "raw") {
       if (minQuote > 0) {

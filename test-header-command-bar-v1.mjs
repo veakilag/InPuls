@@ -34,12 +34,16 @@ test("clock can float and magnetically return to its dock", () => {
   assert.match(app, /document\.body\.append\(clock\)/);
 });
 
-test("brightness and radar controls live in settings, not the header", () => {
+test("brightness sits between Download and Sound while radar stays in settings", () => {
   const html = read("./index.html");
   const header = html.match(/<header class="topbar">[\s\S]*?<\/header>/)?.[0] ?? "";
   const settings = html.match(/<dialog id="settings-dialog"[\s\S]*?<\/dialog>/)?.[0] ?? "";
-  assert.doesNotMatch(header, /comfort-slider|event-radar-beta-toggle/);
-  assert.match(settings, /comfort-slider/);
+  const download = header.indexOf('id="install-app"');
+  const brightness = header.indexOf('id="comfort-slider"');
+  const sound = header.indexOf('id="sound-toggle"');
+  assert.ok(download >= 0 && brightness > download && sound > brightness);
+  assert.doesNotMatch(header, /event-radar-beta-toggle/);
+  assert.doesNotMatch(settings, /comfort-slider/);
   assert.match(settings, /event-radar-beta-toggle/);
 });
 

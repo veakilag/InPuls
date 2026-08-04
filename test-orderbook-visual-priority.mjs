@@ -70,12 +70,12 @@ test("footprint uses one proportional dominance cell and interval candles", () =
   assert.match(flow, /const alpha = \.58 \+ clusterStrength \* \.4/);
   assert.doesNotMatch(flow, /\$\{dominantSide\} \$\{Math\.round\(dominantShare \* 100\)\}%/);
   assert.doesNotMatch(flow, /columnWidth \* \.25|columnWidth \* \.75|halfWidth/);
-  assert.match(flow, /const highRow = nearestRow\(rows, interval\.highPrice\)/);
-  assert.match(flow, /const lowRow = nearestRow\(rows, interval\.lowPrice\)/);
+  assert.match(flow, /const highRow = nearestRow\(rows, interval\.highPrice, true\)/);
+  assert.match(flow, /const lowRow = nearestRow\(rows, interval\.lowPrice, true\)/);
   assert.match(flow, /const rising = Number\(interval\.closePrice\) >= Number\(interval\.openPrice\)/);
   assert.match(flow, /rising[\s\S]*theme\.bullStroke[\s\S]*theme\.bearStroke/);
-  assert.match(flow, /rising[\s\S]*theme\.bullFill[\s\S]*theme\.bearFill/);
-  assert.match(flow, /const bodyWidth = candleBodyWidth/);
+  assert.match(flow, /state\.context\.fillStyle = theme\.bearFill/);
+  assert.match(flow, /const bodyWidth = Math\.max\(2, Math\.min\(8, candleBodyWidth \* 1\.22\)\)/);
   assert.match(flow, /const columnsLeft = Math\.max\(0, width - columns\.length \* columnWidth\)/);
   assert.doesNotMatch(flow, /moveTo\(centerX, 0\)/);
 });
@@ -129,10 +129,10 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-112-tape-series-v1/);
-  assert.match(app, /orderbook\.js\?v=26-112-tape-series-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-112-tape-series-v1/);
-  assert.match(sw, /app\.js\?v=26-112-tape-series-v1/);
-  assert.match(sw, /orderbook\.js\?v=26-112-tape-series-v1/);
-  assert.match(sw, /orderbook-flow-workspace\.js\?v=26-112-tape-series-v1/);
+  assert.match(index, /26-113-flow-candles-series-header-v1/);
+  assert.match(app, /orderbook\.js\?v=26-113-flow-candles-series-header-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-113-flow-candles-series-header-v1/);
+  assert.match(sw, /app\.js\?v=26-113-flow-candles-series-header-v1/);
+  assert.match(sw, /orderbook\.js\?v=26-113-flow-candles-series-header-v1/);
+  assert.match(sw, /orderbook-flow-workspace\.js\?v=26-113-flow-candles-series-header-v1/);
 });

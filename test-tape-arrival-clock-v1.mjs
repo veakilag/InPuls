@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 // Arrival-time rendering must not overwrite the original execution timestamp.
-import { normalizeFlowTrade } from "./orderbook-flow-workspace.js?v=26-112-tape-series-v1";
+import { normalizeFlowTrade } from "./orderbook-flow-workspace.js?v=26-113-flow-candles-series-header-v1";
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -32,7 +32,7 @@ test("Tape aligns local receipt with the main Binance clock", () => {
 test("footprint column shows total quote above its time", () => {
   const source = read("./orderbook-flow-workspace.js");
   assert.match(source, /formatQuoteVolume\(interval\.quote\)/);
-  assert.match(source, /height - 22/);
-  assert.match(source, /height - 16/);
-  assert.match(source, /height - 5/);
+  assert.match(source, /height - 28/);
+  assert.match(source, /height - 19/);
+  assert.match(source, /height - 6/);
 });
