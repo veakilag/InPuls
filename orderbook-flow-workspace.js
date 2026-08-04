@@ -69,7 +69,11 @@ export function normalizeFlowTrade(trade) {
   const price = Number(trade?.price);
   const quantity = Number(trade?.quantity);
   const quote = Number(trade?.quote ?? price * quantity);
-  const time = Number(trade?.time ?? trade?.tradeTime ?? trade?.eventTime);
+  const executionTime = Number(trade?.time ?? trade?.tradeTime ?? trade?.eventTime);
+  const arrivalTime = Number(trade?.displayTime);
+  const time = Number.isFinite(arrivalTime)
+    ? Math.max(executionTime, arrivalTime)
+    : executionTime;
   if (![price, quantity, quote, time].every(Number.isFinite) || price <= 0 || quantity <= 0 || quote <= 0) {
     return null;
   }
@@ -1442,8 +1446,16 @@ function renderCard(card, state) {
       }
 
       state.context.fillStyle = theme.panel;
-      state.context.fillRect(columnLeft + 1, height - 11, Math.max(0, columnWidth - 2), 11);
+      state.context.fillRect(columnLeft + 1, height - 22, Math.max(0, columnWidth - 2), 22);
       state.context.textAlign = "center";
+      state.context.fillStyle = rgbaHex(theme.text, .94);
+      state.context.font = "800 6.5px Inter, system-ui, sans-serif";
+      state.context.fillText(
+        formatQuoteVolume(interval.quote),
+        labelX,
+        height - 16,
+        Math.max(1, columnWidth - 4),
+      );
       state.context.fillStyle = interval.partial
         ? rgbaHex(theme.green, .96)
         : rgbaHex(theme.muted, .82);
@@ -1452,6 +1464,7 @@ function renderCard(card, state) {
         `${formatIntervalClock(interval.startTime)}${interval.partial ? " · LIVE" : ""}${interval.sessionPartial ? " · P" : ""}`,
         labelX,
         height - 5,
+        Math.max(1, columnWidth - 4),
       );
       state.context.font = "800 7px Inter, system-ui, sans-serif";
     });
