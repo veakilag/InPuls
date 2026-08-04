@@ -8,7 +8,7 @@ import {
   materializeTapeSeries,
   nextTapeMode,
   normalizeTapeMode,
-} from "./orderbook.js?v=26-114-raw-series-execution-candles-v1";
+} from "./orderbook.js?v=26-115-series-visible-fallback-v1";
 
 function trade(id, time, side, price, quote) {
   return {
