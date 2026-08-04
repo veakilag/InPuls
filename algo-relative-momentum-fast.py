@@ -18,20 +18,24 @@ def focused_variant_grid():
         for strength_rank in [0.80, 0.90]:
             for oi_rank in [0.70, 0.85]:
                 for flow_minimum in [0.03, 0.06]:
-                    for volume_rank in [0.50, 0.70]:
-                        for require_btc_alignment in [False, True]:
-                            variants.append(
-                                {
-                                    "horizon": horizon,
-                                    "strengthRank": strength_rank,
-                                    "oiRank": oi_rank,
-                                    "flowMinimum": flow_minimum,
-                                    "volumeRank": volume_rank,
-                                    "requireBtcAlignment": require_btc_alignment,
-                                }
-                            )
+                    for require_btc_alignment in [False, True]:
+                        variants.append(
+                            {
+                                "horizon": horizon,
+                                "strengthRank": strength_rank,
+                                "oiRank": oi_rank,
+                                "flowMinimum": flow_minimum,
+                                "volumeRank": 0.70,
+                                "requireBtcAlignment": require_btc_alignment,
+                            }
+                        )
     return variants
 
 
+research.EXITS = [
+    research.ExitConfig("wide-5r", 1.6, 1.0, 0.0, 1.5, 0.45, 5.0, 48),
+    research.ExitConfig("tail-6r", 1.2, 1.0, 0.05, 2.0, 0.15, 6.0, 96),
+    research.ExitConfig("full-8r", 1.0, 1.5, 0.05, 1.5, 0.0, 8.0, 144),
+]
 research.build_variant_grid = focused_variant_grid
 research.main()
