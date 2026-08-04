@@ -804,10 +804,10 @@ function rowStep(rows) {
   return stableFootprintPriceStep(rows);
 }
 
-function nearestRow(rows, price) {
-  const target = Number(price);
-  const ordered = (rows ?? [])
+export function stableFootprintProjectionRows(rows) {
+  const normalized = (rows ?? [])
     .map((row) => ({
+      ...row,
       index: Number(row?.index),
       price: Number(row?.price),
       y: Number(row?.y),
@@ -815,44 +815,62 @@ function nearestRow(rows, price) {
     }))
     .filter((row) => Number.isFinite(row.price) && Number.isFinite(row.y))
     .sort((left, right) => left.price - right.price);
+  if (normalized.length < 3) return normalized;
+  const step = stableFootprintPriceStep(normalized);
+  if (!Number.isFinite(step) || step <= Number.EPSILON) return normalized;
+
+  let best = [];
+  for (const anchor of normalized) {
+    const aligned = normalized.filter((row) => {
+      const units = (row.price - anchor.price) / step;
+      return Math.abs(units - Math.round(units)) <= .08;
+    });
+    if (aligned.length > best.length) best = aligned;
+  }
+  return best.length >= 2 ? best : normalized;
+}
+
+export function projectFootprintPriceRow(rows, price, clampToViewport = false) {
+  const target = Number(price);
+  const ordered = stableFootprintProjectionRows(rows);
   if (!ordered.length || !Number.isFinite(target)) return null;
   if (ordered.length === 1) {
-    return Math.abs(target - ordered[0].price) <= Number.EPSILON
-      ? { ...ordered[0], price: target }
-      : null;
+    if (!clampToViewport && Math.abs(target - ordered[0].price) > Number.EPSILON) return null;
+    return { ...ordered[0], price: target, clipped: target !== ordered[0].price };
   }
 
-  let step = Infinity;
-  for (let index = 1; index < ordered.length; index += 1) {
-    const gap = ordered[index].price - ordered[index - 1].price;
-    if (gap > Number.EPSILON && gap < step) step = gap;
-  }
+  const step = rowStep(ordered);
   if (!Number.isFinite(step)) return null;
-
   const low = ordered[0];
   const high = ordered.at(-1);
   const tolerance = step * .55 + Number.EPSILON;
-  if (target < low.price - tolerance || target > high.price + tolerance) return null;
+  if (target < low.price - tolerance) {
+    return clampToViewport ? { ...low, price: target, clipped: true } : null;
+  }
+  if (target > high.price + tolerance) {
+    return clampToViewport ? { ...high, price: target, clipped: true } : null;
+  }
 
   const interpolate = (left, right) => {
     const span = right.price - left.price;
     const ratio = Math.abs(span) <= Number.EPSILON ? 0 : (target - left.price) / span;
     return {
-      index: ratio < .5 ? left.index : right.index,
       price: target,
       y: left.y + (right.y - left.y) * ratio,
       height: left.height + (right.height - left.height) * ratio,
+      clipped: false,
     };
   };
-
   if (target <= low.price) return interpolate(low, ordered[1]);
   if (target >= high.price) return interpolate(ordered.at(-2), high);
   for (let index = 1; index < ordered.length; index += 1) {
-    if (target <= ordered[index].price) {
-      return interpolate(ordered[index - 1], ordered[index]);
-    }
+    if (target <= ordered[index].price) return interpolate(ordered[index - 1], ordered[index]);
   }
   return null;
+}
+
+function nearestRow(rows, price, clampToViewport = false) {
+  return projectFootprintPriceRow(rows, price, clampToViewport);
 }
 
 function injectStyles() {
@@ -1442,49 +1460,60 @@ function renderCard(card, state) {
         state.context.font = "800 7px Inter, system-ui, sans-serif";
       }
 
-      const highRow = nearestRow(rows, interval.highPrice);
-      const lowRow = nearestRow(rows, interval.lowPrice);
-      const openRow = nearestRow(rows, interval.openPrice);
-      const closeRow = nearestRow(rows, interval.closePrice);
+      const highRow = nearestRow(rows, interval.highPrice, true);
+      const lowRow = nearestRow(rows, interval.lowPrice, true);
+      const openRow = nearestRow(rows, interval.openPrice, true);
+      const closeRow = nearestRow(rows, interval.closePrice, true);
       if (highRow && lowRow && openRow && closeRow) {
         const rising = Number(interval.closePrice) >= Number(interval.openPrice);
-        state.context.strokeStyle = rising
-          ? theme.bullStroke
-          : theme.bearStroke;
-        state.context.fillStyle = rising
-          ? theme.bullFill
-          : theme.bearFill;
+        const candleTop = 2;
+        const candleBottom = Math.max(candleTop, height - 29);
+        const candleY = (row) => clamp(Number(row.y), candleTop, candleBottom);
+        const highY = candleY(highRow);
+        const lowY = candleY(lowRow);
+        const openY = candleY(openRow);
+        const closeY = candleY(closeRow);
+        const bodyTop = Math.min(openY, closeY);
+        const bodyHeight = Math.max(1.5, Math.abs(closeY - openY));
+        const bodyWidth = Math.max(2, Math.min(8, candleBodyWidth * 1.22));
+        const bodyLeft = candleX - bodyWidth / 2;
+
+        state.context.save();
+        state.context.beginPath();
+        state.context.rect(columnLeft, candleTop, Math.max(1, dataLeft - columnLeft), Math.max(1, candleBottom - candleTop));
+        state.context.clip();
+        state.context.strokeStyle = rising ? theme.bullStroke : theme.bearStroke;
+        // Match the main chart: a dark filled body with directional outline and wick.
+        state.context.fillStyle = theme.bearFill;
         state.context.lineWidth = 1;
         state.context.beginPath();
-        state.context.moveTo(candleX, highRow.y);
-        state.context.lineTo(candleX, lowRow.y);
+        state.context.moveTo(candleX, highY);
+        state.context.lineTo(candleX, lowY);
         state.context.stroke();
-        const bodyTop = Math.min(openRow.y, closeRow.y);
-        const bodyHeight = Math.max(2, Math.abs(closeRow.y - openRow.y));
-        const bodyWidth = candleBodyWidth;
-        state.context.fillRect(candleLeft, bodyTop, bodyWidth, bodyHeight);
-        state.context.strokeRect(candleLeft, bodyTop, bodyWidth, bodyHeight);
+        state.context.fillRect(bodyLeft, bodyTop, bodyWidth, bodyHeight);
+        state.context.strokeRect(bodyLeft, bodyTop, bodyWidth, bodyHeight);
+        state.context.restore();
       }
 
       state.context.fillStyle = theme.panel;
-      state.context.fillRect(columnLeft + 1, height - 22, Math.max(0, columnWidth - 2), 22);
+      state.context.fillRect(columnLeft + 1, height - 28, Math.max(0, columnWidth - 2), 28);
       state.context.textAlign = "center";
-      state.context.fillStyle = rgbaHex(theme.text, .94);
-      state.context.font = "800 6.5px Inter, system-ui, sans-serif";
+      state.context.fillStyle = rgbaHex(theme.text, .97);
+      state.context.font = "800 8.5px Inter, system-ui, sans-serif";
       state.context.fillText(
         formatQuoteVolume(interval.quote),
         labelX,
-        height - 16,
+        height - 19,
         Math.max(1, columnWidth - 4),
       );
       state.context.fillStyle = interval.partial
-        ? rgbaHex(theme.green, .96)
-        : rgbaHex(theme.muted, .82);
-      state.context.font = "700 6.5px Inter, system-ui, sans-serif";
+        ? rgbaHex(theme.green, 1)
+        : rgbaHex(theme.muted, .9);
+      state.context.font = "750 7.5px Inter, system-ui, sans-serif";
       state.context.fillText(
         `${formatIntervalClock(interval.startTime)}${interval.partial ? " · LIVE" : ""}${interval.sessionPartial ? " · P" : ""}`,
         labelX,
-        height - 5,
+        height - 6,
         Math.max(1, columnWidth - 4),
       );
       state.context.font = "800 7px Inter, system-ui, sans-serif";

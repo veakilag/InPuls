@@ -8,7 +8,7 @@ import {
   materializeTapeSeries,
   nextTapeMode,
   normalizeTapeMode,
-} from "./orderbook.js?v=26-112-tape-series-v1";
+} from "./orderbook.js?v=26-113-flow-candles-series-header-v1";
 
 function trade(id, time, side, price, quote) {
   return {
