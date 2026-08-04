@@ -1,0 +1,81 @@
+name: Apply SERIES visible fallback
+
+on:
+  push:
+    branches:
+      - series-visible-fallback-v1
+    paths:
+      - '.github/workflows/apply-series-visible-fallback-v1.yml'
+      - 'tools/series-visible-fallback-v1/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-series-visible-fallback-v1
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out fix branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: series-visible-fallback-v1
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Apply SERIES fallback patch
+        run: python3 tools/series-visible-fallback-v1/apply.py
+
+      - name: Check runtime syntax
+        run: |
+          node --check orderbook.js
+          node --check orderbook-worker.js
+          node --check orderbook-flow-workspace.js
+
+      - name: Run SERIES regression tests
+        run: node --test test-raw-series-execution-candles-v1.mjs test-tape-series-v1.mjs
+
+      - name: Run full tests
+        run: npm test
+
+      - name: Start local static server
+        run: |
+          python3 -m http.server 4173 > /tmp/inpuls-http.log 2>&1 &
+          echo $! > /tmp/inpuls-http.pid
+          for attempt in {1..40}; do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then exit 0; fi
+            sleep 0.25
+          done
+          cat /tmp/inpuls-http.log
+          exit 1
+
+      - name: Local browser startup smoke
+        env:
+          CHROME_BIN: google-chrome
+        run: node scripts/browser-runtime-smoke.mjs "http://127.0.0.1:4173/?smoke=${GITHUB_SHA}"
+
+      - name: Local rescue path smoke
+        env:
+          CHROME_BIN: google-chrome
+        run: node scripts/browser-runtime-smoke.mjs "http://127.0.0.1:4173/rescue-26-94.html?smoke=${GITHUB_SHA}"
+
+      - name: Commit verified runtime
+        shell: bash
+        run: |
+          rm -rf tools/series-visible-fallback-v1
+          rm -f .github/workflows/apply-series-visible-fallback-v1.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Keep Tape SERIES visible during RAW warmup"
+          git push origin HEAD:series-visible-fallback-v1
