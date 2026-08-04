@@ -87,6 +87,17 @@ new_footer = '''      state.context.fillStyle = theme.panel;\n      state.contex
 text = replace_once(text, old_footer, new_footer, "footprint total footer")
 write(path, text)
 
+# Service Worker release inventory must load the same Worker build as the UI.
+path = "sw.js"
+text = read(path)
+text = replace_once(
+    text,
+    f'  "./orderbook-worker.js?v={OLD_WORKER_KEY}",',
+    f'  "./orderbook-worker.js?v={NEW_KEY}",',
+    "Service Worker Worker cache key",
+)
+write(path, text)
+
 # Keep every browser entry point and regression contract on one release key.
 for candidate in (
     list(ROOT.glob("*.js"))
