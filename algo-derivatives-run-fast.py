@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +10,7 @@ SCRIPT = Path(__file__).with_name("algo-derivatives-research.py")
 spec = importlib.util.spec_from_file_location("inpuls_derivatives_research", SCRIPT)
 research = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
+sys.modules[spec.name] = research
 spec.loader.exec_module(research)
 
 _frame_cache: dict[int, dict[str, np.ndarray]] = {}
