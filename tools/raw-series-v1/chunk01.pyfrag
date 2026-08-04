@@ -1,6 +1,7 @@
-radeId = null;\n    this.seriesRawStreak = 0;\n    this.seriesRawHealthy = false;\n    this.seriesReplacePending = true;\n    this.seriesGapCount = 0;\n    this.seriesOutOfOrderCount = 0;\n    this.seriesLastReason = "startup";\n    this.tapeTimer = 0;''',
+"""radeId = null;\n    this.seriesRawStreak = 0;\n    this.seriesRawHealthy = false;\n    this.seriesReplacePending = true;\n    this.seriesGapCount = 0;\n    this.seriesOutOfOrderCount = 0;\n    this.seriesLastReason = "startup";\n    this.tapeTimer = 0;''',
     'worker series constructor',
 )
+"""
 worker = replace_once(
     worker,
     '''  resetTapeGuard() {\n    this.tapeGuard.reset({ lastOutputTradeId: this.aggregationBoundary() });\n  }\n\n  addSubscriber() {''',
