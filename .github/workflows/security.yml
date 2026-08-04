@@ -16,7 +16,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - name: Check out reviewed revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -37,28 +37,6 @@ jobs:
           set -o pipefail
           npm test 2>&1 | tee npm-test.log
 
-      - name: Run temporary live Algo Lab baseline
-        shell: bash
-        run: |
-          set -o pipefail
-          node algo-universe-backtest.mjs \
-            --interval 1m \
-            --days 7 \
-            --inplay-limit 12 \
-            --min-v24 100 \
-            --concurrency 2 > algo-baseline.json
-          node --input-type=module - <<'NODE' | tee algo-baseline-summary.log
-          import { readFile } from 'node:fs/promises';
-          const report = JSON.parse(await readFile('algo-baseline.json', 'utf8'));
-          console.log(JSON.stringify({
-            capturedAt: report.selection.capturedAt,
-            currentInPlaySymbols: report.selection.currentInPlaySymbols,
-            summary: report.summary,
-            top: report.results.slice(0, 10).map(({ symbol, source, test }) => ({ symbol, source, ...test })),
-            failures: report.failures,
-          }, null, 2));
-          NODE
-
       - name: Preserve regression output
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -67,14 +45,3 @@ jobs:
           path: npm-test.log
           if-no-files-found: error
           retention-days: 1
-
-      - name: Preserve live baseline output
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: algo-baseline-${{ github.run_id }}
-          path: |
-            algo-baseline.json
-            algo-baseline-summary.log
-          if-no-files-found: warn
-          retention-days: 7
