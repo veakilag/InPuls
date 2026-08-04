@@ -6,7 +6,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-108-tape-arrival-clock-v1";
+import "./orderbook-flow-workspace.js?v=26-109-tape-main-clock-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1441,7 +1441,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-108-tape-arrival-clock-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-109-tape-main-clock-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -4488,6 +4488,23 @@ export function tapeVisualTime(tradeTime, eventTime, rxLatencyMs) {
     : receivedExchangeTime;
 }
 
+export function tapeDisplayTimeFromReceipt(
+  receivedAt,
+  executionTime,
+  exchangeNow = binanceClock.now(),
+  localNow = Date.now(),
+) {
+  const received = Number(receivedAt);
+  const execution = Number(executionTime);
+  const exchange = Number(exchangeNow);
+  const local = Number(localNow);
+  if ([received, exchange, local].every(Number.isFinite)) {
+    const aligned = received + (exchange - local);
+    return Number.isFinite(execution) ? Math.max(execution, aligned) : aligned;
+  }
+  return Number.isFinite(execution) ? execution : null;
+}
+
 function normalizeTapeTrade(trade) {
   const price = Number(trade?.price);
   const quantity = Number(trade?.quantity);
@@ -4497,10 +4514,7 @@ function normalizeTapeTrade(trade) {
   const eventTime = Number(trade?.eventTime ?? time);
   const receivedAt = Number(trade?.receivedAt);
   const rxLatencyMs = Number(trade?.rxLatencyMs);
-  const suppliedDisplayTime = Number(trade?.displayTime);
-  const displayTime = Number.isFinite(suppliedDisplayTime)
-    ? Math.max(time, suppliedDisplayTime)
-    : tapeVisualTime(time, eventTime, rxLatencyMs);
+  const displayTime = tapeDisplayTimeFromReceipt(receivedAt, time);
   if (![price, quantity, quote, time].every(Number.isFinite) || quote <= 0) return null;
   return {
     id: trade?.id ?? `${time}-${price}-${quantity}`,

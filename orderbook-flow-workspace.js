@@ -50,6 +50,23 @@ function footprintExchangeNow() {
   return Number.isFinite(Number(exchangeNow)) ? Number(exchangeNow) : Date.now();
 }
 
+export function flowDisplayTimeFromReceipt(
+  receivedAt,
+  executionTime,
+  exchangeNow = footprintExchangeNow(),
+  localNow = Date.now(),
+) {
+  const received = Number(receivedAt);
+  const execution = Number(executionTime);
+  const exchange = Number(exchangeNow);
+  const local = Number(localNow);
+  if ([received, exchange, local].every(Number.isFinite)) {
+    const aligned = received + (exchange - local);
+    return Number.isFinite(execution) ? Math.max(execution, aligned) : aligned;
+  }
+  return Number.isFinite(execution) ? execution : null;
+}
+
 export function footprintColumnWidthForWheel(currentWidth, deltaY) {
   const current = clamp(
     Number(currentWidth) || FOOTPRINT_DEFAULT_COLUMN_PX,
@@ -70,10 +87,14 @@ export function normalizeFlowTrade(trade) {
   const quantity = Number(trade?.quantity);
   const quote = Number(trade?.quote ?? price * quantity);
   const executionTime = Number(trade?.time ?? trade?.tradeTime ?? trade?.eventTime);
-  const arrivalTime = Number(trade?.displayTime);
-  const time = Number.isFinite(arrivalTime)
-    ? Math.max(executionTime, arrivalTime)
-    : executionTime;
+  const receivedAt = Number(trade?.receivedAt);
+  const alignedTime = flowDisplayTimeFromReceipt(receivedAt, executionTime);
+  const legacyDisplayTime = Number(trade?.displayTime);
+  const time = Number.isFinite(receivedAt)
+    ? alignedTime
+    : (Number.isFinite(legacyDisplayTime)
+      ? Math.max(executionTime, legacyDisplayTime)
+      : executionTime);
   if (![price, quantity, quote, time].every(Number.isFinite) || price <= 0 || quantity <= 0 || quote <= 0) {
     return null;
   }
