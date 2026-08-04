@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
+// SERIES is a raw execution contract; AGG remains an independent display mode.
 import {
   createFootprintAccumulator,
   footprintIntervalHistory,
