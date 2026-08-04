@@ -54,6 +54,10 @@ test("worker and main keep SERIES on a dedicated raw-only channel", () => {
   const main = read("./orderbook.js");
   assert.match(worker, /ingestSeriesRawTrade\(trade\)/);
   assert.match(worker, /trade\?\.source !== "raw"/);
+  assert.match(worker, /this\.seriesRawHealthy = false/);
+  assert.match(worker, /this\.seriesReplacePending = true/);
+  assert.match(worker, /this\.seriesOutOfOrderCount = 0/);
+  assert.doesNotMatch(worker, /this\.seriesReady = false/);
   assert.match(worker, /seriesReplace/);
   assert.match(worker, /seriesSource: this\.seriesRawHealthy \? "raw" : "warming"/);
   assert.match(main, /const tapeSeriesTradesBySymbol = new Map\(\)/);

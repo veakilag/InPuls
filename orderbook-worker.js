@@ -368,9 +368,10 @@ class SymbolFeed {
     this.seriesWarmup = [];
     this.seriesLastRawTradeId = null;
     this.seriesRawStreak = 0;
+    this.seriesRawHealthy = false;
+    this.seriesReplacePending = true;
     this.seriesGapCount = 0;
-    this.seriesReady = false;
-    this.seriesResetPending = true;
+    this.seriesOutOfOrderCount = 0;
     this.seriesLastReason = "startup";
     this.tapeTimer = 0;
     this.resumeTimer = 0;
