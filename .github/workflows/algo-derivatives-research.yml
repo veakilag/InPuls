@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - algo-derivatives-research.py
+      - algo-derivatives-run-fast.py
       - MARKET_MICROSTRUCTURE_KB.md
       - .github/workflows/algo-derivatives-research.yml
   push:
@@ -11,6 +12,7 @@ on:
       - feature/algo-backtest-v1
     paths:
       - algo-derivatives-research.py
+      - algo-derivatives-run-fast.py
       - MARKET_MICROSTRUCTURE_KB.md
       - .github/workflows/algo-derivatives-research.yml
   workflow_dispatch:
@@ -78,7 +80,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python algo-derivatives-research.py \
+          python algo-derivatives-run-fast.py \
             --data-dir data \
             --symbols BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,LINKUSDT,AVAXUSDT,LTCUSDT \
             --start 2024-01-01 \
