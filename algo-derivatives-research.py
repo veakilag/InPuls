@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse,json,math
+import argparse,json,math,sys
 from dataclasses import dataclass,asdict
 from pathlib import Path
 import numpy as np,pandas as pd
@@ -67,7 +67,9 @@ def events(p):
  emit((p.funding_z<-1.5)&(p.premium_z<-1)&(p.m12<-.8)&(p.flow3>0)&(p.cl>.55),'funding-exhaustion',1);emit((p.funding_z>1.5)&(p.premium_z>1)&(p.m12>.8)&(p.flow3<0)&(p.cl<.45),'funding-exhaustion',-1)
  emit((p.r12_rank>.75)&(p.oi12_rank>.55)&(p.flow3>.03)&(p.btc_macro>-.001),'relative-momentum',1);emit((p.r12_rank<.25)&(p.oi12_rank>.55)&(p.flow3<-.03)&(p.btc_macro<.001),'relative-momentum',-1)
  emit((p.flow12<-.08)&(p.m12>-.35)&(p.cl>.6)&(p.oi3<=.002),'flow-absorption',1);emit((p.flow12>.08)&(p.m12<.35)&(p.cl<.4)&(p.oi3<=.002),'flow-absorption',-1)
- e=pd.concat(out,ignore_index=True).drop_duplicates(['symbol','time','family','side']);s=e.side.astype(float)
+ e=pd.concat(out,ignore_index=True).drop_duplicates(['symbol','time','family','side'])
+ e=e.sort_values(['symbol','family','side','bar']);gap=e.groupby(['symbol','family','side']).bar.diff();e=e[gap.isna()|(gap>3)].copy()
+ s=e.side.astype(float)
  for src,n in [('m1','d_m1'),('m3','d_m3'),('m12','d_m12'),('m48','d_m48'),('flow','d_flow'),('flow3','d_flow3'),('flow12','d_flow12'),('ema','d_ema'),('macro','d_macro'),('btc_r12','d_btc12'),('btc_r48','d_btc48'),('rel12','d_rel12'),('rel48','d_rel48')]:e[n]=s*e[src]
  e['crowd']=-s*e.crowd_z;e['top_crowd']=-s*e.top_z;e['position_crowd']=-s*e.pos_z;e['funding_crowd']=-s*e.funding_z;e['premium_crowd']=-s*e.premium_z;e['direction_rank']=np.where(s>0,e.r12_rank,1-e.r12_rank);e['oi_rank']=e.oi12_rank;e['flow_rank']=np.where(s>0,e.flow3_rank,1-e.flow3_rank);e['liquidity_rank']=e.q24_rank;e['close_strength']=np.where(s>0,e.cl,1-e.cl);return e.replace([np.inf,-np.inf],np.nan).sort_values(['time','symbol','family']).reset_index(drop=True)
 
@@ -123,7 +125,9 @@ def main():
  p=panelize(fs);fs={s:g.sort_values('time').reset_index(drop=True) for s,g in p.groupby('symbol')}
  for g in fs.values():g['bar']=np.arange(len(g))
  e=events(pd.concat(fs.values(),ignore_index=True));fee=.0005;slip=.0002;cands=[]
+ print(json.dumps({'loadedSymbols':sorted(fs),'candidateEpisodes':len(e),'families':e.family.value_counts().to_dict()}),file=sys.stderr,flush=True)
  for ex in EXITS:
+  print(f'simulating {ex.name}',file=sys.stderr,flush=True)
   o=simulate(e,fs,ex,fee,slip);tr=o[(o.time<te-emb)&(o.exit_time<te)];va=o[(o.time>=te+emb)&(o.time<ve-emb)&(o.exit_time<ve)];ho=o[(o.time>=ve+emb)&(o.time<he)]
   if len(tr)<500 or len(va)<80 or len(ho)<40 or tr.win.nunique()<2:continue
   xt,fams=matrix(tr);xv,_=matrix(va,fams);xh,_=matrix(ho,fams);w=1+np.minimum(np.abs(tr.net_r.to_numpy()),5);cl=HistGradientBoostingClassifier(max_iter=160,learning_rate=.05,max_leaf_nodes=15,min_samples_leaf=35,l2_regularization=1,random_state=42);rg=HistGradientBoostingRegressor(max_iter=160,learning_rate=.05,max_leaf_nodes=15,min_samples_leaf=35,l2_regularization=1,random_state=42);cl.fit(xt,tr.win,sample_weight=w);rg.fit(xt,tr.net_r.clip(-5,6),sample_weight=w)
