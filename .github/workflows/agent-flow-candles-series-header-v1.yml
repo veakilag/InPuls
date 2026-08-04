@@ -31,6 +31,23 @@ jobs:
         with:
           node-version: 24
 
+      - name: Fix patcher boundary
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tools/apply-flow-candles-series-header-v1.py')
+          text = path.read_text(encoding='utf-8')
+          old = 'orderbook = replace_js_function(orderbook, "aggregateTapeSeries", new_series)'
+          new = '''series_start = orderbook.find("export function aggregateTapeSeries(")
+          series_end = orderbook.find("\\nexport function materializeZeroMsAggregates", series_start)
+          if series_start < 0 or series_end < 0:
+              raise SystemExit("aggregateTapeSeries boundaries not found")
+          orderbook = orderbook[:series_start] + new_series.rstrip() + orderbook[series_end:]'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one aggregate replacement call, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
       - name: Apply focused patch
         run: python tools/apply-flow-candles-series-header-v1.py
 
