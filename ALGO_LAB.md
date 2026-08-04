@@ -42,13 +42,17 @@ Then open:
 http://127.0.0.1:4173/owner-algo-lab.html
 ```
 
-The first practical baseline run should use:
+## First baseline run
+
+Use:
 
 - interval: `1m`;
 - history: `7 days`;
 - current InPuls INPLAY rules;
 - up to `12` INPLAY symbols;
 - concurrency: `2`.
+
+This first run answers only whether the infrastructure and deliberately simple baseline produce a usable sample. It does not decide whether the eventual bot is profitable.
 
 ## Research sequence
 
