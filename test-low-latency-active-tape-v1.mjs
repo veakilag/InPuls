@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
+// The selected symbol gets a fast path; background feeds keep protective batching.
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 
 test("priority Worker Tape uses a 4 ms micro-batch", () => {
