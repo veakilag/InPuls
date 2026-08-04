@@ -43,7 +43,7 @@ test("cross-context timing uses epoch timestamps and source kind", () => {
   assert.match(worker, /sourceClockOffsetMs/);
   assert.match(worker, /sourceEventTimeMs/);
   assert.match(worker, /sourceKind: this\.lastDepthEventTime \? "live-depth" : "snapshot-depth"/);
-  assert.match(worker, /sourceKind: "live-trade-dual"/);
+  assert.match(worker, /sourceKind: "live-trade-triple"/);
   assert.doesNotMatch(worker, /sentAt: performance\.now\(\)/);
 });
 
