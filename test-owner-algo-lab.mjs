@@ -12,6 +12,11 @@ test("Owner Algo Lab is isolated from public navigation and service worker", asy
   ]);
   assert.match(html, /noindex,nofollow,noarchive,nosnippet/);
   assert.match(html, /name="referrer" content="no-referrer"/);
+  assert.match(html, /http-equiv="Content-Security-Policy"/);
+  assert.match(html, /default-src 'self'/);
+  assert.match(html, /object-src 'none'/);
+  assert.match(html, /script-src 'self'/);
+  assert.match(html, /connect-src 'self' https:\/\/fapi\.binance\.com/);
   assert.match(html, /owner-algo-lab\.js\?v=algo-lab-v1/);
   assert.doesNotMatch(html, /<script>(?:.|\n)*<\/script>/);
   assert.doesNotMatch(index, /owner-algo-lab/);
