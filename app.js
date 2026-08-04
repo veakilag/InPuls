@@ -9,7 +9,7 @@ import {
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=26-65-structured-signal-collection-v1";
 import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-102-tape-live-edge-minute-boundary-v1";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-109-tape-main-clock-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-110-low-latency-active-tape-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";

@@ -23,6 +23,7 @@ const IDLE_CLOSE_MS = 10_000;
 const TRADE_FIRST_MESSAGE_TIMEOUT_MS = 8_000;
 const MAX_TAPE_BATCH_PER_POST = 500;
 const MAX_PENDING_TAPE_TRADES = 800;
+const PRIORITY_TAPE_FLUSH_MS = 4;
 const TAPE_FLUSH_MS = 25;
 const ACTIVE_SOURCE_LAG_MS = 4_000;
 const TRADE_ACTIVE_STALE_MS = 30_000;
@@ -1535,9 +1536,18 @@ class SymbolFeed {
     return true;
   }
 
+  tapeFlushDelayMs() {
+    return this.priorityRank() === 0
+      ? PRIORITY_TAPE_FLUSH_MS
+      : TAPE_FLUSH_MS;
+  }
+
   scheduleTapeFlush() {
     if (!this.tapeTimer) {
-      this.tapeTimer = setTimeout(() => this.flushTapeBatch(), TAPE_FLUSH_MS);
+      this.tapeTimer = setTimeout(
+        () => this.flushTapeBatch(),
+        this.tapeFlushDelayMs(),
+      );
     }
   }
 
