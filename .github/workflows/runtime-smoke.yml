@@ -45,12 +45,7 @@ jobs:
 
       - name: Run targeted raw series tests
         shell: bash
-        run: |
-          set +e
-          node --test test-raw-series-execution-candles-v1.mjs > /tmp/raw-series-test.log 2>&1
-          status=$?
-          cat /tmp/raw-series-test.log
-          exit $status
+        run: node --test test-raw-series-execution-candles-v1.mjs
 
       - name: Run full tests
         shell: bash
@@ -58,7 +53,12 @@ jobs:
           set +e
           npm test > /tmp/npm-test.log 2>&1
           status=$?
-          tail -n 400 /tmp/npm-test.log
+          if [ "$status" -ne 0 ]; then
+            echo "===== FAILURES ====="
+            grep -n -B 8 -A 35 '^not ok' /tmp/npm-test.log || true
+            echo "===== SUMMARY ====="
+            tail -n 20 /tmp/npm-test.log
+          fi
           exit $status
 
       - name: Start local static server
