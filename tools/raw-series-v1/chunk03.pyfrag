@@ -1,0 +1,59 @@
+\n    ? aggregateTapeSeries(seriesStored)\n    : [];''',
+    'main separate series render source',
+)
+order = replace_once(
+    order,
+    '''  context.strokeStyle = stroke;\n  context.lineWidth = openSeries ? 1.65 : 1.2;\n  context.lineJoin = "round";\n  context.lineCap = "square";\n  context.globalAlpha = openSeries ? .98 : .82;''',
+    '''  context.strokeStyle = stroke;\n  context.lineWidth = openSeries ? 3.2 : 2.35;\n  context.lineJoin = "round";\n  context.lineCap = "square";\n  context.globalAlpha = openSeries ? 1 : .94;\n  context.shadowColor = stroke;\n  context.shadowBlur = openSeries ? 7 : 4;''',
+    'series bold ladder',
+)
+order = replace_once(
+    order,
+    '''  context.arc(terminal.x, terminal.y, openSeries ? 2.4 : 1.8, 0, Math.PI * 2);''',
+    '''  context.arc(terminal.x, terminal.y, openSeries ? 3.6 : 2.8, 0, Math.PI * 2);''',
+    'series terminal size',
+)
+order = replace_once(
+    order,
+    '''  const stored = tapeTradesBySymbol.get(symbol) ?? [];\n  const aggregationStored = tapeAggregationTradesBySymbol.get(symbol) ?? [];\n  if (!stored.length && !aggregationStored.length) {''',
+    '''  const stored = tapeTradesBySymbol.get(symbol) ?? [];\n  const aggregationStored = tapeAggregationTradesBySymbol.get(symbol) ?? [];\n  const seriesStored = tapeSeriesTradesBySymbol.get(symbol) ?? [];\n  if (!stored.length && !aggregationStored.length && !seriesStored.length) {''',
+    'draw series store',
+)
+order = replace_once(
+    order,
+    '''  state.aggregationSource = meta.aggregationSource === "raw" ? "raw" : "agg";\n  syncTapeModeButton(state.controls?.querySelector("[data-inpuls-tape-mode]"), state);''',
+    '''  state.aggregationSource = meta.aggregationSource === "raw" ? "raw" : "agg";\n  state.seriesSource = meta.seriesSource === "raw" ? "raw" : "warming";\n  state.seriesHealth = meta.seriesHealth ?? null;\n  syncTapeModeButton(state.controls?.querySelector("[data-inpuls-tape-mode]"), state);''',
+    'draw series meta',
+)
+order = replace_once(
+    order,
+    '''    || Number(aggregationStored[0]?.time)\n    || exchangeNow;''',
+    '''    || Number(aggregationStored[0]?.time)\n    || Number(seriesStored[0]?.time)\n    || exchangeNow;''',
+    'draw latest series time',
+)
+order = replace_once(
+    order,
+    '''  refreshTapeRenderModel(state, symbol, stored, aggregationStored);''',
+    '''  refreshTapeRenderModel(state, symbol, stored, aggregationStored, seriesStored);''',
+    'draw refresh series source',
+)
+order = replace_once(
+    order,
+    '''        : state.mode === "series"\n          ? "Жду агрессивную серию…"\n          : "Жду сделку…",''',
+    '''        : state.mode === "series"\n          ? (state.seriesSource === "raw"\n            ? "Жду агрессивную серию…"\n            : "СЕРИЯ · проверяем непрерывный @trade RAW…")\n          : "Жду сделку…",''',
+    'series waiting status',
+)
+order = replace_once(
+    order,
+    '''      const label = formatTapeUsd(item.quote);\n      const labelHeight = clampTape(8 + strength * 5, 8, 14);\n      const measured = context.measureText(label).width;''',
+    '''      const label = formatTapeUsd(item.quote);\n      context.font = "900 9px Inter, system-ui, sans-serif";\n      const labelHeight = clampTape(10 + strength * 6, 10, 17);\n      const measured = context.measureText(label).width;''',
+    'series label size',
+)
+order = replace_once(
+    order,
+    '''      context.fillStyle = buy\n        ? `rgba(42, 191, 137, ${openSeries ? .7 : .78})`\n        : `rgba(222, 70, 87, ${openSeries ? .72 : .8})`;\n      context.fill();\n      context.lineWidth = 1;''',
+    '''      context.fillStyle = buy\n        ? `rgba(42, 191, 137, ${openSeries ? .84 : .9})`\n        : `rgba(222, 70, 87, ${openSeries ? .86 : .92})`;\n      context.fill();\n      context.lineWidth = 1.4;''',
+    'series label contrast',
+)
+
+new_drain = '''function drainTapeIngest() {\n  tapeIngestFrame = 0;\n  const frameStartedAt = performance.now();\n  let budget = TAPE_INGEST_PER_FRAME;\n  const cardCount = Math.max(1, document.querySelectorAll(".orderbook-card").length);\n  if (cardCount >= 6) budget = 120;\n  else if (cardCount >= 3) budget = 170;\n  const pendingEntries = [...tapePendingBySymbol.entries()];\n  const liveShare = Math.max(1, Math.floor(budget / Math.max(1, pendingEntries.length)));\n  let processedSymbols = 0;\n  let processedTrades = 0;\n\n  for (const [symbol, pending] of pendingEntries) {\n    if (budget <= 0) break;\n    const allowance = pending.resume\n      ? TAPE_RESUME_MAX_PENDING\n      : Math.min(budget, liveShare);\n    let primaryTake = Math.min(pending.trades.length, Math.ceil(allowance / 3));\n    let aggregationTake = Math.min(\n      pending.aggregationTrades.length,\n      Math.ceil(Math.max(0, allowance - primaryTake) / 2),\n    );\n    let seriesTake = Math.min(\n      pending.seriesTrades.length,\n      Math.max(0, allowance - primaryTake - aggregationTake),\n    );\n    let unused = allowance - primaryTake - aggregationTake - seriesTake;\n    for (const channel of ["trades", "aggregationTrades", "seriesTrades"]) {\n      if (unused <= 0) break;\n      const current = channel === "trades"\n        ? primaryTake\n        : channel === "aggregationTrades"\n          ? aggregationTake\n          : seriesTake;\n      const extra = Math.min(unused, pending[channel].length - current);\n      if (channel === "trades") primaryTake += extra;\n      else if (channel === "aggregationTrades") aggregationTake += extra;\n      else seriesTake += extra;\n      unused -= extra;\n    }\n\n    const primaryChunk = pending.trades.splice(0, primaryTake);\n    const aggregationChunk = pending.aggregationTrades.splice(0, aggregationTake);\n    const seriesChunk = pending.seriesTrades.splice(0, seriesTake);\n    const changed = pending.replace\n      || pending.seriesReplace\n      || primaryChunk.length\n      || aggregationChunk.length\n      || seriesChunk.length;\n    if (!changed) {\n      tapePendingBySymbol.delete(symbol);\n      continue;\n    }\n\n    processedSymbols += 1;\n    processedTrades += primaryChunk.length + aggregationChunk.length + seriesChunk.length;\n    tapeTradesBySymbol.set(\n      symbol,\n      mergeTapeHistory(tapeTradesBySymbol.get(symbol) ?? [], primaryChunk, pending.replace),\n    );\n    tapeAggregationTradesBySymbol.set(\n      symbol,\n      mergeTapeHistory(tapeAggregationTradesBySymbol.get(symbol) ?? [], aggregationChunk, pending.replace),\n    );\n    tapeSeriesTradesBySymbol.set(\n      symbol,\n      mergeTapeHistory(\n        tapeSeriesTradesBySymbol.get(symbol) ?? [],\n        seriesChunk,\n        pending.replace || pending.seriesReplace,\n      ),\n    );\n    tapeDataVersionBySymbol.set(\n      symbol,\n      (Number(tapeDataVersionBySymbol.get(symbol)) || 0) + 1,\n    );\n    pending.replace = false;\n    pending.seriesReplace = false;\n    if (pending.resume) {\n      pending.resume = false;\n      b
