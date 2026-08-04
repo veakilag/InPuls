@@ -14,10 +14,13 @@ function tapePainter() {
   return orderbook.slice(start, end);
 }
 
-test("Tape keeps RAW default and AGG explicit", () => {
-  assert.match(orderbook, /mode: localStorage\.getItem\(TAPE_MODE_KEY\) === "agg" \? "agg" : "raw"/);
-  assert.match(orderbook, /button\.textContent = aggregated/);
+test("Tape cycles RAW, AGG and SERIES while keeping RAW default", () => {
+  assert.match(orderbook, /TAPE_MODES = Object\.freeze\(\["raw", "agg", "series"\]\)/);
+  assert.match(orderbook, /mode: normalizeTapeMode\(localStorage\.getItem\(TAPE_MODE_KEY\)\)/);
+  assert.match(orderbook, /state\.mode = nextTapeMode\(state\.mode\)/);
+  assert.match(orderbook, /button\.textContent = mode === "series" \? "СЕРИЯ" : mode\.toUpperCase\(\)/);
   assert.match(orderbook, /TAPE_AGGREGATION_PERIOD_MS = 0/);
+  assert.match(orderbook, /TAPE_SERIES_MAX_GAP_MS = 500/);
   assert.doesNotMatch(orderbook, /TAPE_AGGREGATION_LEVELS|data-inpuls-agg-step/);
 });
 
@@ -48,16 +51,16 @@ test("water renderer owns stable event geometry", () => {
 
 test("Flow Workspace cache and reset page point to water runtime", () => {
   assert.match(orderbook, /inpuls-orderbook-runtime-26-91-runtime-boot-cache-feed-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-111-header-command-bar-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-112-tape-series-v1/);
   assert.match(serviceWorker, /inpuls-26-91-runtime-boot-cache-feed-v1/);
-  assert.match(serviceWorker, /app\.js\?v=26-111-header-command-bar-v1/);
-  assert.match(serviceWorker, /canvas-comfort-preview\.js\?v=26-111-header-command-bar-v1/);
-  assert.match(serviceWorker, /orderbook\.js\?v=26-111-header-command-bar-v1/);
+  assert.match(serviceWorker, /app\.js\?v=26-112-tape-series-v1/);
+  assert.match(serviceWorker, /canvas-comfort-preview\.js\?v=26-112-tape-series-v1/);
+  assert.match(serviceWorker, /orderbook\.js\?v=26-112-tape-series-v1/);
   assert.match(serviceWorker, /render-scheduler\.js\?v=render-scheduler-v1/);
-  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-111-header-command-bar-v1/);
+  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-112-tape-series-v1/);
   assert.match(serviceWorker, /orderbook-tape-layout\.js\?v=stable-tape-v4/);
   assert.match(serviceWorker, /orderbook-tape-latency\.js\?v=worker-bp-v1/);
-  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-111-header-command-bar-v1/);
+  assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-112-tape-series-v1/);
   assert.match(resetPage, /Resume v2/);
   assert.match(resetPage, /reset\.js\?v=26-91-runtime-boot-cache-feed-v1/);
   assert.match(resetScript, /sw\.js\?v=\$\{BUILD\}/);

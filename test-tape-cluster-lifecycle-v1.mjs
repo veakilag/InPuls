@@ -75,9 +75,10 @@ test("first cluster candle is aligned but explicitly marked session-partial", ()
   assert.equal(history.at(-1).sessionPartial, true);
 });
 
-test("runtime ships zero-ms RAW/AGG control, synchronized canvas and density age toggle", () => {
+test("runtime ships RAW, zero-ms AGG, SERIES, synchronized canvas and density age toggle", () => {
   assert.match(runtime, /desynchronized: false/);
-  assert.match(runtime, /button\.textContent = aggregated \? "AGG" : "RAW"/);
+  assert.match(runtime, /TAPE_MODES = Object\.freeze\(\["raw", "agg", "series"\]\)/);
+  assert.match(runtime, /button\.textContent = mode === "series" \? "СЕРИЯ" : mode\.toUpperCase\(\)/);
   assert.doesNotMatch(runtime, /data-inpuls-agg-step|TAPE_AGGREGATION_LEVELS/);
   assert.match(runtime, /data-inpuls-density-age/);
   assert.match(runtime, /densityLifecycle\?\.densities/);

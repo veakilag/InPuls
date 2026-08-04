@@ -6,7 +6,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-111-header-command-bar-v1";
+import "./orderbook-flow-workspace.js?v=26-112-tape-series-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1441,7 +1441,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-111-header-command-bar-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-112-tape-series-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1888,6 +1888,18 @@ const TAPE_TIME_SCALE_MAX = 300;
 const TAPE_TIME_SCALE_DEFAULT = 100;
 const DENSITY_AGE_VISIBLE_KEY = "inpuls-density-age-visible-v1";
 export const TAPE_AGGREGATION_PERIOD_MS = 0;
+export const TAPE_SERIES_MAX_GAP_MS = 500;
+export const TAPE_MODES = Object.freeze(["raw", "agg", "series"]);
+
+export function normalizeTapeMode(value) {
+  const mode = String(value ?? "").toLowerCase();
+  return TAPE_MODES.includes(mode) ? mode : "raw";
+}
+
+export function nextTapeMode(value) {
+  const mode = normalizeTapeMode(value);
+  return TAPE_MODES[(TAPE_MODES.indexOf(mode) + 1) % TAPE_MODES.length];
+}
 const TAPE_VISIBLE_KEY = "inpuls-tape-visible-v1";
 const CLUSTERS_VISIBLE_KEY = "inpuls-clusters-visible-v1";
 
@@ -2162,7 +2174,7 @@ function installOrderBookStyles() {
     }
     .orderbook-card .inpuls-tape-mode {
       margin-left: auto;
-      min-width: 42px;
+      min-width: 58px;
       height: 22px;
       padding-inline: 7px;
       font-weight: 800;
@@ -2172,6 +2184,11 @@ function installOrderBookStyles() {
       color: #42e1ad;
       border-color: rgba(66, 225, 173, .48);
       background: rgba(66, 225, 173, .09);
+    }
+    .orderbook-card .inpuls-tape-mode[data-mode="series"] {
+      color: #d8b3ff;
+      border-color: rgba(170, 134, 255, .52);
+      background: rgba(170, 134, 255, .11);
     }
     .orderbook-card .inpuls-agg-step {
       width: 22px;
@@ -2707,15 +2724,22 @@ function handleRuntimeSplitter(event) {
 }
 
 function syncTapeModeButton(button, state) {
-  const aggregated = state.mode === "agg";
-  button.textContent = aggregated ? "AGG" : "RAW";
-  button.classList.toggle("is-active", aggregated);
-  button.setAttribute("aria-pressed", String(aggregated));
+  if (!button) return;
+  const mode = normalizeTapeMode(state.mode);
   const source = state.aggregationSource === "raw" ? "@trade RAW" : "@aggTrade fallback";
+  button.textContent = mode === "series" ? "СЕРИЯ" : mode.toUpperCase();
+  button.dataset.mode = mode;
   button.dataset.aggregationSource = state.aggregationSource === "raw" ? "raw" : "agg";
-  button.title = aggregated
-    ? `AGG 0 мс · ${source}: объединяются последовательные исполнения с одинаковым биржевым временем и направлением. Текущий агрегат появляется сразу; история не пересчитывается.`
-    : "Каждое исполнение отображается отдельно по стабильному @aggTrade-потоку";
+  button.classList.toggle("is-active", mode !== "raw");
+  button.setAttribute("aria-pressed", String(mode !== "raw"));
+  button.setAttribute("aria-label", `Режим ленты ${button.textContent}. Нажмите для переключения.`);
+  if (mode === "series") {
+    button.title = `СЕРИЯ ≤${TAPE_SERIES_MAX_GAP_MS} мс · ${source}: сделки одного агрессора суммируются до встречной сделки. Пауза больше ${TAPE_SERIES_MAX_GAP_MS} мс начинает новую серию.`;
+  } else if (mode === "agg") {
+    button.title = `AGG 0 мс · ${source}: объединяются последовательные исполнения с одинаковым биржевым временем и направлением. Текущий агрегат появляется сразу; история не пересчитывается.`;
+  } else {
+    button.title = "RAW: каждое исполнение отображается отдельно по стабильному @aggTrade-потоку";
+  }
 }
 
 function formatObservedAge(value) {
@@ -2824,7 +2848,7 @@ function ensureTapeUi(card) {
     state = {
       canvas: null,
       context: null,
-      mode: localStorage.getItem(TAPE_MODE_KEY) === "agg" ? "agg" : "raw",
+      mode: normalizeTapeMode(localStorage.getItem(TAPE_MODE_KEY)),
       densityAgeVisible: localStorage.getItem(DENSITY_AGE_VISIBLE_KEY) === "1",
       densityAgeDecorated: false,
       minQuote: savedMinimum === null ? 0 : Math.max(0, Number(savedMinimum) || 0),
@@ -2863,9 +2887,13 @@ function ensureTapeUi(card) {
       rawRenderNodes: [],
       aggSourceBuckets: [],
       aggSnapshots: new Map(),
+      seriesSourceBuckets: [],
+      seriesSnapshots: new Map(),
       recentRawScratch: [],
       finalizedAggScratch: [],
       closedAggScratch: [],
+      finalizedSeriesScratch: [],
+      closedSeriesScratch: [],
       candidateScratch: [],
       pathProjectionScratch: [],
       markerProjectionScratch: [],
@@ -2918,7 +2946,7 @@ function ensureTapeUi(card) {
     const controls = document.createElement("div");
     controls.className = "inpuls-tape-controls";
     controls.innerHTML = `
-      <label class="inpuls-tape-filter" title="Показывать маркеры RAW/AGG не меньше указанного объёма. Линия строится по всем сделкам.">
+      <label class="inpuls-tape-filter" title="Показывать маркеры RAW/AGG/СЕРИЯ не меньше указанного объёма. Линия строится по всем сделкам.">
         <span>ОТ $</span>
         <input data-inpuls-trade-min type="number" min="0" step="100" value="${state.minQuote}" aria-label="Минимальный объём отображаемой сделки или агрегата" />
       </label>
@@ -2953,7 +2981,7 @@ function ensureTapeUi(card) {
     timeScaleInput.addEventListener("input", syncTimeScale);
     timeScaleInput.addEventListener("change", syncTimeScale);
     modeButton.addEventListener("click", () => {
-      state.mode = state.mode === "agg" ? "raw" : "agg";
+      state.mode = nextTapeMode(state.mode);
       localStorage.setItem(TAPE_MODE_KEY, state.mode);
       syncTapeModeButton(modeButton, state);
       scheduleTapeDraw(true, card);
@@ -3086,7 +3114,9 @@ function ensureTapeUi(card) {
           state.rawNodeByKey?.clear?.();
           state.rawRenderNodes = [];
           state.aggSourceBuckets = [];
-            state.aggSnapshots?.clear?.();
+          state.seriesSourceBuckets = [];
+          state.aggSnapshots?.clear?.();
+          state.seriesSnapshots?.clear?.();
           scheduleTapeDraw(true, card);
         }
       });
@@ -3719,6 +3749,104 @@ export function aggregateTapeZeroMs(trades) {
   return groups;
 }
 
+export function aggregateTapeSeries(trades, maximumGapMs = TAPE_SERIES_MAX_GAP_MS) {
+  const gapLimit = Math.max(20, Number(maximumGapMs) || TAPE_SERIES_MAX_GAP_MS);
+  const ordered = [...(trades ?? [])]
+    .filter((trade) => {
+      const executionTime = Number(trade?.tradeTime ?? trade?.eventTime ?? trade?.time);
+      const displayTime = Number(trade?.displayTime ?? trade?.time);
+      const price = Number(trade?.price);
+      const quote = Number(trade?.quote);
+      return [executionTime, displayTime, price, quote].every(Number.isFinite) && quote > 0;
+    })
+    .sort((left, right) => {
+      const leftTime = Number(left.tradeTime ?? left.eventTime ?? left.time);
+      const rightTime = Number(right.tradeTime ?? right.eventTime ?? right.time);
+      const timeDelta = leftTime - rightTime;
+      if (timeDelta) return timeDelta;
+      const leftId = Number(left.id);
+      const rightId = Number(right.id);
+      if (Number.isFinite(leftId) && Number.isFinite(rightId) && leftId !== rightId) {
+        return leftId - rightId;
+      }
+      return String(left.id).localeCompare(String(right.id));
+    });
+
+  const groups = [];
+  const ordinalByTime = new Map();
+  let current = null;
+
+  const finish = () => {
+    if (!current) return;
+    current.vwapPrice = current.quantity > 0
+      ? current.quote / current.quantity
+      : current.firstPrice;
+    current.price = (current.minPrice + current.maxPrice) / 2;
+    current.lastTime = current.time;
+    current.durationMs = Math.max(0, current.lastEventTime - current.firstEventTime);
+    current.bucketStart = current.firstEventTime;
+    current.bucketEnd = current.lastEventTime;
+    current.bucketMs = gapLimit;
+    const ordinal = ordinalByTime.get(current.time) ?? 0;
+    current.timeOrdinal = ordinal;
+    ordinalByTime.set(current.time, ordinal + 1);
+    groups.push(current);
+    current = null;
+  };
+
+  for (const trade of ordered) {
+    const executionTime = Number(trade.tradeTime ?? trade.eventTime ?? trade.time);
+    const displayTime = Number(trade.displayTime ?? trade.time);
+    const side = trade.side === "sell" ? "sell" : "buy";
+    const price = Number(trade.price);
+    const quote = Number(trade.quote);
+    const quantity = Number.isFinite(Number(trade.quantity)) && Number(trade.quantity) > 0
+      ? Number(trade.quantity)
+      : quote / price;
+    const continues = current
+      && current.side === side
+      && executionTime - current.lastEventTime <= gapLimit;
+
+    if (!continues) {
+      finish();
+      current = {
+        key: `series:${executionTime}:${side}:${tapeTradeKey(trade)}`,
+        time: displayTime,
+        lastTime: displayTime,
+        eventTime: executionTime,
+        firstEventTime: executionTime,
+        lastEventTime: executionTime,
+        side,
+        firstPrice: price,
+        lastPrice: price,
+        minPrice: price,
+        maxPrice: price,
+        price,
+        vwapPrice: price,
+        quantity: 0,
+        quote: 0,
+        buyQuote: 0,
+        sellQuote: 0,
+        count: 0,
+      };
+    }
+
+    current.time = Math.max(Number(current.time) || displayTime, displayTime);
+    current.lastTime = current.time;
+    current.lastEventTime = executionTime;
+    current.lastPrice = price;
+    current.minPrice = Math.min(current.minPrice, price);
+    current.maxPrice = Math.max(current.maxPrice, price);
+    current.quantity += quantity;
+    current.quote += quote;
+    current[side === "sell" ? "sellQuote" : "buyQuote"] += quote;
+    current.count += 1;
+  }
+
+  finish();
+  return groups;
+}
+
 export function materializeZeroMsAggregates(state, groups, output = []) {
   if (!(state.aggSnapshots instanceof Map)) state.aggSnapshots = new Map();
   output.length = 0;
@@ -3750,6 +3878,67 @@ export function materializeZeroMsAggregates(state, groups, output = []) {
 
   while (state.aggSnapshots.size > 1_800) {
     state.aggSnapshots.delete(state.aggSnapshots.keys().next().value);
+  }
+  return output;
+}
+
+export function materializeTapeSeries(
+  state,
+  groups,
+  output = [],
+  now = binanceClock.now(),
+  maximumGapMs = TAPE_SERIES_MAX_GAP_MS,
+) {
+  if (!(state.seriesSnapshots instanceof Map)) state.seriesSnapshots = new Map();
+  output.length = 0;
+  const gapLimit = Math.max(20, Number(maximumGapMs) || TAPE_SERIES_MAX_GAP_MS);
+  const currentTime = Number(now);
+  const lastIndex = Math.max(-1, (groups?.length ?? 0) - 1);
+
+  for (let index = 0; index <= lastIndex; index += 1) {
+    const group = groups[index];
+    const isLast = index === lastIndex;
+    const timedOut = isLast
+      && Number.isFinite(currentTime)
+      && currentTime - Number(group.time) > gapLimit;
+    const showLabel = Number(group.count) > 1 || stableTapeQuoteStrength(group.quote) >= .62;
+
+    if (isLast && !timedOut) {
+      output.push(Object.freeze({
+        ...group,
+        status: "open",
+        showLabel,
+      }));
+      continue;
+    }
+
+    if (isLast) {
+      // A silence timeout closes the visual series, but it is not cached yet.
+      // A delayed packet can still complete it before a following series exists.
+      output.push(Object.freeze({
+        ...group,
+        status: "sealed",
+        sealedAt: Number(group.time) + gapLimit,
+        showLabel,
+      }));
+      continue;
+    }
+
+    let snapshot = state.seriesSnapshots.get(group.key);
+    if (!snapshot) {
+      snapshot = Object.freeze({
+        ...group,
+        status: "sealed",
+        sealedAt: Number(groups[index + 1]?.firstEventTime ?? group.lastEventTime),
+        showLabel,
+      });
+      state.seriesSnapshots.set(group.key, snapshot);
+    }
+    output.push(snapshot);
+  }
+
+  while (state.seriesSnapshots.size > 1_800) {
+    state.seriesSnapshots.delete(state.seriesSnapshots.keys().next().value);
   }
   return output;
 }
@@ -3846,7 +4035,7 @@ function paintTapeSurface(context, rect) {
 
 function refreshTapeRenderModel(state, symbol, stored, aggregationStored = stored) {
   const version = Number(tapeDataVersionBySymbol.get(symbol)) || 0;
-  const modelKey = [symbol, version, "zero-ms"].join(":");
+  const modelKey = [symbol, version, "zero-ms-series-500"].join(":");
   if (state.renderModelKey === modelKey) return;
   state.renderModelKey = modelKey;
 
@@ -3876,6 +4065,7 @@ function refreshTapeRenderModel(state, symbol, stored, aggregationStored = store
   state.rawRenderNodes = nextNodes;
   const aggregationInput = aggregationStored?.length ? aggregationStored : stored;
   state.aggSourceBuckets = aggregateTapeZeroMs(aggregationInput);
+  state.seriesSourceBuckets = aggregateTapeSeries(aggregationInput);
 }
 
 function visibleWaterTapeNodes(nodes, window, output = []) {
@@ -4174,6 +4364,16 @@ function drawTapeCard(card) {
     window,
     state.closedAggScratch,
   );
+  const liveSeries = visibleWaterTapeNodes(
+    materializeTapeSeries(
+      state,
+      state.seriesSourceBuckets,
+      state.finalizedSeriesScratch,
+      exchangeNow,
+    ),
+    window,
+    state.closedSeriesScratch,
+  );
 
   paintTapeSurface(context, rect);
   state.hasFrame = false;
@@ -4204,7 +4404,11 @@ function drawTapeCard(card) {
     context.restore();
   }
 
-  const sourceItems = state.mode === "agg" ? liveAggregates : recentRaw;
+  const sourceItems = state.mode === "agg"
+    ? liveAggregates
+    : state.mode === "series"
+      ? liveSeries
+      : recentRaw;
   const candidates = filterWaterTapeCandidates(
     sourceItems,
     minQuote,
@@ -4219,7 +4423,14 @@ function drawTapeCard(card) {
   );
 
   if (!candidates.length) {
-    setTapeState(state, state.mode === "agg" ? "Жду агрегированную сделку…" : "Жду сделку…");
+    setTapeState(
+      state,
+      state.mode === "agg"
+        ? "Жду агрегированную сделку…"
+        : state.mode === "series"
+          ? "Жду агрессивную серию…"
+          : "Жду сделку…",
+    );
     state.hasFrame = true;
     skip("filter-empty", { recent: recentRaw.length });
     return;
@@ -4253,7 +4464,7 @@ function drawTapeCard(card) {
   for (const projected of items) {
     const item = projected.source;
     const projectedY = projected.position.y;
-    const y = state.mode === "agg"
+    const y = state.mode !== "raw"
       ? aggregateLabelY(state.priceViewport, item, projectedY)
       : projectedY;
     const buy = item.buyQuote >= item.sellQuote;
