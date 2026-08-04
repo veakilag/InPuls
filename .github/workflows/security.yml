@@ -45,3 +45,99 @@ jobs:
           path: npm-test.log
           if-no-files-found: error
           retention-days: 1
+
+  strategy-search:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check out reviewed revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Capture current InPuls INPLAY snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { writeFile } from "node:fs/promises";
+          import { fetchCurrentInPlayUniverse } from "./inplay-universe.js";
+          let snapshot;
+          try {
+            snapshot = await fetchCurrentInPlayUniverse({ limit: 12, rules: { minV24: 100, minNatr1: null, minNatr5: null, minGrowth24: null } });
+          } catch (error) {
+            snapshot = { capturedAt: Date.now(), rules: { minV24: 100 }, order: [], matches: [], failed: [{ symbol: "INPLAY", error: error.message }] };
+          }
+          await writeFile("current-inplay.json", JSON.stringify(snapshot, null, 2));
+          await writeFile("current-inplay-symbols.txt", snapshot.matches.map((item) => item.symbol).join("\n"));
+          console.log(JSON.stringify({ capturedAt: snapshot.capturedAt, symbols: snapshot.matches.map((item) => item.symbol), failed: snapshot.failed }, null, 2));
+          NODE
+
+      - name: Download official January-July monthly archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p archive
+          core="BTCUSDT ETHUSDT SOLUSDT XRPUSDT DOGEUSDT BNBUSDT"
+          inplay="$(tr '\n' ' ' < current-inplay-symbols.txt)"
+          universe="$(printf '%s\n' $core $inplay | awk 'NF && !seen[$0]++' | tr '\n' ' ')"
+          printf '%s\n' $universe > archive/requested-symbols.txt
+
+          download_symbol() {
+            set -euo pipefail
+            symbol="$1"
+            temp="archive/${symbol}.partial.csv"
+            final="archive/${symbol}.csv"
+            : > "$temp"
+            for month in 01 02 03 04 05 06 07; do
+              zip="archive/${symbol}-2026-${month}.zip"
+              url="https://data.binance.vision/data/futures/um/monthly/klines/${symbol}/1m/${symbol}-1m-2026-${month}.zip"
+              if ! curl --fail --location --silent --show-error --retry 2 --retry-delay 3 --retry-all-errors "$url" -o "$zip"; then
+                echo "Skipping ${symbol}: missing 2026-${month}" >&2
+                rm -f "$temp" "$final" "$zip"
+                return 0
+              fi
+              unzip -p "$zip" >> "$temp"
+              rm -f "$zip"
+            done
+            mv "$temp" "$final"
+            printf '%s=%s\n' "$symbol" "$final" > "archive/${symbol}.input"
+          }
+          export -f download_symbol
+          printf '%s\n' $universe | xargs -r -n1 -P4 bash -c 'download_symbol "$1"' _
+          find archive -maxdepth 1 -name '*.input' -print0 | sort -z | xargs -0 cat > archive/inputs.txt
+          echo "Usable datasets:"
+          cat archive/inputs.txt
+          for required in BTCUSDT ETHUSDT SOLUSDT XRPUSDT; do
+            grep -q "^${required}=" archive/inputs.txt || { echo "Required core dataset missing: ${required}" >&2; exit 1; }
+          done
+
+      - name: Search and validate 512 strategy variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          inputs="$(paste -sd, archive/inputs.txt)"
+          node algo-strategy-search.mjs \
+            --inputs "$inputs" \
+            --selection-symbols BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,DOGEUSDT,BNBUSDT \
+            --top-n 30 \
+            --minimum-holdout-trades 30 \
+            | tee algo-strategy-search-result.json
+
+      - name: Preserve strategy research
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: algo-strategy-search-${{ github.run_id }}
+          path: |
+            algo-strategy-search-result.json
+            current-inplay.json
+            archive/requested-symbols.txt
+            archive/inputs.txt
+          if-no-files-found: warn
+          retention-days: 14
