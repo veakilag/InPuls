@@ -1,0 +1,96 @@
+name: Algo derivatives research
+
+on:
+  push:
+    branches:
+      - feature/algo-backtest-v1
+    paths:
+      - algo-derivatives-research.py
+      - MARKET_MICROSTRUCTURE_KB.md
+      - .github/workflows/algo-derivatives-research.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: algo-derivatives-research-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  research:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Use Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Install research dependencies
+        run: python -m pip install --disable-pip-version-check numpy pandas pyarrow scikit-learn
+
+      - name: Download derivatives history mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data
+          symbols="BTCUSDT ETHUSDT BNBUSDT SOLUSDT XRPUSDT DOGEUSDT ADAUSDT LINKUSDT AVAXUSDT LTCUSDT"
+
+          fetch_symbol() {
+            set -euo pipefail
+            symbol="$1"
+            mkdir -p "data/${symbol}"
+            base="https://huggingface.co/datasets/linxy/USDT-M_Perpetual_Futures/resolve/main/${symbol}"
+
+            for required in "${symbol}_5m.parquet" "${symbol}_metrics.parquet"; do
+              curl --fail --location --silent --show-error \
+                --retry 3 --retry-delay 3 --retry-all-errors \
+                "${base}/${required}?download=true" \
+                -o "data/${symbol}/${required}"
+            done
+
+            for optional in "${symbol}_fundingRate.parquet" "${symbol}_premiumIndex_5m.parquet"; do
+              if ! curl --fail --location --silent --show-error \
+                --retry 2 --retry-delay 3 --retry-all-errors \
+                "${base}/${optional}?download=true" \
+                -o "data/${symbol}/${optional}"; then
+                echo "Optional file unavailable: ${symbol}/${optional}" >&2
+                rm -f "data/${symbol}/${optional}"
+              fi
+            done
+          }
+          export -f fetch_symbol
+          printf '%s\n' $symbols | xargs -n1 -P4 bash -c 'fetch_symbol "$1"' _
+          find data -type f -name '*.parquet' -printf '%p %s bytes\n' | sort
+
+      - name: Run derivatives hybrid research
+        shell: bash
+        run: |
+          set -euo pipefail
+          python algo-derivatives-research.py \
+            --data-dir data \
+            --symbols BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,LINKUSDT,AVAXUSDT,LTCUSDT \
+            --start 2024-01-01 \
+            --train-end 2026-01-01 \
+            --validation-end 2026-06-01 \
+            --holdout-end 2026-07-21 \
+            --minimum-holdout-trades 30 \
+            --output algo-derivatives-research-result.json \
+            | tee algo-derivatives-research.log
+
+      - name: Upload research evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: algo-derivatives-research-${{ github.run_id }}
+          path: |
+            algo-derivatives-research-result.json
+            algo-derivatives-research.log
+          if-no-files-found: warn
+          retention-days: 14
