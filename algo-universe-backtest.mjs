@@ -5,6 +5,7 @@ import {
   runTrainTest,
 } from "./algo-backtest.js";
 import { fetchBinanceFuturesKlines } from "./binance-history.js";
+import { createBinanceRequestScheduler } from "./binance-request.js";
 import { fetchCurrentInPlayUniverse } from "./inplay-universe.js";
 
 const DEFAULT_FIXED_SYMBOLS = Object.freeze(["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]);
@@ -22,9 +23,11 @@ function usage() {
     "  --min-natr1 0.5",
     "  --min-natr5 0.8",
     "  --min-growth24 3",
-    "  --concurrency 2",
+    "  --concurrency 1",
+    "  --request-delay-ms 500",
     "",
     "The run always combines the fixed comparison universe with a current INPLAY snapshot.",
+    "All Binance HTTP requests share one scheduler, run sequentially and retry slowly on 418/429/5xx.",
   ].join("\n");
 }
 
@@ -124,12 +127,13 @@ function summarize(results, failures) {
   };
 }
 
-async function runSymbol({ symbol, source, interval, days, endTime }) {
+async function runSymbol({ symbol, source, interval, days, endTime, requestScheduler }) {
   const candles = await fetchBinanceFuturesKlines({
     symbol,
     interval,
     startTime: endTime - days * 24 * 60 * 60_000,
     endTime,
+    requestScheduler,
   });
   const strategyFactory = () => createBreakoutAtrStrategy({
     lookback: 20,
@@ -166,7 +170,8 @@ try {
   const interval = options.interval ?? "1m";
   const days = parseNumber(options.days, 30, { min: 1, max: 365, label: "days" });
   const inplayLimit = parseNumber(options["inplay-limit"], 18, { min: 1, max: 100, integer: true, label: "inplay-limit" });
-  const concurrency = parseNumber(options.concurrency, 2, { min: 1, max: 8, integer: true, label: "concurrency" });
+  const concurrency = parseNumber(options.concurrency, 1, { min: 1, max: 4, integer: true, label: "concurrency" });
+  const requestDelayMs = parseNumber(options["request-delay-ms"], 500, { min: 250, max: 10_000, integer: true, label: "request-delay-ms" });
   const fixedSymbols = parseSymbols(options.symbols);
   const endTime = Date.now();
   const rules = {
@@ -175,8 +180,15 @@ try {
     minNatr5: parseNullableNumber(options["min-natr5"]),
     minGrowth24: parseNullableNumber(options["min-growth24"]),
   };
+  const requestScheduler = createBinanceRequestScheduler({ minIntervalMs: requestDelayMs });
 
-  const inplay = await fetchCurrentInPlayUniverse({ rules, limit: inplayLimit, now: endTime });
+  const inplay = await fetchCurrentInPlayUniverse({
+    rules,
+    limit: inplayLimit,
+    now: endTime,
+    concurrency,
+    requestScheduler,
+  });
   const inplaySymbols = inplay.matches.map((item) => item.symbol);
   const combinedSymbols = [...new Set([...fixedSymbols, ...inplaySymbols])];
   const fixedSet = new Set(fixedSymbols);
@@ -188,7 +200,14 @@ try {
   const run = createPool(concurrency);
   const settled = await Promise.all(combinedSymbols.map((symbol) => run(async () => {
     try {
-      return await runSymbol({ symbol, source: sourceFor(symbol), interval, days, endTime });
+      return await runSymbol({
+        symbol,
+        source: sourceFor(symbol),
+        interval,
+        days,
+        endTime,
+        requestScheduler,
+      });
     } catch (error) {
       return { symbol, source: sourceFor(symbol), error: error.message };
     }
@@ -207,6 +226,12 @@ try {
       inplayRules: inplay.rules,
       inplayScanned: inplay.scanned,
       inplayMetricFailures: inplay.failed,
+      requestPolicy: {
+        sequential: true,
+        minIntervalMs: requestDelayMs,
+        retryStatuses: [418, 429, "5xx"],
+        maxRetries: 4,
+      },
       selectionBiasWarning: "Current INPLAY is a present-time snapshot. Historical results on this snapshot are diagnostic and must not replace point-in-time universe reconstruction.",
     },
     interval,
