@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+// Series is event-first: reversal closes immediately, silence only separates attacks.
 import {
   TAPE_SERIES_MAX_GAP_MS,
   aggregateTapeSeries,
