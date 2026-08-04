@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - algo-relative-momentum-deep-dive.py
+      - algo-relative-momentum-fast.py
       - .github/workflows/algo-relative-momentum-deep-dive.yml
   push:
     branches:
       - feature/algo-backtest-v1
     paths:
       - algo-relative-momentum-deep-dive.py
+      - algo-relative-momentum-fast.py
       - .github/workflows/algo-relative-momentum-deep-dive.yml
   workflow_dispatch:
 
@@ -75,11 +77,11 @@ jobs:
           unseen_count="$(grep -Ec '^(TRXUSDT|BCHUSDT|DOTUSDT|UNIUSDT|NEARUSDT|SUIUSDT)$' data/loaded-symbols.txt || true)"
           test "$unseen_count" -ge 4 || { echo "Need at least four unseen symbols, got ${unseen_count}" >&2; exit 1; }
 
-      - name: Search relative-momentum variants
+      - name: Search focused relative-momentum variants
         shell: bash
         run: |
           set -euo pipefail
-          python algo-relative-momentum-deep-dive.py \
+          python algo-relative-momentum-fast.py \
             --data-dir data \
             --development-symbols BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,LINKUSDT,AVAXUSDT,LTCUSDT \
             --unseen-symbols TRXUSDT,BCHUSDT,DOTUSDT,UNIUSDT,NEARUSDT,SUIUSDT \
