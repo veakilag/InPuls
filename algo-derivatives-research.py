@@ -95,6 +95,7 @@ def simulate(e,fs,x,fee,slip,delay=0):
  for k,v in e.iterrows():
   o=sim_one(fs[v.symbol],v,x,fee,slip,delay)
   if o:r.append({'rid':k,**o})
+ if not r:return e.iloc[0:0].copy()
  return e.join(pd.DataFrame(r).set_index('rid'),how='inner')
 def matrix(e,fams=None):
  a=e[FEATURES].reset_index(drop=True);b=pd.get_dummies(e.family,prefix='f',dtype=float)
@@ -137,14 +138,17 @@ def main():
    for rr in [-.25,0,.25,.5,.75,1]:
     q=deoverlap(va[(va.prob>=pr)&(va.pred>=rr)]);st=stats(q)
     if st['trades']>=35 and st['symbols']>=4:th.append((score(st),pr,rr,st))
-  for sc,pr,rr,sv in sorted(th,reverse=True)[:3]:cands.append({'exit':ex,'pr':pr,'rr':rr,'validationScore':sc,'validation':sv,'hold':deoverlap(ho[(ho.prob>=pr)&(ho.pred>=rr)]),'holdout':stats(deoverlap(ho[(ho.prob>=pr)&(ho.pred>=rr)]))})
+  for sc,pr,rr,sv in sorted(th,reverse=True)[:3]:
+   chosen=deoverlap(ho[(ho.prob>=pr)&(ho.pred>=rr)])
+   cands.append({'exit':ex,'pr':pr,'rr':rr,'validationScore':sc,'validation':sv,'hold':chosen,'holdout':stats(chosen)})
  if not cands:raise RuntimeError('no validation candidate')
  finals=sorted(cands,key=lambda x:x['validationScore'],reverse=True)[:12];res=[]
+ keycols=['symbol','time','family','side']
  for c in finals:
-  keys=c['hold'][['symbol','time','family','side']];st=simulate(e,fs,c['exit'],fee*2,slip*2);dl=simulate(e,fs,c['exit'],fee,slip,1)
-  def same(x):
-   x=x[(x.time>=ve+emb)&(x.time<he)].merge(keys,on=['symbol','time','family','side']);x['score']=1.;return stats(deoverlap(x))
-  ss=same(st);ds=same(dl);h=c['holdout'];ok=h['trades']>=a.minimum_holdout_trades and h['profitFactor']>2 and h['winRate']>.4 and h['averageR']>1 and h['positiveSymbols']>=4 and ss['profitFactor']>1 and ss['averageR']>0 and ds['profitFactor']>1 and ds['averageR']>0
+  keys=c['hold'][keycols].drop_duplicates();selected=e.merge(keys,on=keycols,how='inner')
+  st=simulate(selected,fs,c['exit'],fee*2,slip*2);dl=simulate(selected,fs,c['exit'],fee,slip,1)
+  for x in (st,dl):x['score']=1.
+  ss=stats(deoverlap(st));ds=stats(deoverlap(dl));h=c['holdout'];ok=h['trades']>=a.minimum_holdout_trades and h['profitFactor']>2 and h['winRate']>.4 and h['averageR']>1 and h['positiveSymbols']>=4 and ss['profitFactor']>1 and ss['averageR']>0 and ds['profitFactor']>1 and ds['averageR']>0
   res.append({'id':f"meta::{c['exit'].name}::p{c['pr']}::r{c['rr']}",'exitConfig':asdict(c['exit']),'probabilityThreshold':c['pr'],'expectedRThreshold':c['rr'],'strictPass':ok,'validation':c['validation'],'holdout':h,'doubledCostsHoldout':ss,'oneBarDelayHoldout':ds})
  res.sort(key=lambda x:(x['strictPass'],x['holdout']['averageR'],x['holdout']['profitFactor'],x['holdout']['trades']),reverse=True);report={'methodology':{'source':'Binance public mirror via linxy/USDT-M_Perpetual_Futures','symbolsRequested':syms,'symbolsLoaded':sorted(fs),'loadFailures':fail,'interval':'5m','start':start.isoformat(),'trainEnd':te.isoformat(),'validationEnd':ve.isoformat(),'holdoutEnd':he.isoformat(),'embargo':'1d','events':len(e),'families':sorted(e.family.unique()),'baseCosts':{'feePerSide':fee,'slippagePerSide':slip},'gate':{'minimumTrades':a.minimum_holdout_trades,'PF':'>2','WR':'>40%','averageR':'>1','positiveSymbols':'>=4','doubledCosts':'positive','oneBarDelay':'positive'},'limitations':['fixed liquid panel, not full historical INPLAY','Coinglass heatmap unavailable without owner API key','liquidations inferred from OI collapse, impulse, volume and flow']},'strictCandidatesFound':sum(x['strictPass'] for x in res),'top':res[:10]};Path(a.output).write_text(json.dumps(clean(report),ensure_ascii=False,indent=2));print(json.dumps(clean(report),ensure_ascii=False,indent=2))
 if __name__=='__main__':main()
