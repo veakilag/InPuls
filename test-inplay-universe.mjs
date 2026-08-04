@@ -10,6 +10,8 @@ import {
   selectInPlayMetrics,
 } from "./inplay-universe.js";
 
+const immediateScheduler = (task) => task();
+
 test("normalizes current InPuls defaults", () => {
   assert.deepEqual(normalizeInPlayRules({}), {
     minV24: 100,
@@ -69,6 +71,7 @@ test("fetches a current INPLAY snapshot and skips NATR calls when unused", async
   const result = await fetchCurrentInPlayUniverse({
     fetchImpl,
     fetchKlines: async () => { klineCalls += 1; return []; },
+    requestScheduler: immediateScheduler,
     rules: { minV24: 100 },
     now: 123,
   });
@@ -95,6 +98,7 @@ test("calculates NATR before applying current INPLAY volatility filters", async 
   const result = await fetchCurrentInPlayUniverse({
     fetchImpl,
     fetchKlines: async () => candles,
+    requestScheduler: immediateScheduler,
     rules: { minV24: 100, minNatr1: 1 },
     now: 120 * 60_000,
   });
