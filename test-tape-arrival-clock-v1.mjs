@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 // Arrival-time rendering must not overwrite the original execution timestamp.
-import { normalizeFlowTrade } from "./orderbook-flow-workspace.js?v=26-108-tape-arrival-clock-v1";
+import { normalizeFlowTrade } from "./orderbook-flow-workspace.js?v=26-109-tape-main-clock-v1";
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -21,13 +21,12 @@ test("footprint live interval uses explicit arrival time", () => {
   assert.equal(trade.time, 11_000);
 });
 
-test("Worker publishes displayTime and Tape consumes it", () => {
+test("Tape aligns local receipt with the main Binance clock", () => {
   const worker = read("./orderbook-worker.js");
   const tape = read("./orderbook.js");
-  assert.match(worker, /const displayTime = Number\.isFinite\(calibratedReceivedTime\)/);
-  assert.match(worker, /displayTime,\n\s+tradeTime: timing\.tradeTime/);
-  assert.match(tape, /const suppliedDisplayTime = Number\(trade\?\.displayTime\)/);
-  assert.match(tape, /Math\.max\(time, suppliedDisplayTime\)/);
+  assert.match(worker, /receivedAt: timing\.receivedAt/);
+  assert.match(tape, /tapeDisplayTimeFromReceipt\(receivedAt, time\)/);
+  assert.doesNotMatch(tape, /const suppliedDisplayTime = Number\(trade\?\.displayTime\)/);
 });
 
 test("footprint column shows total quote above its time", () => {

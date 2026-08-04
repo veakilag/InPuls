@@ -35,11 +35,10 @@ test("Tape ships a right-side NOW line and a precise slider", () => {
   assert.match(source, /width: 118px/);
 });
 
-test("Tape prefers explicit arrival time and preserves execution time", () => {
+test("Tape uses main-clock receipt time and preserves execution time", () => {
   const source = read("./orderbook.js");
-  assert.match(source, /const suppliedDisplayTime = Number\(trade\?\.displayTime\)/);
-  assert.match(source, /Number\.isFinite\(suppliedDisplayTime\)/);
-  assert.match(source, /Math\.max\(time, suppliedDisplayTime\)/);
+  assert.match(source, /tapeDisplayTimeFromReceipt\(receivedAt, time\)/);
+  assert.match(source, /received \+ \(exchange - local\)/);
   assert.match(source, /time,\n\s+displayTime: Number\.isFinite\(displayTime\) \? displayTime : time/);
   assert.match(source, /trade\.displayTime \?\? trade\.time/);
   assert.match(source, /tradeTime: Number\.isFinite\(tradeTime\)/);
