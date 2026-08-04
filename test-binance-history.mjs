@@ -6,6 +6,8 @@ import {
   fetchBinanceFuturesKlines,
 } from "./binance-history.js";
 
+const immediateScheduler = (task) => task();
+
 function row(time, price) {
   return [time, String(price), String(price + 1), String(price - 1), String(price + 0.5), "10"];
 }
@@ -29,6 +31,7 @@ test("historical loader paginates, de-duplicates and normalizes Binance rows", a
     endTime: 240_000,
     pageLimit: 3,
     fetchImpl,
+    requestScheduler: immediateScheduler,
   });
 
   assert.equal(calls.length, 2);
@@ -44,6 +47,8 @@ test("historical loader exposes Binance HTTP errors", async () => {
     startTime: 0,
     endTime: 120_000,
     fetchImpl: async () => ({ ok: false, status: 429, text: async () => "rate limit" }),
+    requestScheduler: immediateScheduler,
+    maxRetries: 0,
   }), /429.*rate limit/);
 });
 
