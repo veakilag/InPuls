@@ -1,4 +1,8 @@
 import { parseBinanceKlines } from "./algo-backtest.js";
+import {
+  fetchBinanceJson,
+  sharedBinanceRequestScheduler,
+} from "./binance-request.js";
 
 export const BINANCE_FUTURES_KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
 
@@ -33,6 +37,9 @@ export async function fetchBinanceFuturesKlines({
   pageLimit = 1_000,
   maxCandles = 50_000,
   fetchImpl = globalThis.fetch,
+  requestScheduler = sharedBinanceRequestScheduler,
+  maxRetries = 4,
+  sleepImpl,
 } = {}) {
   const normalizedSymbol = String(symbol ?? "").trim().toUpperCase();
   if (!SYMBOL_PATTERN.test(normalizedSymbol)) throw new RangeError("symbol must be a USDT futures symbol such as BTCUSDT");
@@ -43,6 +50,7 @@ export async function fetchBinanceFuturesKlines({
   if (!Number.isInteger(pageLimit) || pageLimit < 1 || pageLimit > 1_000) throw new RangeError("pageLimit must be between 1 and 1000");
   if (!Number.isInteger(maxCandles) || maxCandles < 2) throw new RangeError("maxCandles must be an integer >= 2");
   if (typeof fetchImpl !== "function") throw new TypeError("fetchImpl must be a function");
+  if (typeof requestScheduler !== "function") throw new TypeError("requestScheduler must be a function");
 
   const intervalMs = BINANCE_INTERVAL_MS[interval];
   let cursor = startTime;
@@ -57,13 +65,13 @@ export async function fetchBinanceFuturesKlines({
       endTime: String(endTime),
       limit: String(limit),
     });
-    const response = await fetchImpl(`${BINANCE_FUTURES_KLINES_ENDPOINT}?${query}`);
-    if (!response?.ok) {
-      const detail = typeof response?.text === "function" ? await response.text() : "";
-      throw new Error(`Binance klines request failed (${response?.status ?? "unknown"})${detail ? `: ${detail}` : ""}`);
-    }
-
-    const page = await response.json();
+    const page = await fetchBinanceJson(`${BINANCE_FUTURES_KLINES_ENDPOINT}?${query}`, {
+      label: "Binance klines request",
+      fetchImpl,
+      requestScheduler,
+      maxRetries,
+      ...(sleepImpl ? { sleepImpl } : {}),
+    });
     if (!Array.isArray(page)) throw new TypeError("Binance klines response is not an array");
     if (page.length === 0) break;
 
