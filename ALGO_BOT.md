@@ -2,6 +2,8 @@
 
 This module is intentionally **backtest-only**. It does not use API keys, place orders, or connect to a real account.
 
+The browser research dashboard is documented in `ALGO_LAB.md` and opened locally through `owner-algo-lab.html`.
+
 ## What is included
 
 - dependency-free candle validation;
@@ -16,7 +18,9 @@ This module is intentionally **backtest-only**. It does not use API keys, place 
 - a transparent ATR breakout baseline strategy;
 - automatic public Binance USD-M Futures candle download (no API key);
 - a CLI for either live history download or saved kline JSON;
-- unit tests for the critical accounting and execution rules.
+- a current INPLAY selector and multi-symbol batch runner;
+- a local owner dashboard with locally stored experiment history;
+- unit tests for the critical accounting, execution, INPLAY and privacy rules.
 
 ## Baseline strategy
 
@@ -55,6 +59,12 @@ Download and test public Binance futures history directly (no API key):
 node algo-backtest-cli.mjs --symbol BTCUSDT --interval 1m --days 30
 ```
 
+Run fixed comparison symbols plus the current INPLAY snapshot:
+
+```bash
+node algo-universe-backtest.mjs --interval 1m --days 30
+```
+
 Or save the raw JSON response from Binance USD-M Futures `GET /fapi/v1/klines` and run:
 
 ```bash
@@ -62,14 +72,6 @@ node algo-backtest-cli.mjs ./btc-1m-klines.json
 ```
 
 The CLI reports train and test results separately. The test result is the more important one.
-
-## Current INPLAY batch
-
-Use `algo-universe-backtest.mjs` to combine the stable comparison set with a fresh current INPLAY snapshot. Full usage and the selection-bias boundary are documented in `ALGO_INPLAY.md`.
-
-```bash
-node algo-universe-backtest.mjs --interval 1m --days 30
-```
 
 ## Promotion gate before paper trading
 
@@ -82,6 +84,6 @@ Do not connect this module to order execution until a strategy passes all of the
 - remains positive when fees and slippage are doubled;
 - no single symbol or short period explains most of the profit;
 - stable rolling-window results rather than one lucky interval;
-- remains positive on a point-in-time reconstructed INPLAY universe.
+- point-in-time INPLAY reconstruction rather than testing only today's leaders on old history.
 
 Passing these gates still does not guarantee future profit. It only justifies the next stage: paper trading.
