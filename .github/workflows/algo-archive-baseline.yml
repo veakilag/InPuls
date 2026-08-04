@@ -1,0 +1,55 @@
+name: Algo archive baseline
+
+on:
+  push:
+    branches:
+      - feature/algo-backtest-v1
+    paths:
+      - algo-archive-backtest.mjs
+      - .github/workflows/algo-archive-baseline.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+
+      - name: Download four official monthly archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p archive
+          for symbol in BTCUSDT ETHUSDT SOLUSDT XRPUSDT; do
+            url="https://data.binance.vision/data/futures/um/monthly/klines/${symbol}/1m/${symbol}-1m-2026-07.zip"
+            curl --fail --location --silent --show-error --retry 2 --retry-delay 5 "$url" -o "archive/${symbol}.zip"
+            unzip -p "archive/${symbol}.zip" > "archive/${symbol}.csv"
+          done
+
+      - name: Run seven-day out-of-sample baseline
+        run: |
+          node algo-archive-backtest.mjs \
+            --days 7 \
+            --inputs BTCUSDT=archive/BTCUSDT.csv,ETHUSDT=archive/ETHUSDT.csv,SOLUSDT=archive/SOLUSDT.csv,XRPUSDT=archive/XRPUSDT.csv \
+            | tee algo-archive-baseline.json
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: algo-archive-baseline-${{ github.run_id }}
+          path: algo-archive-baseline.json
+          if-no-files-found: warn
+          retention-days: 7
