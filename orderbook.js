@@ -6,7 +6,7 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-114-raw-series-execution-candles-v1";
+import "./orderbook-flow-workspace.js?v=26-115-series-visible-fallback-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
@@ -1441,7 +1441,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-114-raw-series-execution-candles-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-115-series-visible-fallback-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -2732,18 +2732,18 @@ function syncTapeModeButton(button, state) {
   if (!button) return;
   const mode = normalizeTapeMode(state.mode);
   const aggregationSource = state.aggregationSource === "raw" ? "@trade RAW" : "@aggTrade fallback";
-  const seriesReady = state.seriesSource === "raw";
+  const seriesReady = state.seriesRenderSource === "raw";
   button.textContent = mode === "series" ? "СЕРИЯ" : mode.toUpperCase();
   button.dataset.mode = mode;
   button.dataset.aggregationSource = state.aggregationSource === "raw" ? "raw" : "agg";
-  button.dataset.seriesSource = seriesReady ? "raw" : "warming";
+  button.dataset.seriesSource = seriesReady ? "raw" : "agg";
   button.classList.toggle("is-active", mode !== "raw");
   button.setAttribute("aria-pressed", String(mode !== "raw"));
   button.setAttribute("aria-label", `Режим ленты ${button.textContent}. Нажмите для переключения.`);
   if (mode === "series") {
     button.title = seriesReady
       ? `СЕРИЯ RAW ≤${TAPE_SERIES_MAX_GAP_MS} мс: непрерывный агрессивный покупатель или продавец. Первая встречная рыночная сделка немедленно закрывает серию.`
-      : "СЕРИЯ проверяет непрерывность отдельного @trade RAW. Во время warm-up, gap или reconnect серия не строится из aggTrade.";
+      : `СЕРИЯ AGG ≤${TAPE_SERIES_MAX_GAP_MS} мс: стабильный fallback по taker-агрессору. При подтверждённом непрерывном @trade источник автоматически переключается на RAW.`;
   } else if (mode === "agg") {
     button.title = `AGG 0 мс · ${aggregationSource}: объединяются последовательные исполнения с одинаковым биржевым временем и направлением.`;
   } else {
@@ -2868,6 +2868,7 @@ function ensureTapeUi(card) {
       ),
       aggregationSource: "agg",
       seriesSource: "warming",
+      seriesRenderSource: "agg",
       seriesHealth: null,
       tapeVisible: localStorage.getItem(TAPE_VISIBLE_KEY) !== "0",
       clustersVisible: localStorage.getItem(CLUSTERS_VISIBLE_KEY) !== "0",
@@ -4048,7 +4049,12 @@ function paintTapeSurface(context, rect) {
 
 function refreshTapeRenderModel(state, symbol, stored, aggregationStored = stored, seriesStored = []) {
   const version = Number(tapeDataVersionBySymbol.get(symbol)) || 0;
-  const modelKey = [symbol, version, state.seriesSource, "zero-ms-raw-series-500"].join(":");
+  const aggregationInput = aggregationStored?.length ? aggregationStored : stored;
+  const seriesRawReady = state.seriesSource === "raw" && Boolean(seriesStored?.length);
+  const seriesRenderSource = seriesRawReady ? "raw" : "agg";
+  const seriesInput = seriesRawReady ? seriesStored : aggregationInput;
+  const modelKey = [symbol, version, seriesRenderSource, "zero-ms-series-fallback-500"].join(":");
+  state.seriesRenderSource = seriesRenderSource;
   if (state.renderModelKey === modelKey) return;
   state.renderModelKey = modelKey;
 
@@ -4076,11 +4082,8 @@ function refreshTapeRenderModel(state, symbol, stored, aggregationStored = store
   }
   state.rawNodeByKey = nextNodesByKey;
   state.rawRenderNodes = nextNodes;
-  const aggregationInput = aggregationStored?.length ? aggregationStored : stored;
   state.aggSourceBuckets = aggregateTapeZeroMs(aggregationInput);
-  state.seriesSourceBuckets = state.seriesSource === "raw"
-    ? aggregateTapeSeries(seriesStored)
-    : [];
+  state.seriesSourceBuckets = aggregateTapeSeries(seriesInput);
 }
 
 function visibleWaterTapeNodes(nodes, window, output = []) {
@@ -4391,7 +4394,6 @@ function drawTapeCard(card) {
   state.aggregationSource = meta.aggregationSource === "raw" ? "raw" : "agg";
   state.seriesSource = meta.seriesSource === "raw" ? "raw" : "warming";
   state.seriesHealth = meta.seriesHealth ?? null;
-  syncTapeModeButton(state.controls?.querySelector("[data-inpuls-tape-mode]"), state);
   const exchangeNow = binanceClock.now(perfNow);
   const latestTime = Number(meta.lastTradeTime)
     || Number(stored[0]?.time)
@@ -4412,6 +4414,7 @@ function drawTapeCard(card) {
   const window = buildContinuousTapeWindow(rect.width, latestTime, endTime, state.timeScale);
   const range = state.priceRange;
   refreshTapeRenderModel(state, symbol, stored, aggregationStored, seriesStored);
+  syncTapeModeButton(state.controls?.querySelector("[data-inpuls-tape-mode]"), state);
 
   const recentRaw = visibleWaterTapeNodes(
     state.rawRenderNodes,
@@ -4491,9 +4494,9 @@ function drawTapeCard(card) {
       state.mode === "agg"
         ? "Жду агрегированную сделку…"
         : state.mode === "series"
-          ? (state.seriesSource === "raw"
-            ? "Жду агрессивную серию…"
-            : "СЕРИЯ · проверяем непрерывный @trade RAW…")
+          ? (state.seriesRenderSource === "raw"
+            ? "Жду агрессивную серию RAW…"
+            : "Жду агрессивную серию · источник AGG…")
           : "Жду сделку…",
     );
     state.hasFrame = true;
