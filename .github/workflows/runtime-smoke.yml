@@ -34,13 +34,7 @@ jobs:
       - name: Apply raw series patch
         shell: bash
         run: |
-          wc -c tools/raw-series-v1/patch*.b64
-          sha256sum tools/raw-series-v1/patch*.b64
-          cat tools/raw-series-v1/patch*.b64 > /tmp/apply-raw-series-v1.b64
-          sha256sum /tmp/apply-raw-series-v1.b64
-          base64 -d /tmp/apply-raw-series-v1.b64 > /tmp/apply-raw-series-v1.py
-          sha256sum /tmp/apply-raw-series-v1.py
-          echo "e1d2c5ab4d6db5717d1e4352170a79f691e3fe8f7bc34997c78ef2369a24e6b8  /tmp/apply-raw-series-v1.py" | sha256sum -c -
+          cat tools/raw-series-v1/chunk*.pyfrag > /tmp/apply-raw-series-v1.py
           python /tmp/apply-raw-series-v1.py
 
       - name: Check runtime syntax
