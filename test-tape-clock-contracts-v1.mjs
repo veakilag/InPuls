@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+// Regression contract: execution, visual and interval clocks stay independent.
 import { tapeVisualTime } from "./orderbook.js?v=26-107-tape-clock-contracts-v1";
 import {
   createFootprintAccumulator,
