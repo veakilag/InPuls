@@ -1,0 +1,49 @@
+name: Apply Tape NOW and footprint buckets
+
+on:
+  push:
+    branches:
+      - agent/tape-now-live-footprint-buckets
+    paths:
+      - .github/workflows/agent-tape-now-live-v1.yml
+      - tools/apply-tape-now-live-v1.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/tape-now-live-footprint-buckets
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Apply focused patch
+        run: python tools/apply-tape-now-live-v1.py
+
+      - name: Check runtime syntax
+        run: |
+          node --check orderbook.js
+          node --check orderbook-flow-workspace.js
+
+      - name: Run full tests
+        run: npm test
+
+      - name: Commit verified runtime
+        run: |
+          rm -f tools/apply-tape-now-live-v1.py .github/workflows/agent-tape-now-live-v1.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix Tape live edge and price buckets" -m "Add a NOW line, keep two minutes of Tape, aggregate footprint prices by ladder step, and widen the precise time slider."
+          git push origin HEAD:agent/tape-now-live-footprint-buckets
+
+# Trigger focused verification.
