@@ -45,4 +45,4 @@ jobs:
           git commit -m "Fix Tape sync and frozen clusters" -m "Keep exact Tape timing, freeze closed footprint projections, preserve POC and full theme preview, and add draggable site time."
           git push origin HEAD:agent/fix-tape-clock-frozen-clusters
 
-# Trigger after workflow registration.
+# Manual trigger.
