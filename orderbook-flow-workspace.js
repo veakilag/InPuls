@@ -207,6 +207,31 @@ export function buildFootprintColumns(trades, options = {}) {
     }));
 }
 
+export function aggregateFootprintCellsByStep(cells, priceStep) {
+  const step = Math.max(Number.EPSILON, Number(priceStep) || .01);
+  const buckets = new Map();
+  for (const source of cells ?? []) {
+    const price = Number(source?.price);
+    if (!Number.isFinite(price)) continue;
+    const bucketIndex = Math.round(price / step);
+    const bucketPrice = Number((bucketIndex * step).toPrecision(15));
+    const key = String(bucketIndex);
+    const bucket = buckets.get(key) ?? {
+      price: bucketPrice,
+      buyQuote: 0,
+      sellQuote: 0,
+      quote: 0,
+      count: 0,
+    };
+    bucket.buyQuote += Math.max(0, Number(source.buyQuote) || 0);
+    bucket.sellQuote += Math.max(0, Number(source.sellQuote) || 0);
+    bucket.quote += Math.max(0, Number(source.quote) || 0);
+    bucket.count += Math.max(0, Number(source.count) || 0);
+    buckets.set(key, bucket);
+  }
+  return [...buckets.values()].sort((left, right) => right.price - left.price);
+}
+
 export function footprintPocCluster(clusters, referencePrice = null) {
   let best = null;
   const reference = Number(referencePrice);
@@ -1232,8 +1257,9 @@ function renderCard(card, state) {
     visibleColumnLimit,
     state.historyOffset,
   ));
+  const displayPriceStep = rowStep(rows);
   const columns = intervals.map((interval) => {
-    const clusters = interval.cells
+    const clusters = aggregateFootprintCellsByStep(interval.cells, displayPriceStep)
       .map((source) => {
         const row = nearestRow(rows, source.price);
         return row ? {

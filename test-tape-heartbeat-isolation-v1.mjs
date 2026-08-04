@@ -54,6 +54,6 @@ test("book data refreshes density ages only for visible matching cards", () => {
 });
 
 test("isolated Tape build ships through fresh module keys", () => {
-  assert.match(app, /orderbook\.js\?v=26-105-tape-clock-frozen-projection-v1/);
-  assert.match(index, /app\.js\?v=26-105-tape-clock-frozen-projection-v1/);
+  assert.match(app, /orderbook\.js\?v=26-106-tape-now-live-price-buckets-v1/);
+  assert.match(index, /app\.js\?v=26-106-tape-now-live-price-buckets-v1/);
 });
