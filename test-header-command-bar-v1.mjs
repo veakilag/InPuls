@@ -4,6 +4,7 @@ import fs from "node:fs";
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 
+// The header contract deliberately separates four commands from status and time.
 test("header exposes exactly four command buttons in requested order", () => {
   const html = read("./index.html");
   const header = html.match(/<header class="topbar">[\s\S]*?<\/header>/)?.[0] ?? "";
