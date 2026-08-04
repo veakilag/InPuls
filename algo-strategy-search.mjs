@@ -214,7 +214,7 @@ const doubledCostConfig = {
 };
 
 const variants = [];
-for (const candidate of buildResearchCandidates()) {
+for (const candidate of buildResearchCandidates().filter((item) => item.family !== "cascade")) {
   for (const timeframeMinutes of [1, 5]) {
     variants.push({
       id: `${candidate.id};timeframe=${timeframeMinutes}m`,
