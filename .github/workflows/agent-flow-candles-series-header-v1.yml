@@ -70,16 +70,33 @@ jobs:
               'for (const path of ["./index.html", "./app.js", "./orderbook.js", "./sw.js"]) {',
           )
 
-          old_projection = r'/const highRow = nearestRow\(rows, interval\.highPrice\)/'
-          new_projection = r'/const highRow = nearestRow\(rows, interval\.highPrice, true\)/'
+          old_high = r'/const highRow = nearestRow\(rows, interval\.highPrice\)/'
+          new_high = r'/const highRow = nearestRow\(rows, interval\.highPrice, true\)/'
           for path in ('test-orderbook-flow-workspace.mjs', 'test-orderbook-visual-priority.mjs'):
-              replace_once(path, old_projection, new_projection)
+              replace_once(path, old_high, new_high)
 
           replace_once(
-              'test-tape-arrival-clock-v1.mjs',
-              r'/height - 22/',
-              r'/height - 28/',
+              'test-orderbook-visual-priority.mjs',
+              r'/const lowRow = nearestRow\(rows, interval\.lowPrice\)/',
+              r'/const lowRow = nearestRow\(rows, interval\.lowPrice, true\)/',
           )
+          replace_once(
+              'test-orderbook-visual-priority.mjs',
+              r'/rising[\s\S]*theme\.bullFill[\s\S]*theme\.bearFill/',
+              r'/state\.context\.fillStyle = theme\.bearFill/',
+          )
+          replace_once(
+              'test-orderbook-visual-priority.mjs',
+              r'/const bodyWidth = candleBodyWidth/',
+              r'/const bodyWidth = Math\.max\(2, Math\.min\(8, candleBodyWidth \* 1\.22\)\)/',
+          )
+
+          for old, new in (
+              (r'/height - 22/', r'/height - 28/'),
+              (r'/height - 16/', r'/height - 19/'),
+              (r'/height - 5/', r'/height - 6/'),
+          ):
+              replace_once('test-tape-arrival-clock-v1.mjs', old, new)
           PY
 
       - name: Check runtime syntax
