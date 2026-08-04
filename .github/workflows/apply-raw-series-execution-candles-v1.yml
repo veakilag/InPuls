@@ -1,0 +1,54 @@
+name: Apply raw series execution candles
+
+on:
+  push:
+    branches:
+      - agent/raw-series-execution-candles-v1
+    paths:
+      - '.github/workflows/apply-raw-series-execution-candles-v1.yml'
+      - 'tools/raw-series-v1/**'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/raw-series-execution-candles-v1
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Assemble and apply patch
+        shell: bash
+        run: |
+          cat tools/raw-series-v1/chunk*.pyfrag > /tmp/apply-raw-series-v1.py
+          python /tmp/apply-raw-series-v1.py
+
+      - name: Check runtime syntax
+        run: |
+          node --check orderbook.js
+          node --check orderbook-worker.js
+          node --check orderbook-flow-workspace.js
+
+      - name: Run full tests
+        run: npm test
+
+      - name: Commit verified runtime
+        shell: bash
+        run: |
+          rm -rf tools/raw-series-v1
+          rm -f .github/workflows/apply-raw-series-execution-candles-v1.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Use raw executions for Tape series"
+          git push origin HEAD:agent/raw-series-execution-candles-v1
