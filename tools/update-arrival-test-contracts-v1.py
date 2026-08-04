@@ -12,8 +12,8 @@ for name in (
     path = ROOT / name
     content = path.read_text(encoding="utf-8")
     count = content.count(OLD_WORKER)
-    if count != 1:
-        raise SystemExit(f"{name}: expected one Worker cache assertion, found {count}")
+    if count < 1:
+        raise SystemExit(f"{name}: no legacy Worker cache assertion found")
     path.write_text(content.replace(OLD_WORKER, NEW_WORKER), encoding="utf-8")
 
 path = ROOT / "test-tape-now-live-footprint-buckets-v1.mjs"
