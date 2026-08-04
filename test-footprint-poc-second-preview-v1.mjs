@@ -72,8 +72,7 @@ test("comfort preview covers the full palette and all live Canvas surfaces", () 
   assert.match(block, /inpuls:theme-change/);
 });
 
-
-
+// Regression contract for closed footprint levels, Tape edge and draggable clock.
 test("closed footprint levels and site clock stay stable", () => {
   const flow = read("./orderbook-flow-workspace.js");
   assert.doesNotMatch(flow, /clustersByRow/);
