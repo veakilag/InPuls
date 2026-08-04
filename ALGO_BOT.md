@@ -63,6 +63,14 @@ node algo-backtest-cli.mjs ./btc-1m-klines.json
 
 The CLI reports train and test results separately. The test result is the more important one.
 
+## Current INPLAY batch
+
+Use `algo-universe-backtest.mjs` to combine the stable comparison set with a fresh current INPLAY snapshot. Full usage and the selection-bias boundary are documented in `ALGO_INPLAY.md`.
+
+```bash
+node algo-universe-backtest.mjs --interval 1m --days 30
+```
+
 ## Promotion gate before paper trading
 
 Do not connect this module to order execution until a strategy passes all of these gates on genuinely unseen data:
@@ -73,6 +81,7 @@ Do not connect this module to order execution until a strategy passes all of the
 - maximum drawdown below 10%;
 - remains positive when fees and slippage are doubled;
 - no single symbol or short period explains most of the profit;
-- stable rolling-window results rather than one lucky interval.
+- stable rolling-window results rather than one lucky interval;
+- remains positive on a point-in-time reconstructed INPLAY universe.
 
 Passing these gates still does not guarantee future profit. It only justifies the next stage: paper trading.
