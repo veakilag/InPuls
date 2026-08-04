@@ -4,17 +4,16 @@ ROOT = Path(__file__).resolve().parents[1]
 OLD_WORKER = r"orderbook-worker\.js\?v=26-101-binance-clock-sync-v1"
 NEW_WORKER = r"orderbook-worker\.js\?v=26-108-tape-arrival-clock-v1"
 
-for name in (
-    "test-orderbook-resume-v2.mjs",
-    "test-orderbook-runtime-stability.mjs",
-    "test-orderbook-seamless-resume.mjs",
-):
-    path = ROOT / name
+updated_worker_contracts = 0
+for path in ROOT.glob("test-*.mjs"):
     content = path.read_text(encoding="utf-8")
     count = content.count(OLD_WORKER)
     if count < 1:
-        raise SystemExit(f"{name}: no legacy Worker cache assertion found")
+        continue
     path.write_text(content.replace(OLD_WORKER, NEW_WORKER), encoding="utf-8")
+    updated_worker_contracts += count
+if updated_worker_contracts < 1:
+    raise SystemExit("no legacy Worker cache assertions found")
 
 path = ROOT / "test-tape-now-live-footprint-buckets-v1.mjs"
 content = path.read_text(encoding="utf-8")
