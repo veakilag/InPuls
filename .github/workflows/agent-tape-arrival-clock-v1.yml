@@ -11,6 +11,7 @@ on:
     paths:
       - .github/workflows/agent-tape-arrival-clock-v1.yml
       - tools/apply-tape-arrival-clock-v1.py
+      - tools/update-arrival-test-contracts-v1.py
 
 permissions:
   contents: write
@@ -32,7 +33,9 @@ jobs:
           node-version: 24
 
       - name: Apply focused patch
-        run: python tools/apply-tape-arrival-clock-v1.py
+        run: |
+          python tools/apply-tape-arrival-clock-v1.py
+          python tools/update-arrival-test-contracts-v1.py
 
       - name: Check runtime syntax
         run: |
@@ -45,7 +48,7 @@ jobs:
 
       - name: Commit verified runtime
         run: |
-          rm -f tools/apply-tape-arrival-clock-v1.py .github/workflows/agent-tape-arrival-clock-v1.yml
+          rm -f tools/apply-tape-arrival-clock-v1.py tools/update-arrival-test-contracts-v1.py .github/workflows/agent-tape-arrival-clock-v1.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
