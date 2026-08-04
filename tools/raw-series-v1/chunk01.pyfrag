@@ -1,0 +1,58 @@
+radeId = null;\n    this.seriesRawStreak = 0;\n    this.seriesRawHealthy = false;\n    this.seriesReplacePending = true;\n    this.seriesGapCount = 0;\n    this.seriesOutOfOrderCount = 0;\n    this.seriesLastReason = "startup";\n    this.tapeTimer = 0;''',
+    'worker series constructor',
+)
+worker = replace_once(
+    worker,
+    '''  resetTapeGuard() {\n    this.tapeGuard.reset({ lastOutputTradeId: this.aggregationBoundary() });\n  }\n\n  addSubscriber() {''',
+    '''  resetTapeGuard() {\n    this.tapeGuard.reset({ lastOutputTradeId: this.aggregationBoundary() });\n  }\n\n  seriesHealth() {\n    return {\n      source: this.seriesRawHealthy ? "raw" : "warming",\n      healthy: this.seriesRawHealthy,\n      rawStreak: this.seriesRawStreak,\n      lastRawTradeId: this.seriesLastRawTradeId,\n      gapCount: this.seriesGapCount,\n      outOfOrderCount: this.seriesOutOfOrderCount,\n      reason: this.seriesLastReason,\n    };\n  }\n\n  resetSeriesSource(reason = "reset", notify = false) {\n    this.seriesLastRawTradeId = null;\n    this.seriesRawStreak = 0;\n    this.seriesRawHealthy = false;\n    this.seriesWarmup = [];\n    this.seriesTapeBatch.clear();\n    this.seriesReplacePending = true;\n    this.seriesLastReason = reason;\n    if (notify) this.scheduleTapeFlush();\n  }\n\n  ingestSeriesRawTrade(trade) {\n    if (trade?.source !== "raw") return false;\n    const tradeId = Number(trade.id);\n    if (!Number.isInteger(tradeId) || tradeId < 0) return false;\n\n    const previous = this.seriesLastRawTradeId;\n    if (previous !== null) {\n      if (tradeId === previous) return false;\n      if (tradeId !== previous + 1) {\n        if (tradeId > previous + 1) this.seriesGapCount += tradeId - previous - 1;\n        else this.seriesOutOfOrderCount += 1;\n        this.resetSeriesSource(tradeId > previous ? "raw-gap" : "raw-out-of-order");\n      }\n    }\n\n    if (this.seriesLastRawTradeId === null) {\n      this.seriesLastRawTradeId = tradeId;\n      this.seriesRawStreak = 1;\n      this.seriesWarmup = [trade];\n      this.scheduleTapeFlush();\n      return false;\n    }\n\n    this.seriesLastRawTradeId = tradeId;\n    this.seriesRawStreak += 1;\n    if (!this.seriesRawHealthy) {\n      this.seriesWarmup.push(trade);\n      if (this.seriesWarmup.length > 6) this.seriesWarmup.shift();\n      if (this.seriesRawStreak < 6) return false;\n      this.seriesRawHealthy = true;\n      this.seriesLastReason = "raw-ready";\n      this.seriesTapeBatch.clear();\n      for (const warmTrade of this.seriesWarmup) this.seriesTapeBatch.push(warmTrade);\n      this.seriesWarmup = [];\n      this.seriesReplacePending = true;\n      this.scheduleTapeFlush();\n      return true;\n    }\n\n    this.seriesTapeBatch.push(trade);\n    this.scheduleTapeFlush();\n    return true;\n  }\n\n  addSubscriber() {''',
+    'worker series methods',
+)
+worker = replace_once(
+    worker,
+    '''    this.syncing = false;\n    this.backgroundPaused = false;\n    this.resetTapeGuard();\n    this.resetBook("start");''',
+    '''    this.syncing = false;\n    this.backgroundPaused = false;\n    this.resetTapeGuard();\n    this.resetSeriesSource("start");\n    this.resetBook("start");''',
+    'worker start series reset',
+)
+worker = replace_all_required(
+    worker,
+    '''      aggregationTrades: [],\n      aggregationSource: "agg",\n    });''',
+    '''      aggregationTrades: [],\n      aggregationSource: "agg",\n      seriesTrades: [],\n      seriesReplace: true,\n      seriesSource: "warming",\n      seriesHealth: this.seriesHealth(),\n    });''',
+    'worker reset series packets',
+)
+worker = replace_once(
+    worker,
+    '''    this.tapeBatch.clear();\n    this.aggregationTapeBatch.clear();\n  }''',
+    '''    this.tapeBatch.clear();\n    this.aggregationTapeBatch.clear();\n    this.seriesTapeBatch.clear();\n    this.seriesWarmup = [];\n  }''',
+    'worker stop queues',
+)
+worker = replace_once(
+    worker,
+    '''    this.tapeBatch.clear();\n    this.aggregationTapeBatch.clear();\n    clearTimeout(this.tapeTimer);''',
+    '''    this.tapeBatch.clear();\n    this.aggregationTapeBatch.clear();\n    this.resetSeriesSource("background-pause");\n    clearTimeout(this.tapeTimer);''',
+    'worker background reset',
+)
+worker = replace_once(
+    worker,
+    '''      this.tapeGuard.connect();\n      if (transport.subscribe) {''',
+    '''      this.tapeGuard.connect();\n      this.resetSeriesSource("socket-open", true);\n      if (transport.subscribe) {''',
+    'worker socket open series reset',
+)
+worker = replace_once(
+    worker,
+    '''        const decision = this.tapeGuard.ingest(trade, this.lastTradeAt);\n        let changed = false;''',
+    '''        if (rawEvent) this.ingestSeriesRawTrade(trade);\n        const decision = this.tapeGuard.ingest(trade, this.lastTradeAt);\n        let changed = false;''',
+    'worker raw series ingest',
+)
+worker = replace_once(
+    worker,
+    '''      this.tapeGuard.disconnect("socket-close");\n      this.tradeTransportIndex += 1;''',
+    '''      this.tapeGuard.disconnect("socket-close");\n      this.resetSeriesSource("socket-close", true);\n      this.tradeTransportIndex += 1;''',
+    'worker socket close series reset',
+)
+worker = replace_once(
+    worker,
+    '''  queueAggregationTape(trade) {\n    if (!trade || !tabVisible) return;\n    this.aggregationTapeBatch.push(trade);\n    this.scheduleTapeFlush();\n  }\n\n  flushTapeBatch() {''',
+    '''  queueAggregationTape(trade) {\n    if (!trade || !tabVisible) return;\n    this.aggregationTapeBatch.push(trade);\n    this.scheduleTapeFlush();\n  }\n\n  flushTapeBatch() {''',
+    'worker queue anchor',
+)
+old_flush = '''  flushTapeBatch() {\n    this.tapeTimer = 0;\n    if (!tabVisible) {\n      this.tapeBatch.clear();\n      this.aggregationTapeBatch.clear();\n      return;\n    }\n    const latest = this.tapeBatch.takeLatest(MAX_TAPE_BATCH_PER_POST);\n    const aggregationLatest = this.aggregationTapeBatch.takeLatest(MAX_TAPE_BATCH_PER_POST);\n    const trades = latest.items;\n    const aggregationTrades = aggregationLatest.items;\n    this.tapeDroppedInWindow += latest.dropped + aggregationLatest.dropped;\n    if (trades.length || aggregationTrades.length) {\n      const sourceEventTimeMs = [...trades, ...aggregationTrades].reduce(\n        (latestTime, trade) => Math.max(latestTime, Number(trade?.eventTime) || 0),\n        0,\n      );\n      const guard = this.tapeGuard.snapshot();\n      post(\n        "tape",\n        this.symbol,\n        {\n          replace: false,\n          live: true,\n          liveOnly: true,\n          trades,\n          aggregationTrades,\n          aggregationSource: guard.mode,\n          aggregationHealth: guard,\n          backpressure: {\n            dropped: latest.dropped + aggregationLatest.dropped,\n            pending: this.tapeBatch.length + this.aggregationTapeBatch.length,\n          },\n        },\n        observabilityEnabled ? performance.now() : null,\n        { sourceEventTimeMs, sour
