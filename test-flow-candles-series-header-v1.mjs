@@ -1,3 +1,4 @@
+// Final verification trigger for the clean runtime head.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
