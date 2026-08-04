@@ -1,4 +1,8 @@
 import { fetchBinanceFuturesKlines } from "./binance-history.js";
+import {
+  fetchBinanceJson,
+  sharedBinanceRequestScheduler,
+} from "./binance-request.js";
 
 export const BINANCE_FUTURES_EXCHANGE_INFO_ENDPOINT = "https://fapi.binance.com/fapi/v1/exchangeInfo";
 export const BINANCE_FUTURES_TICKER_24H_ENDPOINT = "https://fapi.binance.com/fapi/v1/ticker/24hr";
@@ -114,15 +118,6 @@ export function calculateNatr(candles, period = 14) {
   return Number.isFinite(close) && close > 0 ? (atr / close) * 100 : null;
 }
 
-async function fetchJson(url, fetchImpl) {
-  const response = await fetchImpl(url);
-  if (!response?.ok) {
-    const detail = typeof response?.text === "function" ? await response.text() : "";
-    throw new Error(`Binance market request failed (${response?.status ?? "unknown"})${detail ? `: ${detail}` : ""}`);
-  }
-  return response.json();
-}
-
 function createPool(limit) {
   let active = 0;
   const queue = [];
@@ -149,21 +144,37 @@ export async function fetchCurrentInPlayUniverse({
   limit = 18,
   now = Date.now(),
   natrLookbackMinutes = 120,
-  concurrency = 6,
+  concurrency = 2,
   fetchImpl = globalThis.fetch,
   fetchKlines = fetchBinanceFuturesKlines,
+  requestScheduler = sharedBinanceRequestScheduler,
+  maxRetries = 4,
+  sleepImpl,
 } = {}) {
   const normalizedRules = normalizeInPlayRules(rules);
   if (typeof fetchImpl !== "function") throw new TypeError("fetchImpl must be a function");
   if (typeof fetchKlines !== "function") throw new TypeError("fetchKlines must be a function");
-  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 20) throw new RangeError("concurrency must be between 1 and 20");
+  if (typeof requestScheduler !== "function") throw new TypeError("requestScheduler must be a function");
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8) throw new RangeError("concurrency must be between 1 and 8");
   if (!Number.isInteger(natrLookbackMinutes) || natrLookbackMinutes < 30 || natrLookbackMinutes > 1_000) {
     throw new RangeError("natrLookbackMinutes must be between 30 and 1000");
   }
 
+  const requestOptions = {
+    fetchImpl,
+    requestScheduler,
+    maxRetries,
+    ...(sleepImpl ? { sleepImpl } : {}),
+  };
   const [exchangeInfo, tickers] = await Promise.all([
-    fetchJson(BINANCE_FUTURES_EXCHANGE_INFO_ENDPOINT, fetchImpl),
-    fetchJson(BINANCE_FUTURES_TICKER_24H_ENDPOINT, fetchImpl),
+    fetchBinanceJson(BINANCE_FUTURES_EXCHANGE_INFO_ENDPOINT, {
+      ...requestOptions,
+      label: "Binance exchangeInfo request",
+    }),
+    fetchBinanceJson(BINANCE_FUTURES_TICKER_24H_ENDPOINT, {
+      ...requestOptions,
+      label: "Binance ticker request",
+    }),
   ]);
   if (!Array.isArray(exchangeInfo?.symbols)) throw new TypeError("Binance exchangeInfo response is invalid");
   if (!Array.isArray(tickers)) throw new TypeError("Binance ticker response is invalid");
@@ -197,6 +208,9 @@ export async function fetchCurrentInPlayUniverse({
           startTime: now - natrLookbackMinutes * 60_000,
           endTime: now,
           fetchImpl,
+          requestScheduler,
+          maxRetries,
+          ...(sleepImpl ? { sleepImpl } : {}),
         });
         return {
           ...metric,
