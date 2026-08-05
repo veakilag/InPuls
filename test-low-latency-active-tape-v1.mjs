@@ -24,6 +24,6 @@ test("legacy fallback uses the same 4 ms target", () => {
 test("new Worker build is consistent across runtime", () => {
   const orderbook = read("./orderbook.js");
   const serviceWorker = read("./sw.js");
-  assert.match(orderbook, /orderbook-worker\.js\?v=26-115-series-visible-fallback-v1/);
-  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-115-series-visible-fallback-v1/);
+  assert.match(orderbook, /orderbook-worker\.js\?v=26-116-spot-tape-routing-v2/);
+  assert.match(serviceWorker, /orderbook-worker\.js\?v=26-116-spot-tape-routing-v2/);
 });

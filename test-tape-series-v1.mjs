@@ -8,7 +8,7 @@ import {
   materializeTapeSeries,
   nextTapeMode,
   normalizeTapeMode,
-} from "./orderbook.js?v=26-115-series-visible-fallback-v1";
+} from "./orderbook.js?v=26-116-spot-tape-routing-v2";
 
 function trade(id, time, side, price, quote) {
   return {
