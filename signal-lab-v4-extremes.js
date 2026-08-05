@@ -1,4 +1,4 @@
-export const SIGNAL_LAB_V4_EXTREME_FORMULA_VERSION = "signal-lab-v4-extremes-v1-2026-08";
+export const SIGNAL_LAB_V4_EXTREME_FORMULA_VERSION = "signal-lab-v6-candle-extremes-v2-2026-08";
 
 export const EXTREME_STATES = Object.freeze({
   CANDIDATE: "CANDIDATE",
@@ -188,6 +188,7 @@ export class TimeframeExtremeEngine {
     this.barIndex = -1;
     this.extremes = [];
     this.extremeById = new Map();
+    this.activeExtremeIds = new Set();
     this.eventLog = [];
     this.dataQuality = EXTREME_DATA_QUALITY.LIVE;
   }
@@ -255,6 +256,21 @@ export class TimeframeExtremeEngine {
         this.#confirm("LOW", this.lowCandidate, timestamp, this.barIndex);
       }
     }
+    return emitSnapshot ? this.snapshot() : null;
+  }
+
+  observePrice(price, at = Date.now(), {
+    dataQuality = this.dataQuality,
+    emitSnapshot = true,
+  } = {}) {
+    const value = finite(price);
+    const timestamp = finite(at);
+    if (value === null || value <= 0 || timestamp === null) {
+      return emitSnapshot ? this.snapshot() : null;
+    }
+    this.dataQuality = normalizeQuality(dataQuality);
+    const ticks = priceToTicks(value, this.tickSize);
+    this.#observeActiveTicks(ticks, ticks, timestamp, this.barIndex);
     return emitSnapshot ? this.snapshot() : null;
   }
 
@@ -339,7 +355,11 @@ export class TimeframeExtremeEngine {
     };
     this.extremes.push(row);
     this.extremeById.set(id, row);
+    this.activeExtremeIds.add(id);
     this.eventLog.push({ type: "EXTREME_CONFIRMED", at: confirmedAt, extremeId: id });
+    if (this.eventLog.length > this.config.historyLimit * 2) {
+      this.eventLog.splice(0, this.eventLog.length - this.config.historyLimit * 2);
+    }
     if (side === "HIGH") {
       this.mode = "SEEK_LOW";
       this.highCandidate = null;
@@ -362,8 +382,12 @@ export class TimeframeExtremeEngine {
   }
 
   #observeActiveTicks(lowTicks, highTicks, at, barIndex) {
-    for (const row of this.extremes) {
-      if (!row.active) continue;
+    for (const extremeId of [...this.activeExtremeIds]) {
+      const row = this.extremeById.get(extremeId);
+      if (!row?.active) {
+        this.activeExtremeIds.delete(extremeId);
+        continue;
+      }
       const crossed = row.side === "HIGH"
         ? highTicks > row.priceTicks
         : lowTicks < row.priceTicks;
@@ -373,6 +397,7 @@ export class TimeframeExtremeEngine {
         row.crossedAt = at;
         row.invalidatedAt = at;
         row.dataQuality = this.dataQuality;
+        this.activeExtremeIds.delete(row.id);
         this.eventLog.push({ type: "EXTREME_CROSSED", at, extremeId: row.id });
         continue;
       }
@@ -413,7 +438,7 @@ export class TimeframeExtremeEngine {
       .map(extremePublic);
   }
 
-  snapshot() {
+  snapshot({ includeHistory = true, includeEvents = true } = {}) {
     return Object.freeze({
       schemaVersion: 1,
       entity: "SignalLabExtremeMap",
@@ -429,8 +454,8 @@ export class TimeframeExtremeEngine {
         low: candidatePublic(this.lowCandidate, this.tickSize),
       }),
       active: Object.freeze(this.activeExtremes()),
-      history: Object.freeze(this.extremes.slice(-500).map(extremePublic)),
-      events: Object.freeze(clone(this.eventLog.slice(-1_000))),
+      history: Object.freeze(includeHistory ? this.extremes.slice(-500).map(extremePublic) : []),
+      events: Object.freeze(includeEvents ? clone(this.eventLog.slice(-1_000)) : []),
     });
   }
 }
@@ -488,13 +513,28 @@ export class SignalLabV4ExtremeRegistry {
     return emitSnapshot ? this.snapshot(normalized) : null;
   }
 
-  snapshot(symbol) {
+  observePrice(symbol, price, at, options = {}) {
+    const normalized = normalizeSymbol(symbol);
+    if (!normalized) return null;
+    const emitSnapshot = options.emitSnapshot !== false;
+    for (const timeframe of SIGNAL_LAB_V4_TIMEFRAMES) {
+      this.engines.get(this.#key(normalized, timeframe))?.observePrice(price, at, {
+        ...options,
+        emitSnapshot: false,
+      });
+    }
+    return emitSnapshot
+      ? this.snapshot(normalized, options.snapshotOptions ?? {})
+      : null;
+  }
+
+  snapshot(symbol, options = {}) {
     const normalized = normalizeSymbol(symbol);
     if (!normalized) return null;
     const timeframes = {};
     for (const timeframe of SIGNAL_LAB_V4_TIMEFRAMES) {
       const engine = this.engines.get(this.#key(normalized, timeframe));
-      if (engine) timeframes[timeframe] = engine.snapshot();
+      if (engine) timeframes[timeframe] = engine.snapshot(options);
     }
     return Object.freeze({
       schemaVersion: 1,
@@ -506,7 +546,7 @@ export class SignalLabV4ExtremeRegistry {
   }
 
   activeLevels(symbol) {
-    const snapshot = this.snapshot(symbol);
+    const snapshot = this.snapshot(symbol, { includeHistory: false, includeEvents: false });
     const rows = [];
     for (const [timeframe, map] of Object.entries(snapshot?.timeframes ?? {})) {
       for (const extreme of map.active ?? []) rows.push({ ...extreme, timeframe });
