@@ -26,7 +26,9 @@ jobs:
           node-version: 22
 
       - name: Apply Stage 3 integration
-        run: python scripts/patch-signal-lab-v4-stage3.py
+        run: |
+          python scripts/patch-signal-lab-v4-stage3.py
+          python scripts/fix-signal-lab-v4-stage3.py
 
       - name: Check JavaScript syntax
         run: find . -type f -name '*.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
@@ -44,9 +46,10 @@ jobs:
         if: env.TEST_EXIT != '0'
         run: |
           cp /tmp/signal-lab-v4-stage3-tests.log V4_STAGE3_TEST_FAILURE.txt
+          grep -n -E '^(not ok|# fail|# pass|# tests)' /tmp/signal-lab-v4-stage3-tests.log > V4_STAGE3_FAILURE_SUMMARY.txt || true
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add V4_STAGE3_TEST_FAILURE.txt
+          git add V4_STAGE3_TEST_FAILURE.txt V4_STAGE3_FAILURE_SUMMARY.txt
           git commit -m "Capture Signal Lab V4 Stage 3 failure [signal-lab-v4-stage3-log]"
           git push origin HEAD:agent/signal-lab-v4-cascade-state-machine
           exit 1
@@ -56,7 +59,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -f .github/workflows/apply-signal-lab-v4-stage3.yml scripts/patch-signal-lab-v4-stage3.py V4_STAGE3_TEST_FAILURE.txt
+          git rm -f .github/workflows/apply-signal-lab-v4-stage3.yml scripts/patch-signal-lab-v4-stage3.py scripts/fix-signal-lab-v4-stage3.py V4_STAGE3_TEST_FAILURE.txt
+          if [ -f V4_STAGE3_FAILURE_SUMMARY.txt ]; then git rm -f V4_STAGE3_FAILURE_SUMMARY.txt; fi
           git add signal-lab-v4-cascades.js signal-lab-v3-candidates.js signal-lab-v3-collector.js signal-lab-v3-evidence.js signal-lab-v3-full-chart.js owner-signal-lab-v3.html owner-signal-lab-v3.js test/signal-lab-v4-cascades.test.js test/signal-lab-v4-cascade-integration.test.js docs/signal-lab-v4-cascade-stage3.md
           git commit -m "Add Signal Lab V4 cascade state machine [signal-lab-v4-stage3-applied]"
           git push origin HEAD:agent/signal-lab-v4-cascade-state-machine
