@@ -309,6 +309,21 @@ export class SignalLabV3Store {
     }));
   }
 
+  async clearAll() {
+    this.memoryEpisodes.clear();
+    this.memoryReviews.clear();
+    this.memoryEvidence.clear();
+    if (this.mode !== "indexeddb" || !this.database) {
+      return Object.freeze({ episodes: 0, reviews: 0, evidence: 0, mode: this.mode });
+    }
+    const transaction = this.database.transaction([EPISODES, REVIEWS, EVIDENCE], "readwrite");
+    transaction.objectStore(EPISODES).clear();
+    transaction.objectStore(REVIEWS).clear();
+    transaction.objectStore(EVIDENCE).clear();
+    await transactionDone(transaction);
+    return Object.freeze({ episodes: 0, reviews: 0, evidence: 0, mode: this.mode });
+  }
+
   #pruneMemory() {
     if (this.memoryEpisodes.size > this.maximumEpisodes) {
       const oldest = [...this.memoryEpisodes.values()]

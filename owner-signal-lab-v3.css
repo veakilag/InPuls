@@ -72,7 +72,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .status-dot.is-error { color: var(--danger); background: var(--danger); }
 .status-dot.is-stopped { color: var(--muted); background: var(--muted); }
 
-.topbar-actions, .section-actions { display: flex; align-items: center; gap: 10px; }
+.topbar-actions, .section-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 .button {
   min-height: 40px;
@@ -90,6 +90,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .button:hover { border-color: var(--blue); color: var(--blue); }
 .button.primary { border-color: rgba(67, 225, 194, 0.48); background: var(--accent-soft); color: var(--accent); }
 .button.secondary { color: var(--blue); }
+.button.danger { border-color: rgba(242, 125, 134, 0.42); color: var(--danger); background: rgba(242, 125, 134, 0.06); }
+.button.danger:hover { border-color: var(--danger); color: #ffd9dc; background: rgba(242, 125, 134, 0.13); }
+.button:disabled { opacity: .55; cursor: wait; }
 
 main { width: min(1720px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0 72px; }
 

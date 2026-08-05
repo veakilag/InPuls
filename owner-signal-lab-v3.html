@@ -5,16 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow,noarchive" />
     <meta name="description" content="Локальная лаборатория кандидатов рыночных паттернов InPuls" />
-    <title>InPuls — Owner Signal Lab V3.2</title>
+    <title>InPuls — Owner Signal Lab V3.3</title>
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./owner-signal-lab-v3.css?v=signal-lab-v3-four-patterns-v1" />
-    <link rel="stylesheet" href="./owner-signal-lab-v3-evidence.css?v=signal-lab-v3-four-patterns-v1" />
+    <link rel="stylesheet" href="./owner-signal-lab-v3.css?v=signal-lab-v3-full-chart-review-v1" />
+    <link rel="stylesheet" href="./owner-signal-lab-v3-evidence.css?v=signal-lab-v3-full-chart-review-v1" />
   </head>
   <body>
     <header class="topbar">
-      <div class="brand" aria-label="InPuls Owner Signal Lab V3.2">
+      <div class="brand" aria-label="InPuls Owner Signal Lab V3.3">
         <strong>INPULS</strong>
-        <span>OWNER SIGNAL LAB V3.2</span>
+        <span>OWNER SIGNAL LAB V3.3</span>
       </div>
       <div class="collector-line">
         <span id="collector-dot" class="status-dot" aria-hidden="true"></span>
@@ -103,6 +103,7 @@
             <span id="visible-count">0 эпизодов</span>
             <button id="export-json" class="button secondary" type="button">Экспорт JSON</button>
             <button id="export-csv" class="button secondary" type="button">Экспорт CSV</button>
+            <button id="clear-records" class="button danger" type="button">Очистить все записи</button>
           </div>
         </header>
         <div id="empty-state" class="empty-state">
@@ -131,23 +132,66 @@
         </header>
 
         <section class="evidence-workspace">
-          <div class="chart-panel">
+          <div class="chart-panel full-chart-panel">
             <header class="evidence-panel-head">
               <div>
-                <h3>График эпизода</h3>
-                <p data-field="coverage">Контекст собирается…</p>
+                <h3>Полноценный график проверки</h3>
+                <p data-field="coverage">Контекст и стакан собираются…</p>
               </div>
-              <div class="timeframe-switch" role="group" aria-label="Таймфрейм графика">
-                <button type="button" data-timeframe="1s">1с</button>
-                <button type="button" data-timeframe="5s" class="is-active">5с</button>
-                <button type="button" data-timeframe="15s">15с</button>
-                <button type="button" data-timeframe="1m">1м</button>
-              </div>
+              <button type="button" class="button primary compact" data-field="chart-toggle">Открыть полноценный график</button>
             </header>
-            <canvas data-field="chart" class="evidence-chart" aria-label="График цены до и после кандидата"></canvas>
+
+            <div data-field="full-chart-shell" class="full-chart-shell" hidden>
+              <div class="chart-primary-controls">
+                <div class="timeframe-switch chart-timeframes" role="group" aria-label="Таймфрейм полного графика">
+                  <button type="button" data-chart-timeframe="1s">1с</button>
+                  <button type="button" data-chart-timeframe="5s">5с</button>
+                  <button type="button" data-chart-timeframe="15s">15с</button>
+                  <button type="button" data-chart-timeframe="1m" class="is-active">1м</button>
+                  <button type="button" data-chart-timeframe="3m">3м</button>
+                  <button type="button" data-chart-timeframe="5m">5м</button>
+                  <button type="button" data-chart-timeframe="15m">15м</button>
+                  <button type="button" data-chart-timeframe="1h">1ч</button>
+                </div>
+                <div class="timeframe-switch chart-ranges" role="group" aria-label="Контекст вокруг эпизода">
+                  <button type="button" data-chart-range="15m">±15м</button>
+                  <button type="button" data-chart-range="1h" class="is-active">±1ч</button>
+                  <button type="button" data-chart-range="4h">±4ч</button>
+                  <button type="button" data-chart-range="24h">±24ч</button>
+                  <button type="button" data-chart-range="7d">±7д</button>
+                </div>
+              </div>
+
+              <div class="chart-toolbar" aria-label="Инструменты графика">
+                <button type="button" data-chart-tool="trend">Тренд</button>
+                <button type="button" data-chart-tool="horizontal">Уровень</button>
+                <button type="button" data-chart-tool="ruler">Линейка</button>
+                <button type="button" data-chart-tool="rectangle">Зона</button>
+                <button type="button" data-chart-tool="ray">Луч</button>
+                <button type="button" data-chart-tool="freehand">Рисовать</button>
+                <button type="button" data-chart-action="undo">Отменить</button>
+                <button type="button" data-chart-action="clear">Очистить рисунки</button>
+                <button type="button" data-chart-action="reset">К эпизоду</button>
+                <label><input data-field="chart-annotations-toggle" type="checkbox" checked /> Авторазметка</label>
+                <label><input data-field="chart-volume-toggle" type="checkbox" checked /> Объём</label>
+                <label><input data-field="chart-sessions-toggle" type="checkbox" checked /> Сессии</label>
+                <a data-field="open-inpuls-chart" class="button secondary compact" target="_blank" rel="noopener">Открыть в InPuls</a>
+              </div>
+
+              <div class="full-chart-stage">
+                <canvas data-field="full-chart" class="full-chart-canvas" aria-label="Полноценный график эпизода InPuls"></canvas>
+                <div data-field="full-chart-tooltip" class="full-chart-tooltip" hidden></div>
+              </div>
+              <p data-field="full-chart-status" class="full-chart-status">График загрузится после открытия.</p>
+              <div class="annotation-summary">
+                <span>Почему выбран паттерн — разметка на графике</span>
+                <ul data-field="chart-annotation-list"></ul>
+              </div>
+            </div>
+
             <div class="replay-controls">
-              <button type="button" class="button secondary compact" data-field="replay-play">▶ Replay</button>
-              <input data-field="replay-slider" type="range" min="0" max="1" step="1" value="0" aria-label="Время Replay" />
+              <button type="button" class="button secondary compact" data-field="replay-play">▶ Replay стакана</button>
+              <input data-field="replay-slider" type="range" min="0" max="1" step="1" value="0" aria-label="Время Replay стакана" />
               <strong data-field="replay-time">—</strong>
             </div>
             <div data-field="outcomes" class="outcomes"></div>
@@ -232,6 +276,6 @@
       </article>
     </template>
 
-    <script type="module" src="./owner-signal-lab-v3.js?v=signal-lab-v3-four-patterns-v1"></script>
+    <script type="module" src="./owner-signal-lab-v3.js?v=signal-lab-v3-full-chart-review-v1"></script>
   </body>
 </html>
