@@ -1,0 +1,119 @@
+name: Signal Lab live extreme diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostic/extreme-engine-live-20260806
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: diagnostic/extreme-engine-live-20260806
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Run diagnostic against Binance Futures
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { SignalLabV4ExtremeRegistry, SIGNAL_LAB_V4_TIMEFRAMES } from './signal-lab-v4-extremes.js';
+
+          const limits = { '1m': 1500, '5m': 1500, '15m': 1500, '1h': 900, '4h': 720, '1d': 365 };
+          const getJson = async (url) => {
+            const startedAt = Date.now();
+            const response = await fetch(url, { headers: { 'user-agent': 'InPuls-extreme-diagnostic/1.0' } });
+            const text = await response.text();
+            if (!response.ok) throw new Error(`${response.status} ${url}: ${text.slice(0, 240)}`);
+            return { data: JSON.parse(text), latencyMs: Date.now() - startedAt };
+          };
+          const normalize = (row) => ({
+            time: Number(row[0]), open: Number(row[1]), high: Number(row[2]), low: Number(row[3]), close: Number(row[4]),
+            volume: Number(row[5]), closeTime: Number(row[6]), closed: Number(row[6]) < Date.now(),
+          });
+
+          const exchange = await getJson('https://fapi.binance.com/fapi/v1/exchangeInfo');
+          const tickers = await getJson('https://fapi.binance.com/fapi/v1/ticker/24hr');
+          const perpetual = new Map(
+            exchange.data.symbols
+              .filter((row) => row.contractType === 'PERPETUAL' && row.quoteAsset === 'USDT' && row.status === 'TRADING')
+              .map((row) => [row.symbol, Number(row.filters.find((filter) => filter.filterType === 'PRICE_FILTER')?.tickSize)]),
+          );
+          const symbols = tickers.data
+            .filter((row) => perpetual.has(row.symbol))
+            .sort((a, b) => Number(b.quoteVolume) - Number(a.quoteVolume))
+            .slice(0, 12)
+            .map((row) => ({ symbol: row.symbol, price: Number(row.lastPrice), quoteVolume: Number(row.quoteVolume) }));
+
+          const result = {
+            generatedAt: new Date().toISOString(),
+            exchangeInfoLatencyMs: exchange.latencyMs,
+            tickerLatencyMs: tickers.latencyMs,
+            formula: 'signal-lab-v6-candle-extremes-v2-2026-08',
+            symbols: [],
+          };
+
+          for (const ticker of symbols) {
+            const registry = new SignalLabV4ExtremeRegistry();
+            const tickSize = perpetual.get(ticker.symbol);
+            registry.setTickSize(ticker.symbol, tickSize);
+            const item = { ...ticker, tickSize, timeframes: {}, totalHistory: 0, totalActive: 0 };
+            for (const timeframe of SIGNAL_LAB_V4_TIMEFRAMES) {
+              const url = new URL('https://fapi.binance.com/fapi/v1/klines');
+              url.searchParams.set('symbol', ticker.symbol);
+              url.searchParams.set('interval', timeframe);
+              url.searchParams.set('limit', String(limits[timeframe]));
+              const response = await getJson(url);
+              const candles = response.data.map(normalize).filter((row) => row.closed);
+              registry.hydrate(ticker.symbol, timeframe, candles, { tickSize, dataQuality: 'RECOVERED', emitSnapshot: false });
+              const map = registry.snapshot(ticker.symbol).timeframes[timeframe];
+              const active = map.active.map((row) => ({
+                side: row.side,
+                price: row.price,
+                distancePct: Math.abs(row.price - ticker.price) / ticker.price * 100,
+                touchCount: row.touchCount,
+                extremeTime: new Date(row.extremeTime).toISOString(),
+                confirmedAt: new Date(row.confirmedAt).toISOString(),
+              }));
+              item.timeframes[timeframe] = {
+                candles: candles.length,
+                latencyMs: response.latencyMs,
+                mode: map.mode,
+                history: map.history.length,
+                activeCount: active.length,
+                candidates: map.candidates,
+                active,
+              };
+              item.totalHistory += map.history.length;
+              item.totalActive += active.length;
+            }
+            result.symbols.push(item);
+          }
+          result.summary = {
+            symbols: result.symbols.length,
+            symbolsWithActive: result.symbols.filter((row) => row.totalActive > 0).length,
+            totalHistory: result.symbols.reduce((sum, row) => sum + row.totalHistory, 0),
+            totalActive: result.symbols.reduce((sum, row) => sum + row.totalActive, 0),
+          };
+          fs.writeFileSync('extreme-live-diagnostic.json', JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result.summary, null, 2));
+          for (const row of result.symbols) console.log(row.symbol, { history: row.totalHistory, active: row.totalActive });
+          NODE
+
+      - name: Commit diagnostic result
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add extreme-live-diagnostic.json
+          git commit -m "Record live extreme diagnostic result"
+          git push origin HEAD:diagnostic/extreme-engine-live-20260806
