@@ -23,13 +23,13 @@ jobs:
         with:
           node-version: 22
 
-      - name: Run diagnostic against Binance Futures
+      - name: Run diagnostic against Binance market data
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import { SignalLabV4ExtremeRegistry, SIGNAL_LAB_V4_TIMEFRAMES } from './signal-lab-v4-extremes.js';
 
-          const limits = { '1m': 1500, '5m': 1500, '15m': 1500, '1h': 900, '4h': 720, '1d': 365 };
+          const limits = { '1m': 1000, '5m': 1000, '15m': 1000, '1h': 900, '4h': 720, '1d': 365 };
           const getJson = async (url) => {
             const startedAt = Date.now();
             const response = await fetch(url, { headers: { 'user-agent': 'InPuls-extreme-diagnostic/1.0' } });
@@ -37,39 +37,53 @@ jobs:
             if (!response.ok) throw new Error(`${response.status} ${url}: ${text.slice(0, 240)}`);
             return { data: JSON.parse(text), latencyMs: Date.now() - startedAt };
           };
+          const probe = async (url) => {
+            try {
+              const response = await getJson(url);
+              return { ok: true, latencyMs: response.latencyMs };
+            } catch (error) {
+              return { ok: false, error: String(error?.message ?? error) };
+            }
+          };
           const normalize = (row) => ({
             time: Number(row[0]), open: Number(row[1]), high: Number(row[2]), low: Number(row[3]), close: Number(row[4]),
             volume: Number(row[5]), closeTime: Number(row[6]), closed: Number(row[6]) < Date.now(),
           });
 
-          const exchange = await getJson('https://fapi.binance.com/fapi/v1/exchangeInfo');
-          const tickers = await getJson('https://fapi.binance.com/fapi/v1/ticker/24hr');
-          const perpetual = new Map(
-            exchange.data.symbols
-              .filter((row) => row.contractType === 'PERPETUAL' && row.quoteAsset === 'USDT' && row.status === 'TRADING')
-              .map((row) => [row.symbol, Number(row.filters.find((filter) => filter.filterType === 'PRICE_FILTER')?.tickSize)]),
-          );
-          const symbols = tickers.data
-            .filter((row) => perpetual.has(row.symbol))
-            .sort((a, b) => Number(b.quoteVolume) - Number(a.quoteVolume))
-            .slice(0, 12)
-            .map((row) => ({ symbol: row.symbol, price: Number(row.lastPrice), quoteVolume: Number(row.quoteVolume) }));
-
           const result = {
             generatedAt: new Date().toISOString(),
-            exchangeInfoLatencyMs: exchange.latencyMs,
-            tickerLatencyMs: tickers.latencyMs,
             formula: 'signal-lab-v6-candle-extremes-v2-2026-08',
+            probes: {
+              futuresExchangeInfo: await probe('https://fapi.binance.com/fapi/v1/exchangeInfo'),
+              futuresKlines: await probe('https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=2'),
+              spotMarketData: await probe('https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=2'),
+            },
             symbols: [],
           };
 
+          const exchange = await getJson('https://data-api.binance.vision/api/v3/exchangeInfo');
+          const tickers = await getJson('https://data-api.binance.vision/api/v3/ticker/24hr');
+          const usdt = new Map(
+            exchange.data.symbols
+              .filter((row) => row.quoteAsset === 'USDT' && row.status === 'TRADING')
+              .map((row) => [row.symbol, Number(row.filters.find((filter) => filter.filterType === 'PRICE_FILTER')?.tickSize)]),
+          );
+          const preferred = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'BNBUSDT', 'LINKUSDT', 'AVAXUSDT', 'SUIUSDT', 'TRXUSDT', 'LTCUSDT'];
+          const tickerBySymbol = new Map(tickers.data.map((row) => [row.symbol, row]));
+          const symbols = preferred
+            .filter((symbol) => usdt.has(symbol) && tickerBySymbol.has(symbol))
+            .map((symbol) => {
+              const row = tickerBySymbol.get(symbol);
+              return { symbol, price: Number(row.lastPrice), quoteVolume: Number(row.quoteVolume) };
+            });
+
           for (const ticker of symbols) {
             const registry = new SignalLabV4ExtremeRegistry();
-            const tickSize = perpetual.get(ticker.symbol);
+            const tickSize = usdt.get(ticker.symbol);
             registry.setTickSize(ticker.symbol, tickSize);
             const item = { ...ticker, tickSize, timeframes: {}, totalHistory: 0, totalActive: 0 };
             for (const timeframe of SIGNAL_LAB_V4_TIMEFRAMES) {
-              const url = new URL('https://fapi.binance.com/fapi/v1/klines');
+              const url = new URL('https://data-api.binance.vision/api/v3/klines');
               url.searchParams.set('symbol', ticker.symbol);
               url.searchParams.set('interval', timeframe);
               url.searchParams.set('limit', String(limits[timeframe]));
@@ -106,7 +120,7 @@ jobs:
             totalActive: result.symbols.reduce((sum, row) => sum + row.totalActive, 0),
           };
           fs.writeFileSync('extreme-live-diagnostic.json', JSON.stringify(result, null, 2));
-          console.log(JSON.stringify(result.summary, null, 2));
+          console.log(JSON.stringify({ probes: result.probes, summary: result.summary }, null, 2));
           for (const row of result.symbols) console.log(row.symbol, { history: row.totalHistory, active: row.totalActive });
           NODE
 
