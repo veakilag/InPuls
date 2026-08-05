@@ -1,0 +1,44 @@
+name: Apply Signal Lab V3 evidence replay
+
+on:
+  push:
+    branches:
+      - agent/signal-lab-v3-evidence-replay
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    if: ${{ !contains(github.event.head_commit.message, '[signal-lab-v3-evidence-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out evidence branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/signal-lab-v3-evidence-replay
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply integration patch
+        run: node scripts/patch-signal-lab-v3-evidence-replay.mjs
+
+      - name: Check JavaScript syntax
+        run: find . -type f -name '*.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
+
+      - name: Run full regression suite
+        run: npm test
+
+      - name: Commit final implementation and remove temporary integration files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/signal-lab-v3-evidence-replay.yml scripts/patch-signal-lab-v3-evidence-replay.mjs
+          git add signal-lab-v3-collector.js signal-lab-v3-evidence.js signal-lab-v3-explainer.js signal-lab-v3-replay-ui.js owner-signal-lab-v3.js owner-signal-lab-v3.html owner-signal-lab-v3-evidence.css sw.js test/signal-lab-v3-evidence.test.js
+          git commit -m "Add Signal Lab V3 evidence replay and trader explanation [signal-lab-v3-evidence-applied]"
+          git push origin HEAD:agent/signal-lab-v3-evidence-replay
