@@ -193,7 +193,7 @@ export class TimeframeExtremeEngine {
     this.dataQuality = EXTREME_DATA_QUALITY.LIVE;
   }
 
-  ingestCandles(rows, { dataQuality = this.dataQuality } = {}) {
+  ingestCandles(rows, { dataQuality = this.dataQuality, emitSnapshot = true } = {}) {
     const normalized = (Array.isArray(rows) ? rows : [])
       .map((row) => normalizeCandle(row, this.intervalMs))
       .filter((row) => row?.closed)
@@ -202,7 +202,7 @@ export class TimeframeExtremeEngine {
       if (this.lastCandleTime !== null && row.time <= this.lastCandleTime) continue;
       this.ingestCandle(row, { dataQuality, emitSnapshot: false });
     }
-    return this.snapshot();
+    return emitSnapshot ? this.snapshot() : null;
   }
 
   ingestCandle(raw, {
@@ -433,8 +433,9 @@ export class TimeframeExtremeEngine {
   }
 
   activeExtremes(side = null) {
-    return this.extremes
-      .filter((row) => row.active && (!side || row.side === side))
+    return [...this.activeExtremeIds]
+      .map((id) => this.extremeById.get(id))
+      .filter((row) => row?.active && (!side || row.side === side))
       .map(extremePublic);
   }
 

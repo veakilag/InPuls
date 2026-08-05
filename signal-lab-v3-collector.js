@@ -33,6 +33,14 @@ const EXTREME_WARMUP = Object.freeze({
   "4h": 720,
   "1d": 365,
 });
+const TIMEFRAME_MINUTES = Object.freeze({
+  "1m": 1,
+  "5m": 5,
+  "15m": 15,
+  "1h": 60,
+  "4h": 240,
+  "1d": 1_440,
+});
 const CONNECTION_TIMEOUT_MS = 10_000;
 const STATUS_NOTIFY_INTERVAL_MS = 350;
 const CHECK_INTERVAL_MS = 1_000;
@@ -177,6 +185,51 @@ function normalizeKline(row) {
     : null;
 }
 
+export function latestCompleteTimeframeCandle(minuteCandles, timeframe, now = Date.now()) {
+  const size = TIMEFRAME_MINUTES[timeframe];
+  if (!size || !Array.isArray(minuteCandles)) return null;
+  const minuteMs = 60_000;
+  const intervalMs = size * minuteMs;
+  const byTime = new Map();
+  for (const raw of minuteCandles) {
+    const time = finite(raw?.time);
+    const open = finite(raw?.open);
+    const high = finite(raw?.high);
+    const low = finite(raw?.low);
+    const close = finite(raw?.close);
+    if (![time, open, high, low, close].every((value) => value !== null) || time + minuteMs > now) continue;
+    byTime.set(time, {
+      time,
+      open,
+      high,
+      low,
+      close,
+      volume: Math.max(0, finite(raw?.volume) ?? 0),
+    });
+  }
+  if (!byTime.size) return null;
+  const latestMinuteTime = Math.max(...byTime.keys());
+  let bucketStart = Math.floor(latestMinuteTime / intervalMs) * intervalMs;
+  if (latestMinuteTime < bucketStart + intervalMs - minuteMs) bucketStart -= intervalMs;
+  if (bucketStart < 0) return null;
+  const rows = [];
+  for (let index = 0; index < size; index += 1) {
+    const candle = byTime.get(bucketStart + index * minuteMs);
+    if (!candle) return null;
+    rows.push(candle);
+  }
+  return Object.freeze({
+    time: bucketStart,
+    open: rows[0].open,
+    high: Math.max(...rows.map((row) => row.high)),
+    low: Math.min(...rows.map((row) => row.low)),
+    close: rows.at(-1).close,
+    volume: rows.reduce((sum, row) => sum + row.volume, 0),
+    closeTime: bucketStart + intervalMs - 1,
+    closed: true,
+  });
+}
+
 export class SignalLabV3Collector {
   constructor({
     onEpisodes = () => {},
@@ -220,7 +273,7 @@ export class SignalLabV3Collector {
     this.historyLoaded = new Set();
     this.historyLoading = new Set();
     this.historyRetryAt = new Map();
-    this.lastClosedMinuteAt = new Map();
+    this.lastClosedCandleAt = new Map();
     this.lastSubscriptionRefreshAt = 0;
     this.lastCheckAt = 0;
     this.checkTimer = null;
@@ -563,25 +616,39 @@ export class SignalLabV3Collector {
           tickSize
           && (this.historyLoaded.has(metrics.symbol) || this.trackedAggTrades.has(metrics.symbol))
         );
-        const latestClosedMinute = closedMinuteCandles.at(-1) ?? null;
-        const previousClosedMinuteAt = this.lastClosedMinuteAt.get(metrics.symbol) ?? null;
-        const hasNewClosedMinute = Boolean(
-          structureReady
-          && latestClosedMinute
-          && (previousClosedMinuteAt === null || latestClosedMinute.time > previousClosedMinuteAt)
-        );
-        if (hasNewClosedMinute) {
-          this.extremes.hydrate(metrics.symbol, "1m", [latestClosedMinute], {
+        const completedCandles = structureReady
+          ? SIGNAL_LAB_V4_TIMEFRAMES
+            .map((timeframe) => [
+              timeframe,
+              latestCompleteTimeframeCandle(state.minuteCandles, timeframe, now),
+            ])
+            .filter(([, candle]) => candle)
+          : [];
+        let latestClosedMinute = null;
+        let hasNewClosedMinute = false;
+        for (const [timeframe, candle] of completedCandles) {
+          const key = `${metrics.symbol}:${timeframe}`;
+          const previousTime = this.lastClosedCandleAt.get(key) ?? null;
+          if (previousTime !== null && candle.time <= previousTime) {
+            if (timeframe === "1m") latestClosedMinute = candle;
+            continue;
+          }
+          this.extremes.hydrate(metrics.symbol, timeframe, [candle], {
             tickSize,
             dataQuality,
+            emitSnapshot: false,
           });
-          this.lastClosedMinuteAt.set(metrics.symbol, latestClosedMinute.time);
+          this.lastClosedCandleAt.set(key, candle.time);
+          if (timeframe === "1m") {
+            latestClosedMinute = candle;
+            hasNewClosedMinute = true;
+          }
         }
         const extremeMap = structureReady
           ? this.extremes.snapshot(metrics.symbol, { includeHistory: false, includeEvents: false })
           : null;
         const atr1m = structureReady ? atrFromClosedCandles(closedMinuteCandles) : null;
-        if (hasNewClosedMinute) {
+        if (hasNewClosedMinute && latestClosedMinute) {
           this.levels.ingestCandle(metrics.symbol, latestClosedMinute, {
             tickSize,
             atr: atr1m,
@@ -597,8 +664,8 @@ export class SignalLabV3Collector {
             dataQuality,
           })
           : null;
-        if (levelMap && closedMinuteCandles.length) {
-          this.cascades.ingestCandle(metrics.symbol, closedMinuteCandles.at(-1), {
+        if (levelMap && hasNewClosedMinute && latestClosedMinute) {
+          this.cascades.ingestCandle(metrics.symbol, latestClosedMinute, {
             atr: atr1m,
             dataQuality,
           });
@@ -779,7 +846,10 @@ export class SignalLabV3Collector {
         this.extremes.hydrate(symbol, timeframe, candles, {
           tickSize,
           dataQuality: "RECOVERED",
+          emitSnapshot: false,
         });
+        const lastClosed = [...candles].reverse().find((candle) => candle.closed);
+        if (lastClosed) this.lastClosedCandleAt.set(`${symbol}:${timeframe}`, lastClosed.time);
         if (timeframe === "1m") this.#symbol(symbol)?.hydrateMinuteCandles(candles);
       }
       this.historyLoaded.add(symbol);

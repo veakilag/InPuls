@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { latestCompleteTimeframeCandle } from "../signal-lab-v3-collector.js";
 import {
   SignalLabV4ExtremeRegistry,
   TimeframeExtremeEngine,
@@ -79,7 +80,9 @@ test("collector live path is candle-driven and uses lean extreme maps", () => {
   const collector = fs.readFileSync(new URL("../signal-lab-v3-collector.js", import.meta.url), "utf8");
   assert.match(collector, /this\.extremes\.observePrice\(data\.s/);
   assert.doesNotMatch(collector, /this\.extremes\.ingestTrade\(data\.s/);
-  assert.match(collector, /hydrate\(metrics\.symbol, "1m", \[latestClosedMinute\]/);
+  assert.match(collector, /SIGNAL_LAB_V4_TIMEFRAMES/);
+  assert.match(collector, /latestCompleteTimeframeCandle\(state\.minuteCandles, timeframe, now\)/);
+  assert.match(collector, /hydrate\(metrics\.symbol, timeframe, \[candle\]/);
   assert.match(collector, /includeHistory: false, includeEvents: false/);
   assert.match(collector, /historyRetryAt\.set\(symbol, Date\.now\(\) \+ 60_000\)/);
 });
@@ -88,4 +91,51 @@ test("owner UI no longer rebuilds all episode cards every five seconds", () => {
   const owner = fs.readFileSync(new URL("../owner-signal-lab-v3.js", import.meta.url), "utf8");
   assert.match(owner, /setInterval\(\(\) => scheduleRender\(0\), 15_000\)/);
   assert.match(owner, /activeExtremes \?\? 0/);
+});
+
+
+test("minute history produces only fully closed higher-timeframe candles", () => {
+  const rows = Array.from({ length: 65 }, (_, index) => ({
+    time: index * minute,
+    open: 100 + index,
+    high: 101 + index,
+    low: 99 + index,
+    close: 100.5 + index,
+    volume: 1,
+  }));
+  const five = latestCompleteTimeframeCandle(rows, "5m", 65 * minute);
+  assert.equal(five.time, 60 * minute);
+  assert.equal(five.open, 160);
+  assert.equal(five.close, 164.5);
+  assert.equal(five.volume, 5);
+  const hour = latestCompleteTimeframeCandle(rows, "1h", 65 * minute);
+  assert.equal(hour.time, 0);
+  assert.equal(hour.open, 100);
+  assert.equal(hour.close, 159.5);
+});
+
+test("incomplete current bucket falls back to the previous complete bucket", () => {
+  const rows = Array.from({ length: 7 }, (_, index) => ({
+    time: index * minute,
+    open: 10 + index,
+    high: 11 + index,
+    low: 9 + index,
+    close: 10.5 + index,
+  }));
+  const candle5m = latestCompleteTimeframeCandle(rows, "5m", 7 * minute);
+  assert.equal(candle5m.time, 0);
+  assert.equal(candle5m.close, 14.5);
+});
+
+test("warmed symbols retain enough minute history for a complete 1d candle", () => {
+  const rows = Array.from({ length: 1_440 }, (_, index) => ({
+    time: index * minute,
+    open: 20,
+    high: 21,
+    low: 19,
+    close: 20,
+  }));
+  const daily = latestCompleteTimeframeCandle(rows, "1d", 1_440 * minute);
+  assert.equal(daily.time, 0);
+  assert.equal(daily.closeTime, 1_440 * minute - 1);
 });

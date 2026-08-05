@@ -60,6 +60,7 @@ export class SymbolState {
     this.volumeSlow = 0;
     this.history = [];
     this.minuteCandles = [];
+    this.minuteCandleLimit = 100;
     this.fundingRate = null;
     this.nextFundingTime = null;
     this.tradeBuckets = new Map();
@@ -87,7 +88,7 @@ export class SymbolState {
       minuteCandle.close = price;
     } else {
       this.minuteCandles.push({ time: minute, open: price, high: price, low: price, close: price });
-      this.minuteCandles = this.minuteCandles.slice(-100);
+      this.minuteCandles = this.minuteCandles.slice(-this.minuteCandleLimit);
     }
 
     const previousSnapshot = this.history.at(-1);
@@ -161,6 +162,7 @@ export class SymbolState {
 
   hydrateMinuteCandles(candles) {
     if (!Array.isArray(candles)) return;
+    this.minuteCandleLimit = Math.max(100, Math.min(1_500, candles.length || 0));
     const byTime = new Map(this.minuteCandles.map((candle) => [candle.time, candle]));
     for (const candle of candles) {
       if (![candle?.time, candle?.open, candle?.high, candle?.low, candle?.close].every(Number.isFinite)) continue;
@@ -172,7 +174,9 @@ export class SymbolState {
         close: candle.close,
       });
     }
-    this.minuteCandles = [...byTime.values()].sort((left, right) => left.time - right.time).slice(-100);
+    this.minuteCandles = [...byTime.values()]
+      .sort((left, right) => left.time - right.time)
+      .slice(-this.minuteCandleLimit);
   }
 
   updateLiquidation(event) {
