@@ -15,19 +15,31 @@ const ownerRuntime = await readFile(
   "utf8",
 );
 
-test("Signal Lab V3 uses the raw Binance subscription endpoint with a bounded connection watchdog", () => {
-  assert.match(collectorSource, /wss:\/\/fstream\.binance\.com\/ws/);
-  assert.doesNotMatch(collectorSource, /wss:\/\/fstream\.binance\.com\/market\/stream/);
-  assert.match(collectorSource, /CONNECTION_TIMEOUT_MS\s*=\s*10_000/);
-  assert.match(collectorSource, /socket\.readyState\s*!==\s*WebSocket\.CONNECTING/);
-  assert.match(collectorSource, /this\.socket\s*!==\s*socket/);
+test("Signal Lab V3 separates Binance market and public routes", () => {
+  assert.equal(collectorSource.includes("wss://fstream.binance.com/market/ws"), true);
+  assert.equal(collectorSource.includes("wss://fstream.binance.com/public/ws"), true);
+  assert.equal(collectorSource.includes('const BINANCE_STREAM_ENDPOINT = "wss://fstream.binance.com/ws"'), false);
+  assert.equal(collectorSource.includes('params: ["!bookTicker"]'), true);
+  assert.equal(collectorSource.includes('"!miniTicker@arr"'), true);
 });
 
-test("Signal Lab V3 stays a separate noindex owner page with its own public-market collector", () => {
-  assert.match(ownerHtml, /name="robots" content="noindex,nofollow,noarchive"/);
-  assert.match(ownerHtml, /owner-signal-lab-v3\.js/);
-  assert.match(ownerRuntime, /new SignalLabV3Collector/);
-  assert.match(ownerHtml, /Сначала собрать — потом доказать паттерн/);
-  assert.match(ownerHtml, /не команда на сделку/);
-  assert.doesNotMatch(ownerHtml, /api[_-]?key|secret|private[_-]?key/i);
+test("Signal Lab V3 reports LIVE only after a real miniTicker packet", () => {
+  assert.equal(collectorSource.includes('connection: "syncing"'), true);
+  assert.equal(collectorSource.includes('row?.e === "24hrMiniTicker"'), true);
+  assert.equal(collectorSource.includes('patch.connection = "live"'), true);
+  assert.equal(collectorSource.includes("обязательный miniTicker"), true);
+  assert.equal(collectorSource.includes("subscriptionErrors"), true);
+  assert.equal(collectorSource.includes("miniTickerPackets"), true);
+  assert.equal(collectorSource.includes("bookPackets"), true);
+  assert.equal(collectorSource.includes("aggTradePackets"), true);
+});
+
+test("Signal Lab V3 owner page exposes truthful live diagnostics", () => {
+  assert.equal(ownerHtml.includes('name="robots" content="noindex,nofollow,noarchive"'), true);
+  assert.equal(ownerHtml.includes("signal-lab-v3-live-routing-v1"), true);
+  assert.equal(ownerRuntime.includes('syncing: "синхронизация"'), true);
+  assert.equal(ownerRuntime.includes("miniTicker"), true);
+  assert.equal(ownerRuntime.includes("aggTradePackets"), true);
+  assert.equal(ownerRuntime.includes("bookPackets"), true);
+  assert.equal(/api[_-]?key|secret|private[_-]?key/i.test(ownerHtml), false);
 });

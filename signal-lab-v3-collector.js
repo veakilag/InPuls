@@ -12,7 +12,8 @@ import {
   SIGNAL_LAB_V3_FORMULA_VERSION,
 } from "./signal-lab-v3-candidates.js";
 
-const BINANCE_STREAM_ENDPOINT = "wss://fstream.binance.com/ws";
+const BINANCE_MARKET_STREAM_ENDPOINT = "wss://fstream.binance.com/market/ws";
+const BINANCE_PUBLIC_STREAM_ENDPOINT = "wss://fstream.binance.com/public/ws";
 const BINANCE_KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
 const CONNECTION_TIMEOUT_MS = 10_000;
 
@@ -166,10 +167,16 @@ export class SignalLabV3Collector {
     this.maximumTrackedTrades = maximumTrackedTrades;
     this.maximumWarmupSymbols = maximumWarmupSymbols;
     this.socket = null;
+    this.bookSocket = null;
     this.requestId = 1;
+    this.bookRequestId = 1;
     this.reconnectAttempt = 0;
+    this.bookReconnectAttempt = 0;
     this.reconnectTimer = null;
+    this.bookReconnectTimer = null;
     this.connectionTimer = null;
+    this.corePacketTimer = null;
+    this.bookConnectionTimer = null;
     this.manualClose = false;
     this.symbols = new Map();
     this.bookTracker = new ExpertBookCandidateTracker(this.settings);
@@ -183,7 +190,13 @@ export class SignalLabV3Collector {
       connection: "idle",
       startedAt: null,
       lastMessageAt: null,
+      lastBookMessageAt: null,
       lastCheckAt: null,
+      marketPackets: 0,
+      miniTickerPackets: 0,
+      bookPackets: 0,
+      aggTradePackets: 0,
+      subscriptionErrors: 0,
       checks: 0,
       createdEpisodes: 0,
       updatedEpisodes: 0,
@@ -197,15 +210,27 @@ export class SignalLabV3Collector {
   }
 
   connect() {
+    this.manualClose = false;
+    this.#connectMarket();
+    this.#connectBook();
+  }
+
+  #connectMarket() {
     clearTimeout(this.reconnectTimer);
     clearTimeout(this.connectionTimer);
-    this.manualClose = false;
-    this.#publish({ connection: "connecting", startedAt: this.statusState.startedAt ?? Date.now() });
-    const socket = new WebSocket(BINANCE_STREAM_ENDPOINT);
+    clearTimeout(this.corePacketTimer);
+    if (this.manualClose) return;
+    this.#publish({
+      connection: "connecting",
+      startedAt: this.statusState.startedAt ?? Date.now(),
+      lastError: null,
+    });
+    const checksAtOpen = this.statusState.checks;
+    const socket = new WebSocket(BINANCE_MARKET_STREAM_ENDPOINT);
     this.socket = socket;
     this.connectionTimer = setTimeout(() => {
       if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
-      this.#publish({ connection: "error", lastError: "Binance не отвечает более 10 секунд" });
+      this.#publish({ connection: "error", lastError: "Binance market не отвечает более 10 секунд" });
       socket.close();
     }, CONNECTION_TIMEOUT_MS);
 
@@ -213,18 +238,25 @@ export class SignalLabV3Collector {
       if (this.socket !== socket) return;
       clearTimeout(this.connectionTimer);
       this.reconnectAttempt = 0;
-      this.#publish({ connection: "live", lastError: null });
+      this.#publish({ connection: "syncing", lastError: null });
       this.#send("SUBSCRIBE", [
         "!miniTicker@arr",
         "!markPrice@arr@1s",
         "!forceOrder@arr",
-        "!bookTicker",
       ]);
       if (this.trackedAggTrades.size) {
         this.#send("SUBSCRIBE", [...this.trackedAggTrades].map(
           (symbol) => `${symbol.toLowerCase()}@aggTrade`,
         ));
       }
+      this.corePacketTimer = setTimeout(() => {
+        if (this.socket !== socket || this.statusState.checks !== checksAtOpen) return;
+        this.#publish({
+          connection: "error",
+          lastError: "Сокет открыт, но обязательный miniTicker не поступает",
+        });
+        socket.close();
+      }, 7_000);
     });
 
     socket.addEventListener("message", (event) => {
@@ -235,33 +267,144 @@ export class SignalLabV3Collector {
       } catch {
         return;
       }
-      if (payload?.result === null || payload?.id) return;
-      this.#publish({ lastMessageAt: Date.now() });
-      this.#handle(payload?.data ?? payload);
+      if (Number.isFinite(Number(payload?.code))) {
+        this.#publish({
+          connection: "error",
+          subscriptionErrors: this.statusState.subscriptionErrors + 1,
+          lastError: `Binance subscription: ${String(payload?.msg ?? payload.code).slice(0, 140)}`,
+        });
+        socket.close();
+        return;
+      }
+      if (payload?.result === null || (payload?.id && payload?.result !== undefined)) return;
+      const data = payload?.data ?? payload;
+      const receivedAt = Date.now();
+      const hasMiniTicker = Array.isArray(data) && data.some((row) => (
+        row?.e === "24hrMiniTicker"
+        && isUsdtPerpetualSymbol(row.s)
+        && finite(row.c) > 0
+      ));
+      const aggTradePackets = Array.isArray(data)
+        ? data.filter((row) => row?.e === "aggTrade").length
+        : data?.e === "aggTrade" ? 1 : 0;
+      const patch = {
+        lastMessageAt: receivedAt,
+        marketPackets: this.statusState.marketPackets + 1,
+        aggTradePackets: this.statusState.aggTradePackets + aggTradePackets,
+      };
+      if (hasMiniTicker) {
+        clearTimeout(this.corePacketTimer);
+        patch.connection = "live";
+        patch.miniTickerPackets = this.statusState.miniTickerPackets + 1;
+        patch.lastError = null;
+      }
+      this.#publish(patch);
+      this.#handle(data);
     });
 
     socket.addEventListener("close", () => {
       if (this.socket !== socket || this.manualClose) return;
       clearTimeout(this.connectionTimer);
+      clearTimeout(this.corePacketTimer);
       this.reconnectAttempt += 1;
       const delay = Math.min(30_000, 1_000 * 2 ** Math.min(this.reconnectAttempt, 5));
       this.#publish({ connection: "reconnecting" });
-      this.reconnectTimer = setTimeout(() => this.connect(), delay);
+      this.reconnectTimer = setTimeout(() => this.#connectMarket(), delay);
     });
 
     socket.addEventListener("error", () => {
       if (this.socket !== socket) return;
       clearTimeout(this.connectionTimer);
-      this.#publish({ connection: "error", lastError: "Ошибка потока Binance" });
+      clearTimeout(this.corePacketTimer);
+      this.#publish({ connection: "error", lastError: "Ошибка market-потока Binance" });
+    });
+  }
+
+  #connectBook() {
+    clearTimeout(this.bookReconnectTimer);
+    clearTimeout(this.bookConnectionTimer);
+    if (this.manualClose) return;
+    const socket = new WebSocket(BINANCE_PUBLIC_STREAM_ENDPOINT);
+    this.bookSocket = socket;
+    this.bookConnectionTimer = setTimeout(() => {
+      if (this.bookSocket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+      socket.close();
+    }, CONNECTION_TIMEOUT_MS);
+
+    socket.addEventListener("open", () => {
+      if (this.bookSocket !== socket) return;
+      clearTimeout(this.bookConnectionTimer);
+      this.bookReconnectAttempt = 0;
+      socket.send(JSON.stringify({
+        method: "SUBSCRIBE",
+        params: ["!bookTicker"],
+        id: this.bookRequestId++,
+      }));
+    });
+
+    socket.addEventListener("message", (event) => {
+      if (this.bookSocket !== socket) return;
+      let payload;
+      try {
+        payload = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+      if (Number.isFinite(Number(payload?.code))) {
+        this.#publish({
+          subscriptionErrors: this.statusState.subscriptionErrors + 1,
+          lastError: `Binance book subscription: ${String(payload?.msg ?? payload.code).slice(0, 140)}`,
+        });
+        socket.close();
+        return;
+      }
+      if (payload?.result === null || (payload?.id && payload?.result !== undefined)) return;
+      const raw = payload?.data ?? payload;
+      const normalizeBook = (row) => {
+        if (!row || typeof row !== "object") return row;
+        if (row.e === "bookTicker") return row;
+        if (
+          isUsdtPerpetualSymbol(row.s)
+          && finite(row.b) !== null
+          && finite(row.B) !== null
+          && finite(row.a) !== null
+          && finite(row.A) !== null
+        ) return { ...row, e: "bookTicker", E: finite(row.E) ?? Date.now() };
+        return row;
+      };
+      const data = Array.isArray(raw) ? raw.map(normalizeBook) : normalizeBook(raw);
+      this.#publish({
+        lastBookMessageAt: Date.now(),
+        bookPackets: this.statusState.bookPackets + 1,
+      });
+      this.#handle(data);
+    });
+
+    socket.addEventListener("close", () => {
+      if (this.bookSocket !== socket || this.manualClose) return;
+      clearTimeout(this.bookConnectionTimer);
+      this.bookReconnectAttempt += 1;
+      const delay = Math.min(30_000, 1_000 * 2 ** Math.min(this.bookReconnectAttempt, 5));
+      this.bookReconnectTimer = setTimeout(() => this.#connectBook(), delay);
+    });
+
+    socket.addEventListener("error", () => {
+      if (this.bookSocket !== socket) return;
+      clearTimeout(this.bookConnectionTimer);
     });
   }
 
   disconnect() {
     this.manualClose = true;
     clearTimeout(this.reconnectTimer);
+    clearTimeout(this.bookReconnectTimer);
     clearTimeout(this.connectionTimer);
+    clearTimeout(this.corePacketTimer);
+    clearTimeout(this.bookConnectionTimer);
     this.socket?.close();
+    this.bookSocket?.close();
     this.socket = null;
+    this.bookSocket = null;
     this.#publish({ connection: "stopped" });
   }
 

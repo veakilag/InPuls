@@ -2,7 +2,7 @@ import {
   CANDIDATE_LABELS,
   SIGNAL_LAB_V3_FORMULA_VERSION,
 } from "./signal-lab-v3-candidates.js";
-import { SignalLabV3Collector } from "./signal-lab-v3-collector.js";
+import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v3-live-routing-v1";
 import { rowsToCsv, SignalLabV3Store } from "./signal-lab-v3-store.js";
 
 const elements = {
@@ -95,6 +95,7 @@ function statusText(status) {
   const connection = {
     idle: "ожидание",
     connecting: "подключение",
+    syncing: "синхронизация",
     live: "LIVE",
     reconnecting: "переподключение",
     error: "ошибка",
@@ -104,7 +105,7 @@ function statusText(status) {
     ? Math.max(0, Math.round((Date.now() - status.lastMessageAt) / 1_000))
     : null;
   const age = ageSeconds === null ? "нет данных" : `${ageSeconds}с назад`;
-  return `${connection} · проверки ${status.checks} · эпизоды ${status.createdEpisodes} · aggTrade ${status.trackedTrades} · история ${status.warmupLoaded} · пакет ${age}`;
+  return `${connection} · проверки ${status.checks} · эпизоды ${status.createdEpisodes} · miniTicker ${status.miniTickerPackets ?? 0} · aggTrade ${status.aggTradePackets ?? 0}/${status.trackedTrades} · book ${status.bookPackets ?? 0} · история ${status.warmupLoaded} · пакет ${age}`;
 }
 
 function renderCollectorStatus() {
