@@ -274,6 +274,7 @@ export class SignalLabV3Collector {
     this.historyLoading = new Set();
     this.historyRetryAt = new Map();
     this.lastClosedCandleAt = new Map();
+    this.lastTimeframeAggregationAt = new Map();
     this.lastSubscriptionRefreshAt = 0;
     this.lastCheckAt = 0;
     this.checkTimer = null;
@@ -616,7 +617,17 @@ export class SignalLabV3Collector {
           tickSize
           && (this.historyLoaded.has(metrics.symbol) || this.trackedAggTrades.has(metrics.symbol))
         );
-        const completedCandles = structureReady
+        const latestClosedSourceMinute = structureReady
+          ? [...state.minuteCandles].reverse().find((candle) => (
+            finite(candle?.time) !== null && candle.time + 60_000 <= now
+          )) ?? null
+          : null;
+        const previousAggregationAt = this.lastTimeframeAggregationAt.get(metrics.symbol) ?? null;
+        const hasNewSourceMinute = Boolean(
+          latestClosedSourceMinute
+          && (previousAggregationAt === null || latestClosedSourceMinute.time > previousAggregationAt)
+        );
+        const completedCandles = hasNewSourceMinute
           ? SIGNAL_LAB_V4_TIMEFRAMES
             .map((timeframe) => [
               timeframe,
@@ -643,6 +654,9 @@ export class SignalLabV3Collector {
             latestClosedMinute = candle;
             hasNewClosedMinute = true;
           }
+        }
+        if (hasNewSourceMinute) {
+          this.lastTimeframeAggregationAt.set(metrics.symbol, latestClosedSourceMinute.time);
         }
         const extremeMap = structureReady
           ? this.extremes.snapshot(metrics.symbol, { includeHistory: false, includeEvents: false })
@@ -850,7 +864,10 @@ export class SignalLabV3Collector {
         });
         const lastClosed = [...candles].reverse().find((candle) => candle.closed);
         if (lastClosed) this.lastClosedCandleAt.set(`${symbol}:${timeframe}`, lastClosed.time);
-        if (timeframe === "1m") this.#symbol(symbol)?.hydrateMinuteCandles(candles);
+        if (timeframe === "1m") {
+          this.#symbol(symbol)?.hydrateMinuteCandles(candles);
+          if (lastClosed) this.lastTimeframeAggregationAt.set(symbol, lastClosed.time);
+        }
       }
       this.historyLoaded.add(symbol);
       this.historyRetryAt.delete(symbol);

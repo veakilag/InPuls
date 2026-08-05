@@ -83,6 +83,8 @@ test("collector live path is candle-driven and uses lean extreme maps", () => {
   assert.match(collector, /SIGNAL_LAB_V4_TIMEFRAMES/);
   assert.match(collector, /latestCompleteTimeframeCandle\(state\.minuteCandles, timeframe, now\)/);
   assert.match(collector, /hydrate\(metrics\.symbol, timeframe, \[candle\]/);
+  assert.match(collector, /hasNewSourceMinute/);
+  assert.match(collector, /lastTimeframeAggregationAt\.set\(metrics\.symbol/);
   assert.match(collector, /includeHistory: false, includeEvents: false/);
   assert.match(collector, /historyRetryAt\.set\(symbol, Date\.now\(\) \+ 60_000\)/);
 });
