@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self';base-uri 'none';object-src 'none';form-action 'self';frame-ancestors 'none';script-src 'self';style-src 'self';img-src 'self' data:;font-src 'self';connect-src 'self'" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <meta name="inpuls-build" content="signal-lab-forward-paper-v1" />
+    <link rel="stylesheet" href="./owner-signal-paper.css?v=signal-lab-forward-paper-v1" />
+    <title>InPuls — Signal Lab Forward Paper</title>
+  </head>
+  <body>
+    <header class="paper-topbar">
+      <a class="paper-brand" href="./owner-signal-lab.html">
+        <strong>INPULS</strong>
+        <span>SIGNAL LAB · FORWARD PAPER</span>
+      </a>
+      <div class="paper-top-actions">
+        <span id="paper-status" data-state="loading">Запускаю forward paper…</span>
+        <a href="./" target="_blank" rel="noopener noreferrer">Открыть сборщик</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="paper-intro">
+        <div>
+          <span class="eyebrow">ТОЛЬКО ВИРТУАЛЬНЫЕ СДЕЛКИ</span>
+          <h1>Скальперские стратегии Signal Lab</h1>
+          <p>Сигнал сначала должен получить живое подтверждение за 15 секунд. После этого движок виртуально входит с комиссией и проскальзыванием и сопровождает сделку по сохранённому пути цены до пяти минут.</p>
+        </div>
+        <div class="paper-controls">
+          <button id="paper-refresh" type="button">Проверить сейчас</button>
+          <button id="paper-export" type="button">Экспорт JSON</button>
+          <button id="paper-reset" class="paper-danger" type="button">Новая forward-сессия</button>
+        </div>
+      </section>
+
+      <section class="paper-summary">
+        <article><span>Старт сессии</span><strong id="paper-session">—</strong></article>
+        <article><span>Виртуальный капитал</span><strong id="paper-equity">—</strong></article>
+        <article><span>Доходность</span><strong id="paper-return">—</strong></article>
+        <article><span>Открыто</span><strong id="paper-open">—</strong></article>
+        <article><span>Сделок</span><strong id="paper-trades">—</strong></article>
+        <article><span>Win rate</span><strong id="paper-win-rate">—</strong></article>
+        <article><span>Profit Factor</span><strong id="paper-profit-factor">—</strong></article>
+        <article><span>Матожидание</span><strong id="paper-expectancy">—</strong></article>
+        <article><span>Суммарно</span><strong id="paper-net-r">—</strong></article>
+      </section>
+
+      <section class="paper-diagnostics">
+        <span>Почему кандидаты не открылись</span>
+        <p id="paper-rejected">—</p>
+      </section>
+
+      <section class="paper-card">
+        <header>
+          <div><span class="eyebrow">СЕЙЧАС В РЫНКЕ</span><h2>Открытые виртуальные позиции</h2></div>
+          <small>Риск 0,25% · комиссии 5 bps/сторона · проскальзывание 2 bps/сторона</small>
+        </header>
+        <div class="paper-table-wrap">
+          <table>
+            <thead><tr><th>Монета</th><th>Стратегия</th><th>Сторона</th><th>Вход</th><th>Стоп</th><th>Цель</th><th>MFE</th><th>MAE</th><th>Тайм-стоп</th></tr></thead>
+            <tbody id="paper-open-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="paper-card">
+        <header><div><span class="eyebrow">РЕЙТИНГ</span><h2>Результат по стратегиям</h2></div></header>
+        <div class="paper-table-wrap">
+          <table>
+            <thead><tr><th>Стратегия</th><th>Сделок</th><th>WR</th><th>PF</th><th>Среднее</th><th>Сумма</th><th>Просадка</th></tr></thead>
+            <tbody id="paper-strategy-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="paper-card">
+        <header><div><span class="eyebrow">ЖУРНАЛ</span><h2>Закрытые forward-сделки</h2></div></header>
+        <div class="paper-table-wrap">
+          <table>
+            <thead><tr><th>Закрытие</th><th>Монета</th><th>Стратегия</th><th>Сторона</th><th>Причина</th><th>Результат</th><th>PnL</th><th>MFE</th><th>MAE</th></tr></thead>
+            <tbody id="paper-trades-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="paper-note">
+        <strong>Граница безопасности</strong>
+        <p>Страница не хранит API-ключи и не умеет отправлять ордера. Она читает только локальные события Signal Lab и их последующий живой путь цены. Переставление или крупный сайз не считаются доказательством намерения участника.</p>
+      </section>
+    </main>
+
+    <script src="./owner-signal-lab-guard.js?v=signal-lab-forward-paper-v1"></script>
+    <script type="module" src="./owner-signal-paper.js?v=signal-lab-forward-paper-v1"></script>
+  </body>
+</html>
