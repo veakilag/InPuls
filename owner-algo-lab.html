@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://fapi.binance.com https://fapi1.binance.com https://fapi2.binance.com; worker-src 'none'" />
+    <meta name="robots" content="noindex,nofollow,noarchive,nosnippet" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="description" content="Локальная owner-only лаборатория алгоритмических тестов InPuls" />
+    <title>InPuls — Owner Algo Lab</title>
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./owner-algo-lab.css?v=algo-lab-v1" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <strong>INPULS</strong>
+        <span>OWNER ALGO LAB</span>
+      </div>
+      <div class="privacy-state">
+        <span class="privacy-dot" aria-hidden="true"></span>
+        <span>Локальный режим · без API-ключей · без реальных ордеров</span>
+      </div>
+      <a class="button ghost" href="./" target="_blank" rel="noopener noreferrer">Открыть InPuls</a>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">АЛГОРИТМИЧЕСКАЯ ЛАБОРАТОРИЯ</p>
+          <h1>Сначала доказать преимущество. Потом давать деньги.</h1>
+          <p>
+            Страница собирает текущий INPLAY, скачивает публичную историю Binance Futures и
+            проверяет стратегию на раздельных train/test-периодах. Результаты сохраняются только
+            в локальном хранилище этого браузера.
+          </p>
+        </div>
+        <div class="safety-card">
+          <span>РЕЖИМ</span>
+          <strong>BACKTEST ONLY</strong>
+          <small>Торговый счёт не подключён</small>
+        </div>
+      </section>
+
+      <section class="panel settings-panel" aria-label="Параметры тестирования">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">ЗАПУСК</p>
+            <h2>Параметры исследования</h2>
+          </div>
+          <button id="load-inpuls-rules" class="button ghost" type="button">Взять правила из InPuls</button>
+        </header>
+
+        <form id="backtest-form" class="settings-grid">
+          <label>
+            <span>Таймфрейм</span>
+            <select id="interval" name="interval">
+              <option value="1m" selected>1 минута</option>
+              <option value="3m">3 минуты</option>
+              <option value="5m">5 минут</option>
+              <option value="15m">15 минут</option>
+            </select>
+          </label>
+          <label>
+            <span>История, дней</span>
+            <input id="days" name="days" type="number" min="2" max="365" step="1" value="7" />
+          </label>
+          <label>
+            <span>Монет INPLAY</span>
+            <input id="inplay-limit" name="inplayLimit" type="number" min="1" max="18" step="1" value="12" />
+          </label>
+          <label>
+            <span>Параллельных загрузок</span>
+            <input id="concurrency" name="concurrency" type="number" min="1" max="4" step="1" value="2" />
+          </label>
+          <label>
+            <span>V24 от, млн USDT</span>
+            <input id="min-v24" name="minV24" type="number" min="0" step="10" value="100" />
+          </label>
+          <label>
+            <span>NATR 1 от, %</span>
+            <input id="min-natr1" name="minNatr1" type="number" min="0" step="0.05" placeholder="не задан" />
+          </label>
+          <label>
+            <span>NATR 5 от, %</span>
+            <input id="min-natr5" name="minNatr5" type="number" min="0" step="0.05" placeholder="не задан" />
+          </label>
+          <label>
+            <span>Рост 24ч от, %</span>
+            <input id="min-growth24" name="minGrowth24" type="number" step="0.5" placeholder="не задан" />
+          </label>
+          <div class="form-actions">
+            <button id="refresh-inplay" class="button secondary" type="button">Обновить INPLAY</button>
+            <button id="run-backtest" class="button primary" type="submit">Запустить тест</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel universe-panel">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">ТЕКУЩИЙ РЫНОК</p>
+            <h2>Выборка монет</h2>
+          </div>
+          <div class="section-meta">
+            <span id="universe-time">Снимок ещё не получен</span>
+            <strong id="universe-count">0 монет</strong>
+          </div>
+        </header>
+        <div class="universe-groups">
+          <div>
+            <h3>Постоянная база</h3>
+            <div id="fixed-symbols" class="chips"></div>
+          </div>
+          <div>
+            <h3>Текущий INPLAY</h3>
+            <div id="inplay-symbols" class="chips"><span class="muted">Нажми «Обновить INPLAY»</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel run-panel">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">ХОД ТЕСТА</p>
+            <h2 id="run-title">Ожидает запуска</h2>
+          </div>
+          <button id="cancel-run" class="button danger" type="button" disabled>Остановить</button>
+        </header>
+        <div class="progress-track" aria-hidden="true"><span id="progress-bar"></span></div>
+        <div class="run-status">
+          <span id="run-status">Данные ещё не загружались</span>
+          <strong id="run-progress">0 / 0</strong>
+        </div>
+      </section>
+
+      <section class="stats" aria-label="Итоги последнего запуска">
+        <article class="stat-card"><span>Тестовых сделок</span><strong id="stat-trades">—</strong></article>
+        <article class="stat-card"><span>Прибыльных монет</span><strong id="stat-profitable">—</strong></article>
+        <article class="stat-card"><span>Медианная доходность</span><strong id="stat-return">—</strong></article>
+        <article class="stat-card"><span>Средний PF</span><strong id="stat-pf">—</strong></article>
+        <article class="stat-card"><span>Ошибок загрузки</span><strong id="stat-failures">—</strong></article>
+      </section>
+
+      <section class="panel results-panel">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">OUT-OF-SAMPLE</p>
+            <h2>Результаты на невидимом периоде</h2>
+          </div>
+          <div class="section-actions">
+            <button id="export-run" class="button ghost" type="button" disabled>Экспорт JSON</button>
+            <button id="clear-history" class="button ghost" type="button">Очистить локальную историю</button>
+          </div>
+        </header>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Монета</th>
+                <th>Источник</th>
+                <th>Сделок</th>
+                <th>WR</th>
+                <th>PF</th>
+                <th>Доходность</th>
+                <th>Max DD</th>
+                <th>Комиссии</th>
+                <th>Оценка</th>
+              </tr>
+            </thead>
+            <tbody id="results-body">
+              <tr><td colspan="9" class="empty-cell">Запусти первый тест</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel history-panel">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">ЛОКАЛЬНЫЙ ЖУРНАЛ</p>
+            <h2>Последние эксперименты</h2>
+          </div>
+          <span class="muted">Хранится только на этом устройстве</span>
+        </header>
+        <div id="run-history" class="history-list"><p class="empty-cell">История пока пустая</p></div>
+      </section>
+
+      <aside class="research-warning">
+        <strong>Ограничение текущей версии</strong>
+        <p>
+          Сегодняшний INPLAY тестируется на прошлой истории, поэтому результат может содержать
+          selection bias. До paper trading мы обязаны реконструировать состав INPLAY на каждую
+          историческую дату и повторить walk-forward тест.
+        </p>
+      </aside>
+    </main>
+
+    <script type="module" src="./owner-algo-lab.js?v=algo-lab-v1"></script>
+  </body>
+</html>

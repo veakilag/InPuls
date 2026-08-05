@@ -1,0 +1,97 @@
+name: Algo microstructure meta research
+
+on:
+  pull_request:
+    paths:
+      - algo-microstructure-meta-research.py
+      - .github/workflows/algo-microstructure-meta.yml
+  push:
+    branches:
+      - feature/algo-backtest-v1
+    paths:
+      - algo-microstructure-meta-research.py
+      - .github/workflows/algo-microstructure-meta.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: algo-microstructure-meta-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  research:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out reviewed revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Use Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Install research dependencies
+        run: python -m pip install --disable-pip-version-check numpy pandas pyarrow scikit-learn
+
+      - name: Download derivatives history
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data
+          universe="BTCUSDT ETHUSDT BNBUSDT SOLUSDT XRPUSDT DOGEUSDT ADAUSDT LINKUSDT AVAXUSDT LTCUSDT TRXUSDT BCHUSDT DOTUSDT UNIUSDT NEARUSDT SUIUSDT"
+          fetch_symbol() {
+            set -u
+            symbol="$1"
+            mkdir -p "data/${symbol}"
+            base="https://huggingface.co/datasets/linxy/USDT-M_Perpetual_Futures/resolve/main/${symbol}"
+            marker="data/${symbol}.loaded"
+            : > "$marker"
+            for file in "${symbol}_5m.parquet" "${symbol}_metrics.parquet" "${symbol}_fundingRate.parquet" "${symbol}_premiumIndex_5m.parquet"; do
+              if ! curl --fail --location --silent --show-error --retry 3 --retry-delay 3 --retry-all-errors \
+                "${base}/${file}?download=true" -o "data/${symbol}/${file}"; then
+                echo "Skip ${symbol}: missing ${file}" >&2
+                rm -rf "data/${symbol}" "$marker"
+                return 0
+              fi
+            done
+            printf '%s\n' "$symbol" > "$marker"
+          }
+          export -f fetch_symbol
+          printf '%s\n' $universe | xargs -n1 -P4 bash -c 'fetch_symbol "$1"' _
+          find data -maxdepth 1 -name '*.loaded' -size +0c -print0 | sort -z | xargs -0 cat > data/loaded-symbols.txt
+          cat data/loaded-symbols.txt
+          for required in BTCUSDT ETHUSDT SOLUSDT XRPUSDT TRXUSDT BCHUSDT DOTUSDT UNIUSDT; do
+            grep -qx "$required" data/loaded-symbols.txt || { echo "Missing required ${required}" >&2; exit 1; }
+          done
+
+      - name: Run microstructure meta research
+        shell: bash
+        run: |
+          set -euo pipefail
+          python algo-microstructure-meta-research.py \
+            --data-dir data \
+            --development-symbols BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,LINKUSDT,AVAXUSDT,LTCUSDT \
+            --unseen-symbols TRXUSDT,BCHUSDT,DOTUSDT,UNIUSDT,NEARUSDT,SUIUSDT \
+            --start 2024-01-01 \
+            --train-end 2026-01-01 \
+            --validation-end 2026-06-01 \
+            --holdout-end 2026-07-21 \
+            --output algo-microstructure-meta-result.json \
+            | tee algo-microstructure-meta.log
+
+      - name: Upload research evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: algo-microstructure-meta-${{ github.run_id }}
+          path: |
+            algo-microstructure-meta-result.json
+            algo-microstructure-meta.log
+            data/loaded-symbols.txt
+          if-no-files-found: warn
+          retention-days: 14
