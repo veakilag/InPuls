@@ -13,6 +13,8 @@ test("Binance Spot uses independent market-qualified Worker feeds", () => {
   assert.match(worker, /new SymbolFeed\(symbol, market\)/);
   assert.match(runtime, /const key = `\$\{market\}:\$\{symbol\}`/);
   assert.match(runtime, /market: this\.market/);
+  assert.match(worker, /post\(\s*"tape",\s*this\.symbol,\s*\{\s*market: this\.market,\s*replace: false,\s*live: true,/s);
+  assert.match(runtime, /detail: \{ symbol: key, market, status \}/);
 });
 
 test("Spot depth and trades use official Spot endpoints", () => {
