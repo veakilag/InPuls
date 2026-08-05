@@ -110,7 +110,7 @@ test("memory store clear removes episodes, reviews and evidence together", async
 test("owner page exposes lazy full chart, markup controls and destructive clear", async () => {
   const html = await readFile(new URL("../owner-signal-lab-v3.html", import.meta.url), "utf8");
   const runtime = await readFile(new URL("../owner-signal-lab-v3.js", import.meta.url), "utf8");
-  assert.match(html, /OWNER SIGNAL LAB V3\.3/);
+  assert.match(html, /OWNER SIGNAL LAB V4/);
   assert.match(html, /data-field="full-chart"/);
   assert.match(html, /data-chart-timeframe="1s"/);
   assert.match(html, /data-chart-timeframe="1h"/);

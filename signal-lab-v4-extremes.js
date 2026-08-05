@@ -39,6 +39,7 @@ export const DEFAULT_EXTREME_CONFIG = Object.freeze({
 });
 
 const finite = (value) => {
+  if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 };
@@ -93,7 +94,8 @@ function normalizeCandle(row, intervalMs) {
   const high = finite(row?.high);
   const low = finite(row?.low);
   const close = finite(row?.close);
-  if (![time, open, high, low, close].every((value) => value !== null && value > 0)) return null;
+  if (time === null || time < 0) return null;
+  if (![open, high, low, close].every((value) => value !== null && value > 0)) return null;
   if (high < Math.max(open, close) || low > Math.min(open, close) || high < low) return null;
   return Object.freeze({
     time,
@@ -325,7 +327,8 @@ export class TimeframeExtremeEngine {
       active: true,
       lastTestedAt: source.extremeTime,
       lastTouchBarIndex: source.barIndex,
-      rearmed: true,
+      rearmed: false,
+      outsideBars: 0,
     };
     this.extremes.push(row);
     this.extremeById.set(id, row);
@@ -377,15 +380,23 @@ export class TimeframeExtremeEngine {
       const movedAway = row.side === "HIGH"
         ? row.priceTicks - lowTicks >= rearmTicks
         : highTicks - row.priceTicks >= rearmTicks;
-      if (movedAway || barIndex - row.lastTouchBarIndex >= this.config.rearmBars) row.rearmed = true;
-      if (touched && row.rearmed && barIndex > row.lastTouchBarIndex) {
-        row.touchCount += 1;
-        row.lastTestedAt = at;
-        row.lastTouchBarIndex = barIndex;
+      if (touched) {
+        if (row.rearmed && barIndex > row.lastTouchBarIndex) {
+          row.touchCount += 1;
+          row.lastTestedAt = at;
+          row.lastTouchBarIndex = barIndex;
+          row.state = EXTREME_STATES.RETESTED;
+          this.eventLog.push({ type: "EXTREME_RETESTED", at, extremeId: row.id, touchCount: row.touchCount });
+        }
         row.rearmed = false;
-        row.state = EXTREME_STATES.RETESTED;
-        this.eventLog.push({ type: "EXTREME_RETESTED", at, extremeId: row.id, touchCount: row.touchCount });
+        row.outsideBars = 0;
+        continue;
       }
+      row.outsideBars = Math.max(0, Number(row.outsideBars) || 0) + 1;
+      if (
+        movedAway
+        || row.outsideBars >= Math.max(1, Math.round(Number(this.config.rearmBars) || 1))
+      ) row.rearmed = true;
     }
   }
 

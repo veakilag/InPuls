@@ -60,7 +60,7 @@ test("normalizers preserve exact event/receipt clocks and aggressor side", () =>
   assert.deepEqual(depth.bids, [[100, 2]]);
 
   const buy = normalizeAggTrade({ s: "TESTUSDT", p: "100", q: "2", T: 200, E: 190, m: false, a: 7 }, 230);
-  const sell = normalizeAggTrade({ s: "TESTUSDT", p: "100", q: "1", T: 201, m: true, a: 8 }, 231);
+  const sell = normalizeAggTrade({ s: "TESTUSDT", p: "100", q: "1", T: 201, E: 191, m: true, a: 8 }, 231);
   assert.equal(buy.side, "buy");
   assert.equal(sell.side, "sell");
   assert.equal(buy.quote, 200);
@@ -68,6 +68,7 @@ test("normalizers preserve exact event/receipt clocks and aggressor side", () =>
 
 test("recorder synchronizes REST snapshot with U/u/pu diffs and captures pre-event trades", async () => {
   FakeSocket.instances.length = 0;
+  const base = Date.now();
   const fetchImpl = async () => ({
     ok: true,
     async json() {
@@ -88,18 +89,18 @@ test("recorder synchronizes REST snapshot with U/u/pu diffs and captures pre-eve
   recorder.setSymbols(["TESTUSDT"]);
   const socket = FakeSocket.instances[0];
   socket.emit("open");
-  socket.emit("message", { data: diff({ U: 11, u: 12, pu: 10, at: 10_000, bids: [["100", "0"], ["99.5", "6"]] }) });
+  socket.emit("message", { data: diff({ U: 11, u: 12, pu: 10, at: base + 1_000, bids: [["100", "0"], ["99.5", "6"]] }) });
   await wait();
-  socket.emit("message", { data: diff({ U: 13, u: 13, pu: 12, at: 11_000, asks: [["101", "3"], ["100.5", "2"]] }) });
-  recorder.ingestTrade({ s: "TESTUSDT", p: "100.4", q: "2", T: 10_500, E: 10_450, m: false, a: 1 }, 10_600);
-  recorder.ingestTrade({ s: "TESTUSDT", p: "100.3", q: "1", T: 10_800, E: 10_750, m: true, a: 2 }, 10_900);
+  socket.emit("message", { data: diff({ U: 13, u: 13, pu: 12, at: base + 2_000, asks: [["101", "3"], ["100.5", "2"]] }) });
+  recorder.ingestTrade({ s: "TESTUSDT", p: "100.4", q: "2", T: base + 1_500, E: base + 1_450, m: false, a: 1 }, base + 1_600);
+  recorder.ingestTrade({ s: "TESTUSDT", p: "100.3", q: "1", T: base + 1_800, E: base + 1_750, m: true, a: 2 }, base + 1_900);
   await wait();
 
-  const replay = recorder.capture("TESTUSDT", 0, 12_000);
+  const replay = recorder.capture("TESTUSDT", base - 1_000, base + 3_000);
   assert.ok(replay);
   assert.equal(replay.trades.length, 2);
   assert.equal(replay.events.length >= 1, true);
-  const book = reconstructOrderBook(replay, 12_000);
+  const book = reconstructOrderBook(replay, base + 3_000);
   assert.ok(book);
   assert.equal(book.bids.some(([price]) => price === 100), false);
   assert.deepEqual(book.bids[0], [99.5, 6]);
@@ -111,6 +112,7 @@ test("recorder synchronizes REST snapshot with U/u/pu diffs and captures pre-eve
 test("sequence gap is reported instead of silently corrupting the local book", async () => {
   FakeSocket.instances.length = 0;
   let snapshots = 0;
+  const base = Date.now();
   const fetchImpl = async () => ({
     ok: true,
     async json() {
@@ -122,9 +124,9 @@ test("sequence gap is reported instead of silently corrupting the local book", a
   recorder.setSymbols(["TESTUSDT"]);
   const socket = FakeSocket.instances[0];
   socket.emit("open");
-  socket.emit("message", { data: diff({ U: 11, u: 11, pu: 10, at: 10_000, bids: [["100", "4"]] }) });
+  socket.emit("message", { data: diff({ U: 11, u: 11, pu: 10, at: base + 1_000, bids: [["100", "4"]] }) });
   await wait();
-  socket.emit("message", { data: diff({ U: 15, u: 15, pu: 14, at: 11_000, bids: [["100", "1"]] }) });
+  socket.emit("message", { data: diff({ U: 15, u: 15, pu: 14, at: base + 2_000, bids: [["100", "1"]] }) });
   await wait();
   assert.equal(recorder.status().gaps, 1);
   assert.equal(snapshots >= 2, true, "gap must force a clean REST resync");

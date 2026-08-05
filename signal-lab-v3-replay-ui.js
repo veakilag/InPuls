@@ -1,3 +1,5 @@
+import { mountSignalLabV4OrderFlowPanel } from "./signal-lab-v4-orderflow-replay.js?v=signal-lab-v4-stage1";
+
 const TIMEFRAMES = Object.freeze({
   "1s": 1_000,
   "5s": 5_000,
@@ -315,10 +317,16 @@ export function mountEvidenceReplay(card, episode) {
   }
 
   let timer = null;
-  const startAt = finite(pack?.window?.startAt) ?? Date.now() - 180_000;
+  const orderFlowPanel = pack?.orderFlowReplay
+    ? mountSignalLabV4OrderFlowPanel(card, pack.orderFlowReplay)
+    : null;
+  const startAt = finite(pack?.orderFlowReplay?.requestedFrom)
+    ?? finite(pack?.window?.startAt)
+    ?? Date.now() - 120_000;
   const latestAt = Math.max(
     finite(pack?.pricePoints?.at?.(-1)?.at) ?? startAt,
     finite(pack?.bookSnapshots?.at?.(-1)?.at) ?? startAt,
+    finite(pack?.orderFlowReplay?.requestedTo) ?? startAt,
     finite(pack?.window?.updatedAt) ?? startAt,
   );
   const durationSeconds = Math.max(1, Math.round((latestAt - startAt) / 1_000));
@@ -329,11 +337,14 @@ export function mountEvidenceReplay(card, episode) {
 
   const render = () => {
     const selectedAt = startAt + Number(slider.value) * 1_000;
-    renderBook(book, pack, selectedAt);
+    if (orderFlowPanel) orderFlowPanel.render(selectedAt);
+    else renderBook(book, pack, selectedAt);
     renderExplanation(card, pack);
     renderOutcomes(outcomes, pack);
     replayTime.textContent = formatClock(selectedAt);
-    coverage.textContent = `Цена: ${pack.coverage?.prePriceSeconds ?? 0}с до · стакан: ${pack.coverage?.preBookSeconds ?? 0}с до / ${pack.coverage?.bookState ?? "not-recorded"} · режим ${pack.bookMode}`;
+    coverage.textContent = orderFlowPanel
+      ? `Свечи: контекст до 30 дней · order flow: ${pack.coverage?.orderFlowPreSeconds ?? 0}с до · ${pack.coverage?.orderFlowState ?? "not-recorded"} · ${pack.coverage?.depthDiffs ?? 0} diff · ${pack.coverage?.rawTrades ?? 0} aggTrade`
+      : `Цена: ${pack.coverage?.prePriceSeconds ?? 0}с до · стакан: ${pack.coverage?.preBookSeconds ?? 0}с до / ${pack.coverage?.bookState ?? "not-recorded"} · режим ${pack.bookMode}`;
   };
 
   slider.addEventListener("input", render);

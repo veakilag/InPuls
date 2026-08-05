@@ -1,15 +1,15 @@
 import {
   CANDIDATE_LABELS,
   SIGNAL_LAB_V3_FORMULA_VERSION,
-} from "./signal-lab-v3-candidates.js?v=signal-lab-v3-full-chart-review-v1";
-import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v3-full-chart-review-v1";
-import { mountEvidenceReplay } from "./signal-lab-v3-replay-ui.js?v=signal-lab-v3-full-chart-review-v1";
+} from "./signal-lab-v3-candidates.js?v=signal-lab-v4-stage1";
+import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v4-stage1";
+import { mountEvidenceReplay } from "./signal-lab-v3-replay-ui.js?v=signal-lab-v4-stage1";
 import {
   disposeEpisodeFullCharts,
   isEpisodeFullChartOpen,
   mountEpisodeFullChart,
   resetEpisodeFullChartState,
-} from "./signal-lab-v3-full-chart.js?v=signal-lab-v3-full-chart-review-v1";
+} from "./signal-lab-v3-full-chart.js?v=signal-lab-v4-stage1";
 import { rowsToCsv, SignalLabV3Store } from "./signal-lab-v3-store.js";
 
 const elements = {
@@ -109,9 +109,9 @@ function statusText(status) {
     : null;
   const age = ageSeconds === null ? "нет данных" : `${ageSeconds}с назад`;
   const depth = status.depthState
-    ? `depth ${status.depthState}/${status.depthTracked ?? 0}`
-    : `depth ${status.depthTracked ?? 0}`;
-  return `${connection} · проверки ${status.checks} · эпизоды ${status.createdEpisodes} · miniTicker ${status.miniTickerPackets ?? 0} · aggTrade ${status.aggTradePackets ?? 0}/${status.trackedTrades} · book ${status.bookPackets ?? 0} · ${depth} · пакеты ${status.evidencePacks ?? 0} · история ${status.warmupLoaded} · пакет ${age}`;
+    ? `order flow ${status.depthState}/${status.depthTracked ?? 0}`
+    : `order flow ${status.depthTracked ?? 0}`;
+  return `${connection} · проверки ${status.checks} · эпизоды ${status.createdEpisodes} · экстремумы ${status.extremeMaps ?? 0} · miniTicker ${status.miniTickerPackets ?? 0} · aggTrade ${status.aggTradePackets ?? 0}/${status.trackedTrades} · book ${status.bookPackets ?? 0} · ${depth} · пакеты ${status.evidencePacks ?? 0} · история ${status.warmupLoaded} · пакет ${age}`;
 }
 
 function renderCollectorStatus() {
@@ -182,6 +182,7 @@ async function saveReview(episode, card, verdict) {
       verdict,
       finalPatternId: pattern.value,
       comment: comment.value,
+    errorLabels: [...card.querySelectorAll('[data-field="error-labels"] input:checked')].map((input) => input.value),
     });
     reviewStates.set(episode.id, review.verdict);
     buttons.forEach((button) => {
@@ -214,6 +215,10 @@ function renderCard(episode) {
   const comment = card.querySelector('[data-field="comment"]');
   pattern.value = episode.review?.finalPatternId ?? "";
   comment.value = episode.review?.comment ?? "";
+  const errorLabels = new Set(Array.isArray(episode.review?.errorLabels) ? episode.review.errorLabels : []);
+  card.querySelectorAll('[data-field="error-labels"] input').forEach((input) => {
+    input.checked = errorLabels.has(input.value);
+  });
   card.querySelectorAll("[data-verdict]").forEach((button) => {
     button.classList.toggle("is-selected", button.dataset.verdict === episode.reviewState);
     button.addEventListener("click", () => saveReview(episode, card, button.dataset.verdict));

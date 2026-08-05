@@ -9,6 +9,7 @@ const DEFAULT_MAX_SYMBOLS = 6;
 const DEFAULT_DEPTH_LIMIT = 1_000;
 
 const finite = (value) => {
+  if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 };

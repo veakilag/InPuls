@@ -5,7 +5,7 @@ const EPISODES = "episodes";
 const REVIEWS = "reviews";
 const EVIDENCE = "evidence";
 const MAX_EPISODES = 5_000;
-const MAX_EVIDENCE_PACKS = 500;
+const MAX_EVIDENCE_PACKS = 120;
 
 const finite = (value) => {
   const number = Number(value);
@@ -52,6 +52,9 @@ function normalizeReview(episodeId, review = {}, now = Date.now()) {
     verdict,
     finalPatternId: safeText(review.finalPatternId, 80) || null,
     comment: safeText(review.comment, 1_000),
+    errorLabels: Object.freeze([...new Set((Array.isArray(review.errorLabels) ? review.errorLabels : [])
+      .map((value) => safeText(value, 48))
+      .filter(Boolean))].slice(0, 24)),
     referencePrice: finite(review.referencePrice),
     invalidationPrice: finite(review.invalidationPrice),
     updatedAt: finite(review.updatedAt) ?? now,
@@ -293,6 +296,7 @@ export class SignalLabV3Store {
       reviewState: row.reviewState,
       finalPatternId: row.review?.finalPatternId ?? "",
       comment: row.review?.comment ?? "",
+      errorLabels: Array.isArray(row.review?.errorLabels) ? row.review.errorLabels.join(" | ") : "",
       facts: Array.isArray(row.latest?.facts) ? row.latest.facts.join(" | ") : "",
       patternHypotheses: Array.isArray(row.latest?.patternHypotheses)
         ? row.latest.patternHypotheses.join(" | ")

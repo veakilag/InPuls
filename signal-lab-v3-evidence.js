@@ -1,9 +1,9 @@
 import { buildTraderExplanation } from "./signal-lab-v3-explainer.js";
 
-export const SIGNAL_LAB_V3_EVIDENCE_VERSION = "signal-lab-v3-evidence-replay-2026-08";
+export const SIGNAL_LAB_V3_EVIDENCE_VERSION = "signal-lab-v4-extremes-orderflow-stage1-2026-08";
 
 const DEPTH_STREAM_BASE = "wss://fstream.binance.com/public/stream";
-const DEFAULT_PRE_EVENT_MS = 3 * 60_000;
+const DEFAULT_PRE_EVENT_MS = 2 * 60_000;
 const DEFAULT_POST_EVENT_MS = 5 * 60_000;
 const DEFAULT_DEPTH_SAMPLE_MS = 1_000;
 const DEFAULT_MAX_DEPTH_SYMBOLS = 10;
@@ -277,6 +277,8 @@ export class SignalLabV3EvidenceRecorder {
     maximumBookSnapshots = 520,
     emitEveryMs = 5_000,
     depthPool = null,
+    orderFlowRecorder = null,
+    disableLegacyDepth = false,
   } = {}) {
     this.preEventMs = preEventMs;
     this.postEventMs = postEventMs;
@@ -285,10 +287,13 @@ export class SignalLabV3EvidenceRecorder {
     this.maximumFlowSamples = maximumFlowSamples;
     this.maximumBookSnapshots = maximumBookSnapshots;
     this.emitEveryMs = emitEveryMs;
-    this.depthPool = depthPool ?? new SignalLabV3DepthPool({
-      maximumSymbols: maximumDepthSymbols,
-      preEventMs,
-    });
+    this.orderFlowRecorder = orderFlowRecorder;
+    this.depthPool = disableLegacyDepth
+      ? null
+      : depthPool ?? new SignalLabV3DepthPool({
+        maximumSymbols: maximumDepthSymbols,
+        preEventMs,
+      });
     this.sessions = new Map();
     this.baseWatchSymbols = [];
     this.pinnedUntil = new Map();
@@ -300,19 +305,19 @@ export class SignalLabV3EvidenceRecorder {
   status() {
     return Object.freeze({
       evidencePacks: this.sessions.size,
-      depth: this.depthPool.status(),
+      depth: this.orderFlowRecorder?.status() ?? this.depthPool?.status() ?? { connection: "idle", trackedSymbols: 0 },
     });
   }
 
   disconnect() {
-    this.depthPool.disconnect();
+    this.depthPool?.disconnect();
   }
 
   setWatchSymbols(symbols, now = Date.now()) {
     this.baseWatchSymbols = [...new Set((Array.isArray(symbols) ? symbols : [])
       .map(normalizeSymbol)
       .filter(Boolean))];
-    this.#refreshWatchSymbols(now);
+    if (this.depthPool) this.#refreshWatchSymbols(now);
   }
 
   ingest({ metricsRows = [], result = {}, now = Date.now() } = {}) {
@@ -378,8 +383,10 @@ export class SignalLabV3EvidenceRecorder {
     const currentPrice = finite(metrics?.price) ?? finite(episode?.latest?.price);
     const pricePoints = normalizePricePoints(metrics, windowStartAt, now);
     if (currentPrice !== null) appendByTime(pricePoints, { at: now, price: currentPrice }, this.maximumPricePoints);
-    const bookSnapshots = this.depthPool.snapshots(episode.symbol, windowStartAt)
-      .slice(-this.maximumBookSnapshots);
+    const bookSnapshots = this.depthPool
+      ? this.depthPool.snapshots(episode.symbol, windowStartAt).slice(-this.maximumBookSnapshots)
+      : [];
+    const orderFlowReplay = this.orderFlowRecorder?.capture(episode.symbol, windowStartAt, now) ?? null;
     const pack = {
       schemaVersion: 1,
       entity: "SignalLabEvidencePack",
@@ -400,7 +407,10 @@ export class SignalLabV3EvidenceRecorder {
       minuteCandles: normalizeMinuteCandles(metrics),
       flowSamples: [],
       bookSnapshots,
-      bookMode: "sampled-depth20-top8@1s",
+      bookMode: orderFlowReplay ? "snapshot+diff@100ms+aggTrade" : "sampled-depth20-top8@1s",
+      orderFlowReplay,
+      extremeMap: metrics?.extremeMap ? clone(metrics.extremeMap) : null,
+      extremeMapLatest: metrics?.extremeMap ? clone(metrics.extremeMap) : null,
       outcomes: {},
       coverage: {},
       traderExplanation: null,
@@ -436,10 +446,21 @@ export class SignalLabV3EvidenceRecorder {
     const minuteCandles = normalizeMinuteCandles(metrics);
     if (minuteCandles.length) pack.minuteCandles = minuteCandles;
 
-    for (const snapshot of this.depthPool.snapshots(session.episode.symbol, session.lastBookAt + 1)) {
-      appendByTime(pack.bookSnapshots, snapshot, this.maximumBookSnapshots);
-      session.lastBookAt = Math.max(session.lastBookAt, snapshot.at);
+    if (this.depthPool) {
+      for (const snapshot of this.depthPool.snapshots(session.episode.symbol, session.lastBookAt + 1)) {
+        appendByTime(pack.bookSnapshots, snapshot, this.maximumBookSnapshots);
+        session.lastBookAt = Math.max(session.lastBookAt, snapshot.at);
+      }
     }
+    if (this.orderFlowRecorder) {
+      pack.orderFlowReplay = this.orderFlowRecorder.capture(
+        session.episode.symbol,
+        pack.window.eventAt - this.preEventMs,
+        now,
+      );
+      if (pack.orderFlowReplay) pack.bookMode = "snapshot+diff@100ms+aggTrade";
+    }
+    if (metrics?.extremeMap) pack.extremeMapLatest = clone(metrics.extremeMap);
 
     pack.window.updatedAt = now;
     this.#updatePack(session, now);
@@ -469,7 +490,11 @@ export class SignalLabV3EvidenceRecorder {
       prePriceSeconds: earliestPriceAt === null ? 0 : Math.max(0, Math.round((eventAt - earliestPriceAt) / 1_000)),
       preBookSeconds: earliestBookAt === null ? 0 : Math.max(0, Math.round((eventAt - earliestBookAt) / 1_000)),
       bookState: latestBookAt === null ? "not-recorded" : now - latestBookAt <= 3_000 ? "live" : "stale",
-      depthStatus: this.depthPool.status().connection,
+      depthStatus: this.orderFlowRecorder?.status()?.connection ?? this.depthPool?.status()?.connection ?? "idle",
+      orderFlowPreSeconds: pack.orderFlowReplay?.coverage?.preSeconds ?? 0,
+      orderFlowState: pack.orderFlowReplay?.coverage?.state ?? "not-recorded",
+      rawTrades: pack.orderFlowReplay?.trades?.length ?? 0,
+      depthDiffs: pack.orderFlowReplay?.events?.length ?? 0,
     };
     pack.traderExplanation = buildTraderExplanation(session.episode.latest, pack, now);
   }
@@ -485,6 +510,7 @@ export class SignalLabV3EvidenceRecorder {
   }
 
   #refreshWatchSymbols(now) {
+    if (!this.depthPool) return;
     for (const [symbol, until] of this.pinnedUntil) {
       if (until < now) this.pinnedUntil.delete(symbol);
     }

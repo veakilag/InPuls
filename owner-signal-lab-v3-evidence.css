@@ -379,3 +379,136 @@
   .chart-toolbar { overflow-x: auto; flex-wrap: nowrap; }
   .chart-toolbar > * { flex: 0 0 auto; }
 }
+
+
+/* Signal Lab V4: replayable cluster, tape and local book. */
+.orderflow-panel { min-width: 720px; }
+.orderflow-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  overflow-x: auto;
+}
+.flow-quality {
+  padding: 4px 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.flow-quality[data-state="LIVE"] { color: var(--success); border-color: rgba(95,224,167,.35); }
+.flow-quality[data-state="GAP"],
+.flow-quality[data-state="ERROR"] { color: var(--danger); border-color: rgba(242,125,134,.4); }
+.flow-quality[data-state="RECOVERED"] { color: var(--warning); border-color: rgba(241,191,98,.4); }
+.orderflow-replay-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.3fr) minmax(210px, .72fr) minmax(280px, .95fr);
+  gap: 8px;
+  min-height: 430px;
+}
+.orderflow-pane {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: #081018;
+}
+.orderflow-pane h4 {
+  height: 30px;
+  margin: 0;
+  padding: 8px 10px;
+  color: #7892a5;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 10px;
+  letter-spacing: .06em;
+}
+.flow-cluster { width: 100%; height: 396px; display: block; }
+.replay-tape {
+  height: 396px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  font-variant-numeric: tabular-nums;
+}
+.replay-tape-row {
+  display: grid;
+  grid-template-columns: minmax(74px, .9fr) minmax(72px, 1fr) minmax(60px, .8fr);
+  gap: 7px;
+  min-height: 22px;
+  align-items: center;
+  padding: 0 7px;
+  border-bottom: 1px solid rgba(113,141,159,.08);
+  color: #91a8b8;
+  font-size: 9px;
+}
+.replay-tape-row.is-buy strong { color: var(--success); }
+.replay-tape-row.is-sell strong { color: var(--danger); }
+.virtual-book {
+  position: relative;
+  height: 396px;
+  min-height: 396px;
+  overflow: auto;
+  padding: 0;
+  scrollbar-gutter: stable;
+}
+.virtual-book-spacer { width: 1px; opacity: 0; }
+.virtual-book-layer { position: absolute; inset: 0 0 auto; }
+.virtual-book-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 22px;
+  display: grid;
+  grid-template-columns: minmax(86px, 1fr) minmax(62px, .7fr) minmax(66px, .8fr);
+  align-items: center;
+  gap: 6px;
+  padding: 0 7px;
+  border-bottom: 1px solid rgba(113,141,159,.07);
+  color: #9bb0be;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.virtual-book-row span:nth-child(n+2) { text-align: right; }
+.virtual-book-row.is-ask span:first-child { color: var(--danger); }
+.virtual-book-row.is-bid span:first-child { color: var(--success); }
+.virtual-book-row.is-mid {
+  display: flex;
+  justify-content: center;
+  color: var(--blue);
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+  background: rgba(100,184,255,.08);
+  font-weight: 800;
+}
+.virtual-book-row.is-empty { display: flex; justify-content: center; padding: 24px; color: var(--muted); }
+.error-labels { margin: 10px 0; }
+.error-label-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 7px;
+}
+.error-label-grid label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.error-label-grid input { width: auto; min-height: auto; accent-color: var(--danger); }
+
+@media (min-width: 1451px) {
+  .evidence-workspace {
+    grid-template-columns: minmax(520px, 1.1fr) minmax(720px, 1.55fr) minmax(340px, .8fr);
+  }
+}
+@media (max-width: 1450px) {
+  .orderflow-panel { min-width: 0; grid-column: 1 / -1; border-top: 1px solid var(--line-soft); }
+}
+@media (max-width: 920px) {
+  .orderflow-replay-grid { grid-template-columns: 1fr; }
+  .flow-cluster, .replay-tape, .virtual-book { height: 330px; min-height: 330px; }
+  .orderflow-toolbar { align-items: flex-start; flex-direction: column; }
+}

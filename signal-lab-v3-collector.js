@@ -11,11 +11,25 @@ import {
   DEFAULT_CANDIDATE_SETTINGS,
   SIGNAL_LAB_V3_FORMULA_VERSION,
 } from "./signal-lab-v3-candidates.js?v=signal-lab-v3-four-patterns-v1";
-import { SignalLabV3EvidenceRecorder } from "./signal-lab-v3-evidence.js";
+import { SignalLabV3EvidenceRecorder } from "./signal-lab-v3-evidence.js?v=signal-lab-v4-stage1";
+import {
+  SIGNAL_LAB_V4_TIMEFRAMES,
+  SignalLabV4ExtremeRegistry,
+} from "./signal-lab-v4-extremes.js?v=signal-lab-v4-stage1";
+import { SignalLabV4OrderFlowRecorder } from "./signal-lab-v4-orderflow-recorder.js?v=signal-lab-v4-stage1";
 
 const BINANCE_MARKET_STREAM_ENDPOINT = "wss://fstream.binance.com/market/ws";
 const BINANCE_PUBLIC_STREAM_ENDPOINT = "wss://fstream.binance.com/public/ws";
 const BINANCE_KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
+const BINANCE_EXCHANGE_INFO_ENDPOINT = "https://fapi.binance.com/fapi/v1/exchangeInfo";
+const EXTREME_WARMUP = Object.freeze({
+  "1m": 1_500,
+  "5m": 1_500,
+  "15m": 1_500,
+  "1h": 900,
+  "4h": 720,
+  "1d": 365,
+});
 const CONNECTION_TIMEOUT_MS = 10_000;
 
 const finite = (value) => {
@@ -147,6 +161,9 @@ function normalizeKline(row) {
     high: finite(row[2]),
     low: finite(row[3]),
     close: finite(row[4]),
+    volume: Math.max(0, finite(row[5]) ?? 0),
+    closeTime: finite(row[6]),
+    closed: finite(row[6]) === null ? true : finite(row[6]) < Date.now(),
   };
   return [candle.time, candle.open, candle.high, candle.low, candle.close]
     .every((value) => value !== null && value > 0)
@@ -160,7 +177,7 @@ export class SignalLabV3Collector {
     onStatus = () => {},
     candidateSettings = {},
     maximumTrackedTrades = 32,
-    maximumWarmupSymbols = 80,
+    maximumWarmupSymbols = 32,
   } = {}) {
     this.onEpisodes = onEpisodes;
     this.onStatus = onStatus;
@@ -182,7 +199,15 @@ export class SignalLabV3Collector {
     this.symbols = new Map();
     this.bookTracker = new ExpertBookCandidateTracker(this.settings);
     this.episodes = new CandidateEpisodeTracker(this.settings);
-    this.evidence = new SignalLabV3EvidenceRecorder({ maximumDepthSymbols: 10 });
+    this.extremes = new SignalLabV4ExtremeRegistry();
+    this.tickSizes = new Map();
+    this.exchangeInfoPromise = null;
+    this.orderFlow = new SignalLabV4OrderFlowRecorder({ maximumSymbols: 6 });
+    this.evidence = new SignalLabV3EvidenceRecorder({
+      maximumDepthSymbols: 0,
+      orderFlowRecorder: this.orderFlow,
+      disableLegacyDepth: true,
+    });
     this.trackedAggTrades = new Set();
     this.historyLoaded = new Set();
     this.historyLoading = new Set();
@@ -210,12 +235,15 @@ export class SignalLabV3Collector {
       evidencePacks: 0,
       depthTracked: 0,
       depthState: "idle",
+      extremeMaps: 0,
+      tickSizes: 0,
       lastError: null,
     };
   }
 
   connect() {
     this.manualClose = false;
+    this.exchangeInfoPromise ??= this.#loadExchangeInfo();
     this.#connectMarket();
     this.#connectBook();
   }
@@ -411,6 +439,7 @@ export class SignalLabV3Collector {
     this.socket = null;
     this.bookSocket = null;
     this.evidence.disconnect();
+    this.orderFlow.disconnect();
     this.#publish({ connection: "stopped", depthState: "stopped", depthTracked: 0 });
   }
 
@@ -458,7 +487,12 @@ export class SignalLabV3Collector {
       return;
     }
     if (data.e === "aggTrade" && filterUsdtPerpetualTicker(data)) {
+      const receivedAt = Date.now();
       this.#symbol(data.s)?.updateTrade(data);
+      this.extremes.ingestTrade(data.s, finite(data.p), finite(data.T) ?? finite(data.E) ?? receivedAt, {
+        dataQuality: receivedAt - (finite(data.E) ?? receivedAt) <= 5_000 ? "LIVE" : "STALE",
+      });
+      this.orderFlow.ingestTrade(data, receivedAt);
       return;
     }
     if (data.e === "forceOrder") {
@@ -471,8 +505,17 @@ export class SignalLabV3Collector {
     return [...this.symbols.values()]
       .map((state) => {
         const metrics = state.metrics(DEFAULT_SETTINGS, now);
+        const tickSize = this.tickSizes.get(metrics.symbol) ?? null;
+        if (tickSize && Array.isArray(metrics.minuteCandles) && metrics.minuteCandles.length > 1) {
+          this.extremes.hydrate(metrics.symbol, "1m", metrics.minuteCandles.slice(0, -1), {
+            tickSize,
+            dataQuality: now - (finite(metrics.updatedAt) ?? 0) <= 5_000 ? "LIVE" : "STALE",
+          });
+        }
         return {
           ...metrics,
+          tickSize,
+          extremeMap: this.extremes.snapshot(metrics.symbol),
           bookCandidate: this.bookTracker.candidateFor(metrics.symbol, now),
         };
       });
@@ -495,6 +538,8 @@ export class SignalLabV3Collector {
       evidencePacks: evidenceStatus.evidencePacks,
       depthTracked: evidenceStatus.depth.trackedSymbols ?? 0,
       depthState: evidenceStatus.depth.connection ?? "idle",
+      extremeMaps: metrics.filter((row) => row.extremeMap && Object.keys(row.extremeMap.timeframes ?? {}).length).length,
+      tickSizes: this.tickSizes.size,
     });
     this.#queueWarmup(metrics);
   }
@@ -516,10 +561,17 @@ export class SignalLabV3Collector {
     const subscribe = [...next].filter((symbol) => !this.trackedAggTrades.has(symbol));
     const unsubscribe = [...this.trackedAggTrades].filter((symbol) => !next.has(symbol));
     this.trackedAggTrades = next;
-    this.evidence.setWatchSymbols([
+    const setupRanked = [...ranked].sort((left, right) => (
+      this.extremes.watchScore(right.symbol, right.price)
+      - this.extremes.watchScore(left.symbol, left.price)
+      || candidateWatchScore(right, this.settings) - candidateWatchScore(left, this.settings)
+    ));
+    const orderFlowSymbols = [...new Set([
       ...activeSymbols,
-      ...ranked.slice(0, 10).map((row) => row.symbol),
-    ], now);
+      ...setupRanked.slice(0, 6).map((row) => row.symbol),
+    ])].slice(0, 6);
+    this.orderFlow.setSymbols(orderFlowSymbols);
+    this.evidence.setWatchSymbols(orderFlowSymbols, now);
     if (unsubscribe.length) {
       this.#send("UNSUBSCRIBE", unsubscribe.map((symbol) => `${symbol.toLowerCase()}@aggTrade`));
     }
@@ -542,19 +594,48 @@ export class SignalLabV3Collector {
     for (const symbol of pending) this.#warmupSymbol(symbol);
   }
 
+  async #loadExchangeInfo() {
+    try {
+      const response = await fetch(BINANCE_EXCHANGE_INFO_ENDPOINT, { cache: "no-store" });
+      if (!response.ok) throw new Error(`Exchange info HTTP ${response.status}`);
+      const payload = await response.json();
+      for (const row of Array.isArray(payload?.symbols) ? payload.symbols : []) {
+        const symbol = normalizeUsdtPerpetualSymbol(row?.symbol);
+        const priceFilter = (Array.isArray(row?.filters) ? row.filters : [])
+          .find((filter) => filter?.filterType === "PRICE_FILTER");
+        const tickSize = finite(priceFilter?.tickSize);
+        if (!symbol || !(tickSize > 0)) continue;
+        this.tickSizes.set(symbol, tickSize);
+        this.extremes.setTickSize(symbol, tickSize);
+      }
+      this.#publish({ tickSizes: this.tickSizes.size, lastError: null });
+    } catch (error) {
+      this.#publish({ lastError: `tickSize: ${String(error?.message ?? error).slice(0, 160)}` });
+    }
+  }
+
   async #warmupSymbol(symbol) {
     this.historyLoading.add(symbol);
     this.#publish({ warmupLoading: this.historyLoading.size });
     try {
-      const url = new URL(BINANCE_KLINES_ENDPOINT);
-      url.searchParams.set("symbol", symbol);
-      url.searchParams.set("interval", "1m");
-      url.searchParams.set("limit", "100");
-      const response = await fetch(url, { cache: "no-store" });
-      if (!response.ok) throw new Error(`Klines HTTP ${response.status}`);
-      const rows = await response.json();
-      const candles = (Array.isArray(rows) ? rows : []).map(normalizeKline).filter(Boolean);
-      this.#symbol(symbol)?.hydrateMinuteCandles(candles);
+      await this.exchangeInfoPromise;
+      const tickSize = this.tickSizes.get(symbol);
+      if (!(tickSize > 0)) throw new Error(`tickSize отсутствует для ${symbol}`);
+      for (const timeframe of SIGNAL_LAB_V4_TIMEFRAMES) {
+        const url = new URL(BINANCE_KLINES_ENDPOINT);
+        url.searchParams.set("symbol", symbol);
+        url.searchParams.set("interval", timeframe);
+        url.searchParams.set("limit", String(EXTREME_WARMUP[timeframe] ?? 500));
+        const response = await fetch(url, { cache: "no-store" });
+        if (!response.ok) throw new Error(`${timeframe} klines HTTP ${response.status}`);
+        const rows = await response.json();
+        const candles = (Array.isArray(rows) ? rows : []).map(normalizeKline).filter(Boolean);
+        this.extremes.hydrate(symbol, timeframe, candles, {
+          tickSize,
+          dataQuality: "RECOVERED",
+        });
+        if (timeframe === "1m") this.#symbol(symbol)?.hydrateMinuteCandles(candles);
+      }
       this.historyLoaded.add(symbol);
       this.#publish({
         warmupLoaded: this.historyLoaded.size,

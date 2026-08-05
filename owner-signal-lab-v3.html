@@ -5,16 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow,noarchive" />
     <meta name="description" content="Локальная лаборатория кандидатов рыночных паттернов InPuls" />
-    <title>InPuls — Owner Signal Lab V3.3</title>
+    <title>InPuls — Owner Signal Lab V4</title>
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./owner-signal-lab-v3.css?v=signal-lab-v3-full-chart-review-v1" />
-    <link rel="stylesheet" href="./owner-signal-lab-v3-evidence.css?v=signal-lab-v3-full-chart-review-v1" />
+    <link rel="stylesheet" href="./owner-signal-lab-v3.css?v=signal-lab-v4-stage1" />
+    <link rel="stylesheet" href="./owner-signal-lab-v3-evidence.css?v=signal-lab-v4-stage1" />
   </head>
   <body>
     <header class="topbar">
-      <div class="brand" aria-label="InPuls Owner Signal Lab V3.3">
+      <div class="brand" aria-label="InPuls Owner Signal Lab V4">
         <strong>INPULS</strong>
-        <span>OWNER SIGNAL LAB V3.3</span>
+        <span>OWNER SIGNAL LAB V4</span>
       </div>
       <div class="collector-line">
         <span id="collector-dot" class="status-dot" aria-hidden="true"></span>
@@ -28,12 +28,14 @@
 
     <main>
       <section class="hero">
-        <p class="eyebrow">КАНДИДАТЫ · ГРАФИК · СТАКАН · ОБЪЯСНЕНИЕ</p>
+        <p class="eyebrow">V4 · АКТИВНЫЕ ЭКСТРЕМУМЫ · 30 ДНЕЙ · ORDER FLOW REPLAY</p>
         <h1>Сначала собрать эпизод — потом доказать паттерн</h1>
         <p>
           Новые эпизоды создаются только для монет с 24-часовым оборотом выше $100 млн и NATR5 выше 1%.
           Лаборатория собирает только четыре паттерна: каскад, пробой, нож и заточку.
           Нож и заточка могут стать обратной реакцией после пробоя, каскада или сильного импульса.
+          V4 параллельно строит неперерисовывающуюся карту high/low по каждому таймфрейму.
+          Пока карта не откалибрована, её разметка является исследовательской, а не подтверждённым каскадом.
         </p>
       </section>
 
@@ -152,6 +154,8 @@
                   <button type="button" data-chart-timeframe="5m">5м</button>
                   <button type="button" data-chart-timeframe="15m">15м</button>
                   <button type="button" data-chart-timeframe="1h">1ч</button>
+                  <button type="button" data-chart-timeframe="4h">4ч</button>
+                  <button type="button" data-chart-timeframe="1d">1д</button>
                 </div>
                 <div class="timeframe-switch chart-ranges" role="group" aria-label="Контекст вокруг эпизода">
                   <button type="button" data-chart-range="15m">±15м</button>
@@ -159,6 +163,7 @@
                   <button type="button" data-chart-range="4h">±4ч</button>
                   <button type="button" data-chart-range="24h">±24ч</button>
                   <button type="button" data-chart-range="7d">±7д</button>
+                  <button type="button" data-chart-range="30d">30д до эпизода</button>
                 </div>
               </div>
 
@@ -197,16 +202,44 @@
             <div data-field="outcomes" class="outcomes"></div>
           </div>
 
-          <div class="book-panel">
+          <div class="book-panel orderflow-panel">
             <header class="evidence-panel-head">
               <div>
-                <h3>Стакан в Replay</h3>
-                <p>Top 8 из depth20, снимок раз в секунду</p>
+                <h3>Order Flow Replay</h3>
+                <p>Локальная книга snapshot + diff, кластер и aggTrade на одной временной шкале</p>
               </div>
+              <strong data-field="flow-quality" class="flow-quality">SYNCING</strong>
             </header>
-            <div data-field="book" class="replay-book"></div>
+            <div class="orderflow-toolbar">
+              <div class="timeframe-switch" role="group" aria-label="Таймфрейм кластера">
+                <button type="button" data-flow-timeframe="1s">1с</button>
+                <button type="button" data-flow-timeframe="5s" class="is-active">5с</button>
+                <button type="button" data-flow-timeframe="15s">15с</button>
+                <button type="button" data-flow-timeframe="1m">1м</button>
+              </div>
+              <div class="timeframe-switch" role="group" aria-label="Шаг цены кластера">
+                <button type="button" data-flow-step="1" class="is-active">×1</button>
+                <button type="button" data-flow-step="10">×10</button>
+                <button type="button" data-flow-step="100">×100</button>
+                <button type="button" data-flow-step="1000">×1000</button>
+              </div>
+            </div>
+            <div class="orderflow-replay-grid">
+              <section class="orderflow-pane cluster-pane">
+                <h4>КЛАСТЕР</h4>
+                <canvas data-field="flow-cluster" class="flow-cluster"></canvas>
+              </section>
+              <section class="orderflow-pane tape-pane">
+                <h4>СДЕЛКИ · AGG</h4>
+                <div data-field="flow-tape" class="replay-tape"></div>
+              </section>
+              <section class="orderflow-pane book-pane">
+                <h4>СТАКАН · РУЧНОЙ СКРОЛЛ</h4>
+                <div data-field="book" class="replay-book virtual-book"></div>
+              </section>
+            </div>
             <p class="book-warning">
-              Это sampled depth20 для обучения. Он не является полной локальной книгой и не доказывает намерение участника.
+              Полная локальная книга доступна только при непрерывной записи до события. GAP/RECOVERED показываются явно; состав стопов и намерение участника не утверждаются.
             </p>
           </div>
 
@@ -263,6 +296,28 @@
               </select>
             </label>
             <textarea data-field="comment" rows="2" placeholder="Почему годный или почему мусор"></textarea>
+            <details class="error-labels">
+              <summary>Ошибки детектора</summary>
+              <div data-field="error-labels" class="error-label-grid">
+                <label><input type="checkbox" value="MISSED_EXTREME" />Пропущен экстремум</label>
+                <label><input type="checkbox" value="EXTRA_EXTREME" />Лишний экстремум</label>
+                <label><input type="checkbox" value="CONFIRMED_TOO_EARLY" />Подтверждён рано</label>
+                <label><input type="checkbox" value="CONFIRMED_TOO_LATE" />Подтверждён поздно</label>
+                <label><input type="checkbox" value="WRONG_PRICE" />Неверная цена</label>
+                <label><input type="checkbox" value="SHOULD_BE_ACTIVE" />Должен быть активен</label>
+                <label><input type="checkbox" value="SHOULD_BE_BROKEN" />Должен быть снят</label>
+                <label><input type="checkbox" value="WRONG_TOUCH_COUNT" />Неверный ×N</label>
+                <label><input type="checkbox" value="WRONG_LEVEL_MERGE" />Неверное объединение</label>
+                <label><input type="checkbox" value="MISSED_COMPRESSION" />Пропущено поджатие</label>
+                <label><input type="checkbox" value="FALSE_COMPRESSION" />Ложное поджатие</label>
+                <label><input type="checkbox" value="MISSED_BREAKOUT" />Пропущен пробой</label>
+                <label><input type="checkbox" value="FALSE_BREAKOUT" />Ложный пробой</label>
+                <label><input type="checkbox" value="MISSED_CASCADE" />Пропущен каскад</label>
+                <label><input type="checkbox" value="FALSE_CASCADE" />Ложный каскад</label>
+                <label><input type="checkbox" value="DUPLICATE_EVENT" />Дубль события</label>
+                <label><input type="checkbox" value="LOOKAHEAD_ERROR" />Look-ahead</label>
+              </div>
+            </details>
             <div class="verdicts" data-field="verdicts">
               <button type="button" data-verdict="valid">Годный</button>
               <button type="button" data-verdict="weak">Слабый</button>
@@ -276,6 +331,6 @@
       </article>
     </template>
 
-    <script type="module" src="./owner-signal-lab-v3.js?v=signal-lab-v3-full-chart-review-v1"></script>
+    <script type="module" src="./owner-signal-lab-v3.js?v=signal-lab-v4-stage1"></script>
   </body>
 </html>

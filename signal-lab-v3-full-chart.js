@@ -11,6 +11,8 @@ export const EPISODE_CHART_INTERVALS = Object.freeze({
   "5m": 300_000,
   "15m": 900_000,
   "1h": 3_600_000,
+  "4h": 14_400_000,
+  "1d": 86_400_000,
 });
 
 export const EPISODE_CONTEXT_RANGES = Object.freeze({
@@ -19,6 +21,7 @@ export const EPISODE_CONTEXT_RANGES = Object.freeze({
   "4h": 4 * 60 * 60_000,
   "24h": 24 * 60 * 60_000,
   "7d": 7 * 24 * 60 * 60_000,
+  "30d": 30 * 24 * 60 * 60_000,
 });
 
 const controllers = new Map();
@@ -211,6 +214,47 @@ function addCascadeAnnotations(target, cascade, eventAt, prefix = "") {
   }
 }
 
+function addExtremeMapAnnotations(target, extremeMap, eventAt, eventPrice) {
+  const rows = [];
+  for (const [timeframe, map] of Object.entries(extremeMap?.timeframes ?? {})) {
+    for (const extreme of map?.active ?? []) {
+      const price = finite(extreme?.price);
+      if (!(price > 0)) continue;
+      const distance = eventPrice > 0 ? Math.abs(price - eventPrice) / eventPrice * 100 : 0;
+      if (distance > 8) continue;
+      rows.push({ ...extreme, timeframe, distance });
+    }
+  }
+  rows.sort((left, right) => left.distance - right.distance || right.confirmedAt - left.confirmedAt);
+  for (const extreme of rows.slice(0, 32)) {
+    const high = extreme.side === "HIGH";
+    const label = `${high ? "H" : "L"} ${extreme.timeframe} ×${extreme.touchCount ?? 1}`;
+    target.push({
+      type: "point",
+      time: extreme.extremeTime,
+      price: extreme.price,
+      label,
+      tone: high ? "danger" : "success",
+    });
+    target.push({
+      type: "line",
+      price: extreme.price,
+      startAt: extreme.extremeTime,
+      endAt: eventAt + 60_000,
+      label: `${label} · активен`,
+      tone: high ? "danger" : "success",
+    });
+    if (finite(extreme.confirmedAt) !== null) {
+      target.push({
+        type: "event",
+        time: extreme.confirmedAt,
+        label: `${high ? "H" : "L"} подтверждён ${extreme.timeframe}`,
+        tone: "blue",
+      });
+    }
+  }
+}
+
 export function buildPatternAnnotations(episode) {
   const latest = episode?.latest ?? {};
   const evidence = latest?.evidence ?? {};
@@ -231,6 +275,8 @@ export function buildPatternAnnotations(episode) {
   if (String(episode?.candidateType ?? "").startsWith("cascade_structure")) {
     addCascadeAnnotations(annotations, evidence, eventAt);
   }
+
+  addExtremeMapAnnotations(annotations, pack?.extremeMap, eventAt, eventPrice);
 
   if (episode?.candidateType === "down_reversal_attempt" || episode?.candidateType === "up_reversal_attempt") {
     const extremeAt = finite(evidence?.extremeAt);
@@ -281,31 +327,52 @@ export function patternAnnotationSummary(annotations) {
   return rows.slice(0, 12);
 }
 
+function episodeHistoryBounds(eventAt, intervalMs, contextMs) {
+  if (contextMs >= EPISODE_CONTEXT_RANGES["30d"]) {
+    return {
+      startTime: Math.max(0, eventAt - EPISODE_CONTEXT_RANGES["30d"]),
+      endTime: Math.min(Date.now(), eventAt + Math.max(6 * 60 * 60_000, intervalMs * 120)),
+    };
+  }
+  return {
+    startTime: Math.max(0, eventAt - contextMs),
+    endTime: Math.min(Date.now(), eventAt + contextMs),
+  };
+}
+
 async function fetchRestCandles(symbol, interval, eventAt, contextMs, signal) {
   const intervalMs = EPISODE_CHART_INTERVALS[interval];
-  const maximumSide = Math.floor(intervalMs * 740);
-  const side = Math.min(contextMs, maximumSide);
-  const startTime = Math.max(0, Math.floor(eventAt - side));
-  const endTime = Math.floor(eventAt + side);
+  const { startTime, endTime } = episodeHistoryBounds(eventAt, intervalMs, contextMs);
   const key = `${symbol}:${interval}:${startTime}:${endTime}`;
   if (candleCache.has(key)) return clone(candleCache.get(key));
-  const query = new URLSearchParams({
-    symbol,
-    interval,
-    startTime: String(startTime),
-    endTime: String(endTime),
-    limit: "1500",
-  });
-  const response = await fetch(`${KLINES_ENDPOINT}?${query}`, {
-    signal,
-    cache: "no-store",
-  });
-  if (!response.ok) throw new Error(`Binance klines HTTP ${response.status}`);
-  const payload = await response.json();
-  const candles = (Array.isArray(payload) ? payload : []).map(parseKline).filter(Boolean);
+  const candles = [];
+  let cursor = startTime;
+  let requests = 0;
+  while (cursor <= endTime && candles.length < 50_000 && requests < 40) {
+    const query = new URLSearchParams({
+      symbol,
+      interval,
+      startTime: String(Math.floor(cursor)),
+      endTime: String(Math.floor(endTime)),
+      limit: "1500",
+    });
+    const response = await fetch(`${KLINES_ENDPOINT}?${query}`, { signal, cache: "no-store" });
+    if (!response.ok) throw new Error(`Binance klines HTTP ${response.status}`);
+    const payload = await response.json();
+    const page = (Array.isArray(payload) ? payload : []).map(parseKline).filter(Boolean);
+    if (!page.length) break;
+    for (const row of page) {
+      if (!candles.length || row.time > candles.at(-1).time) candles.push(row);
+    }
+    const next = page.at(-1).time + intervalMs;
+    if (!(next > cursor)) break;
+    cursor = next;
+    requests += 1;
+    if (page.length < 1500) break;
+  }
   if (!candles.length) throw new Error("Binance не вернул свечи вокруг эпизода");
   candleCache.set(key, candles);
-  if (candleCache.size > 80) candleCache.delete(candleCache.keys().next().value);
+  if (candleCache.size > 40) candleCache.delete(candleCache.keys().next().value);
   return clone(candles);
 }
 
@@ -356,8 +423,12 @@ class EpisodeFullChartController {
     this.timeframeButtons = [...card.querySelectorAll("[data-chart-timeframe]")];
     this.rangeButtons = [...card.querySelectorAll("[data-chart-range]")];
     this.toolButtons = [...card.querySelectorAll("[data-chart-tool]")];
-    this.interval = "1m";
-    this.contextRange = String(episode?.candidateType ?? "").includes("reversal") ? "15m" : "1h";
+    const structural = String(episode?.candidateType ?? "").includes("cascade")
+      || String(episode?.candidateType ?? "").includes("level_break");
+    this.interval = structural ? "1h" : "1m";
+    this.contextRange = structural ? "30d" : "15m";
+    this.timeframeButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.chartTimeframe === this.interval));
+    this.rangeButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.chartRange === this.contextRange));
     this.chart = null;
     this.abortController = null;
     this.generation = 0;
