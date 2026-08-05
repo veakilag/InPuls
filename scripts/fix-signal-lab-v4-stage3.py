@@ -43,9 +43,16 @@ replace_once(
           Стопы за экстремумами остаются гипотезой микроструктуры: интерфейс показывает только уровни, проходы, качество данных и фактический результат.''',
     '''          Legacy-кандидаты продолжают использовать фильтр оборота выше $100 млн и NATR5 выше 1%, чтобы не потерять существующую выборку.
           Каскад V4 собирается отдельным детерминированным контуром от $25 млн оборота и не дальше 3% до первой ступени.
-          Он строится поверх активных high/low и зон ×N; перед каскадом отдельно проверяются проход, принятие, ретест и прокол с возвратом.
+          Основа — активные high/low и зоны ×N; перед каскадом отдельно проверяются проход, принятие, ретест и прокол с возвратом.
           Система заранее фиксирует SETUP, затем отдельно TRIGGERED, CONFIRMED, EXTENDED, PARTIAL и FAILED.
           Стопы за экстремумами остаются гипотезой микроструктуры: интерфейс показывает только уровни, проходы, качество данных и фактический результат.''',
+)
+
+# Stage 3 intentionally changes the owner runtime cache contract inherited from Stage 2.
+replace_once(
+    "test/signal-lab-v4-levels-integration.test.js",
+    '  assert.match(page, /signal-lab-v4-stage2/);',
+    '  assert.match(page, /signal-lab-v4-stage3/);',
 )
 
 # This test validates outcome math rather than the independent full-return invalidation rule.
