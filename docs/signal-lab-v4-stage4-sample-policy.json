@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "formulaVersion": "signal-lab-v4-cascade-calibration-v1-2026-08",
+  "checkpoint": {
+    "minimumReviewedEpisodes": 30,
+    "minimumCanonicalOrWeak": 10,
+    "minimumFalse": 10,
+    "minimumLong": 5,
+    "minimumShort": 5
+  },
+  "thresholdFittingExclusions": [
+    "GAP",
+    "STALE",
+    "ERROR",
+    "ambiguous",
+    "unavailable",
+    "LOOKAHEAD_ERROR"
+  ],
+  "notes": [
+    "This is a first calibration checkpoint, not statistical proof.",
+    "False samples are retained as negative examples.",
+    "Machine values and manual corrections remain separate."
+  ]
+}
