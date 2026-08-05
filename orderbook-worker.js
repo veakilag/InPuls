@@ -1707,6 +1707,7 @@ class SymbolFeed {
         "tape",
         this.symbol,
         {
+          market: this.market,
           replace: false,
           live: true,
           liveOnly: true,
