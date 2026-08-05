@@ -44,6 +44,19 @@ jobs:
         if: steps.patch.outcome == 'failure'
         run: exit 1
 
+      - name: Keep established structure trade throttle
+        if: steps.patch.outcome == 'success'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('signal-lab-v3-collector.js')
+          text = path.read_text(encoding='utf-8')
+          old = 'const STRUCTURE_TRADE_INTERVAL_MS = 500;'
+          if text.count(old) != 1:
+              raise SystemExit('unexpected structure throttle state')
+          path.write_text(text.replace(old, 'const STRUCTURE_TRADE_INTERVAL_MS = 200;'), encoding='utf-8')
+          PY
+
       - name: Run complete test suite
         id: tests
         if: steps.patch.outcome == 'success'
