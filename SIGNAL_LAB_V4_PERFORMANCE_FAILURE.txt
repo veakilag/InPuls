@@ -1,0 +1,4039 @@
+
+> test
+> node --test
+
+TAP version 13
+# Subtest: negative calibrated RX is unavailable instead of a false zero
+ok 1 - negative calibrated RX is unavailable instead of a false zero
+  ---
+  duration_ms: 2.029313
+  type: 'test'
+  ...
+# Subtest: header RX uses only the stable aggTrade feed and never renders literal zero
+ok 2 - header RX uses only the stable aggTrade feed and never renders literal zero
+  ---
+  duration_ms: 0.40985
+  type: 'test'
+  ...
+# Subtest: AGG painter renders the aggregate price sweep instead of only its first-price label
+ok 3 - AGG painter renders the aggregate price sweep instead of only its first-price label
+  ---
+  duration_ms: 0.597063
+  type: 'test'
+  ...
+# Subtest: Binance clock estimator uses the fastest midpoint-compensated samples
+ok 4 - Binance clock estimator uses the fastest midpoint-compensated samples
+  ---
+  duration_ms: 2.78529
+  type: 'test'
+  ...
+# Subtest: first calibration replaces an inaccurate local fallback with Binance time
+ok 5 - first calibration replaces an inaccurate local fallback with Binance time
+  ---
+  duration_ms: 0.38694
+  type: 'test'
+  ...
+# Subtest: calibrated Binance time advances from a monotonic performance anchor
+ok 6 - calibrated Binance time advances from a monotonic performance anchor
+  ---
+  duration_ms: 0.304324
+  type: 'test'
+  ...
+# Subtest: Tape live edge follows the shared Binance time instead of the last packet alone
+ok 7 - Tape live edge follows the shared Binance time instead of the last packet alone
+  ---
+  duration_ms: 0.148182
+  type: 'test'
+  ...
+# Subtest: browser clock, flow window and Tape use one shared calibrated source
+ok 8 - browser clock, flow window and Tape use one shared calibrated source
+  ---
+  duration_ms: 3.115086
+  type: 'test'
+  ...
+# Subtest: Binance Spot uses independent market-qualified Worker feeds
+ok 9 - Binance Spot uses independent market-qualified Worker feeds
+  ---
+  duration_ms: 1.306681
+  type: 'test'
+  ...
+# Subtest: Spot tape hotfix invalidates the full browser runtime chain
+ok 10 - Spot tape hotfix invalidates the full browser runtime chain
+  ---
+  duration_ms: 2.972189
+  type: 'test'
+  ...
+# Subtest: Spot depth and trades use official Spot endpoints
+ok 11 - Spot depth and trades use official Spot endpoints
+  ---
+  duration_ms: 0.282581
+  type: 'test'
+  ...
+# Subtest: Futures card checks pair availability and opens Spot on the right
+ok 12 - Futures card checks pair availability and opens Spot on the right
+  ---
+  duration_ms: 0.281445
+  type: 'test'
+  ...
+# Subtest: browser and server CSP allow only the required Binance Spot transports
+ok 13 - browser and server CSP allow only the required Binance Spot transports
+  ---
+  duration_ms: 0.191465
+  type: 'test'
+  ...
+# Subtest: comfort preview remains isolated to chart and Tape canvases
+ok 14 - comfort preview remains isolated to chart and Tape canvases
+  ---
+  duration_ms: 0.715094
+  type: 'test'
+  ...
+# Subtest: canvas preview does not mutate persisted comfort state
+ok 15 - canvas preview does not mutate persisted comfort state
+  ---
+  duration_ms: 0.251137
+  type: 'test'
+  ...
+# Subtest: thumb stays frame-smooth while palette preview is throttled
+ok 16 - thumb stays frame-smooth while palette preview is throttled
+  ---
+  duration_ms: 4.449835
+  type: 'test'
+  ...
+# Subtest: palette preview yields while Tape has pending flow work
+ok 17 - palette preview yields while Tape has pending flow work
+  ---
+  duration_ms: 1.031579
+  type: 'test'
+  ...
+# Subtest: drag preview updates the complete site palette and Canvas theme
+ok 18 - drag preview updates the complete site palette and Canvas theme
+  ---
+  duration_ms: 0.478589
+  type: 'test'
+  ...
+# Subtest: release applies the complete palette and heavy visual modules once
+ok 19 - release applies the complete palette and heavy visual modules once
+  ---
+  duration_ms: 0.221026
+  type: 'test'
+  ...
+# Subtest: Tape-priority comfort build ships fresh cache keys
+ok 20 - Tape-priority comfort build ships fresh cache keys
+  ---
+  duration_ms: 0.196926
+  type: 'test'
+  ...
+# Subtest: event radar groups current signal types without changing signal formulas
+ok 21 - event radar groups current signal types without changing signal formulas
+  ---
+  duration_ms: 0.920407
+  type: 'test'
+  ...
+# Subtest: event radar remembers first seen time and restarts after a real gap
+ok 22 - event radar remembers first seen time and restarts after a real gap
+  ---
+  duration_ms: 0.653393
+  type: 'test'
+  ...
+# Subtest: event radar reports lifecycle and data quality honestly
+ok 23 - event radar reports lifecycle and data quality honestly
+  ---
+  duration_ms: 1.148475
+  type: 'test'
+  ...
+# Subtest: event radar distinguishes waiting, warmup, live and stale feed states
+ok 24 - event radar distinguishes waiting, warmup, live and stale feed states
+  ---
+  duration_ms: 0.414142
+  type: 'test'
+  ...
+# Subtest: full-market bootstrap only targets the Binance core miniTicker stream
+ok 25 - full-market bootstrap only targets the Binance core miniTicker stream
+  ---
+  duration_ms: 0.73109
+  type: 'test'
+  ...
+# Subtest: REST rows become one valid miniTicker market batch
+ok 26 - REST rows become one valid miniTicker market batch
+  ---
+  duration_ms: 0.312107
+  type: 'test'
+  ...
+# Subtest: history warmup waits for the base list and then advances in bounded batches
+ok 27 - history warmup waits for the base list and then advances in bounded batches
+  ---
+  duration_ms: 1.439388
+  type: 'test'
+  ...
+# Subtest: market bootstrap uses sequential fallback instead of three duplicate downloads
+ok 28 - market bootstrap uses sequential fallback instead of three duplicate downloads
+  ---
+  duration_ms: 0.28222
+  type: 'test'
+  ...
+# Subtest: browser shim is bounded and does not touch user storage
+ok 29 - browser shim is bounded and does not touch user storage
+  ---
+  duration_ms: 0.241223
+  type: 'test'
+  ...
+# Subtest: footprint projection ignores the transient off-grid current-price row
+ok 30 - footprint projection ignores the transient off-grid current-price row
+  ---
+  duration_ms: 1.382662
+  type: 'test'
+  ...
+# Subtest: partial OHLC remains projected at the visible edge
+ok 31 - partial OHLC remains projected at the visible edge
+  ---
+  duration_ms: 0.277719
+  type: 'test'
+  ...
+# Subtest: series keeps one staircase coordinate per visual millisecond
+ok 32 - series keeps one staircase coordinate per visual millisecond
+  ---
+  duration_ms: 0.434847
+  type: 'test'
+  ...
+# Subtest: runtime draws chart-style cluster candles and a Tape staircase
+ok 33 - runtime draws chart-style cluster candles and a Tape staircase
+  ---
+  duration_ms: 1.329358
+  type: 'test'
+  ...
+# Subtest: brightness is between Download and Sound and runtime key is atomic
+ok 34 - brightness is between Download and Sound and runtime key is atomic
+  ---
+  duration_ms: 5.701093
+  type: 'test'
+  ...
+# Subtest: footprint ignores a repeated execution instead of growing closed clusters
+ok 35 - footprint ignores a repeated execution instead of growing closed clusters
+  ---
+  duration_ms: 2.922472
+  type: 'test'
+  ...
+# Subtest: POC selects the largest traded price and resolves ties near the close
+ok 36 - POC selects the largest traded price and resolves ties near the close
+  ---
+  duration_ms: 0.250188
+  type: 'test'
+  ...
+# Subtest: Tape preserves exact execution time while the shared clock owns the live edge
+ok 37 - Tape preserves exact execution time while the shared clock owns the live edge
+  ---
+  duration_ms: 0.296125
+  type: 'test'
+  ...
+# Subtest: comfort preview covers the full palette and all live Canvas surfaces
+ok 38 - comfort preview covers the full palette and all live Canvas surfaces
+  ---
+  duration_ms: 1.212926
+  type: 'test'
+  ...
+# Subtest: closed footprint levels and site clock stay stable
+ok 39 - closed footprint levels and site clock stay stable
+  ---
+  duration_ms: 3.227877
+  type: 'test'
+  ...
+# Subtest: header exposes exactly four command buttons in requested order
+ok 40 - header exposes exactly four command buttons in requested order
+  ---
+  duration_ms: 2.134882
+  type: 'test'
+  ...
+# Subtest: supplied logo and compact brand are used
+ok 41 - supplied logo and compact brand are used
+  ---
+  duration_ms: 1.357922
+  type: 'test'
+  ...
+# Subtest: clock can float and magnetically return to its dock
+ok 42 - clock can float and magnetically return to its dock
+  ---
+  duration_ms: 1.325769
+  type: 'test'
+  ...
+# Subtest: brightness sits between Download and Sound while radar stays in settings
+ok 43 - brightness sits between Download and Sound while radar stays in settings
+  ---
+  duration_ms: 0.615518
+  type: 'test'
+  ...
+# Subtest: release inventory includes the product logo
+ok 44 - release inventory includes the product logo
+  ---
+  duration_ms: 0.31191
+  type: 'test'
+  ...
+# Subtest: lite shell disables removed first-screen modules before app startup
+ok 45 - lite shell disables removed first-screen modules before app startup
+  ---
+  duration_ms: 0.989539
+  type: 'test'
+  ...
+# Subtest: lite shell preserves user-created workspace panels
+ok 46 - lite shell preserves user-created workspace panels
+  ---
+  duration_ms: 0.24275
+  type: 'test'
+  ...
+# Subtest: hidden primary chart no longer performs heavy history requests or kline streaming
+ok 47 - hidden primary chart no longer performs heavy history requests or kline streaming
+  ---
+  duration_ms: 0.160247
+  type: 'test'
+  ...
+# Subtest: first market render is immediate and subsequent renders are paced
+ok 48 - first market render is immediate and subsequent renders are paced
+  ---
+  duration_ms: 1.198228
+  type: 'test'
+  ...
+# Subtest: lite shell never clears user settings or Signal Lab storage
+ok 49 - lite shell never clears user settings or Signal Lab storage
+  ---
+  duration_ms: 0.30996
+  type: 'test'
+  ...
+# Subtest: priority Worker Tape uses a 4 ms micro-batch
+ok 50 - priority Worker Tape uses a 4 ms micro-batch
+  ---
+  duration_ms: 1.339335
+  type: 'test'
+  ...
+# Subtest: legacy fallback uses the same 4 ms target
+ok 51 - legacy fallback uses the same 4 ms target
+  ---
+  duration_ms: 1.196669
+  type: 'test'
+  ...
+# Subtest: new Worker build is consistent across runtime
+ok 52 - new Worker build is consistent across runtime
+  ---
+  duration_ms: 1.142482
+  type: 'test'
+  ...
+# Subtest: runtime leaves animation frames native and local to each widget
+ok 53 - runtime leaves animation frames native and local to each widget
+  ---
+  duration_ms: 0.78894
+  type: 'test'
+  ...
+# Subtest: removing render lanes does not widen recovery storage cleanup
+ok 54 - removing render lanes does not widen recovery storage cleanup
+  ---
+  duration_ms: 0.187098
+  type: 'test'
+  ...
+# Subtest: files keep correct identities
+ok 55 - files keep correct identities
+  ---
+  duration_ms: 0.664034
+  type: 'test'
+  ...
+# Subtest: background return reuses Worker with guarded staggered recovery
+ok 56 - background return reuses Worker with guarded staggered recovery
+  ---
+  duration_ms: 0.316914
+  type: 'test'
+  ...
+# Subtest: normalizes and deduplicates trade history
+ok 57 - normalizes and deduplicates trade history
+  ---
+  duration_ms: 12.254917
+  type: 'test'
+  ...
+# Subtest: footprint columns preserve time, price and aggressor totals
+ok 58 - footprint columns preserve time, price and aggressor totals
+  ---
+  duration_ms: 0.383544
+  type: 'test'
+  ...
+# Subtest: flow window and visible count stay independent from pane width
+ok 59 - flow window and visible count stay independent from pane width
+  ---
+  duration_ms: 0.322004
+  type: 'test'
+  ...
+# Subtest: footprint tone reports buy and sell dominance
+ok 60 - footprint tone reports buy and sell dominance
+  ---
+  duration_ms: 0.184711
+  type: 'test'
+  ...
+# Subtest: 1M and 5M clusters use aligned live intervals without delta
+ok 61 - 1M and 5M clusters use aligned live intervals without delta
+  ---
+  duration_ms: 2.5523
+  type: 'test'
+  ...
+# Subtest: a live reset clears both cluster timeframes
+ok 62 - a live reset clears both cluster timeframes
+  ---
+  duration_ms: 0.299808
+  type: 'test'
+  ...
+# Subtest: cluster history keeps aligned 1M and 5M columns
+ok 63 - cluster history keeps aligned 1M and 5M columns
+  ---
+  duration_ms: 0.728509
+  type: 'test'
+  ...
+# Subtest: Ctrl+wheel compacts columns toward LIVE and dragging can inspect older intervals
+ok 64 - Ctrl+wheel compacts columns toward LIVE and dragging can inspect older intervals
+  ---
+  duration_ms: 0.425555
+  type: 'test'
+  ...
+# Subtest: Flow Workspace redraw observer cannot trigger itself
+ok 65 - Flow Workspace redraw observer cannot trigger itself
+  ---
+  duration_ms: 1.514887
+  type: 'test'
+  ...
+# Subtest: starts on aggregate live and promotes raw only inside the shadow guard
+ok 66 - starts on aggregate live and promotes raw only inside the shadow guard
+  ---
+  duration_ms: 1.292492
+  type: 'test'
+  ...
+# Subtest: raw sequence gap immediately falls back without emitting the broken trade
+ok 67 - raw sequence gap immediately falls back without emitting the broken trade
+  ---
+  duration_ms: 0.324967
+  type: 'test'
+  ...
+# Subtest: aggregate fallback waits for a fully new range to avoid double volume
+ok 68 - aggregate fallback waits for a fully new range to avoid double volume
+  ---
+  duration_ms: 1.139749
+  type: 'test'
+  ...
+# Subtest: recovery to raw requires consecutive IDs beyond the aggregate boundary
+ok 69 - recovery to raw requires consecutive IDs beyond the aggregate boundary
+  ---
+  duration_ms: 0.283271
+  type: 'test'
+  ...
+# Subtest: invalid, duplicate and out-of-order events never reach the tape
+ok 70 - invalid, duplicate and out-of-order events never reach the tape
+  ---
+  duration_ms: 0.346374
+  type: 'test'
+  ...
+# Subtest: production worker keeps visual RAW stable and routes guarded raw trades only to AGG
+ok 71 - production worker keeps visual RAW stable and routes guarded raw trades only to AGG
+  ---
+  duration_ms: 1.035291
+  type: 'test'
+  ...
+# Subtest: manual orderbook scroll remains authoritative
+ok 72 - manual orderbook scroll remains authoritative
+  ---
+  duration_ms: 1.755192
+  type: 'test'
+  ...
+# Subtest: Ctrl+wheel changes a fixed 1/2/5 price-step multiplier
+ok 73 - Ctrl+wheel changes a fixed 1/2/5 price-step multiplier
+  ---
+  duration_ms: 0.93487
+  type: 'test'
+  ...
+# Subtest: short background switches use a grace period
+ok 74 - short background switches use a grace period
+  ---
+  duration_ms: 1.292922
+  type: 'test'
+  ...
+# Subtest: healthy sockets resume without REST backfill
+ok 75 - healthy sockets resume without REST backfill
+  ---
+  duration_ms: 0.720219
+  type: 'test'
+  ...
+# Subtest: long background keeps a frozen Tape frame
+ok 76 - long background keeps a frozen Tape frame
+  ---
+  duration_ms: 0.465824
+  type: 'test'
+  ...
+# Subtest: Tape clock advances continuously while the live stream is healthy
+ok 77 - Tape clock advances continuously while the live stream is healthy
+  ---
+  duration_ms: 0.346277
+  type: 'test'
+  ...
+# Subtest: footprint preserves its canvas while the feed recovers
+ok 78 - footprint preserves its canvas while the feed recovers
+  ---
+  duration_ms: 0.348143
+  type: 'test'
+  ...
+# Subtest: a delayed feed retries independently
+ok 79 - a delayed feed retries independently
+  ---
+  duration_ms: 0.335889
+  type: 'test'
+  ...
+# Subtest: Resume v2 ships one consistent runtime
+ok 80 - Resume v2 ships one consistent runtime
+  ---
+  duration_ms: 0.235977
+  type: 'test'
+  ...
+# Subtest: manager hard restart preserves frozen symbol frames
+ok 81 - manager hard restart preserves frozen symbol frames
+  ---
+  duration_ms: 0.311437
+  type: 'test'
+  ...
+# Subtest: normal reload keeps one consistent runtime build
+ok 82 - normal reload keeps one consistent runtime build
+  ---
+  duration_ms: 0.935077
+  type: 'test'
+  ...
+# Subtest: worker-unavailable fallback does not leave a health interval open
+ok 83 - worker-unavailable fallback does not leave a health interval open
+  ---
+  duration_ms: 0.19856
+  type: 'test'
+  ...
+# Subtest: hidden tabs close sockets instead of accumulating a stale queue
+ok 84 - hidden tabs close sockets instead of accumulating a stale queue
+  ---
+  duration_ms: 0.233716
+  type: 'test'
+  ...
+# Subtest: workspace order is footprint then Tape then book
+ok 85 - workspace order is footprint then Tape then book
+  ---
+  duration_ms: 0.149796
+  type: 'test'
+  ...
+# Subtest: Tape and footprint visibility controls stay independent
+ok 86 - Tape and footprint visibility controls stay independent
+  ---
+  duration_ms: 0.265341
+  type: 'test'
+  ...
+# Subtest: RX uses calibrated Binance server time
+ok 87 - RX uses calibrated Binance server time
+  ---
+  duration_ms: 0.179893
+  type: 'test'
+  ...
+# Subtest: multi-book worker prioritizes UI without truncating local depth
+ok 88 - multi-book worker prioritizes UI without truncating local depth
+  ---
+  duration_ms: 0.362979
+  type: 'test'
+  ...
+# Subtest: background return reuses the existing worker before a guarded restart
+ok 89 - background return reuses the existing worker before a guarded restart
+  ---
+  duration_ms: 1.269781
+  type: 'test'
+  ...
+# Subtest: last rendered book remains visible while strict resync happens
+ok 90 - last rendered book remains visible while strict resync happens
+  ---
+  duration_ms: 0.495307
+  type: 'test'
+  ...
+# Subtest: resume prioritizes the last selected symbol and staggers other feeds
+ok 91 - resume prioritizes the last selected symbol and staggers other feeds
+  ---
+  duration_ms: 0.217875
+  type: 'test'
+  ...
+# Subtest: every resume starts a clean live-only Tape without REST history
+ok 92 - every resume starts a clean live-only Tape without REST history
+  ---
+  duration_ms: 1.403052
+  type: 'test'
+  ...
+# Subtest: cache versions keep seamless resume while shipping Resume v2
+ok 93 - cache versions keep seamless resume while shipping Resume v2
+  ---
+  duration_ms: 0.371796
+  type: 'test'
+  ...
+# Subtest: latency helper keeps exchange and browser timestamps separate
+ok 94 - latency helper keeps exchange and browser timestamps separate
+  ---
+  duration_ms: 1.533908
+  type: 'test'
+  ...
+# Subtest: REST timing stays without a fake receive timestamp
+ok 95 - REST timing stays without a fake receive timestamp
+  ---
+  duration_ms: 0.29667
+  type: 'test'
+  ...
+# Subtest: latency helper rejects clock outliers
+ok 96 - latency helper rejects clock outliers
+  ---
+  duration_ms: 1.497925
+  type: 'test'
+  ...
+# Subtest: RX display is a rolling short-window median
+ok 97 - RX display is a rolling short-window median
+  ---
+  duration_ms: 0.505268
+  type: 'test'
+  ...
+# Subtest: worker records receive time and exposes RX in live status
+ok 98 - worker records receive time and exposes RX in live status
+  ---
+  duration_ms: 0.513618
+  type: 'test'
+  ...
+# Subtest: UI preserves timing fields for future hover and replay
+ok 99 - UI preserves timing fields for future hover and replay
+  ---
+  duration_ms: 0.426017
+  type: 'test'
+  ...
+# Subtest: Tape cycles RAW, AGG and SERIES while keeping RAW default
+ok 100 - Tape cycles RAW, AGG and SERIES while keeping RAW default
+  ---
+  duration_ms: 1.424852
+  type: 'test'
+  ...
+# Subtest: water renderer owns stable event geometry
+ok 101 - water renderer owns stable event geometry
+  ---
+  duration_ms: 1.452311
+  type: 'test'
+  ...
+# Subtest: Flow Workspace cache and reset page point to water runtime
+ok 102 - Flow Workspace cache and reset page point to water runtime
+  ---
+  duration_ms: 0.299185
+  type: 'test'
+  ...
+# Subtest: production TAPE accepts only live packets and starts from an empty frame
+ok 103 - production TAPE accepts only live packets and starts from an empty frame
+  ---
+  duration_ms: 1.569021
+  type: 'test'
+  ...
+# Subtest: sparse trades stay on real time
+ok 104 - sparse trades stay on real time
+  ---
+  duration_ms: 1.968283
+  type: 'test'
+  ...
+# Subtest: same-time packet remains local and chronological
+ok 105 - same-time packet remains local and chronological
+  ---
+  duration_ms: 5.790394
+  type: 'test'
+  ...
+# Subtest: continuous flow is split into local groups
+ok 106 - continuous flow is split into local groups
+  ---
+  duration_ms: 2.158491
+  type: 'test'
+  ...
+# Subtest: past trades never receive density-dependent vertical offsets
+ok 107 - past trades never receive density-dependent vertical offsets
+  ---
+  duration_ms: 0.296571
+  type: 'test'
+  ...
+# Subtest: neighboring dense groups never cross chronological order
+ok 108 - neighboring dense groups never cross chronological order
+  ---
+  duration_ms: 0.4549
+  type: 'test'
+  ...
+# Subtest: dense raw dots shrink while large sparse dots stay visible
+ok 109 - dense raw dots shrink while large sparse dots stay visible
+  ---
+  duration_ms: 0.175887
+  type: 'test'
+  ...
+# Subtest: agg labels are selective and non-overlapping
+ok 110 - agg labels are selective and non-overlapping
+  ---
+  duration_ms: 0.61864
+  type: 'test'
+  ...
+# Subtest: AGG label uses the price-range midpoint
+ok 111 - AGG label uses the price-range midpoint
+  ---
+  duration_ms: 0.699249
+  type: 'test'
+  ...
+# Subtest: same-millisecond AGG groups receive stable non-overlapping ordinals
+ok 112 - same-millisecond AGG groups receive stable non-overlapping ordinals
+  ---
+  duration_ms: 2.06816
+  type: 'test'
+  ...
+# Subtest: tape time scale supports close flow and long history
+ok 113 - tape time scale supports close flow and long history
+  ---
+  duration_ms: 0.232742
+  type: 'test'
+  ...
+# Subtest: settings expose 80-200 font scale and verified shortcut sections only
+ok 114 - settings expose 80-200 font scale and verified shortcut sections only
+  ---
+  duration_ms: 1.10754
+  type: 'test'
+  ...
+# Subtest: clusters use the brighter dominance fill
+ok 115 - clusters use the brighter dominance fill
+  ---
+  duration_ms: 0.302357
+  type: 'test'
+  ...
+# Subtest: narrow books give unused price space back to sizes and mark the full current level
+ok 116 - narrow books give unused price space back to sizes and mark the full current level
+  ---
+  duration_ms: 2.0585
+  type: 'test'
+  ...
+# Subtest: ordinary sizes are neutral and full-book anomalies have three tiers
+ok 117 - ordinary sizes are neutral and full-book anomalies have three tiers
+  ---
+  duration_ms: 2.04667
+  type: 'test'
+  ...
+# Subtest: size labels stay readable and hover shows distance from current price
+ok 118 - size labels stay readable and hover shows distance from current price
+  ---
+  duration_ms: 2.169813
+  type: 'test'
+  ...
+# Subtest: footprint uses one proportional dominance cell and interval candles
+ok 119 - footprint uses one proportional dominance cell and interval candles
+  ---
+  duration_ms: 0.758242
+  type: 'test'
+  ...
+# Subtest: cluster history is compact, pannable and follows the brightness palette
+ok 120 - cluster history is compact, pannable and follows the brightness palette
+  ---
+  duration_ms: 0.70304
+  type: 'test'
+  ...
+# Subtest: Tape paints the active panel theme instead of a black canvas
+ok 121 - Tape paints the active panel theme instead of a black canvas
+  ---
+  duration_ms: 0.350633
+  type: 'test'
+  ...
+# Subtest: only full round prices affect text and the liquidity meter stays readable
+ok 122 - only full round prices affect text and the liquidity meter stays readable
+  ---
+  duration_ms: 1.55601
+  type: 'test'
+  ...
+# Subtest: live flow invalidates footprint while Tape keeps one coherent viewport
+ok 123 - live flow invalidates footprint while Tape keeps one coherent viewport
+  ---
+  duration_ms: 1.763355
+  type: 'test'
+  ...
+# Subtest: trade count is not shown above Tape
+ok 124 - trade count is not shown above Tape
+  ---
+  duration_ms: 2.338611
+  type: 'test'
+  ...
+# Subtest: visual priority ships one consistent runtime
+ok 125 - visual priority ships one consistent runtime
+  ---
+  duration_ms: 0.512873
+  type: 'test'
+  ...
+# Subtest: SERIES breaks on the first opposite raw aggressor
+ok 126 - SERIES breaks on the first opposite raw aggressor
+  ---
+  duration_ms: 2.001424
+  type: 'test'
+  ...
+# Subtest: footprint OHLC uses execution time rather than receive/display time
+ok 127 - footprint OHLC uses execution time rather than receive/display time
+  ---
+  duration_ms: 2.136704
+  type: 'test'
+  ...
+# Subtest: worker and main keep SERIES on a dedicated raw-only channel
+ok 128 - worker and main keep SERIES on a dedicated raw-only channel
+  ---
+  duration_ms: 1.877883
+  type: 'test'
+  ...
+# Subtest: SERIES ladder is visually stronger than aggregate paths
+ok 129 - SERIES ladder is visually stronger than aggregate paths
+  ---
+  duration_ms: 1.20285
+  type: 'test'
+  ...
+# Subtest: symbol lists are normalized, deduplicated and capped
+ok 130 - symbol lists are normalized, deduplicated and capped
+  ---
+  duration_ms: 1.884156
+  type: 'test'
+  ...
+# Subtest: RAW sequence gaps are counted only after the segment anchor
+ok 131 - RAW sequence gaps are counted only after the segment anchor
+  ---
+  duration_ms: 0.411281
+  type: 'test'
+  ...
+# Subtest: rejected trade payloads keep a usable sequence identity and an exact reason
+ok 132 - rejected trade payloads keep a usable sequence identity and an exact reason
+  ---
+  duration_ms: 0.32347
+  type: 'test'
+  ...
+# Subtest: zero-price zero-quantity RAW events are accepted only as sequence markers
+ok 133 - zero-price zero-quantity RAW events are accepted only as sequence markers
+  ---
+  duration_ms: 0.459037
+  type: 'test'
+  ...
+# Subtest: sequence markers complete aggregate ID coverage without adding executed volume
+ok 134 - sequence markers complete aggregate ID coverage without adding executed volume
+  ---
+  duration_ms: 0.371789
+  type: 'test'
+  ...
+# Subtest: invalid payload diagnostics are bounded to public market fields
+ok 135 - invalid payload diagnostics are bounded to public market fields
+  ---
+  duration_ms: 0.262966
+  type: 'test'
+  ...
+# Subtest: source-only stalls require continued counterpart activity after market silence
+ok 136 - source-only stalls require continued counterpart activity after market silence
+  ---
+  duration_ms: 0.337311
+  type: 'test'
+  ...
+# Subtest: aggregate sequence uses the complete f-l coverage range
+ok 137 - aggregate sequence uses the complete f-l coverage range
+  ---
+  duration_ms: 0.257107
+  type: 'test'
+  ...
+# Subtest: reconnect backoff is bounded and includes controlled jitter
+ok 138 - reconnect backoff is bounded and includes controlled jitter
+  ---
+  duration_ms: 0.421196
+  type: 'test'
+  ...
+# Subtest: reservoir keeps exact seen count while bounding retained values
+ok 139 - reservoir keeps exact seen count while bounding retained values
+  ---
+  duration_ms: 0.53391
+  type: 'test'
+  ...
+# Subtest: assessment never promotes an incomplete or short run
+ok 140 - assessment never promotes an incomplete or short run
+  ---
+  duration_ms: 0.592894
+  type: 'test'
+  ...
+# Subtest: assessment blocks RAW gaps, stalls and incomplete group coverage
+ok 141 - assessment blocks RAW gaps, stalls and incomplete group coverage
+  ---
+  duration_ms: 0.189456
+  type: 'test'
+  ...
+# Subtest: assessment blocks fast unplanned reconnects and unfinished recovery
+ok 142 - assessment blocks fast unplanned reconnects and unfinished recovery
+  ---
+  duration_ms: 0.198185
+  type: 'test'
+  ...
+# Subtest: clean assessment is explicitly one-run evidence, not production promotion
+ok 143 - clean assessment is explicitly one-run evidence, not production promotion
+  ---
+  duration_ms: 0.23301
+  type: 'test'
+  ...
+# Subtest: matching summary keeps exact totals and sampled distributions
+ok 144 - matching summary keeps exact totals and sampled distributions
+  ---
+  duration_ms: 0.529625
+  type: 'test'
+  ...
+# Subtest: browser lab stays isolated while production adds a guarded raw AGG channel
+ok 145 - browser lab stays isolated while production adds a guarded raw AGG channel
+  ---
+  duration_ms: 1.149049
+  type: 'test'
+  ...
+# runtime boot/network-only-sw/feed contracts passed
+# Subtest: test-runtime-boot-cache-feed-v1.mjs
+ok 28 - test-runtime-boot-cache-feed-v1.mjs
+  ---
+  duration_ms: 32.077752
+  type: 'test'
+  ...
+# runtime self-healing contracts passed
+# Subtest: test-runtime-self-heal-v1.mjs
+ok 29 - test-runtime-self-heal-v1.mjs
+  ---
+  duration_ms: 36.084134
+  type: 'test'
+  ...
+# Subtest: zero-ms AGG groups only consecutive executions with equal event time and side
+ok 148 - zero-ms AGG groups only consecutive executions with equal event time and side
+  ---
+  duration_ms: 1.347311
+  type: 'test'
+  ...
+# Subtest: only the right-most aggregate is OPEN and sealed history keeps object identity
+ok 149 - only the right-most aggregate is OPEN and sealed history keeps object identity
+  ---
+  duration_ms: 1.149869
+  type: 'test'
+  ...
+# Subtest: Tape UI keeps zero-ms AGG, adds SERIES and restores the marker threshold
+ok 150 - Tape UI keeps zero-ms AGG, adds SERIES and restores the marker threshold
+  ---
+  duration_ms: 0.854246
+  type: 'test'
+  ...
+# Subtest: paper stop realizes approximately minus one R when costs are disabled
+ok 151 - paper stop realizes approximately minus one R when costs are disabled
+  ---
+  duration_ms: 3.567355
+  type: 'test'
+  ...
+# Subtest: paper target executes partial and runner in one directional move
+ok 152 - paper target executes partial and runner in one directional move
+  ---
+  duration_ms: 1.314965
+  type: 'test'
+  ...
+# Subtest: paper partial moves the structural stop to entry
+ok 153 - paper partial moves the structural stop to entry
+  ---
+  duration_ms: 0.512587
+  type: 'test'
+  ...
+# Subtest: paper time stop closes at the latest observed market price
+ok 154 - paper time stop closes at the latest observed market price
+  ---
+  duration_ms: 0.306087
+  type: 'test'
+  ...
+# Subtest: fees and adverse slippage make a stopped trade no better than minus one R
+ok 155 - fees and adverse slippage make a stopped trade no better than minus one R
+  ---
+  duration_ms: 0.430676
+  type: 'test'
+  ...
+# Subtest: engine deduplicates one Signal Lab episode
+ok 156 - engine deduplicates one Signal Lab episode
+  ---
+  duration_ms: 0.520996
+  type: 'test'
+  ...
+# Subtest: engine updates equity and strategy statistics after close
+ok 157 - engine updates equity and strategy statistics after close
+  ---
+  duration_ms: 1.273094
+  type: 'test'
+  ...
+# Subtest: summary calculates PF, win rate and expectancy from closed paper trades
+ok 158 - summary calculates PF, win rate and expectancy from closed paper trades
+  ---
+  duration_ms: 0.274729
+  type: 'test'
+  ...
+# Subtest: catalog exposes only Signal Lab scalping families
+ok 159 - catalog exposes only Signal Lab scalping families
+  ---
+  duration_ms: 2.670098
+  type: 'test'
+  ...
+# Subtest: accepts a fresh confirmed cascade with live execution context
+ok 160 - accepts a fresh confirmed cascade with live execution context
+  ---
+  duration_ms: 0.791664
+  type: 'test'
+  ...
+# Subtest: rejects stale, non-INPLAY and partial-path signals
+ok 161 - rejects stale, non-INPLAY and partial-path signals
+  ---
+  duration_ms: 0.343647
+  type: 'test'
+  ...
+# Subtest: requires pattern-specific confirmations
+ok 162 - requires pattern-specific confirmations
+  ---
+  duration_ms: 0.212906
+  type: 'test'
+  ...
+# Subtest: knife and sharpening allow triggered state but require one flow confirmation
+ok 163 - knife and sharpening allow triggered state but require one flow confirmation
+  ---
+  duration_ms: 0.441913
+  type: 'test'
+  ...
+# Subtest: liquidity rearrangement and liquidation cascade are not direct entries in v1
+ok 164 - liquidity rearrangement and liquidation cascade are not direct entries in v1
+  ---
+  duration_ms: 0.236761
+  type: 'test'
+  ...
+# Subtest: rejects stops wider than 1.5 percent for a scalp
+ok 165 - rejects stops wider than 1.5 percent for a scalp
+  ---
+  duration_ms: 0.278208
+  type: 'test'
+  ...
+# Subtest: live candles update in place instead of copying history per packet
+ok 166 - live candles update in place instead of copying history per packet
+  ---
+  duration_ms: 0.721838
+  type: 'test'
+  ...
+# Subtest: KlineFeed coalesces live chart paints and throttles cache snapshots
+ok 167 - KlineFeed coalesces live chart paints and throttles cache snapshots
+  ---
+  duration_ms: 0.190412
+  type: 'test'
+  ...
+# Subtest: full application rendering is no longer tied to each exact second
+ok 168 - full application rendering is no longer tied to each exact second
+  ---
+  duration_ms: 0.597473
+  type: 'test'
+  ...
+# Subtest: clock work avoids hidden timezone scans and cached modules are refreshed
+ok 169 - clock work avoids hidden timezone scans and cached modules are refreshed
+  ---
+  duration_ms: 0.581864
+  type: 'test'
+  ...
+# Subtest: footprint live interval uses explicit arrival time
+ok 170 - footprint live interval uses explicit arrival time
+  ---
+  duration_ms: 2.017967
+  type: 'test'
+  ...
+# Subtest: Tape aligns local receipt with the main Binance clock
+ok 171 - Tape aligns local receipt with the main Binance clock
+  ---
+  duration_ms: 1.778262
+  type: 'test'
+  ...
+# Subtest: footprint column shows total quote above its time
+ok 172 - footprint column shows total quote above its time
+  ---
+  duration_ms: 0.485465
+  type: 'test'
+  ...
+# Subtest: Tape visual time uses calibrated receive time
+ok 173 - Tape visual time uses calibrated receive time
+  ---
+  duration_ms: 1.500174
+  type: 'test'
+  ...
+# Subtest: footprint step ignores an off-grid current-price row
+ok 174 - footprint step ignores an off-grid current-price row
+  ---
+  duration_ms: 0.305426
+  type: 'test'
+  ...
+# Subtest: new live interval exists before its first trade
+ok 175 - new live interval exists before its first trade
+  ---
+  duration_ms: 1.849681
+  type: 'test'
+  ...
+# Subtest: historical Tape X coordinates do not depend on newly appended neighbours
+ok 176 - historical Tape X coordinates do not depend on newly appended neighbours
+  ---
+  duration_ms: 0.800048
+  type: 'test'
+  ...
+# Subtest: zero-ms AGG keeps sealed identity while only the newest group stays open
+ok 177 - zero-ms AGG keeps sealed identity while only the newest group stays open
+  ---
+  duration_ms: 0.545719
+  type: 'test'
+  ...
+# Subtest: distance badge is unsigned and fixed to tenths
+ok 178 - distance badge is unsigned and fixed to tenths
+  ---
+  duration_ms: 0.17089
+  type: 'test'
+  ...
+# Subtest: footprint exposes the same timeframe set and exchange-aligned boundaries
+ok 179 - footprint exposes the same timeframe set and exchange-aligned boundaries
+  ---
+  duration_ms: 0.593879
+  type: 'test'
+  ...
+# Subtest: first cluster candle is aligned but explicitly marked session-partial
+ok 180 - first cluster candle is aligned but explicitly marked session-partial
+  ---
+  duration_ms: 1.338093
+  type: 'test'
+  ...
+# Subtest: runtime ships RAW, zero-ms AGG, SERIES, synchronized canvas and density age toggle
+ok 181 - runtime ships RAW, zero-ms AGG, SERIES, synchronized canvas and density age toggle
+  ---
+  duration_ms: 0.621233
+  type: 'test'
+  ...
+# Subtest: Tape heartbeat no longer scans the document or redraws canvases every second
+ok 182 - Tape heartbeat no longer scans the document or redraws canvases every second
+  ---
+  duration_ms: 1.262788
+  type: 'test'
+  ...
+# Subtest: bound Tape cards are event-discovered and disconnected cards are pruned
+ok 183 - bound Tape cards are event-discovered and disconnected cards are pruned
+  ---
+  duration_ms: 1.900609
+  type: 'test'
+  ...
+# Subtest: hidden density-age mode performs no ladder-row scan
+ok 184 - hidden density-age mode performs no ladder-row scan
+  ---
+  duration_ms: 0.252165
+  type: 'test'
+  ...
+# Subtest: book data refreshes density ages only for visible matching cards
+ok 185 - book data refreshes density ages only for visible matching cards
+  ---
+  duration_ms: 0.19155
+  type: 'test'
+  ...
+# Subtest: isolated Tape build ships through fresh module keys
+ok 186 - isolated Tape build ships through fresh module keys
+  ---
+  duration_ms: 0.230148
+  type: 'test'
+  ...
+# Subtest: minute boundary creates a zero-volume provisional candle from the last close
+ok 187 - minute boundary creates a zero-volume provisional candle from the last close
+  ---
+  duration_ms: 1.468005
+  type: 'test'
+  ...
+# Subtest: current footprint interval is represented honestly before its first execution
+ok 188 - current footprint interval is represented honestly before its first execution
+  ---
+  duration_ms: 1.607968
+  type: 'test'
+  ...
+# Subtest: runtime loads the live Canvas preview and fresh boundary build
+ok 189 - runtime loads the live Canvas preview and fresh boundary build
+  ---
+  duration_ms: 1.772049
+  type: 'test'
+  ...
+# Subtest: Tape and footprint share the main Binance clock
+ok 190 - Tape and footprint share the main Binance clock
+  ---
+  duration_ms: 1.907534
+  type: 'test'
+  ...
+# Subtest: receipt alignment never moves before execution
+ok 191 - receipt alignment never moves before execution
+  ---
+  duration_ms: 0.170293
+  type: 'test'
+  ...
+# Subtest: footprint aggregates exact prices by the current ladder step
+ok 192 - footprint aggregates exact prices by the current ladder step
+  ---
+  duration_ms: 0.998575
+  type: 'test'
+  ...
+# Subtest: Tape never exposes more than two minutes
+ok 193 - Tape never exposes more than two minutes
+  ---
+  duration_ms: 0.216268
+  type: 'test'
+  ...
+# Subtest: Tape ships a right-side NOW line and a precise slider
+ok 194 - Tape ships a right-side NOW line and a precise slider
+  ---
+  duration_ms: 1.487508
+  type: 'test'
+  ...
+# Subtest: Tape uses main-clock receipt time and preserves execution time
+ok 195 - Tape uses main-clock receipt time and preserves execution time
+  ---
+  duration_ms: 1.337912
+  type: 'test'
+  ...
+# Subtest: Tape mode cycles RAW to AGG to SERIES
+ok 196 - Tape mode cycles RAW to AGG to SERIES
+  ---
+  duration_ms: 1.146785
+  type: 'test'
+  ...
+# Subtest: same aggressor merges until opposite side or silence boundary
+ok 197 - same aggressor merges until opposite side or silence boundary
+  ---
+  duration_ms: 1.449722
+  type: 'test'
+  ...
+# Subtest: only the live right-most series grows and silence seals it visually
+ok 198 - only the live right-most series grows and silence seals it visually
+  ---
+  duration_ms: 1.28736
+  type: 'test'
+  ...
+# Subtest: psychological levels keep one anchored unit per symbol
+ok 199 - psychological levels keep one anchored unit per symbol
+  ---
+  duration_ms: 1.816368
+  type: 'test'
+  ...
+# Subtest: water clock moves continuously between WebSocket packets
+ok 200 - water clock moves continuously between WebSocket packets
+  ---
+  duration_ms: 0.496353
+  type: 'test'
+  ...
+# Subtest: all trades share one coherent affine price viewport
+ok 201 - all trades share one coherent affine price viewport
+  ---
+  duration_ms: 0.724117
+  type: 'test'
+  ...
+# Subtest: zero-ms AGG groups exact event time and freezes completed history
+ok 202 - zero-ms AGG groups exact event time and freezes completed history
+  ---
+  duration_ms: 0.799935
+  type: 'test'
+  ...
+# Subtest: marker geometry is absolute and independent of visible neighbours
+ok 203 - marker geometry is absolute and independent of visible neighbours
+  ---
+  duration_ms: 0.800956
+  type: 'test'
+  ...
+# Subtest: footprint and chart visual requests stay applied
+ok 204 - footprint and chart visual requests stay applied
+  ---
+  duration_ms: 0.355942
+  type: 'test'
+  ...
+# Subtest: Tape threshold is restored without restoring aggregation levels
+ok 205 - Tape threshold is restored without restoring aggregation levels
+  ---
+  duration_ms: 1.441889
+  type: 'test'
+  ...
+# Subtest: threshold filters markers while the path still uses every RAW trade
+ok 206 - threshold filters markers while the path still uses every RAW trade
+  ---
+  duration_ms: 0.439696
+  type: 'test'
+  ...
+# Subtest: zero threshold no longer writes a label on every aggregate
+ok 207 - zero threshold no longer writes a label on every aggregate
+  ---
+  duration_ms: 0.349387
+  type: 'test'
+  ...
+# Subtest: Worker keeps visual RAW on aggTrade and exposes guarded trade input for AGG
+ok 208 - Worker keeps visual RAW on aggTrade and exposes guarded trade input for AGG
+  ---
+  duration_ms: 0.900861
+  type: 'test'
+  ...
+# Subtest: Main renders AGG from the selected source and keeps fallback
+ok 209 - Main renders AGG from the selected source and keeps fallback
+  ---
+  duration_ms: 0.356412
+  type: 'test'
+  ...
+# Subtest: Tiger-style zero-ms aggregation joins individual same-time same-side executions
+ok 210 - Tiger-style zero-ms aggregation joins individual same-time same-side executions
+  ---
+  duration_ms: 1.876133
+  type: 'test'
+  ...
+# Subtest: Tape marker threshold remains available
+ok 211 - Tape marker threshold remains available
+  ---
+  duration_ms: 0.246961
+  type: 'test'
+  ...
+# Subtest: percentile and summary are deterministic
+ok 212 - percentile and summary are deterministic
+  ---
+  duration_ms: 2.084303
+  type: 'test'
+  ...
+# Subtest: clock offset uses the lowest RTT samples
+ok 213 - clock offset uses the lowest RTT samples
+  ---
+  duration_ms: 0.489491
+  type: 'test'
+  ...
+# Subtest: combined payload source is classified exactly
+ok 214 - combined payload source is classified exactly
+  ---
+  duration_ms: 0.199958
+  type: 'test'
+  ...
+# Subtest: normalization rejects zero values and wrong symbols
+ok 215 - normalization rejects zero values and wrong symbols
+  ---
+  duration_ms: 0.289459
+  type: 'test'
+  ...
+# Subtest: normalization supports valid trade and aggTrade payloads
+ok 216 - normalization supports valid trade and aggTrade payloads
+  ---
+  duration_ms: 0.320295
+  type: 'test'
+  ...
+# Subtest: raw trades match aggregate by receive and render times
+ok 217 - raw trades match aggregate by receive and render times
+  ---
+  duration_ms: 0.406631
+  type: 'test'
+  ...
+# Subtest: null render timestamps are not treated as painted
+ok 218 - null render timestamps are not treated as painted
+  ---
+  duration_ms: 0.297856
+  type: 'test'
+  ...
+# Subtest: run validity fails on reconnect, invalid payload or hidden tab
+ok 219 - run validity fails on reconnect, invalid payload or hidden tab
+  ---
+  duration_ms: 0.252991
+  type: 'test'
+  ...
+# Subtest: verdict requires valid run, quality and material visual lead
+ok 220 - verdict requires valid run, quality and material visual lead
+  ---
+  duration_ms: 0.502153
+  type: 'test'
+  ...
+# Subtest: v2 browser lab compares streams through their routed endpoints
+ok 221 - v2 browser lab compares streams through their routed endpoints
+  ---
+  duration_ms: 1.22384
+  type: 'test'
+  ...
+# Subtest: frame arrays and projection slots are reused
+ok 222 - frame arrays and projection slots are reused
+  ---
+  duration_ms: 1.272572
+  type: 'test'
+  ...
+# Subtest: unfiltered RAW dots are drawn in a bounded number of Canvas batches
+ok 223 - unfiltered RAW dots are drawn in a bounded number of Canvas batches
+  ---
+  duration_ms: 0.34271
+  type: 'test'
+  ...
+# Subtest: status overlays do not mutate DOM twice per frame
+ok 224 - status overlays do not mutate DOM twice per frame
+  ---
+  duration_ms: 0.300424
+  type: 'test'
+  ...
+# Subtest: batched renderer keeps near-fluid cadence under high trade rate
+ok 225 - batched renderer keeps near-fluid cadence under high trade rate
+  ---
+  duration_ms: 0.233618
+  type: 'test'
+  ...
+# Subtest: 60 FPS painter does not force DOM geometry on every frame
+ok 226 - 60 FPS painter does not force DOM geometry on every frame
+  ---
+  duration_ms: 0.941528
+  type: 'test'
+  ...
+# Subtest: render model reuses immutable nodes and skips full sorting
+ok 227 - render model reuses immutable nodes and skips full sorting
+  ---
+  duration_ms: 0.251867
+  type: 'test'
+  ...
+# Subtest: Tape surface theme lookup is cached outside the frame hot path
+ok 228 - Tape surface theme lookup is cached outside the frame hot path
+  ---
+  duration_ms: 0.397233
+  type: 'test'
+  ...
+# Subtest: replace packets reset only current water renderer state
+ok 229 - replace packets reset only current water renderer state
+  ---
+  duration_ms: 0.275449
+  type: 'test'
+  ...
+# Subtest: adding a neighbouring trade cannot change an existing event coordinate
+ok 230 - adding a neighbouring trade cannot change an existing event coordinate
+  ---
+  duration_ms: 1.494418
+  type: 'test'
+  ...
+# Subtest: viewport changes move the whole historical layer coherently
+ok 231 - viewport changes move the whole historical layer coherently
+  ---
+  duration_ms: 0.313165
+  type: 'test'
+  ...
+# Subtest: clock never steps backward and does not depend on packet cadence
+ok 232 - clock never steps backward and does not depend on packet cadence
+  ---
+  duration_ms: 0.240604
+  type: 'test'
+  ...
+# Subtest: renderer does not feed historical items through collision layout
+ok 233 - renderer does not feed historical items through collision layout
+  ---
+  duration_ms: 0.575694
+  type: 'test'
+  ...
+# Subtest: REST kline is normalized
+ok 234 - REST kline is normalized
+  ---
+  duration_ms: 1.90176
+  type: 'test'
+  ...
+# Subtest: stream kline is normalized
+ok 235 - stream kline is normalized
+  ---
+  duration_ms: 0.340426
+  type: 'test'
+  ...
+# Subtest: live update replaces an open candle
+ok 236 - live update replaces an open candle
+  ---
+  duration_ms: 0.271947
+  type: 'test'
+  ...
+# Subtest: new candles append and respect the history limit
+ok 237 - new candles append and respect the history limit
+  ---
+  duration_ms: 0.176907
+  type: 'test'
+  ...
+# Subtest: one-second candles aggregate into a five-second history
+ok 238 - one-second candles aggregate into a five-second history
+  ---
+  duration_ms: 0.582566
+  type: 'test'
+  ...
+# Subtest: screen density keeps at least one distinct pixel slot per rendered candle
+ok 239 - screen density keeps at least one distinct pixel slot per rendered candle
+  ---
+  duration_ms: 0.188919
+  type: 'test'
+  ...
+# Subtest: second-history fallback walks backward through aggregate-trade pages
+ok 240 - second-history fallback walks backward through aggregate-trade pages
+  ---
+  duration_ms: 56.206486
+  type: 'test'
+  ...
+# Subtest: price-axis drag changes vertical scale
+ok 241 - price-axis drag changes vertical scale
+  ---
+  duration_ms: 2.843484
+  type: 'test'
+  ...
+# Subtest: time-axis drag changes visible history
+ok 242 - time-axis drag changes visible history
+  ---
+  duration_ms: 0.383495
+  type: 'test'
+  ...
+# Subtest: NATR normalizes Wilder ATR as a percentage
+ok 243 - NATR normalizes Wilder ATR as a percentage
+  ---
+  duration_ms: 0.658168
+  type: 'test'
+  ...
+# Subtest: Pearson correlation detects aligned and inverse returns
+ok 244 - Pearson correlation detects aligned and inverse returns
+  ---
+  duration_ms: 0.277596
+  type: 'test'
+  ...
+# Subtest: drawing ruler reports signed price change
+ok 245 - drawing ruler reports signed price change
+  ---
+  duration_ms: 0.141452
+  type: 'test'
+  ...
+# Subtest: Ctrl magnet snaps to nearest candle body or wick extreme
+ok 246 - Ctrl magnet snaps to nearest candle body or wick extreme
+  ---
+  duration_ms: 0.193721
+  type: 'test'
+  ...
+# Subtest: Ctrl magnet resolves the candle centered under the cursor
+ok 247 - Ctrl magnet resolves the candle centered under the cursor
+  ---
+  duration_ms: 0.132852
+  type: 'test'
+  ...
+# Subtest: Ctrl magnet snaps the first drawing anchor before the drawing exists
+ok 248 - Ctrl magnet snaps the first drawing anchor before the drawing exists
+  ---
+  duration_ms: 0.214885
+  type: 'test'
+  ...
+# Subtest: live data keeps the fractional manual viewport offset
+ok 249 - live data keeps the fractional manual viewport offset
+  ---
+  duration_ms: 0.107681
+  type: 'test'
+  ...
+# Subtest: time scale marks trading sessions without a separate day marker
+ok 250 - time scale marks trading sessions without a separate day marker
+  ---
+  duration_ms: 0.238938
+  type: 'test'
+  ...
+# Subtest: progressive time scale selects round divisions
+ok 251 - progressive time scale selects round divisions
+  ---
+  duration_ms: 0.152862
+  type: 'test'
+  ...
+# Subtest: price scale uses round and half-round increments
+ok 252 - price scale uses round and half-round increments
+  ---
+  duration_ms: 0.162074
+  type: 'test'
+  ...
+# Subtest: Worker REST startup uses staggered cancellable host fallback
+ok 253 - Worker REST startup uses staggered cancellable host fallback
+  ---
+  duration_ms: 1.159205
+  type: 'test'
+  ...
+# Subtest: connection lifecycle identifies WebSocket, snapshot, retry and LIVE phases
+ok 254 - connection lifecycle identifies WebSocket, snapshot, retry and LIVE phases
+  ---
+  duration_ms: 0.601809
+  type: 'test'
+  ...
+# Subtest: cross-context timing uses epoch timestamps and source kind
+ok 255 - cross-context timing uses epoch timestamps and source kind
+  ---
+  duration_ms: 0.225422
+  type: 'test'
+  ...
+# Subtest: main-thread render diagnostics cover computation, ladder DOM and skipped TAPE
+ok 256 - main-thread render diagnostics cover computation, ladder DOM and skipped TAPE
+  ---
+  duration_ms: 0.500432
+  type: 'test'
+  ...
+# Subtest: new diagnostic runtime files are in the Service Worker release
+ok 257 - new diagnostic runtime files are in the Service Worker release
+  ---
+  duration_ms: 0.208723
+  type: 'test'
+  ...
+# Subtest: percentChange returns a percentage
+ok 258 - percentChange returns a percentage
+  ---
+  duration_ms: 1.566975
+  type: 'test'
+  ...
+# Subtest: ticker filter keeps UM USDT pairs
+ok 259 - ticker filter keeps UM USDT pairs
+  ---
+  duration_ms: 0.26256
+  type: 'test'
+  ...
+# Subtest: symbol validation canonicalizes user input and rejects markup
+ok 260 - symbol validation canonicalizes user input and rejects markup
+  ---
+  duration_ms: 0.220647
+  type: 'test'
+  ...
+# Subtest: SymbolState calculates 15 second move
+ok 261 - SymbolState calculates 15 second move
+  ---
+  duration_ms: 1.065346
+  type: 'test'
+  ...
+# Subtest: book ticker updates the live midpoint without waiting for mini ticker
+ok 262 - book ticker updates the live midpoint without waiting for mini ticker
+  ---
+  duration_ms: 0.249864
+  type: 'test'
+  ...
+# Subtest: trade flow counts fills and aggressive side
+ok 263 - trade flow counts fills and aggressive side
+  ---
+  duration_ms: 0.185625
+  type: 'test'
+  ...
+# Subtest: funding is exposed for radar sorting
+ok 264 - funding is exposed for radar sorting
+  ---
+  duration_ms: 0.246454
+  type: 'test'
+  ...
+# Subtest: historical minutes warm up NATR without waiting
+ok 265 - historical minutes warm up NATR without waiting
+  ---
+  duration_ms: 0.704407
+  type: 'test'
+  ...
+# Subtest: liquidation snapshots are deduplicated
+ok 266 - liquidation snapshots are deduplicated
+  ---
+  duration_ms: 0.788441
+  type: 'test'
+  ...
+# Subtest: liquidation cascade is not mislabeled as the classic order-book cascade
+ok 267 - liquidation cascade is not mislabeled as the classic order-book cascade
+  ---
+  duration_ms: 0.439805
+  type: 'test'
+  ...
+# Subtest: compression is no longer classified as a scalper pattern
+ok 268 - compression is no longer classified as a scalper pattern
+  ---
+  duration_ms: 0.153687
+  type: 'test'
+  ...
+# Subtest: support and resistance breakouts are separate facts
+ok 269 - support and resistance breakouts are separate facts
+  ---
+  duration_ms: 0.191794
+  type: 'test'
+  ...
+# Subtest: knife and sharpening require a sharp move followed by a one-percent reversal
+ok 270 - knife and sharpening require a sharp move followed by a one-percent reversal
+  ---
+  duration_ms: 1.068014
+  type: 'test'
+  ...
+# Subtest: SignalEvent is an immutable formula-versioned snapshot without future results
+ok 271 - SignalEvent is an immutable formula-versioned snapshot without future results
+  ---
+  duration_ms: 12.262493
+  type: 'test'
+  ...
+# Subtest: marketwide pattern events preserve detector evidence and formula identity
+ok 272 - marketwide pattern events preserve detector evidence and formula identity
+  ---
+  duration_ms: 0.456403
+  type: 'test'
+  ...
+# Subtest: SignalContext keeps current facts separate and marks unavailable inputs partial
+ok 273 - SignalContext keeps current facts separate and marks unavailable inputs partial
+  ---
+  duration_ms: 1.424761
+  type: 'test'
+  ...
+# Subtest: context includes observed density interactions but excludes untouched size-only candidates
+ok 274 - context includes observed density interactions but excludes untouched size-only candidates
+  ---
+  duration_ms: 1.042365
+  type: 'test'
+  ...
+# Subtest: SignalObservation starts pending at the exact 15s, 1m, 3m and 5m horizons
+ok 275 - SignalObservation starts pending at the exact 15s, 1m, 3m and 5m horizons
+  ---
+  duration_ms: 0.821209
+  type: 'test'
+  ...
+# Subtest: tracker fills the 15s observation from a continuous live price path
+ok 276 - tracker fills the 15s observation from a continuous live price path
+  ---
+  duration_ms: 4.128636
+  type: 'test'
+  ...
+# Subtest: an observed result is partial when the price path has a material gap
+ok 277 - an observed result is partial when the price path has a material gap
+  ---
+  duration_ms: 0.901882
+  type: 'test'
+  ...
+# Subtest: MFE and MAE follow the signal direction while return stays market-signed
+ok 278 - MFE and MAE follow the signal direction while return stays market-signed
+  ---
+  duration_ms: 0.967762
+  type: 'test'
+  ...
+# Subtest: a missed horizon after a browser pause is unavailable instead of backfilled
+ok 279 - a missed horizon after a browser pause is unavailable instead of backfilled
+  ---
+  duration_ms: 0.967196
+  type: 'test'
+  ...
+# Subtest: the price path stays alive until later horizons resolve
+ok 280 - the price path stays alive until later horizons resolve
+  ---
+  duration_ms: 1.115429
+  type: 'test'
+  ...
+# Subtest: tracker emits once for a continuous signal and rearms only after a real absence
+ok 281 - tracker emits once for a continuous signal and rearms only after a real absence
+  ---
+  duration_ms: 1.254973
+  type: 'test'
+  ...
+# Subtest: tracker stores one card for overlapping detectors in the same market episode
+ok 282 - tracker stores one card for overlapping detectors in the same market episode
+  ---
+  duration_ms: 1.169417
+  type: 'test'
+  ...
+# Subtest: tracker allows the opposite direction and a genuinely later episode
+ok 283 - tracker allows the opposite direction and a genuinely later episode
+  ---
+  duration_ms: 1.317224
+  type: 'test'
+  ...
+# Subtest: a long render pause does not fabricate an absence or duplicate a continuous signal
+ok 284 - a long render pause does not fabricate an absence or duplicate a continuous signal
+  ---
+  duration_ms: 0.383336
+  type: 'test'
+  ...
+# Subtest: a settings change creates a new formula snapshot even if the signal stays active
+ok 285 - a settings change creates a new formula snapshot even if the signal stays active
+  ---
+  duration_ms: 0.652859
+  type: 'test'
+  ...
+# Subtest: tracker does not create new signal facts from stale market snapshots
+ok 286 - tracker does not create new signal facts from stale market snapshots
+  ---
+  duration_ms: 0.164268
+  type: 'test'
+  ...
+# Subtest: browser runtime captures the contract and ships it in the atomic app shell
+ok 287 - browser runtime captures the contract and ships it in the atomic app shell
+  ---
+  duration_ms: 13.749411
+  type: 'test'
+  ...
+# Subtest: marketwide scanner detects a comparable strong size moving on the same side
+ok 288 - marketwide scanner detects a comparable strong size moving on the same side
+  ---
+  duration_ms: 1.144189
+  type: 'test'
+  ...
+# Subtest: marketwide scanner detects repeated strong best-quote support
+ok 289 - marketwide scanner detects repeated strong best-quote support
+  ---
+  duration_ms: 1.045344
+  type: 'test'
+  ...
+# Subtest: cascade detector requires three staircase highs and enters on the nearest breakout
+ok 290 - cascade detector requires three staircase highs and enters on the nearest breakout
+  ---
+  duration_ms: 0.578321
+  type: 'test'
+  ...
+# Subtest: cascade detector enters short below the newest staircase low
+ok 291 - cascade detector enters short below the newest staircase low
+  ---
+  duration_ms: 0.201458
+  type: 'test'
+  ...
+# Subtest: cascade detector rejects extrema zones wider than five percent
+ok 292 - cascade detector rejects extrema zones wider than five percent
+  ---
+  duration_ms: 0.105672
+  type: 'test'
+  ...
+# Subtest: cascade detector rejects a staircase narrower than one percent
+ok 293 - cascade detector rejects a staircase narrower than one percent
+  ---
+  duration_ms: 0.21058
+  type: 'test'
+  ...
+# Subtest: observability stays disabled without an explicit runtime flag
+ok 294 - observability stays disabled without an explicit runtime flag
+  ---
+  duration_ms: 5.103977
+  type: 'test'
+  ...
+# Subtest: observability aggregates bounded percentile samples when enabled
+ok 295 - observability aggregates bounded percentile samples when enabled
+  ---
+  duration_ms: 2.330052
+  type: 'test'
+  ...
+# Subtest: worker timing metadata is converted into end-to-end metrics
+ok 296 - worker timing metadata is converted into end-to-end metrics
+  ---
+  duration_ms: 12.027424
+  type: 'test'
+  ...
+# Subtest: worker flow diagnostics become per-symbol backpressure metrics
+ok 297 - worker flow diagnostics become per-symbol backpressure metrics
+  ---
+  duration_ms: 2.64983
+  type: 'test'
+  ...
+# Subtest: capture exports connection phases, render skips and five-second intervals
+ok 298 - capture exports connection phases, render skips and five-second intervals
+  ---
+  duration_ms: 2.486256
+  type: 'test'
+  ...
+# Subtest: recent trade history prepends in O(1) while evicting the oldest trade
+ok 299 - recent trade history prepends in O(1) while evicting the oldest trade
+  ---
+  duration_ms: 1.646168
+  type: 'test'
+  ...
+# Subtest: latest TAPE queue drops stale backlog and keeps chronological output
+ok 300 - latest TAPE queue drops stale backlog and keeps chronological output
+  ---
+  duration_ms: 0.432843
+  type: 'test'
+  ...
+# Subtest: production Worker keeps aggTrade for visual RAW and guards trade for AGG
+ok 301 - production Worker keeps aggTrade for visual RAW and guards trade for AGG
+  ---
+  duration_ms: 0.522034
+  type: 'test'
+  ...
+# Subtest: backpressure never coalesces or drops depth sequence events
+ok 302 - backpressure never coalesces or drops depth sequence events
+  ---
+  duration_ms: 0.255884
+  type: 'test'
+  ...
+# Subtest: Worker reports flow rates, processing cost, queue pressure and source freshness
+ok 303 - Worker reports flow rates, processing cost, queue pressure and source freshness
+  ---
+  duration_ms: 0.424828
+  type: 'test'
+  ...
+# Subtest: Worker publishes one full-book size scale without expanding UI depth
+ok 304 - Worker publishes one full-book size scale without expanding UI depth
+  ---
+  duration_ms: 0.236587
+  type: 'test'
+  ...
+# Subtest: multi-book depth keeps distant liquidity through compact projection
+ok 305 - multi-book depth keeps distant liquidity through compact projection
+  ---
+  duration_ms: 0.294914
+  type: 'test'
+  ...
+# Subtest: size alone remains an unrated candidate without claiming importance
+ok 306 - size alone remains an unrated candidate without claiming importance
+  ---
+  duration_ms: 3.784382
+  type: 'test'
+  ...
+# Subtest: only the correct aggressor touching the exact density price is correlated
+ok 307 - only the correct aggressor touching the exact density price is correlated
+  ---
+  duration_ms: 1.275174
+  type: 'test'
+  ...
+# Subtest: matching executions plus a remaining level classify a partial fill
+ok 308 - matching executions plus a remaining level classify a partial fill
+  ---
+  duration_ms: 1.500372
+  type: 'test'
+  ...
+# Subtest: a removed level is consumed only when matching executions cover it
+ok 309 - a removed level is consumed only when matching executions cover it
+  ---
+  duration_ms: 1.006543
+  type: 'test'
+  ...
+# Subtest: a trade arriving after the depth decrease still correlates inside the window
+ok 310 - a trade arriving after the depth decrease still correlates inside the window
+  ---
+  duration_ms: 1.559138
+  type: 'test'
+  ...
+# Subtest: a removal without matching executions settles as pulled
+ok 311 - a removal without matching executions settles as pulled
+  ---
+  duration_ms: 0.462602
+  type: 'test'
+  ...
+# Subtest: a nearby similar replacement is marked moved only as a low-confidence heuristic
+ok 312 - a nearby similar replacement is marked moved only as a low-confidence heuristic
+  ---
+  duration_ms: 0.755858
+  type: 'test'
+  ...
+# Subtest: gap reset and partial depth clear correlation evidence
+ok 313 - gap reset and partial depth clear correlation evidence
+  ---
+  duration_ms: 0.564065
+  type: 'test'
+  ...
+# Subtest: Worker and Legacy fallback ingest the same accepted trades into density correlation
+ok 314 - Worker and Legacy fallback ingest the same accepted trades into density correlation
+  ---
+  duration_ms: 10.669783
+  type: 'test'
+  ...
+# Subtest: density reference uses a robust per-side quote distribution
+ok 315 - density reference uses a robust per-side quote distribution
+  ---
+  duration_ms: 2.473629
+  type: 'test'
+  ...
+# Subtest: snapshot seeds observed densities without fabricating depth events
+ok 316 - snapshot seeds observed densities without fabricating depth events
+  ---
+  duration_ms: 3.795195
+  type: 'test'
+  ...
+# Subtest: a density transitions through strengthening, weakening and replenished
+ok 317 - a density transitions through strengthening, weakening and replenished
+  ---
+  duration_ms: 1.860203
+  type: 'test'
+  ...
+# Subtest: a zero quantity closes a density as removed without claiming execution
+ok 318 - a zero quantity closes a density as removed without claiming execution
+  ---
+  duration_ms: 1.07421
+  type: 'test'
+  ...
+# Subtest: hysteresis closes a weakened level only after the fade grace window
+ok 319 - hysteresis closes a weakened level only after the fade grace window
+  ---
+  duration_ms: 2.910092
+  type: 'test'
+  ...
+# Subtest: gap reset and partial fallback cannot leak lifecycle state
+ok 320 - gap reset and partial fallback cannot leak lifecycle state
+  ---
+  duration_ms: 0.627114
+  type: 'test'
+  ...
+# Subtest: Legacy symbol changes reset cross-symbol lifetime counters
+ok 321 - Legacy symbol changes reset cross-symbol lifetime counters
+  ---
+  duration_ms: 0.305353
+  type: 'test'
+  ...
+# Subtest: active and serialized density collections stay bounded
+ok 322 - active and serialized density collections stay bounded
+  ---
+  duration_ms: 0.524795
+  type: 'test'
+  ...
+# Subtest: Worker and Legacy fallback share the density lifecycle contract
+ok 323 - Worker and Legacy fallback share the density lifecycle contract
+  ---
+  duration_ms: 10.367693
+  type: 'test'
+  ...
+# Subtest: deep projection preserves exact near levels and total quote
+ok 324 - deep projection preserves exact near levels and total quote
+  ---
+  duration_ms: 5.79321
+  type: 'test'
+  ...
+# Subtest: deep projection stays ordered on both sides
+ok 325 - deep projection stays ordered on both sides
+  ---
+  duration_ms: 1.599285
+  type: 'test'
+  ...
+# Subtest: small books pass through without compaction
+ok 326 - small books pass through without compaction
+  ---
+  duration_ms: 0.194635
+  type: 'test'
+  ...
+# Subtest: depth changes map to the four normalized lifecycle event types
+ok 327 - depth changes map to the four normalized lifecycle event types
+  ---
+  duration_ms: 0.695435
+  type: 'test'
+  ...
+# Subtest: snapshot seeds the book as a baseline without fabricating appeared events
+ok 328 - snapshot seeds the book as a baseline without fabricating appeared events
+  ---
+  duration_ms: 1.817657
+  type: 'test'
+  ...
+# Subtest: a continuous diff emits normalized bid and ask events before updating the book
+ok 329 - a continuous diff emits normalized bid and ask events before updating the book
+  ---
+  duration_ms: 0.518583
+  type: 'test'
+  ...
+# Subtest: missing zero levels, unchanged quantities and invalid rows stay silent
+ok 330 - missing zero levels, unchanged quantities and invalid rows stay silent
+  ---
+  duration_ms: 0.202821
+  type: 'test'
+  ...
+# Subtest: journal marks bridge events as recovered and live events as live
+ok 331 - journal marks bridge events as recovered and live events as live
+  ---
+  duration_ms: 0.391643
+  type: 'test'
+  ...
+# Subtest: gap reset opens a new epoch and cannot leak old lifecycle events
+ok 332 - gap reset opens a new epoch and cannot leak old lifecycle events
+  ---
+  duration_ms: 0.210597
+  type: 'test'
+  ...
+# Subtest: journal history is bounded and keeps the newest normalized events
+ok 333 - journal history is bounded and keeps the newest normalized events
+  ---
+  duration_ms: 0.252286
+  type: 'test'
+  ...
+# Subtest: Worker and Legacy fallback share the event-first runtime contract
+ok 334 - Worker and Legacy fallback share the event-first runtime contract
+  ---
+  duration_ms: 8.990635
+  type: 'test'
+  ...
+# Subtest: a fast primary REST host prevents backup requests from starting
+ok 335 - a fast primary REST host prevents backup requests from starting
+  ---
+  duration_ms: 2.90295
+  type: 'test'
+  ...
+# Subtest: a failed primary starts a delayed backup and preserves failure diagnostics
+ok 336 - a failed primary starts a delayed backup and preserves failure diagnostics
+  ---
+  duration_ms: 5.906709
+  type: 'test'
+  ...
+# Subtest: the winning REST response aborts requests that are still in flight
+ok 337 - the winning REST response aborts requests that are still in flight
+  ---
+  duration_ms: 2.123088
+  type: 'test'
+  ...
+# Subtest: network errors are classified without claiming that CORS is proven
+ok 338 - network errors are classified without claiming that CORS is proven
+  ---
+  duration_ms: 0.251346
+  type: 'test'
+  ...
+# Subtest: all orderbook panels share one latest-only frame scheduler
+ok 339 - all orderbook panels share one latest-only frame scheduler
+  ---
+  duration_ms: 1.194116
+  type: 'test'
+  ...
+# Subtest: canvas runtime disables the hidden legacy DOM footprint
+ok 340 - canvas runtime disables the hidden legacy DOM footprint
+  ---
+  duration_ms: 0.27422
+  type: 'test'
+  ...
+# Subtest: Tape draw work yields across animation frames without dropping dirty cards
+ok 341 - Tape draw work yields across animation frames without dropping dirty cards
+  ---
+  duration_ms: 0.356951
+  type: 'test'
+  ...
+# Subtest: Tape ingestion shares each frame between symbols and both trade channels
+ok 342 - Tape ingestion shares each frame between symbols and both trade channels
+  ---
+  duration_ms: 0.56189
+  type: 'test'
+  ...
+# Subtest: footprint renders only dirty cards under the same frame budget
+ok 343 - footprint renders only dirty cards under the same frame budget
+  ---
+  duration_ms: 0.306133
+  type: 'test'
+  ...
+# Subtest: render optimization leaves strict depth sequencing untouched
+ok 344 - render optimization leaves strict depth sequencing untouched
+  ---
+  duration_ms: 0.218026
+  type: 'test'
+  ...
+# Subtest: depth updates add, replace and remove price levels
+ok 345 - depth updates add, replace and remove price levels
+  ---
+  duration_ms: 1.885054
+  type: 'test'
+  ...
+# Subtest: order book view keeps best bids and asks first
+ok 346 - order book view keeps best bids and asks first
+  ---
+  duration_ms: 0.42531
+  type: 'test'
+  ...
+# Subtest: partial depth stream becomes a ready top-20 book without REST snapshot
+ok 347 - partial depth stream becomes a ready top-20 book without REST snapshot
+  ---
+  duration_ms: 0.21938
+  type: 'test'
+  ...
+# Subtest: depth range is aggregated into stable price bands
+ok 348 - depth range is aggregated into stable price bands
+  ---
+  duration_ms: 0.378888
+  type: 'test'
+  ...
+# Subtest: aggregate trade identifies the aggressive market side
+ok 349 - aggregate trade identifies the aggressive market side
+  ---
+  duration_ms: 1.140825
+  type: 'test'
+  ...
+# Subtest: price ladder keeps the market row visible and fills both sides
+ok 350 - price ladder keeps the market row visible and fills both sides
+  ---
+  duration_ms: 1.352231
+  type: 'test'
+  ...
+# Subtest: orderbook wheel uses the trader-facing step direction
+ok 351 - orderbook wheel uses the trader-facing step direction
+  ---
+  duration_ms: 0.237078
+  type: 'test'
+  ...
+# Subtest: reducing the step converges a free viewport toward market and snaps at x1
+ok 352 - reducing the step converges a free viewport toward market and snaps at x1
+  ---
+  duration_ms: 0.217459
+  type: 'test'
+  ...
+# Subtest: price ladder cannot be scrolled below zero
+ok 353 - price ladder cannot be scrolled below zero
+  ---
+  duration_ms: 0.513984
+  type: 'test'
+  ...
+# Subtest: size bars use the complete projected book instead of the visible ladder
+ok 354 - size bars use the complete projected book instead of the visible ladder
+  ---
+  duration_ms: 0.925778
+  type: 'test'
+  ...
+# Subtest: automatic anomaly reference uses the complete book rather than the visible ladder
+ok 355 - automatic anomaly reference uses the complete book rather than the visible ladder
+  ---
+  duration_ms: 2.308431
+  type: 'test'
+  ...
+# Subtest: highlight modes preserve displayed size while AUTO inspects the largest real order
+ok 356 - highlight modes preserve displayed size while AUTO inspects the largest real order
+  ---
+  duration_ms: 0.443139
+  type: 'test'
+  ...
+# Subtest: AUTO keeps one threshold per coin for the whole session
+ok 357 - AUTO keeps one threshold per coin for the whole session
+  ---
+  duration_ms: 0.196072
+  type: 'test'
+  ...
+# Subtest: hover distance uses color for direction and absolute compact text
+ok 358 - hover distance uses color for direction and absolute compact text
+  ---
+  duration_ms: 0.155806
+  type: 'test'
+  ...
+# Subtest: Tape maps every execution to its exact interpolated price coordinate
+ok 359 - Tape maps every execution to its exact interpolated price coordinate
+  ---
+  duration_ms: 0.45024
+  type: 'test'
+  ...
+# Subtest: percent depth gives BTC and alt books the same visible range
+ok 360 - percent depth gives BTC and alt books the same visible range
+  ---
+  duration_ms: 18.740345
+  type: 'test'
+  ...
+# Subtest: trade clusters respect the minimum quote filter
+ok 361 - trade clusters respect the minimum quote filter
+  ---
+  duration_ms: 0.305435
+  type: 'test'
+  ...
+# Subtest: RAW trade path preserves executions and applies the minimum filter per event
+ok 362 - RAW trade path preserves executions and applies the minimum filter per event
+  ---
+  duration_ms: 0.291659
+  type: 'test'
+  ...
+# Subtest: impulse adaptation preserves the user-selected price step
+ok 363 - impulse adaptation preserves the user-selected price step
+  ---
+  duration_ms: 0.115245
+  type: 'test'
+  ...
+# Subtest: AUTO depth fits the working area and scale recovery preserves the user value
+ok 364 - AUTO depth fits the working area and scale recovery preserves the user value
+  ---
+  duration_ms: 0.451138
+  type: 'test'
+  ...
+# Subtest: time window and footprint preserve exact time-price cells
+ok 365 - time window and footprint preserve exact time-price cells
+  ---
+  duration_ms: 0.411119
+  type: 'test'
+  ...
+# Subtest: order book separates public depth and market trade streams
+ok 366 - order book separates public depth and market trade streams
+  ---
+  duration_ms: 3.807937
+  type: 'test'
+  ...
+# Subtest: owner dashboard creates a safe same-origin InPuls orderbook link
+ok 367 - owner dashboard creates a safe same-origin InPuls orderbook link
+  ---
+  duration_ms: 1.314223
+  type: 'test'
+  ...
+# Subtest: owner navigation rejects invalid symbols and unknown actions
+ok 368 - owner navigation rejects invalid symbols and unknown actions
+  ---
+  duration_ms: 1.025557
+  type: 'test'
+  ...
+# Subtest: owner dashboard stays unlinked, local-only and exposes no destructive history controls
+ok 369 - owner dashboard stays unlinked, local-only and exposes no destructive history controls
+  ---
+  duration_ms: 8.123316
+  type: 'test'
+  ...
+# Subtest: catalog has only the agreed pattern groups plus explicit market events
+ok 370 - catalog has only the agreed pattern groups plus explicit market events
+  ---
+  duration_ms: 0.664988
+  type: 'test'
+  ...
+# Subtest: minute structure stores one-minute extrema for cascade research
+ok 371 - minute structure stores one-minute extrema for cascade research
+  ---
+  duration_ms: 0.879578
+  type: 'test'
+  ...
+# Subtest: 59th-minute evidence uses UTC exchange time
+ok 372 - 59th-minute evidence uses UTC exchange time
+  ---
+  duration_ms: 0.249319
+  type: 'test'
+  ...
+# Subtest: density geometry preserves layout and observed move chains without scoring intent
+ok 373 - density geometry preserves layout and observed move chains without scoring intent
+  ---
+  duration_ms: 1.168402
+  type: 'test'
+  ...
+# Subtest: PWA reset recognizes only the InPuls worker at its exact scope
+ok 374 - PWA reset recognizes only the InPuls worker at its exact scope
+  ---
+  duration_ms: 0.787557
+  type: 'test'
+  ...
+# Subtest: PWA reset leaves unrelated registrations and caches untouched
+ok 375 - PWA reset leaves unrelated registrations and caches untouched
+  ---
+  duration_ms: 0.904748
+  type: 'test'
+  ...
+# Subtest: latest scheduler coalesces repeated data for one panel
+ok 376 - latest scheduler coalesces repeated data for one panel
+  ---
+  duration_ms: 1.458448
+  type: 'test'
+  ...
+# Subtest: frame budget yields remaining panels to the next frame
+ok 377 - frame budget yields remaining panels to the next frame
+  ---
+  duration_ms: 0.278149
+  type: 'test'
+  ...
+# Subtest: urgent interaction moves an already queued panel to the front
+ok 378 - urgent interaction moves an already queued panel to the front
+  ---
+  duration_ms: 0.258361
+  type: 'test'
+  ...
+# Subtest: removed panels never render from a stale queue entry
+ok 379 - removed panels never render from a stale queue entry
+  ---
+  duration_ms: 0.934807
+  type: 'test'
+  ...
+# Subtest: static server rejects malformed URLs without terminating
+ok 380 - static server rejects malformed URLs without terminating
+  ---
+  duration_ms: 25.088398
+  type: 'test'
+  ...
+# Subtest: static server blocks private files and missing scripts
+ok 381 - static server blocks private files and missing scripts
+  ---
+  duration_ms: 10.608382
+  type: 'test'
+  ...
+# Subtest: static server sends browser security headers and limits methods
+ok 382 - static server sends browser security headers and limits methods
+  ---
+  duration_ms: 5.580332
+  type: 'test'
+  ...
+# Subtest: owner Signal Lab is served as a protected same-origin page
+ok 383 - owner Signal Lab is served as a protected same-origin page
+  ---
+  duration_ms: 9.342674
+  type: 'test'
+  ...
+# Subtest: owner Signal Lab explains that collection runs in the main InPuls tab
+ok 384 - owner Signal Lab explains that collection runs in the main InPuls tab
+  ---
+  duration_ms: 8.113982
+  type: 'test'
+  ...
+# Subtest: service worker reports whether a same-origin main collector client is open
+ok 385 - service worker reports whether a same-origin main collector client is open
+  ---
+  duration_ms: 1.421148
+  type: 'test'
+  ...
+# Subtest: enriches current events with canonical pattern and facts
+ok 386 - enriches current events with canonical pattern and facts
+  ---
+  duration_ms: 1.872851
+  type: 'test'
+  ...
+# Subtest: groups repeated events into one market episode
+ok 387 - groups repeated events into one market episode
+  ---
+  duration_ms: 0.718585
+  type: 'test'
+  ...
+# Subtest: stored V2 review overrides event review
+ok 388 - stored V2 review overrides event review
+  ---
+  duration_ms: 0.33983
+  type: 'test'
+  ...
+# Subtest: team aliases resolve to canonical pattern ids
+ok 389 - team aliases resolve to canonical pattern ids
+  ---
+  duration_ms: 1.256728
+  type: 'test'
+  ...
+# Subtest: catalog keeps ambiguous team terminology as an explicit limitation
+ok 390 - catalog keeps ambiguous team terminology as an explicit limitation
+  ---
+  duration_ms: 0.35899
+  type: 'test'
+  ...
+# Subtest: candidate validation requires factual identity and direction
+ok 391 - candidate validation requires factual identity and direction
+  ---
+  duration_ms: 0.343044
+  type: 'test'
+  ...
+# Subtest: cascade explanation contains observable facts only
+ok 392 - cascade explanation contains observable facts only
+  ---
+  duration_ms: 1.189821
+  type: 'test'
+  ...
+# Subtest: liquidity explanation does not accuse spoofing
+ok 393 - liquidity explanation does not accuse spoofing
+  ---
+  duration_ms: 17.548646
+  type: 'test'
+  ...
+# Subtest: legacy reviews migrate without losing the manual comment
+ok 394 - legacy reviews migrate without losing the manual comment
+  ---
+  duration_ms: 0.593467
+  type: 'test'
+  ...
+# Subtest: valid review preserves trader markup
+ok 395 - valid review preserves trader markup
+  ---
+  duration_ms: 0.386394
+  type: 'test'
+  ...
+# Subtest: duplicate review requires an episode id
+ok 396 - duplicate review requires an episode id
+  ---
+  duration_ms: 0.205986
+  type: 'test'
+  ...
+# Subtest: same market move is grouped into one episode
+ok 397 - same market move is grouped into one episode
+  ---
+  duration_ms: 1.321216
+  type: 'test'
+  ...
+# Subtest: distant or late event starts a new episode
+ok 398 - distant or late event starts a new episode
+  ---
+  duration_ms: 0.569843
+  type: 'test'
+  ...
+# Subtest: episode state machine blocks impossible resurrection
+ok 399 - episode state machine blocks impossible resurrection
+  ---
+  duration_ms: 1.068528
+  type: 'test'
+  ...
+# Subtest: terminal episode rejects duplicate events
+ok 400 - terminal episode rejects duplicate events
+  ---
+  duration_ms: 1.550369
+  type: 'test'
+  ...
+# Subtest: training sample preserves formula version, outcome and data limitations
+ok 401 - training sample preserves formula version, outcome and data limitations
+  ---
+  duration_ms: 0.528339
+  type: 'test'
+  ...
+# Subtest: readiness gate never treats a few pretty examples as sufficient
+ok 402 - readiness gate never treats a few pretty examples as sufficient
+  ---
+  duration_ms: 0.327903
+  type: 'test'
+  ...
+# Subtest: beta eligibility needs positives, counterexamples, live coverage and one formula version
+ok 403 - beta eligibility needs positives, counterexamples, live coverage and one formula version
+  ---
+  duration_ms: 0.267411
+  type: 'test'
+  ...
+# Subtest: Signal Lab V3 separates Binance market and public routes
+ok 404 - Signal Lab V3 separates Binance market and public routes
+  ---
+  duration_ms: 0.876612
+  type: 'test'
+  ...
+# Subtest: Signal Lab V3 reports LIVE only after a real miniTicker packet
+ok 405 - Signal Lab V3 reports LIVE only after a real miniTicker packet
+  ---
+  duration_ms: 0.21213
+  type: 'test'
+  ...
+# Subtest: Signal Lab V3 owner page exposes truthful live diagnostics and evidence replay
+ok 406 - Signal Lab V3 owner page exposes truthful live diagnostics and evidence replay
+  ---
+  duration_ms: 0.327631
+  type: 'test'
+  ...
+# Subtest: Signal Lab V3 collector tracks trades and depth only after both market filters
+ok 407 - Signal Lab V3 collector tracks trades and depth only after both market filters
+  ---
+  duration_ms: 0.305527
+  type: 'test'
+  ...
+# Subtest: depth20 payload is normalized into compact replay snapshots
+ok 408 - depth20 payload is normalized into compact replay snapshots
+  ---
+  duration_ms: 1.391438
+  type: 'test'
+  ...
+# Subtest: evidence recorder attaches chart, book, outcomes and trader explanation
+ok 409 - evidence recorder attaches chart, book, outcomes and trader explanation
+  ---
+  duration_ms: 2.740977
+  type: 'test'
+  ...
+# Subtest: trader explanation separates hypothesis, confirmation and invalidation
+ok 410 - trader explanation separates hypothesis, confirmation and invalidation
+  ---
+  duration_ms: 0.344566
+  type: 'test'
+  ...
+# Subtest: replay chart aggregates price points into OHLC candles
+ok 411 - replay chart aggregates price points into OHLC candles
+  ---
+  duration_ms: 0.950693
+  type: 'test'
+  ...
+# Subtest: owner Signal Lab V3 exposes full chart, book replay and explanation controls
+ok 412 - owner Signal Lab V3 exposes full chart, book replay and explanation controls
+  ---
+  duration_ms: 7.550954
+  type: 'test'
+  ...
+# Subtest: evidence store keeps metadata and bounded packs in separate stores
+ok 413 - evidence store keeps metadata and bounded packs in separate stores
+  ---
+  duration_ms: 0.877649
+  type: 'test'
+  ...
+# Subtest: depth watchlist is stable and watchdog belongs to the current connection
+ok 414 - depth watchlist is stable and watchdog belongs to the current connection
+  ---
+  duration_ms: 0.920762
+  type: 'test'
+  ...
+# Subtest: owner UI bounds simultaneous replay canvases
+not ok 415 - owner UI bounds simultaneous replay canvases
+  ---
+  duration_ms: 6.242563
+  type: 'test'
+  location: '/home/runner/work/InPuls/InPuls/test/signal-lab-v3-evidence.test.js:186:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /merged\.slice\(0, 60\)/. Input:
+    
+    'import {\n' +
+      '  CANDIDATE_LABELS,\n' +
+      '  SIGNAL_LAB_V3_FORMULA_VERSION,\n' +
+      '} from "./signal-lab-v3-candidates.js?v=signal-lab-v4-stage3";\n' +
+      'import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v4-stage3";\n' +
+      'import { mountEvidenceReplay } from "./signal-lab-v3-replay-ui.js?v=signal-lab-v4-stage1";\n' +
+      'import {\n' +
+      '  disposeEpisodeFullCharts,\n' +
+      '  isEpisodeFullChartOpen,\n' +
+      '  mountEpisodeFullChart,\n' +
+      '  resetEpisodeFullChartState,\n' +
+      '} from "./signal-lab-v3-full-chart.js?v=signal-lab-v4-stage3";\n' +
+      'import {\n' +
+      '  buildCascadeCalibrationSample,\n' +
+      '  CASCADE_CALIBRATION_CHECKS,\n' +
+      '  CASCADE_CHECK_STATES,\n' +
+      '  isCascadeV4Episode,\n' +
+      '  resolveCascadeMachineEvent,\n' +
+      '  summarizeCascadeCalibration,\n' +
+      '} from "./signal-lab-v4-calibration.js?v=signal-lab-v4-stage4";\n' +
+      'import { rowsToCsv, SignalLabV3Store } from "./signal-lab-v3-store.js?v=signal-lab-v4-stage4";\n' +
+      '\n' +
+      'const elements = {\n' +
+      '  collectorDot: document.querySelector("#collector-dot"),\n' +
+      '  collectorStatus: document.querySelector("#collector-status"),\n' +
+      '  collectorToggle: document.querySelector("#collector-toggle"),\n' +
+      '  symbolFilter: document.querySelector("#symbol-filter"),\n' +
+      '  candidateFilter: document.querySelector("#candidate-filter"),\n' +
+      '  reviewFilter: document.querySelector("#review-filter"),\n' +
+      '  calibrationFilter: document.querySelector("#calibration-filter"),\n' +
+      '  refresh: document.querySelector("#refresh"),\n' +
+      '  checksCount: document.querySelector("#checks-count"),\n' +
+      '  episodesCount: document.querySelector("#episodes-count"),\n' +
+      '  activeCount: document.querySelector("#active-count"),\n' +
+      '  reviewedCount: document.querySelector("#reviewed-count"),\n' +
+      '  warmupCount: document.querySelector("#warmup-count"),\n' +
+      '  cascadeTotalCount: document.querySelector("#cascade-total-count"),\n' +
+      '  cascadeReviewedCount: document.querySelector("#cascade-reviewed-count"),\n' +
+      '  cascadeClassCount: document.querySelector("#cascade-class-count"),\n' +
+      '  cascadeEligibleCount: document.querySelector("#cascade-eligible-count"),\n' +
+      '  visibleCount: document.querySelector("#visible-count"),\n' +
+      '  emptyState: document.querySelector("#empty-state"),\n' +
+      '  candidateList: document.querySelector("#candidate-list"),\n' +
+      '  template: document.querySelector("#candidate-template"),\n' +
+      '  exportJson: document.querySelector("#export-json"),\n' +
+      '  exportCsv: document.querySelector("#export-csv"),\n' +
+      '  exportCalibration: document.querySelector("#export-calibration"),\n' +
+      '  clearRecords: document.querySelector("#clear-records"),\n' +
+      '  dayButtons: [...document.querySelectorAll("[data-days]")],\n' +
+      '};\n' +
+      '\n' +
+      'const store = new SignalLabV3Store();\n' +
+      'const liveEpisodes = new Map();\n' +
+      'const reviewStates = new Map();\n' +
+      'const persistedAt = new Map();\n' +
+      'const state = {\n' +
+      '  days: 7,\n' +
+      '  running: true,\n' +
+      '  collectorStatus: null,\n' +
+      '  renderTimer: null,\n' +
+      '  rendering: false,\n' +
+      '  pendingRender: false,\n' +
+      '};\n' +
+      '\n' +
+      'const hypothesisLabels = Object.freeze({\n' +
+      '  knife_reclaim: "Нож",\n' +
+      '  sharpening_rejection: "Заточка",\n' +
+      '  continuation_breakout: "Продолжение вверх",\n' +
+      '  continuation_breakdown: "Продолжение вниз",\n' +
+      '  level_breakout: "Пробой уровня",\n' +
+      '  false_breakout: "Ложный пробой",\n' +
+      '  liquidity_sweep: "Снятие ликвидности",\n' +
+      '  cascade_breakout: "Пробой каскада",\n' +
+      '  liquidity_hold: "Удержание сайза",\n' +
+      '  liquidity_rearrangement: "Переставляш",\n' +
+      '  participant_activity: "Направленный поток",\n' +
+      '  directional_impulse: "Направленный импульс",\n' +
+      '  liquidation_cascade: "Каскад ликвидаций",\n' +
+      '  exhaustion_reversal: "Истощение движения",\n' +
+      '});\n' +
+      '\n' +
+      'const stageLabels = Object.freeze({\n' +
+      '  observed: "наблюдение",\n' +
+      '  forming: "формируется",\n' +
+      '  triggered: "триггер",\n' +
+      '  completed: "завершён",\n' +
+      '});\n' +
+      '\n' +
+      'function filters() {\n' +
+      '  const now = Date.now();\n' +
+      '  return {\n' +
+      '    from: now - state.days * 24 * 60 * 60 * 1_000,\n' +
+      '    to: now,\n' +
+      '    symbol: elements.symbolFilter.value,\n' +
+      '    candidateType: elements.candidateFilter.value,\n' +
+      '    reviewState: elements.reviewFilter.value,\n' +
+      '    calibrationClass: elements.calibrationFilter.value,\n' +
+      '    limit: 250,\n' +
+      '  };\n' +
+      '}\n' +
+      '\n' +
+      'function scheduleRender(delay = 900) {\n' +
+      '  if (isEpisodeFullChartOpen()) {\n' +
+      '    state.pendingRender = true;\n' +
+      '    return;\n' +
+      '  }\n' +
+      '  clearTimeout(state.renderTimer);\n' +
+      '  state.renderTimer = setTimeout(() => render(), delay);\n' +
+      '}\n' +
+      '\n' +
+      'function statusText(status) {\n' +
+      '  if (!status) return "Подготовка локального сборщика…";\n' +
+      '  const connection = {\n' +
+      '    idle: "ожидание",\n' +
+      '    connecting: "подключение",\n' +
+      '    syncing: "синхронизация",\n' +
+      '    live: "LIVE",\n' +
+      '    reconnecting: "переподключение",\n' +
+      '    error: "ошибка",\n' +
+      '    stopped: "остановлен",\n' +
+      '  }[status.connection] ?? status.connection;\n' +
+      '  const ageSeconds = status.lastMessageAt\n' +
+      '    ? Math.max(0, Math.round((Date.now() - status.lastMessageAt) / 1_000))\n' +
+      '    : null;\n' +
+      '  const age = ageSeconds === null ? "нет данных" : `${ageSeconds}с назад`;\n' +
+      '  const depth = status.depthState\n' +
+      '    ? `order flow ${status.depthState}/${status.depthTracked ?? 0}`\n' +
+      '    : `order flow ${status.depthTracked ?? 0}`;\n' +
+      '  return `${connection} · проверки ${status.checks} · эпизоды ${status.createdEpisodes} · экстремумы ${status.extremeMaps ?? 0} · зоны ${status.levelMaps ?? 0}/${status.breakoutEvents ?? 0} · каскады ${status.cascadeSetups ?? 0}/${status.cascadeTriggered ?? 0}/${status.cascadeConfirmed ?? 0} · miniTicker ${status.miniTickerPackets ?? 0} · aggTrade ${status.aggTradePackets ?? 0}/${status.trackedTrades} · book ${status.bookPackets ?? 0} · ${depth} · пакеты ${status.evidencePacks ?? 0} · история ${status.warmupLoaded} · пакет ${age}`;\n' +
+      '}\n' +
+      '\n' +
+      'function renderCollectorStatus() {\n' +
+      '  const status = state.collectorStatus;\n' +
+      '  elements.collectorStatus.textContent = statusText(status);\n' +
+      '  elements.collectorDot.className = "status-dot";\n' +
+      '  if (status?.connection === "live") elements.collectorDot.classList.add("is-live");\n' +
+      '  else if (status?.connection === "error") elements.collectorDot.classList.add("is-error");\n' +
+      '  else if (status?.connection === "stopped") elements.collectorDot.classList.add("is-stopped");\n' +
+      '  elements.checksCount.textContent = String(status?.checks ?? 0);\n' +
+      '  elements.warmupCount.textContent = String(status?.warmupLoaded ?? 0);\n' +
+      '  elements.collectorToggle.textContent = state.running ? "Остановить сбор" : "Запустить сбор";\n' +
+      '}\n' +
+      '\n' +
+      'function mergeEpisode(row) {\n' +
+      '  const storedReview = row.review ?? null;\n' +
+      '  const live = liveEpisodes.get(row.id);\n' +
+      '  const merged = live ? { ...row, ...live, review: storedReview } : row;\n' +
+      '  const reviewState = reviewStates.get(row.id) ?? merged.reviewState ?? "unreviewed";\n' +
+      '  return { ...merged, reviewState };\n' +
+      '}\n' +
+      '\n' +
+      'function activeEpisodeCount(now = Date.now()) {\n' +
+      '  return [...liveEpisodes.values()].filter((episode) => (\n' +
+      '    episode.stage !== "completed" && now - episode.lastSeenAt <= 30_000\n' +
+      '  )).length;\n' +
+      '}\n' +
+      '\n' +
+      'function formatDate(timestamp) {\n' +
+      '  const date = new Date(Number(timestamp));\n' +
+      '  return new Intl.DateTimeFormat("ru-RU", {\n' +
+      '    day: "2-digit",\n' +
+      '    month: "2-digit",\n' +
+      '    hour: "2-digit",\n' +
+      '    minute: "2-digit",\n' +
+      '    second: "2-digit",\n' +
+      '  }).format(date);\n' +
+      '}\n' +
+      '\n' +
+      'function scoreLabel(value) {\n' +
+      '  const score = Math.round(Number(value) || 0);\n' +
+      '  return `${score}/100`;\n' +
+      '}\n' +
+      '\n' +
+      'function setList(target, rows) {\n' +
+      '  target.replaceChildren(...rows.map((text) => {\n' +
+      '    const item = document.createElement("li");\n' +
+      '    item.textContent = text;\n' +
+      '    return item;\n' +
+      '  }));\n' +
+      '}\n' +
+      '\n' +
+      'function setChips(target, rows) {\n' +
+      '  target.replaceChildren(...rows.map((value) => {\n' +
+      '    const chip = document.createElement("span");\n' +
+      '    chip.textContent = hypothesisLabels[value] ?? value;\n' +
+      '    return chip;\n' +
+      '  }));\n' +
+      '}\n' +
+      '\n' +
+      '\n' +
+      'const calibrationClassByVerdict = Object.freeze({\n' +
+      '  valid: "canonical",\n' +
+      '  weak: "weak",\n' +
+      '  false_positive: "false",\n' +
+      '  duplicate_episode: "ambiguous",\n' +
+      '  wrong_pattern: "false",\n' +
+      '  insufficient_data: "unavailable",\n' +
+      '});\n' +
+      '\n' +
+      'function readCascadeCalibration(card, verdict = null) {\n' +
+      `  const classField = card.querySelector('[data-field="calibration-class"]');\n` +
+      '  const classification = classField?.value || calibrationClassByVerdict[verdict] || null;\n' +
+      '  if (classField && !classField.value && classification) classField.value = classification;\n' +
+      '  return {\n' +
+      '    classification,\n' +
+      `    confidence: card.querySelector('[data-field="calibration-confidence"]')?.value,\n` +
+      '    checks: Object.fromEntries([...card.querySelectorAll("[data-calibration-check]")]\n' +
+      '      .map((field) => [field.dataset.calibrationCheck, field.value])),\n' +
+      '    corrections: {\n' +
+      `      direction: card.querySelector('[data-field="calibration-direction"]')?.value,\n` +
+      `      expectedState: card.querySelector('[data-field="calibration-state"]')?.value,\n` +
+      `      levelCount: card.querySelector('[data-field="calibration-level-count"]')?.value,\n` +
+      `      levelPrices: card.querySelector('[data-field="calibration-level-prices"]')?.value,\n` +
+      `      touchCounts: card.querySelector('[data-field="calibration-touch-counts"]')?.value,\n` +
+      `      note: card.querySelector('[data-field="calibration-note"]')?.value,\n` +
+      '    },\n' +
+      `    reasonCodes: [...card.querySelectorAll('[data-field="calibration-reasons"] input:checked')]\n` +
+      '      .map((input) => input.value),\n' +
+      '  };\n' +
+      '}\n' +
+      '\n' +
+      'function formatLifecycleTime(value) {\n' +
+      '  if (!Number.isFinite(Number(value))) return "—";\n' +
+      '  return new Intl.DateTimeFormat("ru-RU", {\n' +
+      '    hour: "2-digit",\n' +
+      '    minute: "2-digit",\n' +
+      '    second: "2-digit",\n' +
+      '  }).format(new Date(Number(value)));\n' +
+      '}\n' +
+      '\n' +
+      'function outcomeSummary(machine) {\n' +
+      '  const anchor = machine?.anchors?.confirm ?? machine?.anchors?.trigger ?? machine?.anchors?.setup;\n' +
+      '  const outcomes = anchor?.outcomes ?? {};\n' +
+      '  const observed = ["15s", "1m", "3m", "5m"]\n' +
+      '    .filter((horizon) => ["OBSERVED", "PARTIAL"].includes(outcomes?.[horizon]?.state));\n' +
+      '  return observed.length ? observed.join(" / ") : "ещё собираются";\n' +
+      '}\n' +
+      '\n' +
+      'function calibrationMatches(episode, value) {\n' +
+      '  if (!value) return true;\n' +
+      '  if (!isCascadeV4Episode(episode)) return false;\n' +
+      '  const sample = buildCascadeCalibrationSample(episode);\n' +
+      '  if (!sample) return false;\n' +
+      '  if (value === "unreviewed") return !sample.calibration.classification;\n' +
+      '  if (value === "eligible") return sample.geometryEligible;\n' +
+      '  if (value === "blocked") return !sample.geometryEligible && Boolean(sample.calibration.classification);\n' +
+      '  return sample.calibration.classification === value;\n' +
+      '}\n' +
+      '\n' +
+      'function bindCascadeCalibration(episode, card) {\n' +
+      `  const shell = card.querySelector('[data-field="cascade-calibration"]');\n` +
+      '  if (!shell || !isCascadeV4Episode(episode)) {\n' +
+      '    if (shell) shell'... 15991 more characters
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: |-
+    import {
+      CANDIDATE_LABELS,
+      SIGNAL_LAB_V3_FORMULA_VERSION,
+    } from "./signal-lab-v3-candidates.js?v=signal-lab-v4-stage3";
+    import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v4-stage3";
+    import { mountEvidenceReplay } from "./signal-lab-v3-replay-ui.js?v=signal-lab-v4-stage1";
+    import {
+      disposeEpisodeFullCharts,
+      isEpisodeFullChartOpen,
+      mountEpisodeFullChart,
+      resetEpisodeFullChartState,
+    } from "./signal-lab-v3-full-chart.js?v=signal-lab-v4-stage3";
+    import {
+      buildCascadeCalibrationSample,
+      CASCADE_CALIBRATION_CHECKS,
+      CASCADE_CHECK_STATES,
+      isCascadeV4Episode,
+      resolveCascadeMachineEvent,
+      summarizeCascadeCalibration,
+    } from "./signal-lab-v4-calibration.js?v=signal-lab-v4-stage4";
+    import { rowsToCsv, SignalLabV3Store } from "./signal-lab-v3-store.js?v=signal-lab-v4-stage4";
+    
+    const elements = {
+      collectorDot: document.querySelector("#collector-dot"),
+      collectorStatus: document.querySelector("#collector-status"),
+      collectorToggle: document.querySelector("#collector-toggle"),
+      symbolFilter: document.querySelector("#symbol-filter"),
+      candidateFilter: document.querySelector("#candidate-filter"),
+      reviewFilter: document.querySelector("#review-filter"),
+      calibrationFilter: document.querySelector("#calibration-filter"),
+      refresh: document.querySelector("#refresh"),
+      checksCount: document.querySelector("#checks-count"),
+      episodesCount: document.querySelector("#episodes-count"),
+      activeCount: document.querySelector("#active-count"),
+      reviewedCount: document.querySelector("#reviewed-count"),
+      warmupCount: document.querySelector("#warmup-count"),
+      cascadeTotalCount: document.querySelector("#cascade-total-count"),
+      cascadeReviewedCount: document.querySelector("#cascade-reviewed-count"),
+      cascadeClassCount: document.querySelector("#cascade-class-count"),
+      cascadeEligibleCount: document.querySelector("#cascade-eligible-count"),
+      visibleCount: document.querySelector("#visible-count"),
+      emptyState: document.querySelector("#empty-state"),
+      candidateList: document.querySelector("#candidate-list"),
+      template: document.querySelector("#candidate-template"),
+      exportJson: document.querySelector("#export-json"),
+      exportCsv: document.querySelector("#export-csv"),
+      exportCalibration: document.querySelector("#export-calibration"),
+      clearRecords: document.querySelector("#clear-records"),
+      dayButtons: [...document.querySelectorAll("[data-days]")],
+    };
+    
+    const store = new SignalLabV3Store();
+    const liveEpisodes = new Map();
+    const reviewStates = new Map();
+    const persistedAt = new Map();
+    const state = {
+      days: 7,
+      running: true,
+      collectorStatus: null,
+      renderTimer: null,
+      rendering: false,
+      pendingRender: false,
+    };
+    
+    const hypothesisLabels = Object.freeze({
+      knife_reclaim: "Нож",
+      sharpening_rejection: "Заточка",
+      continuation_breakout: "Продолжение вверх",
+      continuation_breakdown: "Продолжение вниз",
+      level_breakout: "Пробой уровня",
+      false_breakout: "Ложный пробой",
+      liquidity_sweep: "Снятие ликвидности",
+      cascade_breakout: "Пробой каскада",
+      liquidity_hold: "Удержание сайза",
+      liquidity_rearrangement: "Переставляш",
+      participant_activity: "Направленный поток",
+      directional_impulse: "Направленный импульс",
+      liquidation_cascade: "Каскад ликвидаций",
+      exhaustion_reversal: "Истощение движения",
+    });
+    
+    const stageLabels = Object.freeze({
+      observed: "наблюдение",
+      forming: "формируется",
+      triggered: "триггер",
+      completed: "завершён",
+    });
+    
+    function filters() {
+      const now = Date.now();
+      return {
+        from: now - state.days * 24 * 60 * 60 * 1_000,
+        to: now,
+        symbol: elements.symbolFilter.value,
+        candidateType: elements.candidateFilter.value,
+        reviewState: elements.reviewFilter.value,
+        calibrationClass: elements.calibrationFilter.value,
+        limit: 250,
+      };
+    }
+    
+    function scheduleRender(delay = 900) {
+      if (isEpisodeFullChartOpen()) {
+        state.pendingRender = true;
+        return;
+      }
+      clearTimeout(state.renderTimer);
+      state.renderTimer = setTimeout(() => render(), delay);
+    }
+    
+    function statusText(status) {
+      if (!status) return "Подготовка локального сборщика…";
+      const connection = {
+        idle: "ожидание",
+        connecting: "подключение",
+        syncing: "синхронизация",
+        live: "LIVE",
+        reconnecting: "переподключение",
+        error: "ошибка",
+        stopped: "остановлен",
+      }[status.connection] ?? status.connection;
+      const ageSeconds = status.lastMessageAt
+        ? Math.max(0, Math.round((Date.now() - status.lastMessageAt) / 1_000))
+        : null;
+      const age = ageSeconds === null ? "нет данных" : `${ageSeconds}с назад`;
+      const depth = status.depthState
+        ? `order flow ${status.depthState}/${status.depthTracked ?? 0}`
+        : `order flow ${status.depthTracked ?? 0}`;
+      return `${connection} · проверки ${status.checks} · эпизоды ${status.createdEpisodes} · экстремумы ${status.extremeMaps ?? 0} · зоны ${status.levelMaps ?? 0}/${status.breakoutEvents ?? 0} · каскады ${status.cascadeSetups ?? 0}/${status.cascadeTriggered ?? 0}/${status.cascadeConfirmed ?? 0} · miniTicker ${status.miniTickerPackets ?? 0} · aggTrade ${status.aggTradePackets ?? 0}/${status.trackedTrades} · book ${status.bookPackets ?? 0} · ${depth} · пакеты ${status.evidencePacks ?? 0} · история ${status.warmupLoaded} · пакет ${age}`;
+    }
+    
+    function renderCollectorStatus() {
+      const status = state.collectorStatus;
+      elements.collectorStatus.textContent = statusText(status);
+      elements.collectorDot.className = "status-dot";
+      if (status?.connection === "live") elements.collectorDot.classList.add("is-live");
+      else if (status?.connection === "error") elements.collectorDot.classList.add("is-error");
+      else if (status?.connection === "stopped") elements.collectorDot.classList.add("is-stopped");
+      elements.checksCount.textContent = String(status?.checks ?? 0);
+      elements.warmupCount.textContent = String(status?.warmupLoaded ?? 0);
+      elements.collectorToggle.textContent = state.running ? "Остановить сбор" : "Запустить сбор";
+    }
+    
+    function mergeEpisode(row) {
+      const storedReview = row.review ?? null;
+      const live = liveEpisodes.get(row.id);
+      const merged = live ? { ...row, ...live, review: storedReview } : row;
+      const reviewState = reviewStates.get(row.id) ?? merged.reviewState ?? "unreviewed";
+      return { ...merged, reviewState };
+    }
+    
+    function activeEpisodeCount(now = Date.now()) {
+      return [...liveEpisodes.values()].filter((episode) => (
+        episode.stage !== "completed" && now - episode.lastSeenAt <= 30_000
+      )).length;
+    }
+    
+    function formatDate(timestamp) {
+      const date = new Date(Number(timestamp));
+      return new Intl.DateTimeFormat("ru-RU", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }).format(date);
+    }
+    
+    function scoreLabel(value) {
+      const score = Math.round(Number(value) || 0);
+      return `${score}/100`;
+    }
+    
+    function setList(target, rows) {
+      target.replaceChildren(...rows.map((text) => {
+        const item = document.createElement("li");
+        item.textContent = text;
+        return item;
+      }));
+    }
+    
+    function setChips(target, rows) {
+      target.replaceChildren(...rows.map((value) => {
+        const chip = document.createElement("span");
+        chip.textContent = hypothesisLabels[value] ?? value;
+        return chip;
+      }));
+    }
+    
+    
+    const calibrationClassByVerdict = Object.freeze({
+      valid: "canonical",
+      weak: "weak",
+      false_positive: "false",
+      duplicate_episode: "ambiguous",
+      wrong_pattern: "false",
+      insufficient_data: "unavailable",
+    });
+    
+    function readCascadeCalibration(card, verdict = null) {
+      const classField = card.querySelector('[data-field="calibration-class"]');
+      const classification = classField?.value || calibrationClassByVerdict[verdict] || null;
+      if (classField && !classField.value && classification) classField.value = classification;
+      return {
+        classification,
+        confidence: card.querySelector('[data-field="calibration-confidence"]')?.value,
+        checks: Object.fromEntries([...card.querySelectorAll("[data-calibration-check]")]
+          .map((field) => [field.dataset.calibrationCheck, field.value])),
+        corrections: {
+          direction: card.querySelector('[data-field="calibration-direction"]')?.value,
+          expectedState: card.querySelector('[data-field="calibration-state"]')?.value,
+          levelCount: card.querySelector('[data-field="calibration-level-count"]')?.value,
+          levelPrices: card.querySelector('[data-field="calibration-level-prices"]')?.value,
+          touchCounts: card.querySelector('[data-field="calibration-touch-counts"]')?.value,
+          note: card.querySelector('[data-field="calibration-note"]')?.value,
+        },
+        reasonCodes: [...card.querySelectorAll('[data-field="calibration-reasons"] input:checked')]
+          .map((input) => input.value),
+      };
+    }
+    
+    function formatLifecycleTime(value) {
+      if (!Number.isFinite(Number(value))) return "—";
+      return new Intl.DateTimeFormat("ru-RU", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }).format(new Date(Number(value)));
+    }
+    
+    function outcomeSummary(machine) {
+      const anchor = machine?.anchors?.confirm ?? machine?.anchors?.trigger ?? machine?.anchors?.setup;
+      const outcomes = anchor?.outcomes ?? {};
+      const observed = ["15s", "1m", "3m", "5m"]
+        .filter((horizon) => ["OBSERVED", "PARTIAL"].includes(outcomes?.[horizon]?.state));
+      return observed.length ? observed.join(" / ") : "ещё собираются";
+    }
+    
+    function calibrationMatches(episode, value) {
+      if (!value) return true;
+      if (!isCascadeV4Episode(episode)) return false;
+      const sample = buildCascadeCalibrationSample(episode);
+      if (!sample) return false;
+      if (value === "unreviewed") return !sample.calibration.classification;
+      if (value === "eligible") return sample.geometryEligible;
+      if (value === "blocked") return !sample.geometryEligible && Boolean(sample.calibration.classification);
+      return sample.calibration.classification === value;
+    }
+    
+    function bindCascadeCalibration(episode, card) {
+      const shell = card.querySelector('[data-field="cascade-calibration"]');
+      if (!shell || !isCascadeV4Episode(episode)) {
+        if (shell) shell.hidden = true;
+        return;
+      }
+      shell.hidden = false;
+      card.classList.add("is-v4-cascade");
+      const machine = resolveCascadeMachineEvent(episode);
+      const calibration = episode.review?.calibration ?? {};
+      const checks = calibration.checks ?? {};
+      card.querySelector('[data-field="calibration-machine-state"]').textContent = machine
+        ? `${machine.state ?? "—"} · geom ${machine.geometricState ?? "—"}`
+        : "машинное событие не найдено";
+      card.querySelector('[data-field="calibration-machine-levels"]').textContent = machine
+        ? (machine.levelPrices ?? []).map((price, index) => `К${index + 1} ${Number(price).toPrecision(7)} ×${machine.touchCounts?.[index] ?? 1}`).join(" · ")
+        : "—";
+      card.querySelector('[data-field="calibration-machine-timing"]').textContent = machine
+        ? `S ${formatLifecycleTime(machine.setupDetectedAt)} · T ${formatLifecycleTime(machine.triggeredAt)} · C ${formatLifecycleTime(machine.confirmedAt)}`
+        : "—";
+      card.querySelector('[data-field="calibration-machine-quality"]').textContent = machine?.dataQuality ?? episode.latest?.quality?.state ?? "UNKNOWN";
+      card.querySelector('[data-field="calibration-machine-formula"]').textContent = machine?.formulaVersion ?? episode.latest?.formulaVersion ?? "—";
+      card.querySelector('[data-field="calibration-machine-outcomes"]').textContent = outcomeSummary(machine);
+    
+      card.querySelector('[data-field="calibration-class"]').value = calibration.classification ?? "";
+      card.querySelector('[data-field="calibration-confidence"]').value = String(calibration.confidence ?? 3);
+      card.querySelectorAll("[data-calibration-check]").forEach((field) => {
+        field.value = checks[field.dataset.calibrationCheck] ?? CASCADE_CHECK_STATES.UNKNOWN;
+      });
+      card.querySelector('[data-field="calibration-direction"]').value = calibration.corrections?.direction ?? "";
+      card.querySelector('[data-field="calibration-state"]').value = calibration.corrections?.expectedState ?? "";
+      card.querySelector('[data-field="calibration-level-count"]').value = calibration.corrections?.levelCount ?? "";
+      card.querySelector('[data-field="calibration-level-prices"]').value = calibration.corrections?.levelPrices?.join(", ") ?? "";
+      card.querySelector('[data-field="calibration-touch-counts"]').value = calibration.corrections?.touchCounts?.join(", ") ?? "";
+      card.querySelector('[data-field="calibration-note"]').value = calibration.corrections?.note ?? "";
+      const reasonCodes = new Set(calibration.reasonCodes ?? []);
+      card.querySelectorAll('[data-field="calibration-reasons"] input').forEach((input) => {
+        input.checked = reasonCodes.has(input.value);
+      });
+    
+      card.querySelector('[data-calibration-action="mark-pass"]').addEventListener("click", () => {
+        card.querySelectorAll("[data-calibration-check]").forEach((field) => { field.value = CASCADE_CHECK_STATES.PASS; });
+        const classField = card.querySelector('[data-field="calibration-class"]');
+        if (!classField.value) classField.value = "canonical";
+      });
+      card.querySelector('[data-calibration-action="mark-unavailable"]').addEventListener("click", () => {
+        card.querySelectorAll("[data-calibration-check]").forEach((field) => { field.value = CASCADE_CHECK_STATES.UNAVAILABLE; });
+        card.querySelector('[data-field="calibration-class"]').value = "unavailable";
+      });
+      card.querySelector('[data-calibration-action="copy-machine"]').addEventListener("click", () => {
+        if (!machine) return;
+        card.querySelector('[data-field="calibration-direction"]').value = machine.direction ?? "";
+        card.querySelector('[data-field="calibration-state"]').value = machine.state ?? "";
+        card.querySelector('[data-field="calibration-level-count"]').value = machine.levelIds?.length ?? "";
+        card.querySelector('[data-field="calibration-level-prices"]').value = machine.levelPrices?.join(", ") ?? "";
+        card.querySelector('[data-field="calibration-touch-counts"]').value = machine.touchCounts?.join(", ") ?? "";
+      });
+    
+      const eligibility = card.querySelector('[data-field="calibration-eligibility"]');
+      const sample = buildCascadeCalibrationSample(episode);
+      eligibility.classList.remove("is-eligible", "is-blocked");
+      if (!sample?.calibration.classification) {
+        eligibility.textContent = "Выбери класс, проверь слои и сохрани разметку кнопкой вердикта ниже.";
+      } else if (sample.geometryEligible) {
+        eligibility.classList.add("is-eligible");
+        eligibility.textContent = sample.outcomeEligible
+          ? "Разрешено использовать для калибровки геометрии и результатов."
+          : "Разрешено использовать для калибровки геометрии; результаты пока не подтверждены.";
+      } else {
+        eligibility.classList.add("is-blocked");
+        eligibility.textContent = `Не включать в калибровку: ${sample.blockers.join(", ") || "неполная разметка"}.`;
+      }
+    }
+    
+    async function saveReview(episode, card, verdict) {
+      const pattern = card.querySelector('[data-field="pattern"]');
+      const comment = card.querySelector('[data-field="comment"]');
+      const buttons = [...card.querySelectorAll("[data-verdict]")];
+      buttons.forEach((button) => { button.disabled = true; });
+      try {
+        const review = await store.saveReview(episode.id, {
+          verdict,
+          finalPatternId: pattern.value,
+          comment: comment.value,
+          errorLabels: [...card.querySelectorAll('[data-field="error-labels"] input:checked')].map((input) => input.value),
+          calibration: isCascadeV4Episode(episode) ? readCascadeCalibration(card, verdict) : undefined,
+        });
+        reviewStates.set(episode.id, review.verdict);
+        buttons.forEach((button) => {
+          button.classList.toggle("is-selected", button.dataset.verdict === review.verdict);
+        });
+        scheduleRender(0);
+      } finally {
+        buttons.forEach((button) => { button.disabled = false; });
+      }
+    }
+    
+    function renderCard(episode) {
+      const fragment = elements.template.content.cloneNode(true);
+      const card = fragment.querySelector(".candidate-card");
+      card.dataset.direction = episode.direction;
+      card.dataset.episodeId = episode.id;
+      const latest = episode.latest ?? {};
+      card.querySelector('[data-field="symbol"]').textContent = episode.symbol;
+      card.querySelector('[data-field="label"]').textContent = episode.label;
+      card.querySelector('[data-field="stage"]').textContent = stageLabels[episode.stage] ?? episode.stage;
+      card.querySelector('[data-field="time"]').textContent = `${formatDate(episode.firstSeenAt)} · ${episode.observations} наблюдений · ${episode.direction === "up" ? "вверх" : episode.direction === "down" ? "вниз" : "нейтрально"}`;
+      card.querySelector('[data-field="score"]').textContent = scoreLabel(episode.peakEvidenceScore);
+      setList(card.querySelector('[data-field="facts"]'), Array.isArray(latest.facts) ? latest.facts : []);
+      setChips(card.querySelector('[data-field="hypotheses"]'), Array.isArray(latest.patternHypotheses) ? latest.patternHypotheses : []);
+      const quality = latest.quality ?? {};
+      card.querySelector('[data-field="quality"]').textContent = `Данные: ${quality.state ?? "unknown"} · формула ${latest.formulaVersion ?? SIGNAL_LAB_V3_FORMULA_VERSION}`;
+      setList(card.querySelector('[data-field="limitations"]'), Array.isArray(quality.limitations) ? quality.limitations : []);
+    
+      const pattern = card.querySelector('[data-field="pattern"]');
+      const comment = card.querySelector('[data-field="comment"]');
+      pattern.value = episode.review?.finalPatternId ?? "";
+      comment.value = episode.review?.comment ?? "";
+      const errorLabels = new Set(Array.isArray(episode.review?.errorLabels) ? episode.review.errorLabels : []);
+      card.querySelectorAll('[data-field="error-labels"] input').forEach((input) => {
+        input.checked = errorLabels.has(input.value);
+      });
+      bindCascadeCalibration(episode, card);
+      card.querySelectorAll("[data-verdict]").forEach((button) => {
+        button.classList.toggle("is-selected", button.dataset.verdict === episode.reviewState);
+        button.addEventListener("click", () => saveReview(episode, card, button.dataset.verdict));
+      });
+      return card;
+    }
+    
+    async function render() {
+      if (isEpisodeFullChartOpen()) {
+        state.pendingRender = true;
+        return;
+      }
+      if (state.rendering) return;
+      state.pendingRender = false;
+      state.rendering = true;
+      try {
+        renderCollectorStatus();
+        const rows = await store.list(filters());
+        for (const row of rows) {
+          if (row.reviewState && row.reviewState !== "unreviewed") reviewStates.set(row.id, row.reviewState);
+        }
+        const allMerged = rows.map(mergeEpisode);
+        const cascadeSummary = summarizeCascadeCalibration(allMerged);
+        const merged = allMerged.filter((episode) => calibrationMatches(episode, elements.calibrationFilter.value));
+        const summary = await store.summary(filters());
+        elements.episodesCount.textContent = String(summary.episodes);
+        elements.reviewedCount.textContent = String(summary.reviewed);
+        elements.activeCount.textContent = String(activeEpisodeCount());
+        elements.cascadeTotalCount.textContent = String(cascadeSummary.episodes);
+        elements.cascadeReviewedCount.textContent = String(cascadeSummary.reviewed);
+        elements.cascadeClassCount.textContent = `${cascadeSummary.canonical} / ${cascadeSummary.false}`;
+        elements.cascadeEligibleCount.textContent = `${cascadeSummary.geometryEligible} / ${cascadeSummary.outcomeEligible}`;
+        elements.visibleCount.textContent = `${merged.length} эпизодов`;
+        elements.emptyState.hidden = merged.length > 0;
+        elements.candidateList.hidden = merged.length === 0;
+        const visible = merged.slice(0, 12);
+        const cards = visible.map(renderCard);
+        disposeEpisodeFullCharts({ preserveActive: true });
+        elements.candidateList.replaceChildren(...cards);
+        requestAnimationFrame(() => {
+          cards.forEach((card, index) => {
+            mountEvidenceReplay(card, visible[index]);
+            mountEpisodeFullChart(card, visible[index], { autoOpen: false });
+          });
+        });
+      } catch (error) {
+        elements.emptyState.hidden = false;
+        elements.emptyState.textContent = `Не удалось прочитать локальную историю: ${String(error?.message ?? error)}`;
+      } finally {
+        state.rendering = false;
+      }
+    }
+    
+    function download(name, type, content) {
+      const blob = new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = name;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    }
+    
+    async function exportJson() {
+      const episodes = await store.list({ ...filters(), limit: 5_000 });
+      download(
+        `inpuls-signal-lab-v3-evidence-${new Date().toISOString().slice(0, 10)}.json`,
+        "application/json;charset=utf-8",
+        JSON.stringify({
+          schemaVersion: 2,
+          formulaVersion: SIGNAL_LAB_V3_FORMULA_VERSION,
+          exportedAt: Date.now(),
+          filters: filters(),
+          episodes,
+        }, null, 2),
+      );
+    }
+    
+    async function exportCsv() {
+      const rows = await store.exportRows(filters());
+      download(
+        `inpuls-signal-lab-v3-${new Date().toISOString().slice(0, 10)}.csv`,
+        "text/csv;charset=utf-8",
+        `\uFEFF${rowsToCsv(rows)}`,
+      );
+    }
+    
+    
+    async function exportCalibration() {
+      const episodes = await store.list({ ...filters(), calibrationClass: undefined, limit: 5_000 });
+      const samples = episodes
+        .map((episode) => buildCascadeCalibrationSample(episode))
+        .filter((sample) => sample?.calibration?.classification);
+      download(
+        `inpuls-signal-lab-v4-cascade-calibration-${new Date().toISOString().slice(0, 10)}.json`,
+        "application/json;charset=utf-8",
+        JSON.stringify({
+          schemaVersion: 1,
+          entity: "SignalLabCascadeCalibrationExport",
+          exportedAt: Date.now(),
+          summary: summarizeCascadeCalibration(episodes),
+          samples,
+        }, null, 2),
+      );
+    }
+    
+    function shouldPersist(episode, force = false, now = Date.now()) {
+      if (force) return true;
+      const previous = persistedAt.get(episode.id) ?? 0;
+      return now - previous >= 5_000;
+    }
+    
+    function createCollector() {
+      return new SignalLabV3Collector({
+      onEpisodes: async ({ created = [], updated = [], expired = [], evidenceUpdated = [] }) => {
+        const all = [...created, ...updated, ...expired, ...evidenceUpdated];
+        for (const episode of all) {
+          const reviewState = reviewStates.get(episode.id) ?? episode.reviewState;
+          liveEpisodes.set(episode.id, { ...episode, reviewState });
+        }
+    
+        const now = Date.now();
+        const durable = new Map();
+        for (const episode of [...created, ...expired, ...evidenceUpdated]) {
+          durable.set(episode.id, episode);
+        }
+        for (const episode of updated) {
+          if (shouldPersist(episode, false, now)) durable.set(episode.id, episode);
+        }
+        const durableRows = [...durable.values()].map((episode) => ({
+          ...episode,
+          reviewState: reviewStates.get(episode.id) ?? episode.reviewState,
+        }));
+        if (durableRows.length) {
+          await store.upsertEpisodes(durableRows);
+          durableRows.forEach((episode) => persistedAt.set(episode.id, now));
+        }
+        scheduleRender(created.length || expired.length ? 250 : 1_200);
+      },
+      onStatus: (status) => {
+        state.collectorStatus = status;
+        renderCollectorStatus();
+      },
+      });
+    }
+    
+    let collector = createCollector();
+    
+    
+    async function clearRecords() {
+      const confirmed = window.confirm(
+        "Удалить все записи Signal Lab на этом устройстве? Будут удалены эпизоды, ручная разметка, Evidence Pack, графики и сохранённый стакан. Действие необратимо.",
+      );
+      if (!confirmed) return;
+      elements.clearRecords.disabled = true;
+      const previousLabel = elements.clearRecords.textContent;
+      try {
+        const shouldRestart = state.running;
+        state.pendingRender = false;
+        clearTimeout(state.renderTimer);
+        collector.disconnect();
+        resetEpisodeFullChartState();
+        await store.clearAll();
+        liveEpisodes.clear();
+        reviewStates.clear();
+        persistedAt.clear();
+        state.collectorStatus = null;
+        collector = createCollector();
+        if (shouldRestart) collector.connect();
+        elements.clearRecords.textContent = "Записи очищены";
+        await render();
+        setTimeout(() => {
+          elements.clearRecords.textContent = previousLabel;
+        }, 1_800);
+      } catch (error) {
+        window.alert(`Не удалось очистить Signal Lab: ${String(error?.message ?? error)}`);
+      } finally {
+        elements.clearRecords.disabled = false;
+      }
+    }
+    
+    async function initialize() {
+      await store.initialize();
+      for (const [value, label] of Object.entries(CANDIDATE_LABELS)) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        elements.candidateFilter.append(option);
+      }
+      collector.connect();
+      await render();
+    }
+    
+    elements.dayButtons.forEach((button) => button.addEventListener("click", () => {
+      state.days = Number(button.dataset.days) || 7;
+      elements.dayButtons.forEach((item) => item.classList.toggle("is-active", item === button));
+      scheduleRender(0);
+    }));
+    
+    elements.symbolFilter.addEventListener("input", () => scheduleRender(150));
+    elements.candidateFilter.addEventListener("change", () => scheduleRender(0));
+    elements.reviewFilter.addEventListener("change", () => scheduleRender(0));
+    elements.calibrationFilter.addEventListener("change", () => scheduleRender(0));
+    elements.refresh.addEventListener("click", () => scheduleRender(0));
+    elements.exportJson.addEventListener("click", exportJson);
+    elements.exportCsv.addEventListener("click", exportCsv);
+    elements.exportCalibration.addEventListener("click", exportCalibration);
+    elements.clearRecords.addEventListener("click", clearRecords);
+    elements.collectorToggle.addEventListener("click", () => {
+      state.running = !state.running;
+      if (state.running) collector.connect();
+      else collector.disconnect();
+      renderCollectorStatus();
+    });
+    
+    window.addEventListener("inpuls:signal-lab-chart-closed", () => {
+      if (!state.pendingRender) return;
+      state.pendingRender = false;
+      scheduleRender(0);
+    });
+    window.addEventListener("beforeunload", () => {
+      disposeEpisodeFullCharts({ preserveActive: false });
+      collector.disconnect();
+    });
+    setInterval(() => scheduleRender(0), 5_000);
+    initialize();
+    
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/InPuls/InPuls/test/signal-lab-v3-evidence.test.js:188:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: legacy episodes show an explicit no-evidence state
+ok 416 - legacy episodes show an explicit no-evidence state
+  ---
+  duration_ms: 3.119835
+  type: 'test'
+  ...
+# Subtest: full chart aggregates saved second history into stable OHLC candles
+ok 417 - full chart aggregates saved second history into stable OHLC candles
+  ---
+  duration_ms: 1.718717
+  type: 'test'
+  ...
+# Subtest: breakout annotations expose the repeated level and every stored touch
+ok 418 - breakout annotations expose the repeated level and every stored touch
+  ---
+  duration_ms: 1.241279
+  type: 'test'
+  ...
+# Subtest: cascade annotations label staircase extrema as highs or lows
+ok 419 - cascade annotations label staircase extrema as highs or lows
+  ---
+  duration_ms: 0.510206
+  type: 'test'
+  ...
+# Subtest: memory store clear removes episodes, reviews and evidence together
+ok 420 - memory store clear removes episodes, reviews and evidence together
+  ---
+  duration_ms: 2.168562
+  type: 'test'
+  ...
+# Subtest: owner page exposes lazy full chart, markup controls and destructive clear
+ok 421 - owner page exposes lazy full chart, markup controls and destructive clear
+  ---
+  duration_ms: 8.127431
+  type: 'test'
+  ...
+# Subtest: shared InPuls chart engine owns passive pattern annotations
+ok 422 - shared InPuls chart engine owns passive pattern annotations
+  ---
+  duration_ms: 1.234966
+  type: 'test'
+  ...
+# Subtest: open full chart locks card rerenders until the reviewer closes it
+ok 423 - open full chart locks card rerenders until the reviewer closes it
+  ---
+  duration_ms: 2.200588
+  type: 'test'
+  ...
+# Subtest: eligibility is strictly above $100m quote volume and NATR5 above 1%
+ok 424 - eligibility is strictly above $100m quote volume and NATR5 above 1%
+  ---
+  duration_ms: 1.026483
+  type: 'test'
+  ...
+# Subtest: a generic impulse no longer creates a standalone episode
+ok 425 - a generic impulse no longer creates a standalone episode
+  ---
+  duration_ms: 15.600464
+  type: 'test'
+  ...
+# Subtest: repeated level creates one breakout candidate that evolves from forming to triggered
+ok 426 - repeated level creates one breakout candidate that evolves from forming to triggered
+  ---
+  duration_ms: 1.162353
+  type: 'test'
+  ...
+# Subtest: three ordered extrema create only a cascade candidate
+ok 427 - three ordered extrema create only a cascade candidate
+  ---
+  duration_ms: 0.571261
+  type: 'test'
+  ...
+# Subtest: sharpening records a level breakout as the origin of the reverse move
+ok 428 - sharpening records a level breakout as the origin of the reverse move
+  ---
+  duration_ms: 1.430865
+  type: 'test'
+  ...
+# Subtest: knife may follow a strong impulse even when no breakout structure is proven
+ok 429 - knife may follow a strong impulse even when no breakout structure is proven
+  ---
+  duration_ms: 0.496374
+  type: 'test'
+  ...
+# Subtest: detector emits only breakout, cascade, knife and sharpening types
+ok 430 - detector emits only breakout, cascade, knife and sharpening types
+  ---
+  duration_ms: 0.677962
+  type: 'test'
+  ...
+# Subtest: episode tracker updates one pattern episode instead of creating duplicate cards
+ok 431 - episode tracker updates one pattern episode instead of creating duplicate cards
+  ---
+  duration_ms: 0.722181
+  type: 'test'
+  ...
+# Subtest: candidate output contains eligibility facts but no trade command
+ok 432 - candidate output contains eligibility facts but no trade command
+  ---
+  duration_ms: 0.597098
+  type: 'test'
+  ...
+# Subtest: V3 store works in memory mode and preserves four-pattern manual review
+ok 433 - V3 store works in memory mode and preserves four-pattern manual review
+  ---
+  duration_ms: 2.013468
+  type: 'test'
+  ...
+# Subtest: owner page exposes machine-versus-human cascade calibration
+ok 434 - owner page exposes machine-versus-human cascade calibration
+  ---
+  duration_ms: 0.960367
+  type: 'test'
+  ...
+# Subtest: owner runtime stores, filters and exports calibration samples
+ok 435 - owner runtime stores, filters and exports calibration samples
+  ---
+  duration_ms: 0.277896
+  type: 'test'
+  ...
+# Subtest: memory store persists nested calibration and exposes it in CSV rows
+ok 436 - memory store persists nested calibration and exposes it in CSV rows
+  ---
+  duration_ms: 3.416374
+  type: 'test'
+  ...
+# Subtest: normalizes calibration class, checks, corrections and reason codes
+ok 437 - normalizes calibration class, checks, corrections and reason codes
+  ---
+  duration_ms: 2.157095
+  type: 'test'
+  ...
+# Subtest: resolves final machine event from latest evidence history
+ok 438 - resolves final machine event from latest evidence history
+  ---
+  duration_ms: 1.489014
+  type: 'test'
+  ...
+# Subtest: canonical fully checked live episode is eligible for geometry and outcomes
+ok 439 - canonical fully checked live episode is eligible for geometry and outcomes
+  ---
+  duration_ms: 0.823523
+  type: 'test'
+  ...
+# Subtest: unknown required check blocks geometry calibration
+ok 440 - unknown required check blocks geometry calibration
+  ---
+  duration_ms: 0.360424
+  type: 'test'
+  ...
+# Subtest: GAP and look-ahead flags are explicit blockers
+ok 441 - GAP and look-ahead flags are explicit blockers
+  ---
+  duration_ms: 0.435766
+  type: 'test'
+  ...
+# Subtest: false sample remains useful when explicitly reviewed and data is sufficient
+ok 442 - false sample remains useful when explicitly reviewed and data is sufficient
+  ---
+  duration_ms: 0.490757
+  type: 'test'
+  ...
+# Subtest: ambiguous and unavailable classes cannot enter threshold calibration
+ok 443 - ambiguous and unavailable classes cannot enter threshold calibration
+  ---
+  duration_ms: 0.501608
+  type: 'test'
+  ...
+# Subtest: summary reports observations and eligibility without calling it win rate
+ok 444 - summary reports observations and eligibility without calling it win rate
+  ---
+  duration_ms: 0.801312
+  type: 'test'
+  ...
+# Subtest: CSV row contains machine and human labels separately
+ok 445 - CSV row contains machine and human labels separately
+  ---
+  duration_ms: 0.853328
+  type: 'test'
+  ...
+# Subtest: collector wires level lifecycle into cascade registry and metrics
+ok 446 - collector wires level lifecycle into cascade registry and metrics
+  ---
+  duration_ms: 0.701431
+  type: 'test'
+  ...
+# Subtest: evidence and chart preserve cascade lifecycle
+ok 447 - evidence and chart preserve cascade lifecycle
+  ---
+  duration_ms: 0.207452
+  type: 'test'
+  ...
+# Subtest: owner status exposes setup, triggered and confirmed cascade counts
+ok 448 - owner status exposes setup, triggered and confirmed cascade counts
+  ---
+  duration_ms: 0.145999
+  type: 'test'
+  ...
+# Subtest: V4 setup becomes a reviewable candidate before first break
+ok 449 - V4 setup becomes a reviewable candidate before first break
+  ---
+  duration_ms: 1.468301
+  type: 'test'
+  ...
+# Subtest: setup exists before any level is broken
+ok 450 - setup exists before any level is broken
+  ---
+  duration_ms: 3.40643
+  type: 'test'
+  ...
+# Subtest: zero and exactly five percent gaps are valid
+ok 451 - zero and exactly five percent gaps are valid
+  ---
+  duration_ms: 0.421146
+  type: 'test'
+  ...
+# Subtest: gap above five percent breaks the chain
+ok 452 - gap above five percent breaks the chain
+  ---
+  duration_ms: 0.269201
+  type: 'test'
+  ...
+# Subtest: first level creates TRIGGERED and second creates CONFIRMED
+ok 453 - first level creates TRIGGERED and second creates CONFIRMED
+  ---
+  duration_ms: 1.085916
+  type: 'test'
+  ...
+# Subtest: third and later levels create EXTENDED
+ok 454 - third and later levels create EXTENDED
+  ---
+  duration_ms: 0.529605
+  type: 'test'
+  ...
+# Subtest: bad data records geometric confirmation but blocks full confirmation
+ok 455 - bad data records geometric confirmation but blocks full confirmation
+  ---
+  duration_ms: 1.188905
+  type: 'test'
+  ...
+# Subtest: only first level before duration expiry is PARTIAL
+ok 456 - only first level before duration expiry is PARTIAL
+  ---
+  duration_ms: 0.336779
+  type: 'test'
+  ...
+# Subtest: deep pullback before next level interrupts cascade
+ok 457 - deep pullback before next level interrupts cascade
+  ---
+  duration_ms: 0.319512
+  type: 'test'
+  ...
+# Subtest: full return behind first zone interrupts cascade
+ok 458 - full return behind first zone interrupts cascade
+  ---
+  duration_ms: 0.468156
+  type: 'test'
+  ...
+# Subtest: short cascade is symmetric
+ok 459 - short cascade is symmetric
+  ---
+  duration_ms: 0.581274
+  type: 'test'
+  ...
+# Subtest: repeated sync updates one setup instead of duplicating it
+ok 460 - repeated sync updates one setup instead of duplicating it
+  ---
+  duration_ms: 0.35744
+  type: 'test'
+  ...
+# Subtest: retest of first level before second is preserved as a variant
+ok 461 - retest of first level before second is preserved as a variant
+  ---
+  duration_ms: 0.206342
+  type: 'test'
+  ...
+# Subtest: outcomes retain MFE, MAE and horizon observation without look-ahead
+ok 462 - outcomes retain MFE, MAE and horizon observation without look-ahead
+  ---
+  duration_ms: 0.278568
+  type: 'test'
+  ...
+# Subtest: high is confirmed only after a later observable reversal
+ok 463 - high is confirmed only after a later observable reversal
+  ---
+  duration_ms: 3.704011
+  type: 'test'
+  ...
+# Subtest: low is confirmed symmetrically
+ok 464 - low is confirmed symmetrically
+  ---
+  duration_ms: 0.507259
+  type: 'test'
+  ...
+# Subtest: candidate moves to a new high before confirmation but confirmed extreme never repaints
+ok 465 - candidate moves to a new high before confirmation but confirmed extreme never repaints
+  ---
+  duration_ms: 0.757258
+  type: 'test'
+  ...
+# Subtest: equal touch does not break a high and adjacent candles from one attack count once
+ok 466 - equal touch does not break a high and adjacent candles from one attack count once
+  ---
+  duration_ms: 0.852115
+  type: 'test'
+  ...
+# Subtest: one valid tick above a high removes it from the active map but preserves history
+ok 467 - one valid tick above a high removes it from the active map but preserves history
+  ---
+  duration_ms: 0.430658
+  type: 'test'
+  ...
+# Subtest: tick integer representation prevents float noise from creating a false break
+ok 468 - tick integer representation prevents float noise from creating a false break
+  ---
+  duration_ms: 0.475978
+  type: 'test'
+  ...
+# Subtest: timeframes keep independent extrema maps
+ok 469 - timeframes keep independent extrema maps
+  ---
+  duration_ms: 0.80033
+  type: 'test'
+  ...
+# Subtest: historical replay produces the same event moment as sequential live ingestion
+ok 470 - historical replay produces the same event moment as sequential live ingestion
+  ---
+  duration_ms: 0.95931
+  type: 'test'
+  ...
+# Subtest: V4 collector uses exchange tick sizes, multi-TF extrema and full order-flow recorder
+ok 471 - V4 collector uses exchange tick sizes, multi-TF extrema and full order-flow recorder
+  ---
+  duration_ms: 0.993477
+  type: 'test'
+  ...
+# Subtest: evidence pack preserves two minutes of snapshot diff trades and the extrema map
+ok 472 - evidence pack preserves two minutes of snapshot diff trades and the extrema map
+  ---
+  duration_ms: 0.258488
+  type: 'test'
+  ...
+# Subtest: episode chart supports native 4h 1d and paginated 30 day history
+ok 473 - episode chart supports native 4h 1d and paginated 30 day history
+  ---
+  duration_ms: 0.896519
+  type: 'test'
+  ...
+# Subtest: owner replay exposes cluster tape scrollable local book and explicit data states
+ok 474 - owner replay exposes cluster tape scrollable local book and explicit data states
+  ---
+  duration_ms: 0.32698
+  type: 'test'
+  ...
+# Subtest: manual calibration stores the requested detector error labels
+ok 475 - manual calibration stores the requested detector error labels
+  ---
+  duration_ms: 0.709377
+  type: 'test'
+  ...
+# Subtest: close high extremes merge into one zone and preserve source points
+ok 476 - close high extremes merge into one zone and preserve source points
+  ---
+  duration_ms: 4.510745
+  type: 'test'
+  ...
+# Subtest: adjacent contacts count as one attack until real rearm
+ok 477 - adjacent contacts count as one attack until real rearm
+  ---
+  duration_ms: 1.242304
+  type: 'test'
+  ...
+# Subtest: equal touch does not trigger breakout; one tick above does
+ok 478 - equal touch does not trigger breakout; one tick above does
+  ---
+  duration_ms: 0.886142
+  type: 'test'
+  ...
+# Subtest: distance confirmation accepts only after configured distance
+ok 479 - distance confirmation accepts only after configured distance
+  ---
+  duration_ms: 0.716522
+  type: 'test'
+  ...
+# Subtest: hybrid confirmation requires distance plus time, close or flow
+ok 480 - hybrid confirmation requires distance plus time, close or flow
+  ---
+  duration_ms: 0.566681
+  type: 'test'
+  ...
+# Subtest: close confirmation is evaluated from a closed candle
+ok 481 - close confirmation is evaluated from a closed candle
+  ---
+  duration_ms: 0.58165
+  type: 'test'
+  ...
+# Subtest: puncture and quick return is swept reclaimed, not accepted breakout
+ok 482 - puncture and quick return is swept reclaimed, not accepted breakout
+  ---
+  duration_ms: 0.476239
+  type: 'test'
+  ...
+# Subtest: stale or gap data can record geometry but cannot confirm acceptance
+ok 483 - stale or gap data can record geometry but cannot confirm acceptance
+  ---
+  duration_ms: 0.572787
+  type: 'test'
+  ...
+# Subtest: accepted breakout may be classified as retest only after acceptance
+ok 484 - accepted breakout may be classified as retest only after acceptance
+  ---
+  duration_ms: 1.951715
+  type: 'test'
+  ...
+# Subtest: low breakout works symmetrically
+ok 485 - low breakout works symmetrically
+  ---
+  duration_ms: 0.763339
+  type: 'test'
+  ...
+# Subtest: same zone keeps one active event instead of duplicating every tick
+ok 486 - same zone keeps one active event instead of duplicating every tick
+  ---
+  duration_ms: 0.400265
+  type: 'test'
+  ...
+# Subtest: removing active extremes inactivates zone but preserves history
+ok 487 - removing active extremes inactivates zone but preserves history
+  ---
+  duration_ms: 0.212519
+  type: 'test'
+  ...
+# Subtest: collector feeds level zones from extrema, closed candles and aggTrade
+ok 488 - collector feeds level zones from extrema, closed candles and aggTrade
+  ---
+  duration_ms: 0.741947
+  type: 'test'
+  ...
+# Subtest: evidence pack preserves initial and latest level maps
+ok 489 - evidence pack preserves initial and latest level maps
+  ---
+  duration_ms: 0.193044
+  type: 'test'
+  ...
+# Subtest: full chart explains zones, strict crossing, acceptance and reclaim
+ok 490 - full chart explains zones, strict crossing, acceptance and reclaim
+  ---
+  duration_ms: 0.123605
+  type: 'test'
+  ...
+# Subtest: owner page describes calibrated levels before cascade
+ok 491 - owner page describes calibrated levels before cascade
+  ---
+  duration_ms: 0.08742
+  type: 'test'
+  ...
+# Subtest: live calibration protocol requires positives, false examples and both directions
+ok 492 - live calibration protocol requires positives, false examples and both directions
+  ---
+  duration_ms: 0.65441
+  type: 'test'
+  ...
+# Subtest: live calibration protocol verifies setup before trigger and rejects look-ahead
+ok 493 - live calibration protocol verifies setup before trigger and rejects look-ahead
+  ---
+  duration_ms: 0.109455
+  type: 'test'
+  ...
+# Subtest: live calibration report does not misuse win rate
+ok 494 - live calibration report does not misuse win rate
+  ---
+  duration_ms: 0.094041
+  type: 'test'
+  ...
+# Subtest: normalizers preserve exact event/receipt clocks and aggressor side
+ok 495 - normalizers preserve exact event/receipt clocks and aggressor side
+  ---
+  duration_ms: 1.334114
+  type: 'test'
+  ...
+# Subtest: recorder synchronizes REST snapshot with U/u/pu diffs and captures pre-event trades
+ok 496 - recorder synchronizes REST snapshot with U/u/pu diffs and captures pre-event trades
+  ---
+  duration_ms: 7.338662
+  type: 'test'
+  ...
+# Subtest: sequence gap is reported instead of silently corrupting the local book
+ok 497 - sequence gap is reported instead of silently corrupting the local book
+  ---
+  duration_ms: 3.134586
+  type: 'test'
+  ...
+# Subtest: replay seeks from the nearest checkpoint and applies only subsequent diffs
+ok 498 - replay seeks from the nearest checkpoint and applies only subsequent diffs
+  ---
+  duration_ms: 0.349008
+  type: 'test'
+  ...
+# Subtest: extreme warmup and trades avoid repeated full snapshots
+ok 499 - extreme warmup and trades avoid repeated full snapshots
+  ---
+  duration_ms: 0.996127
+  type: 'test'
+  ...
+# Subtest: collector throttles status, checks and structure trade processing
+ok 500 - collector throttles status, checks and structure trade processing
+  ---
+  duration_ms: 0.210761
+  type: 'test'
+  ...
+# Subtest: owner UI renders a bounded collapsed card window
+ok 501 - owner UI renders a bounded collapsed card window
+  ---
+  duration_ms: 0.213581
+  type: 'test'
+  ...
+# Subtest: Stage 4 sample policy requires balanced positive, negative and directional coverage
+ok 502 - Stage 4 sample policy requires balanced positive, negative and directional coverage
+  ---
+  duration_ms: 0.893552
+  type: 'test'
+  ...
+# Subtest: Stage 4 sample policy excludes unreliable evidence from threshold fitting
+ok 503 - Stage 4 sample policy excludes unreliable evidence from threshold fitting
+  ---
+  duration_ms: 0.784859
+  type: 'test'
+  ...
+# Subtest: Signal Lab publishes the intended 1d, 3d, 7d and 30d windows
+ok 504 - Signal Lab publishes the intended 1d, 3d, 7d and 30d windows
+  ---
+  duration_ms: 1.96672
+  type: 'test'
+  ...
+# Subtest: event review rows keep unique IDs, real chart evidence and manual verdicts
+ok 505 - event review rows keep unique IDs, real chart evidence and manual verdicts
+  ---
+  duration_ms: 1.591188
+  type: 'test'
+  ...
+# Subtest: impulses stay in raw memory but are excluded from the current Pattern Lab
+ok 506 - impulses stay in raw memory but are excluded from the current Pattern Lab
+  ---
+  duration_ms: 0.492227
+  type: 'test'
+  ...
+# Subtest: primary statistics use only complete live observations and expose every exclusion
+ok 507 - primary statistics use only complete live observations and expose every exclusion
+  ---
+  duration_ms: 0.926967
+  type: 'test'
+  ...
+# Subtest: formula versions and settings never share one statistical group
+ok 508 - formula versions and settings never share one statistical group
+  ---
+  duration_ms: 7.329632
+  type: 'test'
+  ...
+# Subtest: market groups combine symbols while symbol groups keep coin histories separate
+ok 509 - market groups combine symbols while symbol groups keep coin histories separate
+  ---
+  duration_ms: 0.350493
+  type: 'test'
+  ...
+# Subtest: lookback windows use signal time and do not leak older events into 1d
+ok 510 - lookback windows use signal time and do not leak older events into 1d
+  ---
+  duration_ms: 0.477407
+  type: 'test'
+  ...
+# Subtest: large density size is not promoted into importance or outcome statistics
+ok 511 - large density size is not promoted into importance or outcome statistics
+  ---
+  duration_ms: 0.340173
+  type: 'test'
+  ...
+# Subtest: duplicate entity IDs are de-duplicated before aggregation
+ok 512 - duplicate entity IDs are de-duplicated before aggregation
+  ---
+  duration_ms: 0.43093
+  type: 'test'
+  ...
+# Subtest: Signal Lab degrades safely when IndexedDB is unavailable
+ok 513 - Signal Lab degrades safely when IndexedDB is unavailable
+  ---
+  duration_ms: 0.972226
+  type: 'test'
+  ...
+# Subtest: browser runtime wires persistent Signal Lab without adding destructive controls
+ok 514 - browser runtime wires persistent Signal Lab without adding destructive controls
+  ---
+  duration_ms: 9.814348
+  type: 'test'
+  ...
+# Subtest: Signal Lab review UI exposes comments and enriched JSON/CSV export
+ok 515 - Signal Lab review UI exposes comments and enriched JSON/CSV export
+  ---
+  duration_ms: 1.865743
+  type: 'test'
+  ...
+# Subtest: browser entry points keep user version v23 and identify the current release build
+ok 516 - browser entry points keep user version v23 and identify the current release build
+  ---
+  duration_ms: 6.594887
+  type: 'test'
+  ...
+# Subtest: v23 DOM exposes fixed price steps, live Tape and footprint controls
+ok 517 - v23 DOM exposes fixed price steps, live Tape and footprint controls
+  ---
+  duration_ms: 3.141244
+  type: 'test'
+  ...
+# Subtest: INPLAY exposes and applies the NATR 5 filter
+ok 518 - INPLAY exposes and applies the NATR 5 filter
+  ---
+  duration_ms: 1.46233
+  type: 'test'
+  ...
+# Subtest: market symbols are validated before subscriptions and detail rendering avoids dynamic HTML
+ok 519 - market symbols are validated before subscriptions and detail rendering avoids dynamic HTML
+  ---
+  duration_ms: 1.834764
+  type: 'test'
+  ...
+# Subtest: browser entry points carry a restrictive CSP and reset scripts stay external
+ok 520 - browser entry points carry a restrictive CSP and reset scripts stay external
+  ---
+  duration_ms: 2.018201
+  type: 'test'
+  ...
+# Subtest: Service Worker removes retired app-shell caches and stays network-only
+ok 521 - Service Worker removes retired app-shell caches and stays network-only
+  ---
+  duration_ms: 0.715114
+  type: 'test'
+  ...
+# Subtest: chart pointer work is coalesced through animation frames and first-anchor snapping is available
+ok 522 - chart pointer work is coalesced through animation frames and first-anchor snapping is available
+  ---
+  duration_ms: 0.91253
+  type: 'test'
+  ...
+# Subtest: small panels keep compact menus and smaller resize corners
+ok 523 - small panels keep compact menus and smaller resize corners
+  ---
+  duration_ms: 1.913767
+  type: 'test'
+  ...
+# Subtest: brightness control keeps fixed accents and morphs from sun to moon
+ok 524 - brightness control keeps fixed accents and morphs from sun to moon
+  ---
+  duration_ms: 2.377962
+  type: 'test'
+  ...
+# Subtest: orderbook price text is separated from the size boundary
+ok 525 - orderbook price text is separated from the size boundary
+  ---
+  duration_ms: 2.032388
+  type: 'test'
+  ...
+# Subtest: event radar beta is isolated from the three existing discovery blocks
+ok 526 - event radar beta is isolated from the three existing discovery blocks
+  ---
+  duration_ms: 2.776324
+  type: 'test'
+  ...
+1..526
+# tests 526
+# suites 0
+# pass 525
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1964.146263
