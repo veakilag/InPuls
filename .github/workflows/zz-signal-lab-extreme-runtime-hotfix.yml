@@ -59,10 +59,15 @@ jobs:
       - name: Preserve failed test diagnostics
         if: steps.tests.outcome == 'failure'
         run: |
+          {
+            grep -n -E "not ok|failureType:|error:|code:|actual:|expected:|operator:|# fail|exit_code=" npm-test-diagnostic.txt || true
+            echo "--- tail ---"
+            tail -n 220 npm-test-diagnostic.txt
+          } > npm-test-failures.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add npm-test-diagnostic.txt
-          git commit -m "Capture Signal Lab extreme hotfix test failure"
+          git add npm-test-failures.txt
+          git commit -m "Capture concise Signal Lab extreme test failure"
           git push origin HEAD:fix/signal-lab-extreme-collection-performance
 
       - name: Stop after test failure
@@ -72,7 +77,7 @@ jobs:
       - name: Commit verified hotfix
         if: steps.tests.outcome == 'success'
         run: |
-          rm -f hotfix-diagnostic.txt npm-test-diagnostic.txt
+          rm -f hotfix-diagnostic.txt npm-test-diagnostic.txt npm-test-failures.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
