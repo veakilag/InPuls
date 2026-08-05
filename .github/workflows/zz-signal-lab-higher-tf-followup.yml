@@ -1,0 +1,35 @@
+name: Apply Signal Lab higher timeframe follow-up
+
+on:
+  push:
+    branches:
+      - fix/signal-lab-extreme-collection-performance
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out follow-up branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/signal-lab-extreme-collection-performance
+          fetch-depth: 0
+
+      - name: Apply higher timeframe follow-up
+        run: python3 scripts/apply-signal-lab-higher-tf-followup.py
+
+      - name: Run complete test suite
+        run: npm test
+
+      - name: Commit verified follow-up
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Keep all Signal Lab extreme timeframes live"
+          git push origin HEAD:fix/signal-lab-extreme-collection-performance
