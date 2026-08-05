@@ -2,7 +2,7 @@ import {
   CANDIDATE_LABELS,
   SIGNAL_LAB_V3_FORMULA_VERSION,
 } from "./signal-lab-v3-candidates.js?v=signal-lab-v4-stage3";
-import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v4-stage3";
+import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v4-performance-1";
 import { mountEvidenceReplay } from "./signal-lab-v3-replay-ui.js?v=signal-lab-v4-stage1";
 import {
   disposeEpisodeFullCharts,

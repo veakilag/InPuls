@@ -16,7 +16,7 @@ import {
   SIGNAL_LAB_V4_TIMEFRAMES,
   SignalLabV4ExtremeRegistry,
   atrFromClosedCandles,
-} from "./signal-lab-v4-extremes.js?v=signal-lab-v4-stage1";
+} from "./signal-lab-v4-extremes.js?v=signal-lab-v4-performance-1";
 import { SignalLabV4LevelBreakoutRegistry } from "./signal-lab-v4-levels-breakouts.js?v=signal-lab-v4-stage2";
 import { SignalLabV4CascadeRegistry } from "./signal-lab-v4-cascades.js?v=signal-lab-v4-stage3";
 import { SignalLabV4OrderFlowRecorder } from "./signal-lab-v4-orderflow-recorder.js?v=signal-lab-v4-stage1";
