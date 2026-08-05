@@ -45,13 +45,34 @@ jobs:
         run: exit 1
 
       - name: Run complete test suite
+        id: tests
         if: steps.patch.outcome == 'success'
-        run: npm test
+        continue-on-error: true
+        run: |
+          set +e
+          npm test > npm-test-diagnostic.txt 2>&1
+          code=$?
+          echo "exit_code=$code" >> npm-test-diagnostic.txt
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit $code
+
+      - name: Preserve failed test diagnostics
+        if: steps.tests.outcome == 'failure'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add npm-test-diagnostic.txt
+          git commit -m "Capture Signal Lab extreme hotfix test failure"
+          git push origin HEAD:fix/signal-lab-extreme-collection-performance
+
+      - name: Stop after test failure
+        if: steps.tests.outcome == 'failure'
+        run: exit 1
 
       - name: Commit verified hotfix
-        if: steps.patch.outcome == 'success'
+        if: steps.tests.outcome == 'success'
         run: |
-          rm -f hotfix-diagnostic.txt
+          rm -f hotfix-diagnostic.txt npm-test-diagnostic.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
