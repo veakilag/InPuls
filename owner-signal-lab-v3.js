@@ -1,9 +1,15 @@
 import {
   CANDIDATE_LABELS,
   SIGNAL_LAB_V3_FORMULA_VERSION,
-} from "./signal-lab-v3-candidates.js?v=signal-lab-v3-four-patterns-v1";
-import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v3-four-patterns-v1";
-import { mountEvidenceReplay } from "./signal-lab-v3-replay-ui.js?v=signal-lab-v3-evidence-replay-v1";
+} from "./signal-lab-v3-candidates.js?v=signal-lab-v3-full-chart-review-v1";
+import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v3-full-chart-review-v1";
+import { mountEvidenceReplay } from "./signal-lab-v3-replay-ui.js?v=signal-lab-v3-full-chart-review-v1";
+import {
+  disposeEpisodeFullCharts,
+  isEpisodeFullChartOpen,
+  mountEpisodeFullChart,
+  resetEpisodeFullChartState,
+} from "./signal-lab-v3-full-chart.js?v=signal-lab-v3-full-chart-review-v1";
 import { rowsToCsv, SignalLabV3Store } from "./signal-lab-v3-store.js";
 
 const elements = {
@@ -25,6 +31,7 @@ const elements = {
   template: document.querySelector("#candidate-template"),
   exportJson: document.querySelector("#export-json"),
   exportCsv: document.querySelector("#export-csv"),
+  clearRecords: document.querySelector("#clear-records"),
   dayButtons: [...document.querySelectorAll("[data-days]")],
 };
 
@@ -38,6 +45,7 @@ const state = {
   collectorStatus: null,
   renderTimer: null,
   rendering: false,
+  pendingRender: false,
 };
 
 const hypothesisLabels = Object.freeze({
@@ -77,6 +85,10 @@ function filters() {
 }
 
 function scheduleRender(delay = 180) {
+  if (isEpisodeFullChartOpen()) {
+    state.pendingRender = true;
+    return;
+  }
   clearTimeout(state.renderTimer);
   state.renderTimer = setTimeout(() => render(), delay);
 }
@@ -210,7 +222,12 @@ function renderCard(episode) {
 }
 
 async function render() {
+  if (isEpisodeFullChartOpen()) {
+    state.pendingRender = true;
+    return;
+  }
   if (state.rendering) return;
+  state.pendingRender = false;
   state.rendering = true;
   try {
     renderCollectorStatus();
@@ -228,9 +245,13 @@ async function render() {
     elements.candidateList.hidden = merged.length === 0;
     const visible = merged.slice(0, 60);
     const cards = visible.map(renderCard);
+    disposeEpisodeFullCharts({ preserveActive: true });
     elements.candidateList.replaceChildren(...cards);
     requestAnimationFrame(() => {
-      cards.forEach((card, index) => mountEvidenceReplay(card, visible[index]));
+      cards.forEach((card, index) => {
+        mountEvidenceReplay(card, visible[index]);
+        mountEpisodeFullChart(card, visible[index], { autoOpen: index === 0 });
+      });
     });
   } catch (error) {
     elements.emptyState.hidden = false;
@@ -280,7 +301,8 @@ function shouldPersist(episode, force = false, now = Date.now()) {
   return now - previous >= 5_000;
 }
 
-const collector = new SignalLabV3Collector({
+function createCollector() {
+  return new SignalLabV3Collector({
   onEpisodes: async ({ created = [], updated = [], expired = [], evidenceUpdated = [] }) => {
     const all = [...created, ...updated, ...expired, ...evidenceUpdated];
     for (const episode of all) {
@@ -310,7 +332,43 @@ const collector = new SignalLabV3Collector({
     state.collectorStatus = status;
     renderCollectorStatus();
   },
-});
+  });
+}
+
+let collector = createCollector();
+
+
+async function clearRecords() {
+  const confirmed = window.confirm(
+    "Удалить все записи Signal Lab на этом устройстве? Будут удалены эпизоды, ручная разметка, Evidence Pack, графики и сохранённый стакан. Действие необратимо.",
+  );
+  if (!confirmed) return;
+  elements.clearRecords.disabled = true;
+  const previousLabel = elements.clearRecords.textContent;
+  try {
+    const shouldRestart = state.running;
+    state.pendingRender = false;
+    clearTimeout(state.renderTimer);
+    collector.disconnect();
+    resetEpisodeFullChartState();
+    await store.clearAll();
+    liveEpisodes.clear();
+    reviewStates.clear();
+    persistedAt.clear();
+    state.collectorStatus = null;
+    collector = createCollector();
+    if (shouldRestart) collector.connect();
+    elements.clearRecords.textContent = "Записи очищены";
+    await render();
+    setTimeout(() => {
+      elements.clearRecords.textContent = previousLabel;
+    }, 1_800);
+  } catch (error) {
+    window.alert(`Не удалось очистить Signal Lab: ${String(error?.message ?? error)}`);
+  } finally {
+    elements.clearRecords.disabled = false;
+  }
+}
 
 async function initialize() {
   await store.initialize();
@@ -336,6 +394,7 @@ elements.reviewFilter.addEventListener("change", () => scheduleRender(0));
 elements.refresh.addEventListener("click", () => scheduleRender(0));
 elements.exportJson.addEventListener("click", exportJson);
 elements.exportCsv.addEventListener("click", exportCsv);
+elements.clearRecords.addEventListener("click", clearRecords);
 elements.collectorToggle.addEventListener("click", () => {
   state.running = !state.running;
   if (state.running) collector.connect();
@@ -343,6 +402,14 @@ elements.collectorToggle.addEventListener("click", () => {
   renderCollectorStatus();
 });
 
-window.addEventListener("beforeunload", () => collector.disconnect());
+window.addEventListener("inpuls:signal-lab-chart-closed", () => {
+  if (!state.pendingRender) return;
+  state.pendingRender = false;
+  scheduleRender(0);
+});
+window.addEventListener("beforeunload", () => {
+  disposeEpisodeFullCharts({ preserveActive: false });
+  collector.disconnect();
+});
 setInterval(() => scheduleRender(0), 5_000);
 initialize();

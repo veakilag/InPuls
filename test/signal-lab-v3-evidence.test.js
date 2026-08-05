@@ -154,9 +154,13 @@ test("replay chart aggregates price points into OHLC candles", () => {
   assert.equal(rows[1].open, 11);
 });
 
-test("owner Signal Lab V3 exposes chart, book, replay and explanation controls", async () => {
+test("owner Signal Lab V3 exposes full chart, book replay and explanation controls", async () => {
   const html = await readFile(new URL("../owner-signal-lab-v3.html", import.meta.url), "utf8");
-  assert.match(html, /data-field="chart"/);
+  assert.match(html, /data-field="full-chart"/);
+  assert.match(html, /data-field="chart-toggle"/);
+  assert.match(html, /data-chart-timeframe="1s"/);
+  assert.match(html, /data-chart-timeframe="1h"/);
+  assert.match(html, /data-field="chart-annotations-toggle"/);
   assert.match(html, /data-field="book"/);
   assert.match(html, /data-field="replay-slider"/);
   assert.match(html, /Почему я выбрал гипотезу/);
@@ -186,7 +190,8 @@ test("owner UI bounds simultaneous replay canvases", async () => {
 
 test("legacy episodes show an explicit no-evidence state", async () => {
   const source = await readFile(new URL("../signal-lab-v3-replay-ui.js", import.meta.url), "utf8");
-  assert.match(source, /Эпизод собран до V3\.1/);
+  assert.match(source, /Эпизод создан до включения записи depth20/);
   assert.match(source, /Стакан задним числом восстановить нельзя/);
-  assert.match(source, /historical price points|исторических price points/i);
+  assert.match(source, /исторических price points/i);
+  assert.match(source, /не восстанавливаются задним числом/i);
 });

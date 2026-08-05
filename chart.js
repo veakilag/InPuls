@@ -500,6 +500,7 @@ export class CandlestickChart {
     this.sessionsVisible = true;
     this.activeTool = null;
     this.drawings = [];
+    this.annotations = [];
     this.storageKey = storageKey;
     this.drawingStore = this.#loadDrawingStore();
     this.viewportStore = this.#loadViewportStore();
@@ -697,6 +698,13 @@ export class CandlestickChart {
     } catch {}
   }
 
+  setAnnotations(annotations = []) {
+    this.annotations = (Array.isArray(annotations) ? annotations : [])
+      .filter((item) => item && typeof item === "object")
+      .map((item) => typeof structuredClone === "function" ? structuredClone(item) : JSON.parse(JSON.stringify(item)));
+    this.#requestRender();
+  }
+
   setTheme(theme) {
     this.theme = { ...this.theme, ...theme };
     this.#requestRender();
@@ -886,6 +894,7 @@ export class CandlestickChart {
     this.layout = { visible, margins, step, plotWidth, plotHeight, priceBottom, width, height, startIndex: this.viewStart, minPrice, maxPrice };
     const current = this.candles.at(-1);
     if (current) this.#drawLastPrice(ctx, width, margins, y(current.close), current.close, current.close >= current.open, margins.top, priceBottom);
+    this.#drawAnnotations(ctx);
     this.#drawDrawings(ctx);
     if (this.hoverX !== null && this.hoverY !== null) this.#drawCrosshair(ctx);
   }
@@ -1084,6 +1093,130 @@ export class CandlestickChart {
       alert.referencePrice = current;
     }
     if (changed) this.#persistDrawings();
+  }
+
+
+  #drawAnnotations(ctx) {
+    if (!this.layout || !this.annotations.length) return;
+    const { margins, plotWidth, plotHeight, priceBottom } = this.layout;
+    const tones = {
+      accent: "#43e1c2",
+      blue: "#64b8ff",
+      warning: "#f1bf62",
+      danger: "#f27d86",
+      success: "#5fe0a7",
+      muted: "#8fa8ba",
+    };
+    const xForTime = (time) => {
+      const index = this.#indexAtTime(Number(time));
+      return margins.left + ((candleCenterSlot(index) - this.viewStart) / this.visibleCount) * plotWidth;
+    };
+    const yForPrice = (price) => margins.top
+      + ((this.layout.maxPrice - Number(price)) / (this.layout.maxPrice - this.layout.minPrice)) * plotHeight;
+    const colorFor = (annotation) => tones[annotation?.tone] ?? tones.accent;
+    const label = (text, x, y, color) => {
+      if (!text) return;
+      ctx.save();
+      ctx.font = this.#font(8, true);
+      const width = Math.min(190, ctx.measureText(String(text)).width + 10);
+      const left = Math.max(margins.left, Math.min(margins.left + plotWidth - width, x));
+      const top = Math.max(margins.top, Math.min(priceBottom - 17, y - 16));
+      ctx.fillStyle = "rgba(6, 11, 16, .88)";
+      ctx.fillRect(left, top, width, 15);
+      ctx.strokeStyle = `${color}99`;
+      ctx.strokeRect(left + .5, top + .5, width - 1, 14);
+      ctx.fillStyle = color;
+      ctx.textAlign = "left";
+      ctx.fillText(String(text).slice(0, 42), left + 5, top + 11);
+      ctx.restore();
+    };
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(margins.left, margins.top, plotWidth, plotHeight);
+    ctx.clip();
+
+    for (const annotation of this.annotations.filter((item) => item.type === "zone")) {
+      const x1 = xForTime(annotation.startAt);
+      const x2 = xForTime(annotation.endAt);
+      const y1 = yForPrice(annotation.high);
+      const y2 = yForPrice(annotation.low);
+      const color = colorFor(annotation);
+      ctx.fillStyle = `${color}18`;
+      ctx.strokeStyle = `${color}88`;
+      ctx.setLineDash([5, 4]);
+      ctx.fillRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.max(2, Math.abs(y2 - y1)));
+      ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.max(2, Math.abs(y2 - y1)));
+      ctx.setLineDash([]);
+    }
+
+    for (const annotation of this.annotations.filter((item) => item.type === "line")) {
+      const y = yForPrice(annotation.price);
+      const color = colorFor(annotation);
+      ctx.strokeStyle = color;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(xForTime(annotation.startAt), y);
+      ctx.lineTo(xForTime(annotation.endAt), y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    for (const annotation of this.annotations.filter((item) => item.type === "segment")) {
+      if (!annotation.a || !annotation.b) continue;
+      const a = this.#screenPoint(annotation.a);
+      const b = this.#screenPoint(annotation.b);
+      const color = colorFor(annotation);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+
+    for (const annotation of this.annotations.filter((item) => item.type === "event")) {
+      const x = xForTime(annotation.time);
+      const color = colorFor(annotation);
+      ctx.strokeStyle = color;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x, margins.top);
+      ctx.lineTo(x, priceBottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    for (const annotation of this.annotations.filter((item) => item.type === "point")) {
+      const point = this.#screenPoint({ time: annotation.time, price: annotation.price });
+      const color = colorFor(annotation);
+      ctx.fillStyle = "#071018";
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    for (const annotation of this.annotations) {
+      const color = colorFor(annotation);
+      if (annotation.type === "zone") {
+        label(annotation.label, xForTime(annotation.startAt) + 4, yForPrice(annotation.high), color);
+      } else if (annotation.type === "line") {
+        label(annotation.label, xForTime(annotation.endAt) - 110, yForPrice(annotation.price), color);
+      } else if (annotation.type === "segment" && annotation.label) {
+        const a = this.#screenPoint(annotation.a);
+        const b = this.#screenPoint(annotation.b);
+        label(annotation.label, (a.x + b.x) / 2, (a.y + b.y) / 2, color);
+      } else if (annotation.type === "event") {
+        label(annotation.label, xForTime(annotation.time) + 5, margins.top + 17, color);
+      } else if (annotation.type === "point") {
+        const point = this.#screenPoint({ time: annotation.time, price: annotation.price });
+        label(annotation.label, point.x + 6, point.y, color);
+      }
+    }
   }
 
   #drawDrawings(ctx) {

@@ -290,36 +290,30 @@ function renderOutcomes(target, pack) {
 
 export function mountEvidenceReplay(card, episode) {
   const pack = episode?.evidencePack;
-  const canvas = card.querySelector('[data-field="chart"]');
   const book = card.querySelector('[data-field="book"]');
   const slider = card.querySelector('[data-field="replay-slider"]');
   const replayTime = card.querySelector('[data-field="replay-time"]');
   const play = card.querySelector('[data-field="replay-play"]');
   const coverage = card.querySelector('[data-field="coverage"]');
   const outcomes = card.querySelector('[data-field="outcomes"]');
-  const timeframeButtons = [...card.querySelectorAll("[data-timeframe]")];
-  if (!canvas || !book || !slider) return;
+  if (!book || !slider || !replayTime || !play) return;
   if (!pack) {
-    const { context, width, height } = resizeCanvas(canvas);
-    drawEmpty(context, width, height, "Эпизод собран до V3.1 — исторического графика Replay нет");
     book.replaceChildren();
     const empty = document.createElement("div");
     empty.className = "book-empty";
     empty.textContent = "Эпизод создан до включения записи depth20. Стакан задним числом восстановить нельзя.";
     book.append(empty);
-    coverage.textContent = "Исторический evidence-пакет отсутствует. Новые эпизоды сохраняются с графиком и стаканом.";
+    coverage.textContent = "Исторический Evidence Pack отсутствует. Полный график может загрузить минутные свечи Binance, но секундный контекст и старый стакан не восстанавливаются.";
     replayTime.textContent = "—";
     play.disabled = true;
     slider.disabled = true;
-    timeframeButtons.forEach((button) => { button.disabled = true; });
     renderExplanation(card, null);
-    card.querySelector('[data-field="explanation-headline"]').textContent = "Этот эпизод был собран старой версией лаборатории. Моё объяснение появится у новых эпизодов после записи полного контекста.";
+    card.querySelector('[data-field="explanation-headline"]').textContent = "Этот эпизод был собран старой версией лаборатории. Авторазметка доступна только при сохранённой геометрии кандидата.";
     card.querySelector('[data-field="explanation-missing"]').textContent = "Не хватает исторических price points, flow samples и depth20; они не восстанавливаются задним числом.";
     renderOutcomes(outcomes, null);
     return;
   }
 
-  let intervalMs = TIMEFRAMES["5s"];
   let timer = null;
   const startAt = finite(pack?.window?.startAt) ?? Date.now() - 180_000;
   const latestAt = Math.max(
@@ -335,7 +329,6 @@ export function mountEvidenceReplay(card, episode) {
 
   const render = () => {
     const selectedAt = startAt + Number(slider.value) * 1_000;
-    drawEvidenceChart(canvas, pack, { intervalMs, selectedAt });
     renderBook(book, pack, selectedAt);
     renderExplanation(card, pack);
     renderOutcomes(outcomes, pack);
@@ -343,11 +336,6 @@ export function mountEvidenceReplay(card, episode) {
     coverage.textContent = `Цена: ${pack.coverage?.prePriceSeconds ?? 0}с до · стакан: ${pack.coverage?.preBookSeconds ?? 0}с до / ${pack.coverage?.bookState ?? "not-recorded"} · режим ${pack.bookMode}`;
   };
 
-  timeframeButtons.forEach((button) => button.addEventListener("click", () => {
-    intervalMs = TIMEFRAMES[button.dataset.timeframe] ?? TIMEFRAMES["5s"];
-    timeframeButtons.forEach((item) => item.classList.toggle("is-active", item === button));
-    render();
-  }));
   slider.addEventListener("input", render);
   play.addEventListener("click", () => {
     if (timer) {
@@ -371,5 +359,4 @@ export function mountEvidenceReplay(card, episode) {
   });
 
   render();
-  requestAnimationFrame(render);
 }
