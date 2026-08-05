@@ -5,12 +5,16 @@ import { fileURLToPath } from "node:url";
 
 const APP_ROOT = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PORT = 4173;
+const SIGNAL_LAB_PREVIEW = process.env.INPULS_SIGNAL_LAB_PREVIEW === "1";
+const FRAME_ANCESTORS = SIGNAL_LAB_PREVIEW
+  ? "frame-ancestors https://stackblitz.com https://*.stackblitz.io https://*.webcontainer.io"
+  : "frame-ancestors 'none'";
 
 export const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "base-uri 'none'",
   "object-src 'none'",
-  "frame-ancestors 'none'",
+  FRAME_ANCESTORS,
   "form-action 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
@@ -28,7 +32,7 @@ export const SECURITY_HEADERS = Object.freeze({
   "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
   "referrer-policy": "no-referrer",
   "x-content-type-options": "nosniff",
-  "x-frame-options": "DENY",
+  ...(SIGNAL_LAB_PREVIEW ? {} : { "x-frame-options": "DENY" }),
   "x-permitted-cross-domain-policies": "none",
 });
 
@@ -131,7 +135,8 @@ if (isEntryPoint) {
   const port = Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65_535
     ? configuredPort
     : DEFAULT_PORT;
-  createStaticServer().listen(port, "127.0.0.1", () => {
-    console.log(`InPuls: http://127.0.0.1:${port}`);
+  const host = String(process.env.HOST || "").trim() || "127.0.0.1";
+  createStaticServer().listen(port, host, () => {
+    console.log(`InPuls: http://${host}:${port}`);
   });
 }
