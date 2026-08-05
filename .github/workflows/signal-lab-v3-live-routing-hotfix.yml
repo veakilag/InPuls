@@ -25,6 +25,18 @@ jobs:
         with:
           node-version: 22
 
+      - name: Repair patcher template escaping
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/patch-signal-lab-v3-live-routing.mjs')
+          source = path.read_text()
+          source = source.replace(r'\`${symbol.toLowerCase()}@aggTrade\`', r'\`\${symbol.toLowerCase()}@aggTrade\`')
+          source = source.replace(r'\`Binance subscription: ${String(payload?.msg ?? payload.code).slice(0, 140)}\`', r'\`Binance subscription: \${String(payload?.msg ?? payload.code).slice(0, 140)}\`')
+          source = source.replace(r'\`Binance book subscription: ${String(payload?.msg ?? payload.code).slice(0, 140)}\`', r'\`Binance book subscription: \${String(payload?.msg ?? payload.code).slice(0, 140)}\`')
+          path.write_text(source)
+          PY
+
       - name: Apply routing patch
         run: node scripts/patch-signal-lab-v3-live-routing.mjs
 
