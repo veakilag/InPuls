@@ -7,6 +7,8 @@ export const CANDIDATE_TYPES = Object.freeze({
   BREAKOUT_DOWN: "level_break_attempt_down",
   CASCADE_UP: "cascade_structure_up",
   CASCADE_DOWN: "cascade_structure_down",
+  CASCADE_V4_UP: "cascade_v4_up",
+  CASCADE_V4_DOWN: "cascade_v4_down",
   DOWN_REVERSAL_ATTEMPT: "down_reversal_attempt",
   UP_REVERSAL_ATTEMPT: "up_reversal_attempt",
   LEVEL_BREAK_ATTEMPT_UP: "level_break_attempt_up",
@@ -22,6 +24,8 @@ export const CANDIDATE_LABELS = Object.freeze({
   [CANDIDATE_TYPES.BREAKOUT_DOWN]: "Кандидат пробоя вниз",
   [CANDIDATE_TYPES.CASCADE_UP]: "Кандидат каскада вверх",
   [CANDIDATE_TYPES.CASCADE_DOWN]: "Кандидат каскада вниз",
+  [CANDIDATE_TYPES.CASCADE_V4_UP]: "Каскад V4 вверх",
+  [CANDIDATE_TYPES.CASCADE_V4_DOWN]: "Каскад V4 вниз",
 });
 
 export const DEFAULT_CANDIDATE_SETTINGS = Object.freeze({
@@ -48,6 +52,8 @@ export const DEFAULT_CANDIDATE_SETTINGS = Object.freeze({
   cascadeMaximumWidthPercent: 5,
   cascadeMinimumStepPercent: 0.04,
   minimumVolumeBoost: 1.35,
+  v4MinimumQuoteVolume24h: 25_000_000,
+  v4CascadeMaximumDistancePct: 3,
 });
 
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
@@ -345,11 +351,12 @@ function candidate({
   hypotheses,
   scoreParts,
   limitations = [],
+  formulaVersion = SIGNAL_LAB_V3_FORMULA_VERSION,
 }) {
   return Object.freeze({
     schemaVersion: 2,
     entity: "SignalLabCandidate",
-    formulaVersion: SIGNAL_LAB_V3_FORMULA_VERSION,
+    formulaVersion,
     symbol: normalizeSymbol(metrics?.symbol),
     candidateType: type,
     label: CANDIDATE_LABELS[type] ?? type,
@@ -371,11 +378,81 @@ function candidate({
       }),
       limitations: Object.freeze([...new Set([
         "candidate-not-trade-signal",
-        "only-four-patterns-are-collected",
+        formulaVersion === SIGNAL_LAB_V3_FORMULA_VERSION
+          ? "legacy-four-pattern-collector"
+          : "v4-deterministic-calibration",
         ...limitations,
       ])]),
     }),
   });
+}
+
+function detectCascadeV4Candidates(metrics, now, settings) {
+  const quoteVolume24h = finite(metrics?.quoteVolume24h) ?? 0;
+  if (quoteVolume24h < settings.v4MinimumQuoteVolume24h) return [];
+  const events = Array.isArray(metrics?.cascadeMap?.active) ? metrics.cascadeMap.active : [];
+  return events
+    .filter((event) => (
+      ["SETUP", "TRIGGERED", "CONFIRMED", "EXTENDED"].includes(event?.state)
+      && (finite(event?.setupFeatures?.primaryDistancePct) ?? Infinity) <= settings.v4CascadeMaximumDistancePct
+      && (event?.levelIds?.length ?? 0) >= 2
+    ))
+    .map((event) => {
+      const direction = event.direction === "DOWN" ? "down" : "up";
+      const state = event.state;
+      const gaps = Array.isArray(event.adjacentGapPct) ? event.adjacentGapPct : [];
+      const maxGap = gaps.length ? Math.max(...gaps.map((value) => finite(value) ?? 0)) : 0;
+      const touchCounts = Array.isArray(event.touchCounts) ? event.touchCounts : [];
+      const repeatedLevels = touchCounts.filter((count) => (finite(count) ?? 1) >= 2).length;
+      const qualityLive = ["LIVE", "RECOVERED"].includes(String(event.dataQuality ?? "").toUpperCase());
+      const distance = finite(event?.setupFeatures?.primaryDistancePct) ?? 0;
+      const facts = [
+        `${event.levelIds.length} активных уровня впереди`,
+        `разрывы 0–${maxGap.toFixed(2)}% · общая ширина ${(finite(event.totalSpanPct) ?? 0).toFixed(2)}%`,
+        repeatedLevels ? `${repeatedLevels} уровня имеют повторные атаки ×N` : "повторные атаки ×N пока не подтверждены",
+        state === "SETUP" ? "первый уровень ещё не пройден" : `снято уровней: ${event.levelsBroken}`,
+        `данные ${event.dataQuality ?? "UNKNOWN"}`,
+      ];
+      return candidate({
+        metrics,
+        now,
+        type: direction === "up" ? CANDIDATE_TYPES.CASCADE_V4_UP : CANDIDATE_TYPES.CASCADE_V4_DOWN,
+        direction,
+        stage: state === "SETUP" ? "forming" : "triggered",
+        formulaVersion: event.formulaVersion ?? metrics?.cascadeMap?.formulaVersion,
+        evidence: {
+          cascadeV4: event,
+          cascadeState: state,
+          geometricState: event.geometricState,
+          levelsBroken: event.levelsBroken,
+          levelIds: event.levelIds,
+          levelPrices: event.levelPrices,
+          adjacentGapPct: event.adjacentGapPct,
+          totalSpanPct: event.totalSpanPct,
+          touchCounts: event.touchCounts,
+          variants: event.variants,
+          setupDetectedAt: event.setupDetectedAt,
+          triggeredAt: event.triggeredAt,
+          confirmedAt: event.confirmedAt,
+          dataQuality: event.dataQuality,
+        },
+        facts,
+        hypotheses: ["cascade_breakout"],
+        scoreParts: [
+          Math.min(30, event.levelIds.length * 8),
+          Math.min(18, repeatedLevels * 7),
+          Math.max(0, 20 * (1 - distance / settings.v4CascadeMaximumDistancePct)),
+          event.compressionType && event.compressionType !== "NO_COMPRESSION" ? 12 : 4,
+          event.variants?.includes("MULTI_TIMEFRAME") ? 10 : 0,
+          qualityLive ? 10 : 0,
+        ],
+        limitations: [
+          "stops-behind-levels-are-a-microstructure-hypothesis-not-observed-orders",
+          "cascade-v4-parameters-are-not-final-until-manual-validation",
+          event.confirmationBlockedByDataQuality ? "confirmation-blocked-by-data-quality" : null,
+        ],
+      });
+    });
 }
 
 export function detectExpertCandidates(metrics, now = Date.now(), options = {}) {
@@ -388,10 +465,12 @@ export function detectExpertCandidates(metrics, now = Date.now(), options = {}) 
     || price === null
     || price <= 0
     || warmupSeconds < settings.minimumWarmupSeconds
-    || !isEligibleForSignalLabV3(metrics, settings)
   ) return [];
 
-  const result = [];
+  const result = detectCascadeV4Candidates(metrics, now, settings);
+  if (!isEligibleForSignalLabV3(metrics, settings)) {
+    return result.sort((left, right) => right.evidenceScore - left.evidenceScore);
+  }
   const thresholds = dynamicThresholds(metrics, settings);
   const context = marketContext(metrics);
   const contextRows = contextFacts(context);

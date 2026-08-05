@@ -221,7 +221,11 @@ test("retest of first level before second is preserved as a variant", () => {
 });
 
 test("outcomes retain MFE, MAE and horizon observation without look-ahead", () => {
-  const subject = engine({ maxCascadeDurationMsByTimeframe: { "1m": 60_000 } });
+  const subject = engine({
+    maxCascadeDurationMsByTimeframe: { "1m": 60_000 },
+    maxInterLevelPullbackPct: 10,
+    fullReturnTolerancePct: 1,
+  });
   const zones = [zone("h1", "HIGH", 100), zone("h2", "HIGH", 101)];
   subject.sync(map(zones), { currentPrice: 99, at: 1_000 });
   subject.sync(map(zones, [levelEvent("b1", "h1", "UP", 2_000, { triggerPrice: 100 })]), {

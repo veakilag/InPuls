@@ -1,6 +1,6 @@
 import { buildTraderExplanation } from "./signal-lab-v3-explainer.js";
 
-export const SIGNAL_LAB_V3_EVIDENCE_VERSION = "signal-lab-v4-levels-breakouts-stage2-2026-08";
+export const SIGNAL_LAB_V3_EVIDENCE_VERSION = "signal-lab-v4-cascade-stage3-2026-08";
 
 const DEPTH_STREAM_BASE = "wss://fstream.binance.com/public/stream";
 const DEFAULT_PRE_EVENT_MS = 2 * 60_000;
@@ -413,6 +413,8 @@ export class SignalLabV3EvidenceRecorder {
       extremeMapLatest: metrics?.extremeMap ? clone(metrics.extremeMap) : null,
       levelMap: metrics?.levelMap ? clone(metrics.levelMap) : null,
       levelMapLatest: metrics?.levelMap ? clone(metrics.levelMap) : null,
+      cascadeMap: metrics?.cascadeMap ? clone(metrics.cascadeMap) : null,
+      cascadeMapLatest: metrics?.cascadeMap ? clone(metrics.cascadeMap) : null,
       outcomes: {},
       coverage: {},
       traderExplanation: null,
@@ -464,6 +466,7 @@ export class SignalLabV3EvidenceRecorder {
     }
     if (metrics?.extremeMap) pack.extremeMapLatest = clone(metrics.extremeMap);
     if (metrics?.levelMap) pack.levelMapLatest = clone(metrics.levelMap);
+    if (metrics?.cascadeMap) pack.cascadeMapLatest = clone(metrics.cascadeMap);
 
     pack.window.updatedAt = now;
     this.#updatePack(session, now);
@@ -500,6 +503,8 @@ export class SignalLabV3EvidenceRecorder {
       depthDiffs: pack.orderFlowReplay?.events?.length ?? 0,
       activeLevelZones: pack.levelMapLatest?.activeZones?.length ?? 0,
       activeBreakoutEvents: pack.levelMapLatest?.activeEvents?.length ?? 0,
+      activeCascadeEvents: pack.cascadeMapLatest?.active?.length ?? 0,
+      cascadeHistoryEvents: pack.cascadeMapLatest?.history?.length ?? 0,
     };
     pack.traderExplanation = buildTraderExplanation(session.episode.latest, pack, now);
   }

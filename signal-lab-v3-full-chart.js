@@ -302,6 +302,44 @@ function addLevelMapAnnotations(target, levelMap, eventAt, eventPrice) {
   }
 }
 
+function addCascadeMapAnnotations(target, cascadeMap, eventAt, eventPrice) {
+  const events = Array.isArray(cascadeMap?.history) ? cascadeMap.history : [];
+  const ranked = events
+    .filter((event) => Array.isArray(event?.levelPrices) && event.levelPrices.length >= 2)
+    .map((event) => ({
+      ...event,
+      distance: eventPrice > 0
+        ? Math.abs((finite(event.levelPrices[0]) ?? eventPrice) - eventPrice) / eventPrice * 100
+        : 0,
+    }))
+    .filter((event) => event.distance <= 8)
+    .sort((left, right) => right.setupDetectedAt - left.setupDetectedAt || left.distance - right.distance)
+    .slice(0, 4);
+  for (const event of ranked) {
+    const endAt = finite(event.completedAt) ?? finite(event.failedAt) ?? eventAt + 60_000;
+    event.levelPrices.forEach((price, index) => {
+      const value = finite(price);
+      if (!(value > 0)) return;
+      const gap = index > 0 ? finite(event.adjacentGapPct?.[index - 1]) : null;
+      const touches = event.touchCounts?.[index] ?? 1;
+      target.push({
+        type: "line",
+        price: value,
+        startAt: event.setupDetectedAt,
+        endAt,
+        label: `К${index + 1} ×${touches}${gap === null ? "" : ` · gap ${gap.toFixed(2)}%`}`,
+        tone: index < event.levelsBroken ? "success" : "warning",
+      });
+    });
+    target.push({ type: "event", time: event.setupDetectedAt, label: `КАСКАД SETUP · ${event.levelIds.length} уровня`, tone: "blue" });
+    if (finite(event.triggeredAt) !== null) target.push({ type: "event", time: event.triggeredAt, label: "КАСКАД TRIGGERED · снят К1", tone: "warning" });
+    if (finite(event.confirmedAt) !== null) target.push({ type: "event", time: event.confirmedAt, label: "КАСКАД CONFIRMED · снят К2", tone: "success" });
+    if (event.state === "EXTENDED") target.push({ type: "event", time: event.brokenAt?.[2] ?? event.completedAt, label: `КАСКАД EXTENDED · ${event.levelsBroken} уровня`, tone: "success" });
+    if (event.state === "PARTIAL") target.push({ type: "event", time: event.failedAt, label: "КАСКАД PARTIAL", tone: "warning" });
+    if (event.state === "FAILED") target.push({ type: "event", time: event.failedAt, label: `КАСКАД FAILED · ${event.failureReasons?.[0] ?? "отмена"}`, tone: "danger" });
+  }
+}
+
 export function buildPatternAnnotations(episode) {
   const latest = episode?.latest ?? {};
   const evidence = latest?.evidence ?? {};
@@ -325,6 +363,7 @@ export function buildPatternAnnotations(episode) {
 
   addExtremeMapAnnotations(annotations, pack?.extremeMap, eventAt, eventPrice);
   addLevelMapAnnotations(annotations, pack?.levelMapLatest ?? pack?.levelMap, eventAt, eventPrice);
+  addCascadeMapAnnotations(annotations, pack?.cascadeMapLatest ?? pack?.cascadeMap, eventAt, eventPrice);
 
   if (episode?.candidateType === "down_reversal_attempt" || episode?.candidateType === "up_reversal_attempt") {
     const extremeAt = finite(evidence?.extremeAt);

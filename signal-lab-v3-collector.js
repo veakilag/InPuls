@@ -18,6 +18,7 @@ import {
   atrFromClosedCandles,
 } from "./signal-lab-v4-extremes.js?v=signal-lab-v4-stage1";
 import { SignalLabV4LevelBreakoutRegistry } from "./signal-lab-v4-levels-breakouts.js?v=signal-lab-v4-stage2";
+import { SignalLabV4CascadeRegistry } from "./signal-lab-v4-cascades.js?v=signal-lab-v4-stage3";
 import { SignalLabV4OrderFlowRecorder } from "./signal-lab-v4-orderflow-recorder.js?v=signal-lab-v4-stage1";
 
 const BINANCE_MARKET_STREAM_ENDPOINT = "wss://fstream.binance.com/market/ws";
@@ -203,6 +204,7 @@ export class SignalLabV3Collector {
     this.episodes = new CandidateEpisodeTracker(this.settings);
     this.extremes = new SignalLabV4ExtremeRegistry();
     this.levels = new SignalLabV4LevelBreakoutRegistry();
+    this.cascades = new SignalLabV4CascadeRegistry();
     this.tickSizes = new Map();
     this.exchangeInfoPromise = null;
     this.orderFlow = new SignalLabV4OrderFlowRecorder({ maximumSymbols: 6 });
@@ -241,6 +243,9 @@ export class SignalLabV3Collector {
       extremeMaps: 0,
       levelMaps: 0,
       breakoutEvents: 0,
+      cascadeSetups: 0,
+      cascadeTriggered: 0,
+      cascadeConfirmed: 0,
       tickSizes: 0,
       lastError: null,
     };
@@ -498,10 +503,15 @@ export class SignalLabV3Collector {
       const tickSize = this.tickSizes.get(data.s) ?? null;
       this.#symbol(data.s)?.updateTrade(data);
       if (tickSize) {
-        this.levels.ingestPrice(data.s, finite(data.p), eventAt, {
+        const levelMap = this.levels.ingestPrice(data.s, finite(data.p), eventAt, {
           tickSize,
           dataQuality,
           source: "AGG_TRADE",
+        });
+        this.cascades.sync(data.s, levelMap, {
+          currentPrice: finite(data.p),
+          at: eventAt,
+          dataQuality,
         });
       }
       this.extremes.ingestTrade(data.s, finite(data.p), eventAt, { dataQuality });
@@ -547,11 +557,26 @@ export class SignalLabV3Collector {
             dataQuality,
           })
           : null;
+        if (levelMap && closedMinuteCandles.length) {
+          this.cascades.ingestCandle(metrics.symbol, closedMinuteCandles.at(-1), {
+            atr: atr1m,
+            dataQuality,
+          });
+        }
+        const cascadeMap = levelMap
+          ? this.cascades.sync(metrics.symbol, levelMap, {
+            currentPrice: metrics.price,
+            at: now,
+            atr: atr1m,
+            dataQuality,
+          })
+          : null;
         return {
           ...metrics,
           tickSize,
           extremeMap,
           levelMap,
+          cascadeMap,
           bookCandidate: this.bookTracker.candidateFor(metrics.symbol, now),
         };
       });
@@ -577,6 +602,9 @@ export class SignalLabV3Collector {
       extremeMaps: metrics.filter((row) => row.extremeMap && Object.keys(row.extremeMap.timeframes ?? {}).length).length,
       levelMaps: metrics.filter((row) => (row.levelMap?.activeZones?.length ?? 0) > 0).length,
       breakoutEvents: metrics.reduce((sum, row) => sum + (row.levelMap?.activeEvents?.length ?? 0), 0),
+      cascadeSetups: metrics.reduce((sum, row) => sum + (row.cascadeMap?.active?.filter((event) => event.state === "SETUP").length ?? 0), 0),
+      cascadeTriggered: metrics.reduce((sum, row) => sum + (row.cascadeMap?.active?.filter((event) => event.state === "TRIGGERED").length ?? 0), 0),
+      cascadeConfirmed: metrics.reduce((sum, row) => sum + (row.cascadeMap?.active?.filter((event) => ["CONFIRMED", "EXTENDED"].includes(event.state)).length ?? 0), 0),
       tickSizes: this.tickSizes.size,
     });
     this.#queueWarmup(metrics);
@@ -600,7 +628,9 @@ export class SignalLabV3Collector {
     const unsubscribe = [...this.trackedAggTrades].filter((symbol) => !next.has(symbol));
     this.trackedAggTrades = next;
     const setupRanked = [...ranked].sort((left, right) => (
-      this.levels.watchScore(right.symbol, right.price)
+      this.cascades.watchScore(right.symbol, right.price)
+      - this.cascades.watchScore(left.symbol, left.price)
+      || this.levels.watchScore(right.symbol, right.price)
       - this.levels.watchScore(left.symbol, left.price)
       || this.extremes.watchScore(right.symbol, right.price)
       - this.extremes.watchScore(left.symbol, left.price)

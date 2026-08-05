@@ -8,7 +8,7 @@
     <title>InPuls — Owner Signal Lab V4</title>
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./owner-signal-lab-v3.css?v=signal-lab-v4-stage1" />
-    <link rel="stylesheet" href="./owner-signal-lab-v3-evidence.css?v=signal-lab-v4-stage2" />
+    <link rel="stylesheet" href="./owner-signal-lab-v3-evidence.css?v=signal-lab-v4-stage3" />
   </head>
   <body>
     <header class="topbar">
@@ -31,11 +31,11 @@
         <p class="eyebrow">V4 · АКТИВНЫЕ ЭКСТРЕМУМЫ · 30 ДНЕЙ · ORDER FLOW REPLAY</p>
         <h1>Сначала собрать эпизод — потом доказать паттерн</h1>
         <p>
-          Новые эпизоды создаются только для монет с 24-часовым оборотом выше $100 млн и NATR5 выше 1%.
-          Лаборатория собирает только четыре паттерна: каскад, пробой, нож и заточку.
-          Нож и заточка могут стать обратной реакцией после пробоя, каскада или сильного импульса.
-          V4 параллельно строит неперерисовывающуюся карту high/low, объединяет близкие экстремумы в зоны ×N и отдельно фиксирует проход, принятие, ретест и прокол с возвратом.
-          Эти правила пока калибруются отдельно от каскада и не являются торговой командой.
+          Legacy-кандидаты продолжают использовать фильтр оборота выше $100 млн и NATR5 выше 1%, чтобы не потерять существующую выборку.
+          Каскад V4 собирается отдельным детерминированным контуром от $25 млн оборота и не дальше 3% до первой ступени.
+          Основа — активные high/low и зоны ×N; перед каскадом отдельно проверяются проход, принятие, ретест и прокол с возвратом.
+          Система заранее фиксирует SETUP, затем отдельно TRIGGERED, CONFIRMED, EXTENDED, PARTIAL и FAILED.
+          Стопы за экстремумами остаются гипотезой микроструктуры: интерфейс показывает только уровни, проходы, качество данных и фактический результат.
         </p>
       </section>
 
@@ -331,6 +331,6 @@
       </article>
     </template>
 
-    <script type="module" src="./owner-signal-lab-v3.js?v=signal-lab-v4-stage2"></script>
+    <script type="module" src="./owner-signal-lab-v3.js?v=signal-lab-v4-stage3"></script>
   </body>
 </html>

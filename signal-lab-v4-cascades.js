@@ -291,6 +291,8 @@ export class CascadeEngine {
       }
     }
 
+    this.#applyLevelEvents(levelMap, timestamp);
+
     for (const event of this.events.values()) {
       if (terminalState(event.state) || event.state !== CASCADE_STATES.SETUP || seen.has(event.id)) continue;
       if (timestamp - event.lastSetupSeenAt > this.config.setupDisappearGraceMs) {
@@ -298,7 +300,6 @@ export class CascadeEngine {
       }
     }
 
-    this.#applyLevelEvents(levelMap, timestamp);
     this.ingestPrice(price, timestamp, { dataQuality: this.dataQuality, atr: this.atr, source: "SYNC" });
     return this.snapshot();
   }
@@ -398,15 +399,17 @@ export class CascadeEngine {
       if (terminalState(event.state)) continue;
       const matched = [];
       let previousAt = event.setupDetectedAt;
+      let firstMatchedAt = event.triggeredAt;
       for (const levelId of event.levelIds) {
         const match = levelEvents.find((candidate) => (
           candidate.levelId === levelId
           && candidate.direction === event.direction
           && candidate.triggeredAt >= previousAt
-          && candidate.triggeredAt - (event.triggeredAt ?? candidate.triggeredAt) <= event.maxCascadeDurationMs
+          && (firstMatchedAt === null || candidate.triggeredAt - firstMatchedAt <= event.maxCascadeDurationMs)
         ));
         if (!match) break;
         matched.push(match);
+        firstMatchedAt ??= match.triggeredAt;
         previousAt = match.triggeredAt;
       }
       if (!matched.length) continue;

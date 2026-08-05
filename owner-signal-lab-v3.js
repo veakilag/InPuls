@@ -1,15 +1,15 @@
 import {
   CANDIDATE_LABELS,
   SIGNAL_LAB_V3_FORMULA_VERSION,
-} from "./signal-lab-v3-candidates.js?v=signal-lab-v4-stage1";
-import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v4-stage1";
+} from "./signal-lab-v3-candidates.js?v=signal-lab-v4-stage3";
+import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v4-stage3";
 import { mountEvidenceReplay } from "./signal-lab-v3-replay-ui.js?v=signal-lab-v4-stage1";
 import {
   disposeEpisodeFullCharts,
   isEpisodeFullChartOpen,
   mountEpisodeFullChart,
   resetEpisodeFullChartState,
-} from "./signal-lab-v3-full-chart.js?v=signal-lab-v4-stage1";
+} from "./signal-lab-v3-full-chart.js?v=signal-lab-v4-stage3";
 import { rowsToCsv, SignalLabV3Store } from "./signal-lab-v3-store.js";
 
 const elements = {
@@ -111,7 +111,7 @@ function statusText(status) {
   const depth = status.depthState
     ? `order flow ${status.depthState}/${status.depthTracked ?? 0}`
     : `order flow ${status.depthTracked ?? 0}`;
-  return `${connection} · проверки ${status.checks} · эпизоды ${status.createdEpisodes} · экстремумы ${status.extremeMaps ?? 0} · miniTicker ${status.miniTickerPackets ?? 0} · aggTrade ${status.aggTradePackets ?? 0}/${status.trackedTrades} · book ${status.bookPackets ?? 0} · ${depth} · пакеты ${status.evidencePacks ?? 0} · история ${status.warmupLoaded} · пакет ${age}`;
+  return `${connection} · проверки ${status.checks} · эпизоды ${status.createdEpisodes} · экстремумы ${status.extremeMaps ?? 0} · зоны ${status.levelMaps ?? 0}/${status.breakoutEvents ?? 0} · каскады ${status.cascadeSetups ?? 0}/${status.cascadeTriggered ?? 0}/${status.cascadeConfirmed ?? 0} · miniTicker ${status.miniTickerPackets ?? 0} · aggTrade ${status.aggTradePackets ?? 0}/${status.trackedTrades} · book ${status.bookPackets ?? 0} · ${depth} · пакеты ${status.evidencePacks ?? 0} · история ${status.warmupLoaded} · пакет ${age}`;
 }
 
 function renderCollectorStatus() {
