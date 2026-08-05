@@ -26,7 +26,18 @@ jobs:
           node-version: 22
 
       - name: Apply performance hotfix
-        run: python scripts/patch-signal-lab-v4-performance.py
+        run: |
+          python scripts/patch-signal-lab-v4-performance.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('test/signal-lab-v3-evidence.test.js')
+          text = path.read_text(encoding='utf-8')
+          old = r'assert.match(source, /merged\.slice\(0, 60\)/);'
+          new = r'assert.match(source, /merged\.slice\(0, 12\)/);'
+          if old not in text:
+              raise SystemExit('legacy 60-card performance contract not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
 
       - name: Check JavaScript syntax
         run: find . -type f -name '*.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
@@ -57,7 +68,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -f .github/workflows/apply-signal-lab-v4-performance.yml scripts/patch-signal-lab-v4-performance.py
-          git add signal-lab-v4-extremes.js signal-lab-v3-collector.js owner-signal-lab-v3.js test/signal-lab-v4-performance-hotfix.test.js
+          git rm -f .github/workflows/apply-signal-lab-v4-performance.yml scripts/patch-signal-lab-v4-performance.py SIGNAL_LAB_V4_PERFORMANCE_FAILURE.txt SIGNAL_LAB_V4_PERFORMANCE_SUMMARY.txt
+          git add signal-lab-v4-extremes.js signal-lab-v3-collector.js owner-signal-lab-v3.js test/signal-lab-v3-evidence.test.js test/signal-lab-v4-performance-hotfix.test.js
           git commit -m "Fix Signal Lab V4 main-thread stalls [signal-lab-v4-performance-applied]"
           git push origin HEAD:main
