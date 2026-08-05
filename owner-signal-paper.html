@@ -6,7 +6,7 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self';base-uri 'none';object-src 'none';form-action 'self';script-src 'self';style-src 'self';img-src 'self' data:;font-src 'self';connect-src 'self'" />
     <meta name="referrer" content="no-referrer" />
     <meta name="robots" content="noindex,nofollow,noarchive" />
-    <meta name="inpuls-build" content="signal-lab-forward-paper-one-tab-v1" />
+    <meta name="inpuls-build" content="signal-lab-forward-paper-live-diagnostics-v1" />
     <link rel="stylesheet" href="./owner-signal-paper.css?v=signal-lab-forward-paper-one-tab-v1" />
     <title>InPuls — Signal Lab Forward Paper</title>
   </head>
@@ -18,7 +18,7 @@
       </a>
       <div class="paper-top-actions">
         <span id="paper-status" data-state="loading">Запускаю forward paper…</span>
-        <span>Сборщик включён в этой вкладке</span>
+        <span id="collector-short-status">Сборщик запускается…</span>
       </div>
     </header>
 
@@ -92,6 +92,7 @@
       </section>
     </main>
 
+    <script src="./owner-signal-paper-health.js?v=owner-bot-live-diagnostics-v1"></script>
     <script type="module" src="./owner-signal-paper.js?v=signal-lab-forward-paper-one-tab-v1"></script>
   </body>
 </html>
