@@ -1,0 +1,116 @@
+name: Harden Signal Lab Spot history fallback
+
+on:
+  push:
+    branches:
+      - fix/signal-lab-extreme-warmup-451-fallback
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out fallback branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/signal-lab-extreme-warmup-451-fallback
+          fetch-depth: 0
+
+      - name: Apply lazy fallback hardening
+        run: python3 scripts/apply-signal-lab-lazy-spot-fallback.py
+
+      - name: Run complete test suite
+        run: npm test
+
+      - name: Verify Spot market-data CORS in Chrome
+        run: |
+          cat > spot-cors-smoke.html <<'HTML'
+          <!doctype html>
+          <html><body><output id="result">PENDING</output><script>
+          fetch('https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=2', { cache: 'no-store' })
+            .then((response) => {
+              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+              return response.json();
+            })
+            .then((rows) => {
+              document.querySelector('#result').textContent = Array.isArray(rows) && rows.length === 2
+                ? 'SPOT_CORS_PASS'
+                : `SPOT_CORS_BAD_ROWS_${Array.isArray(rows) ? rows.length : 'NA'}`;
+            })
+            .catch((error) => {
+              document.querySelector('#result').textContent = `SPOT_CORS_FAIL_${error.message}`;
+            });
+          </script></body></html>
+          HTML
+          python3 -m http.server 4174 >/tmp/spot-cors-http.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..40}; do
+            curl -fsS http://127.0.0.1:4174/spot-cors-smoke.html >/dev/null && break
+            sleep 0.25
+          done
+          google-chrome \
+            --headless=new \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-dev-shm-usage \
+            --virtual-time-budget=15000 \
+            --dump-dom \
+            http://127.0.0.1:4174/spot-cors-smoke.html > /tmp/spot-cors-dom.html
+          cat /tmp/spot-cors-dom.html
+          grep -q 'SPOT_CORS_PASS' /tmp/spot-cors-dom.html
+          rm -f spot-cors-smoke.html
+
+      - name: Re-run real extrema proof
+        run: |
+          node --input-type=module <<'NODE'
+          import { SignalLabV4ExtremeRegistry } from './signal-lab-v4-extremes.js';
+          import { resolveSpotHistoryProxy, scaleProxyCandle } from './signal-lab-v3-collector.js';
+          const getJson = async (url) => {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`${response.status} ${url}`);
+            return response.json();
+          };
+          const exchange = await getJson('https://data-api.binance.vision/api/v3/exchangeInfo');
+          const spotTicks = new Map(exchange.symbols
+            .filter((row) => row.quoteAsset === 'USDT' && row.status === 'TRADING')
+            .map((row) => [row.symbol, Number(row.filters.find((filter) => filter.filterType === 'PRICE_FILTER')?.tickSize)]));
+          const proxy = resolveSpotHistoryProxy('BTCUSDT', spotTicks);
+          if (!proxy) throw new Error('BTCUSDT Spot proxy missing');
+          const registry = new SignalLabV4ExtremeRegistry();
+          registry.setTickSize('BTCUSDT', proxy.tickSize);
+          for (const timeframe of ['1m', '5m', '15m', '1h', '4h', '1d']) {
+            const url = new URL('https://data-api.binance.vision/api/v3/klines');
+            url.searchParams.set('symbol', proxy.spotSymbol);
+            url.searchParams.set('interval', timeframe);
+            url.searchParams.set('limit', timeframe === '1d' ? '365' : '1000');
+            const rows = await getJson(url);
+            const candles = rows.map((row) => scaleProxyCandle({
+              time: Number(row[0]), open: Number(row[1]), high: Number(row[2]), low: Number(row[3]), close: Number(row[4]),
+              volume: Number(row[5]), closeTime: Number(row[6]), closed: Number(row[6]) < Date.now(),
+            }, proxy.priceScale)).filter((row) => row?.closed);
+            registry.hydrate('BTCUSDT', timeframe, candles, {
+              tickSize: proxy.tickSize,
+              dataQuality: 'RECOVERED',
+              dataSource: proxy.source,
+              emitSnapshot: false,
+            });
+          }
+          const snapshot = registry.snapshot('BTCUSDT');
+          const active = Object.values(snapshot.timeframes).reduce((sum, map) => sum + map.active.length, 0);
+          const history = Object.values(snapshot.timeframes).reduce((sum, map) => sum + map.history.length, 0);
+          console.log(JSON.stringify({ active, history }));
+          if (!(active > 0) || !(history > 0)) throw new Error(`no extrema: active=${active} history=${history}`);
+          NODE
+
+      - name: Commit verified hardening
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Harden Spot proxy fallback after partial Futures REST access"
+          git push origin HEAD:fix/signal-lab-extreme-warmup-451-fallback
