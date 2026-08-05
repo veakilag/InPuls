@@ -1,0 +1,202 @@
+.cascade-calibration[hidden] { display: none; }
+
+.cascade-calibration {
+  margin: 12px 0;
+  padding: 10px;
+  border: 1px solid rgba(100, 184, 255, 0.25);
+  border-radius: 10px;
+  background: rgba(100, 184, 255, 0.035);
+}
+
+.cascade-calibration > summary {
+  color: var(--blue);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+}
+
+.cascade-machine-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.cascade-machine-summary div {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(7, 13, 19, 0.68);
+}
+
+.cascade-machine-summary span {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.cascade-machine-summary strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calibration-primary-grid,
+.calibration-correction-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.calibration-primary-grid label,
+.calibration-correction-grid label {
+  min-width: 0;
+}
+
+.calibration-primary-grid label > span,
+.calibration-correction-grid label > span,
+.calibration-subtitle {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.calibration-checklist {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px 8px;
+  margin-top: 10px;
+}
+
+.calibration-check-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 116px;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 5px 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  background: rgba(7, 13, 19, 0.45);
+}
+
+.calibration-check-row span {
+  color: #b9cad5;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.calibration-check-row select {
+  min-height: 28px;
+  padding: 3px 6px;
+  font-size: 10px;
+}
+
+.calibration-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 9px 0;
+}
+
+.calibration-actions button {
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  color: var(--muted);
+  background: #0a1118;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.calibration-actions button:hover {
+  color: var(--accent);
+  border-color: rgba(67, 225, 194, 0.35);
+}
+
+.calibration-reasons {
+  margin-top: 9px;
+}
+
+.calibration-reason-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px 8px;
+}
+
+.calibration-reason-grid label {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: #aebfca;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.calibration-reason-grid input {
+  width: auto;
+  min-height: auto;
+  margin-top: 1px;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.calibration-eligibility {
+  margin: 9px 0 0;
+  padding: 7px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  color: var(--muted);
+  background: rgba(7, 13, 19, 0.55);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.calibration-eligibility.is-eligible {
+  color: var(--success);
+  border-color: rgba(67, 225, 194, 0.3);
+  background: rgba(67, 225, 194, 0.04);
+}
+
+.calibration-eligibility.is-blocked {
+  color: var(--warning);
+  border-color: rgba(241, 191, 98, 0.25);
+  background: rgba(241, 191, 98, 0.035);
+}
+
+.calibration-stats-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+@media (max-width: 920px) {
+  .cascade-machine-summary,
+  .calibration-primary-grid,
+  .calibration-correction-grid,
+  .calibration-checklist,
+  .calibration-reason-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .calibration-check-row { grid-template-columns: 1fr; }
+  .calibration-check-row select { width: 100%; }
+}
