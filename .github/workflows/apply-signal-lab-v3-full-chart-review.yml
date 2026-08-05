@@ -26,7 +26,9 @@ jobs:
           node-version: 22
 
       - name: Apply implementation patch
-        run: python scripts/apply-signal-lab-v3-full-chart-review.py
+        run: |
+          python scripts/apply-signal-lab-v3-full-chart-review.py
+          python scripts/fix-signal-lab-v3-full-chart-contracts.py
 
       - name: Check JavaScript syntax
         run: find . -type f -name '*.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
@@ -34,11 +36,11 @@ jobs:
       - name: Run full regression suite
         run: npm test
 
-      - name: Commit final implementation and remove temporary patcher
+      - name: Commit final implementation and remove temporary patchers
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/apply-signal-lab-v3-full-chart-review.yml scripts/apply-signal-lab-v3-full-chart-review.py
-          git add chart.js signal-lab-v3-full-chart.js signal-lab-v3-replay-ui.js signal-lab-v3-store.js owner-signal-lab-v3.js owner-signal-lab-v3.html owner-signal-lab-v3.css owner-signal-lab-v3-evidence.css test/signal-lab-v3-full-chart.test.js docs/signal-lab-v3-full-chart-review.md
+          git rm -f .github/workflows/apply-signal-lab-v3-full-chart-review.yml scripts/apply-signal-lab-v3-full-chart-review.py scripts/fix-signal-lab-v3-full-chart-contracts.py .github/trigger-signal-lab-full-chart.txt
+          git add chart.js signal-lab-v3-full-chart.js signal-lab-v3-replay-ui.js signal-lab-v3-store.js owner-signal-lab-v3.js owner-signal-lab-v3.html owner-signal-lab-v3.css owner-signal-lab-v3-evidence.css test/signal-lab-v3-full-chart.test.js test/signal-lab-v3-collector.test.js test/signal-lab-v3-evidence.test.js docs/signal-lab-v3-full-chart-review.md
           git commit -m "Add full chart review to Signal Lab V3.3 [signal-lab-full-chart-applied]"
           git push origin HEAD:agent/signal-lab-v3-full-chart-review
