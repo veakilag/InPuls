@@ -8,7 +8,8 @@
     <title>InPuls — Owner Signal Lab V4</title>
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./owner-signal-lab-v3.css?v=signal-lab-v4-stage1" />
-    <link rel="stylesheet" href="./owner-signal-lab-v3-evidence.css?v=signal-lab-v4-stage3" />
+    <link rel="stylesheet" href="./owner-signal-lab-v3-evidence.css?v=signal-lab-v4-stage4" />
+    <link rel="stylesheet" href="./owner-signal-lab-v4-calibration.css?v=signal-lab-v4-stage4" />
   </head>
   <body>
     <header class="topbar">
@@ -69,6 +70,20 @@
             <option value="insufficient_data">Мало данных</option>
           </select>
         </label>
+        <label>
+          <span>Калибровка V4</span>
+          <select id="calibration-filter">
+            <option value="">Не фильтровать</option>
+            <option value="unreviewed">Не откалибровано</option>
+            <option value="canonical">Эталон</option>
+            <option value="weak">Слабый</option>
+            <option value="false">Ложный</option>
+            <option value="ambiguous">Неоднозначный</option>
+            <option value="unavailable">Нельзя проверить</option>
+            <option value="eligible">Готово к калибровке</option>
+            <option value="blocked">Заблокировано качеством</option>
+          </select>
+        </label>
         <button id="refresh" class="button primary" type="button">Обновить</button>
       </section>
 
@@ -93,6 +108,22 @@
           <span>История 1м</span>
           <strong id="warmup-count">0</strong>
         </article>
+        <article class="stat-card">
+          <span>Каскадов V4</span>
+          <strong id="cascade-total-count">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>Размечено V4</span>
+          <strong id="cascade-reviewed-count">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>Эталон / ложный</span>
+          <strong id="cascade-class-count">0 / 0</strong>
+        </article>
+        <article class="stat-card">
+          <span>Геометрия / результат</span>
+          <strong id="cascade-eligible-count">0 / 0</strong>
+        </article>
       </section>
 
       <section class="panel candidates-panel">
@@ -105,12 +136,13 @@
             <span id="visible-count">0 эпизодов</span>
             <button id="export-json" class="button secondary" type="button">Экспорт JSON</button>
             <button id="export-csv" class="button secondary" type="button">Экспорт CSV</button>
+            <button id="export-calibration" class="button secondary" type="button">Экспорт калибровки V4</button>
             <button id="clear-records" class="button danger" type="button">Очистить все записи</button>
           </div>
         </header>
         <div id="empty-state" class="empty-state">
-          Сборщик прогревает 1-минутную историю для расчёта NATR5. Эпизод появится только после прохождения
-          фильтров: объём 24ч > $100 млн, NATR5 > 1% и наличие каскада, пробоя, ножа или заточки.
+          Сборщик прогревает историю, активные экстремумы и зоны. Legacy-эпизоды используют прежние фильтры,
+          а каскад V4 появится заранее в состоянии SETUP при наличии минимум двух активных ступеней.
         </div>
         <div id="candidate-list" class="candidate-list" aria-live="polite"></div>
       </section>
@@ -284,6 +316,96 @@
           </section>
           <section class="review-box">
             <h3>Ручная разметка</h3>
+
+            <details data-field="cascade-calibration" class="cascade-calibration" hidden open>
+              <summary>Калибровка каскада V4 — машина отдельно, ручная оценка отдельно</summary>
+              <div class="cascade-machine-summary">
+                <div><span>Состояние машины</span><strong data-field="calibration-machine-state">—</strong></div>
+                <div><span>Ступени и ×N</span><strong data-field="calibration-machine-levels">—</strong></div>
+                <div><span>Время lifecycle</span><strong data-field="calibration-machine-timing">—</strong></div>
+                <div><span>Качество</span><strong data-field="calibration-machine-quality">—</strong></div>
+                <div><span>Формула</span><strong data-field="calibration-machine-formula">—</strong></div>
+                <div><span>Результаты</span><strong data-field="calibration-machine-outcomes">—</strong></div>
+              </div>
+
+              <div class="calibration-primary-grid">
+                <label>
+                  <span>Класс эпизода</span>
+                  <select data-field="calibration-class">
+                    <option value="">Не определён</option>
+                    <option value="canonical">Эталонный каскад</option>
+                    <option value="weak">Слабый, но допустимый</option>
+                    <option value="false">Ложное срабатывание</option>
+                    <option value="ambiguous">Неоднозначно</option>
+                    <option value="unavailable">Нельзя проверить по данным</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Уверенность разметки</span>
+                  <select data-field="calibration-confidence">
+                    <option value="1">1 — низкая</option>
+                    <option value="2">2</option>
+                    <option value="3" selected>3 — средняя</option>
+                    <option value="4">4</option>
+                    <option value="5">5 — высокая</option>
+                  </select>
+                </label>
+              </div>
+
+              <span class="calibration-subtitle">Проверка каждого слоя</span>
+              <div class="calibration-checklist">
+                <label class="calibration-check-row"><span>Экстремумы выбраны верно</span><select data-calibration-check="EXTREMES_CORRECT"><option value="unknown">—</option><option value="pass">Да</option><option value="fail">Нет</option><option value="unavailable">Не проверить</option></select></label>
+                <label class="calibration-check-row"><span>Зоны объединены верно</span><select data-calibration-check="LEVEL_ZONES_CORRECT"><option value="unknown">—</option><option value="pass">Да</option><option value="fail">Нет</option><option value="unavailable">Не проверить</option></select></label>
+                <label class="calibration-check-row"><span>Количество атак ×N верно</span><select data-calibration-check="TOUCH_COUNT_CORRECT"><option value="unknown">—</option><option value="pass">Да</option><option value="fail">Нет</option><option value="unavailable">Не проверить</option></select></label>
+                <label class="calibration-check-row"><span>SETUP существовал до движения</span><select data-calibration-check="SETUP_BEFORE_TRIGGER"><option value="unknown">—</option><option value="pass">Да</option><option value="fail">Нет</option><option value="unavailable">Не проверить</option></select></label>
+                <label class="calibration-check-row"><span>К1 → К2 → К3 идут по порядку</span><select data-calibration-check="LEVEL_ORDER_CORRECT"><option value="unknown">—</option><option value="pass">Да</option><option value="fail">Нет</option><option value="unavailable">Не проверить</option></select></label>
+                <label class="calibration-check-row"><span>TRIGGER отмечен верно</span><select data-calibration-check="TRIGGER_CORRECT"><option value="unknown">—</option><option value="pass">Да</option><option value="fail">Нет</option><option value="unavailable">Не проверить</option></select></label>
+                <label class="calibration-check-row"><span>CONFIRMATION отмечен верно</span><select data-calibration-check="CONFIRMATION_CORRECT"><option value="unknown">—</option><option value="pass">Да</option><option value="fail">Нет</option><option value="unavailable">Не проверить</option></select></label>
+                <label class="calibration-check-row"><span>Отмена/FAILED определена верно</span><select data-calibration-check="INVALIDATION_CORRECT"><option value="unknown">—</option><option value="pass">Да</option><option value="fail">Нет</option><option value="unavailable">Не проверить</option></select></label>
+                <label class="calibration-check-row"><span>Нет look-ahead</span><select data-calibration-check="NO_LOOKAHEAD"><option value="unknown">—</option><option value="pass">Да</option><option value="fail">Нет</option><option value="unavailable">Не проверить</option></select></label>
+                <label class="calibration-check-row"><span>Хватает результата 15с/1м/3м/5м</span><select data-calibration-check="OUTCOMES_SUFFICIENT"><option value="unknown">—</option><option value="pass">Да</option><option value="fail">Нет</option><option value="unavailable">Не проверить</option></select></label>
+              </div>
+
+              <div class="calibration-actions">
+                <button type="button" data-calibration-action="mark-pass">Все слои подтверждены</button>
+                <button type="button" data-calibration-action="mark-unavailable">Данных недостаточно</button>
+                <button type="button" data-calibration-action="copy-machine">Скопировать машинные значения</button>
+              </div>
+
+              <span class="calibration-subtitle">Как должно быть по ручной разметке</span>
+              <div class="calibration-correction-grid">
+                <label><span>Направление</span><select data-field="calibration-direction"><option value="">Без правки</option><option value="UP">Вверх</option><option value="DOWN">Вниз</option></select></label>
+                <label><span>Ожидаемое состояние</span><select data-field="calibration-state"><option value="">Без правки</option><option value="SETUP">SETUP</option><option value="TRIGGERED">TRIGGERED</option><option value="CONFIRMED">CONFIRMED</option><option value="EXTENDED">EXTENDED</option><option value="PARTIAL">PARTIAL</option><option value="FAILED">FAILED</option></select></label>
+                <label><span>Количество уровней</span><input data-field="calibration-level-count" type="number" min="2" max="12" step="1" placeholder="Например, 3" /></label>
+                <label><span>Цены уровней через запятую</span><input data-field="calibration-level-prices" type="text" inputmode="decimal" placeholder="100, 102, 104" /></label>
+                <label><span>×N через запятую</span><input data-field="calibration-touch-counts" type="text" inputmode="numeric" placeholder="2, 1, 3" /></label>
+                <label><span>Комментарий к исправлению</span><textarea data-field="calibration-note" rows="2" placeholder="Что именно машина поняла неверно"></textarea></label>
+              </div>
+
+              <details class="calibration-reasons">
+                <summary>Причины расхождения</summary>
+                <div data-field="calibration-reasons" class="calibration-reason-grid">
+                  <label><input type="checkbox" value="PRIMARY_LEVEL_WRONG" />Неверный К1</label>
+                  <label><input type="checkbox" value="LEVEL_COUNT_WRONG" />Неверное число уровней</label>
+                  <label><input type="checkbox" value="LEVEL_ORDER_WRONG" />Неверный порядок</label>
+                  <label><input type="checkbox" value="LEVEL_GAPS_WRONG" />Неверные расстояния</label>
+                  <label><input type="checkbox" value="TOUCH_COUNT_WRONG" />Неверный ×N</label>
+                  <label><input type="checkbox" value="SETUP_LATE" />SETUP появился поздно</label>
+                  <label><input type="checkbox" value="SETUP_TOO_EARLY" />SETUP появился слишком рано</label>
+                  <label><input type="checkbox" value="TRIGGER_EARLY" />TRIGGER слишком рано</label>
+                  <label><input type="checkbox" value="TRIGGER_LATE" />TRIGGER слишком поздно</label>
+                  <label><input type="checkbox" value="CONFIRM_EARLY" />CONFIRM слишком рано</label>
+                  <label><input type="checkbox" value="CONFIRM_LATE" />CONFIRM слишком поздно</label>
+                  <label><input type="checkbox" value="FAILURE_REASON_WRONG" />Неверная отмена</label>
+                  <label><input type="checkbox" value="DUPLICATE_EVENT" />Дубль события</label>
+                  <label><input type="checkbox" value="DATA_GAP" />Разрыв данных</label>
+                  <label><input type="checkbox" value="INSUFFICIENT_CONTEXT" />Не хватает контекста</label>
+                  <label><input type="checkbox" value="WRONG_DIRECTION" />Неверное направление</label>
+                  <label><input type="checkbox" value="OTHER" />Другая причина</label>
+                </div>
+              </details>
+              <p data-field="calibration-eligibility" class="calibration-eligibility">Разметка ещё не сохранена.</p>
+            </details>
             <label>
               <span>Что это было</span>
               <select data-field="pattern">
@@ -331,6 +453,6 @@
       </article>
     </template>
 
-    <script type="module" src="./owner-signal-lab-v3.js?v=signal-lab-v4-stage3"></script>
+    <script type="module" src="./owner-signal-lab-v3.js?v=signal-lab-v4-stage4"></script>
   </body>
 </html>

@@ -10,7 +10,15 @@ import {
   mountEpisodeFullChart,
   resetEpisodeFullChartState,
 } from "./signal-lab-v3-full-chart.js?v=signal-lab-v4-stage3";
-import { rowsToCsv, SignalLabV3Store } from "./signal-lab-v3-store.js";
+import {
+  buildCascadeCalibrationSample,
+  CASCADE_CALIBRATION_CHECKS,
+  CASCADE_CHECK_STATES,
+  isCascadeV4Episode,
+  resolveCascadeMachineEvent,
+  summarizeCascadeCalibration,
+} from "./signal-lab-v4-calibration.js?v=signal-lab-v4-stage4";
+import { rowsToCsv, SignalLabV3Store } from "./signal-lab-v3-store.js?v=signal-lab-v4-stage4";
 
 const elements = {
   collectorDot: document.querySelector("#collector-dot"),
@@ -19,18 +27,24 @@ const elements = {
   symbolFilter: document.querySelector("#symbol-filter"),
   candidateFilter: document.querySelector("#candidate-filter"),
   reviewFilter: document.querySelector("#review-filter"),
+  calibrationFilter: document.querySelector("#calibration-filter"),
   refresh: document.querySelector("#refresh"),
   checksCount: document.querySelector("#checks-count"),
   episodesCount: document.querySelector("#episodes-count"),
   activeCount: document.querySelector("#active-count"),
   reviewedCount: document.querySelector("#reviewed-count"),
   warmupCount: document.querySelector("#warmup-count"),
+  cascadeTotalCount: document.querySelector("#cascade-total-count"),
+  cascadeReviewedCount: document.querySelector("#cascade-reviewed-count"),
+  cascadeClassCount: document.querySelector("#cascade-class-count"),
+  cascadeEligibleCount: document.querySelector("#cascade-eligible-count"),
   visibleCount: document.querySelector("#visible-count"),
   emptyState: document.querySelector("#empty-state"),
   candidateList: document.querySelector("#candidate-list"),
   template: document.querySelector("#candidate-template"),
   exportJson: document.querySelector("#export-json"),
   exportCsv: document.querySelector("#export-csv"),
+  exportCalibration: document.querySelector("#export-calibration"),
   clearRecords: document.querySelector("#clear-records"),
   dayButtons: [...document.querySelectorAll("[data-days]")],
 };
@@ -80,6 +94,7 @@ function filters() {
     symbol: elements.symbolFilter.value,
     candidateType: elements.candidateFilter.value,
     reviewState: elements.reviewFilter.value,
+    calibrationClass: elements.calibrationFilter.value,
     limit: 1_000,
   };
 }
@@ -172,6 +187,140 @@ function setChips(target, rows) {
   }));
 }
 
+
+const calibrationClassByVerdict = Object.freeze({
+  valid: "canonical",
+  weak: "weak",
+  false_positive: "false",
+  duplicate_episode: "ambiguous",
+  wrong_pattern: "false",
+  insufficient_data: "unavailable",
+});
+
+function readCascadeCalibration(card, verdict = null) {
+  const classField = card.querySelector('[data-field="calibration-class"]');
+  const classification = classField?.value || calibrationClassByVerdict[verdict] || null;
+  if (classField && !classField.value && classification) classField.value = classification;
+  return {
+    classification,
+    confidence: card.querySelector('[data-field="calibration-confidence"]')?.value,
+    checks: Object.fromEntries([...card.querySelectorAll("[data-calibration-check]")]
+      .map((field) => [field.dataset.calibrationCheck, field.value])),
+    corrections: {
+      direction: card.querySelector('[data-field="calibration-direction"]')?.value,
+      expectedState: card.querySelector('[data-field="calibration-state"]')?.value,
+      levelCount: card.querySelector('[data-field="calibration-level-count"]')?.value,
+      levelPrices: card.querySelector('[data-field="calibration-level-prices"]')?.value,
+      touchCounts: card.querySelector('[data-field="calibration-touch-counts"]')?.value,
+      note: card.querySelector('[data-field="calibration-note"]')?.value,
+    },
+    reasonCodes: [...card.querySelectorAll('[data-field="calibration-reasons"] input:checked')]
+      .map((input) => input.value),
+  };
+}
+
+function formatLifecycleTime(value) {
+  if (!Number.isFinite(Number(value))) return "—";
+  return new Intl.DateTimeFormat("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(Number(value)));
+}
+
+function outcomeSummary(machine) {
+  const anchor = machine?.anchors?.confirm ?? machine?.anchors?.trigger ?? machine?.anchors?.setup;
+  const outcomes = anchor?.outcomes ?? {};
+  const observed = ["15s", "1m", "3m", "5m"]
+    .filter((horizon) => ["OBSERVED", "PARTIAL"].includes(outcomes?.[horizon]?.state));
+  return observed.length ? observed.join(" / ") : "ещё собираются";
+}
+
+function calibrationMatches(episode, value) {
+  if (!value) return true;
+  if (!isCascadeV4Episode(episode)) return false;
+  const sample = buildCascadeCalibrationSample(episode);
+  if (!sample) return false;
+  if (value === "unreviewed") return !sample.calibration.classification;
+  if (value === "eligible") return sample.geometryEligible;
+  if (value === "blocked") return !sample.geometryEligible && Boolean(sample.calibration.classification);
+  return sample.calibration.classification === value;
+}
+
+function bindCascadeCalibration(episode, card) {
+  const shell = card.querySelector('[data-field="cascade-calibration"]');
+  if (!shell || !isCascadeV4Episode(episode)) {
+    if (shell) shell.hidden = true;
+    return;
+  }
+  shell.hidden = false;
+  card.classList.add("is-v4-cascade");
+  const machine = resolveCascadeMachineEvent(episode);
+  const calibration = episode.review?.calibration ?? {};
+  const checks = calibration.checks ?? {};
+  card.querySelector('[data-field="calibration-machine-state"]').textContent = machine
+    ? `${machine.state ?? "—"} · geom ${machine.geometricState ?? "—"}`
+    : "машинное событие не найдено";
+  card.querySelector('[data-field="calibration-machine-levels"]').textContent = machine
+    ? (machine.levelPrices ?? []).map((price, index) => `К${index + 1} ${Number(price).toPrecision(7)} ×${machine.touchCounts?.[index] ?? 1}`).join(" · ")
+    : "—";
+  card.querySelector('[data-field="calibration-machine-timing"]').textContent = machine
+    ? `S ${formatLifecycleTime(machine.setupDetectedAt)} · T ${formatLifecycleTime(machine.triggeredAt)} · C ${formatLifecycleTime(machine.confirmedAt)}`
+    : "—";
+  card.querySelector('[data-field="calibration-machine-quality"]').textContent = machine?.dataQuality ?? episode.latest?.quality?.state ?? "UNKNOWN";
+  card.querySelector('[data-field="calibration-machine-formula"]').textContent = machine?.formulaVersion ?? episode.latest?.formulaVersion ?? "—";
+  card.querySelector('[data-field="calibration-machine-outcomes"]').textContent = outcomeSummary(machine);
+
+  card.querySelector('[data-field="calibration-class"]').value = calibration.classification ?? "";
+  card.querySelector('[data-field="calibration-confidence"]').value = String(calibration.confidence ?? 3);
+  card.querySelectorAll("[data-calibration-check]").forEach((field) => {
+    field.value = checks[field.dataset.calibrationCheck] ?? CASCADE_CHECK_STATES.UNKNOWN;
+  });
+  card.querySelector('[data-field="calibration-direction"]').value = calibration.corrections?.direction ?? "";
+  card.querySelector('[data-field="calibration-state"]').value = calibration.corrections?.expectedState ?? "";
+  card.querySelector('[data-field="calibration-level-count"]').value = calibration.corrections?.levelCount ?? "";
+  card.querySelector('[data-field="calibration-level-prices"]').value = calibration.corrections?.levelPrices?.join(", ") ?? "";
+  card.querySelector('[data-field="calibration-touch-counts"]').value = calibration.corrections?.touchCounts?.join(", ") ?? "";
+  card.querySelector('[data-field="calibration-note"]').value = calibration.corrections?.note ?? "";
+  const reasonCodes = new Set(calibration.reasonCodes ?? []);
+  card.querySelectorAll('[data-field="calibration-reasons"] input').forEach((input) => {
+    input.checked = reasonCodes.has(input.value);
+  });
+
+  card.querySelector('[data-calibration-action="mark-pass"]').addEventListener("click", () => {
+    card.querySelectorAll("[data-calibration-check]").forEach((field) => { field.value = CASCADE_CHECK_STATES.PASS; });
+    const classField = card.querySelector('[data-field="calibration-class"]');
+    if (!classField.value) classField.value = "canonical";
+  });
+  card.querySelector('[data-calibration-action="mark-unavailable"]').addEventListener("click", () => {
+    card.querySelectorAll("[data-calibration-check]").forEach((field) => { field.value = CASCADE_CHECK_STATES.UNAVAILABLE; });
+    card.querySelector('[data-field="calibration-class"]').value = "unavailable";
+  });
+  card.querySelector('[data-calibration-action="copy-machine"]').addEventListener("click", () => {
+    if (!machine) return;
+    card.querySelector('[data-field="calibration-direction"]').value = machine.direction ?? "";
+    card.querySelector('[data-field="calibration-state"]').value = machine.state ?? "";
+    card.querySelector('[data-field="calibration-level-count"]').value = machine.levelIds?.length ?? "";
+    card.querySelector('[data-field="calibration-level-prices"]').value = machine.levelPrices?.join(", ") ?? "";
+    card.querySelector('[data-field="calibration-touch-counts"]').value = machine.touchCounts?.join(", ") ?? "";
+  });
+
+  const eligibility = card.querySelector('[data-field="calibration-eligibility"]');
+  const sample = buildCascadeCalibrationSample(episode);
+  eligibility.classList.remove("is-eligible", "is-blocked");
+  if (!sample?.calibration.classification) {
+    eligibility.textContent = "Выбери класс, проверь слои и сохрани разметку кнопкой вердикта ниже.";
+  } else if (sample.geometryEligible) {
+    eligibility.classList.add("is-eligible");
+    eligibility.textContent = sample.outcomeEligible
+      ? "Разрешено использовать для калибровки геометрии и результатов."
+      : "Разрешено использовать для калибровки геометрии; результаты пока не подтверждены.";
+  } else {
+    eligibility.classList.add("is-blocked");
+    eligibility.textContent = `Не включать в калибровку: ${sample.blockers.join(", ") || "неполная разметка"}.`;
+  }
+}
+
 async function saveReview(episode, card, verdict) {
   const pattern = card.querySelector('[data-field="pattern"]');
   const comment = card.querySelector('[data-field="comment"]');
@@ -182,7 +331,8 @@ async function saveReview(episode, card, verdict) {
       verdict,
       finalPatternId: pattern.value,
       comment: comment.value,
-    errorLabels: [...card.querySelectorAll('[data-field="error-labels"] input:checked')].map((input) => input.value),
+      errorLabels: [...card.querySelectorAll('[data-field="error-labels"] input:checked')].map((input) => input.value),
+      calibration: isCascadeV4Episode(episode) ? readCascadeCalibration(card, verdict) : undefined,
     });
     reviewStates.set(episode.id, review.verdict);
     buttons.forEach((button) => {
@@ -219,6 +369,7 @@ function renderCard(episode) {
   card.querySelectorAll('[data-field="error-labels"] input').forEach((input) => {
     input.checked = errorLabels.has(input.value);
   });
+  bindCascadeCalibration(episode, card);
   card.querySelectorAll("[data-verdict]").forEach((button) => {
     button.classList.toggle("is-selected", button.dataset.verdict === episode.reviewState);
     button.addEventListener("click", () => saveReview(episode, card, button.dataset.verdict));
@@ -240,11 +391,17 @@ async function render() {
     for (const row of rows) {
       if (row.reviewState && row.reviewState !== "unreviewed") reviewStates.set(row.id, row.reviewState);
     }
-    const merged = rows.map(mergeEpisode);
+    const allMerged = rows.map(mergeEpisode);
+    const cascadeSummary = summarizeCascadeCalibration(allMerged);
+    const merged = allMerged.filter((episode) => calibrationMatches(episode, elements.calibrationFilter.value));
     const summary = await store.summary(filters());
     elements.episodesCount.textContent = String(summary.episodes);
     elements.reviewedCount.textContent = String(summary.reviewed);
     elements.activeCount.textContent = String(activeEpisodeCount());
+    elements.cascadeTotalCount.textContent = String(cascadeSummary.episodes);
+    elements.cascadeReviewedCount.textContent = String(cascadeSummary.reviewed);
+    elements.cascadeClassCount.textContent = `${cascadeSummary.canonical} / ${cascadeSummary.false}`;
+    elements.cascadeEligibleCount.textContent = `${cascadeSummary.geometryEligible} / ${cascadeSummary.outcomeEligible}`;
     elements.visibleCount.textContent = `${merged.length} эпизодов`;
     elements.emptyState.hidden = merged.length > 0;
     elements.candidateList.hidden = merged.length === 0;
@@ -297,6 +454,25 @@ async function exportCsv() {
     `inpuls-signal-lab-v3-${new Date().toISOString().slice(0, 10)}.csv`,
     "text/csv;charset=utf-8",
     `\uFEFF${rowsToCsv(rows)}`,
+  );
+}
+
+
+async function exportCalibration() {
+  const episodes = await store.list({ ...filters(), calibrationClass: undefined, limit: 5_000 });
+  const samples = episodes
+    .map((episode) => buildCascadeCalibrationSample(episode))
+    .filter((sample) => sample?.calibration?.classification);
+  download(
+    `inpuls-signal-lab-v4-cascade-calibration-${new Date().toISOString().slice(0, 10)}.json`,
+    "application/json;charset=utf-8",
+    JSON.stringify({
+      schemaVersion: 1,
+      entity: "SignalLabCascadeCalibrationExport",
+      exportedAt: Date.now(),
+      summary: summarizeCascadeCalibration(episodes),
+      samples,
+    }, null, 2),
   );
 }
 
@@ -396,9 +572,11 @@ elements.dayButtons.forEach((button) => button.addEventListener("click", () => {
 elements.symbolFilter.addEventListener("input", () => scheduleRender(150));
 elements.candidateFilter.addEventListener("change", () => scheduleRender(0));
 elements.reviewFilter.addEventListener("change", () => scheduleRender(0));
+elements.calibrationFilter.addEventListener("change", () => scheduleRender(0));
 elements.refresh.addEventListener("click", () => scheduleRender(0));
 elements.exportJson.addEventListener("click", exportJson);
 elements.exportCsv.addEventListener("click", exportCsv);
+elements.exportCalibration.addEventListener("click", exportCalibration);
 elements.clearRecords.addEventListener("click", clearRecords);
 elements.collectorToggle.addEventListener("click", () => {
   state.running = !state.running;

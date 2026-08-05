@@ -1,3 +1,5 @@
+import { cascadeCalibrationCsvRow, normalizeCascadeCalibration } from "./signal-lab-v4-calibration.js?v=signal-lab-v4-stage4";
+
 export const SIGNAL_LAB_V3_DATABASE = "inpuls-signal-lab-v3";
 export const SIGNAL_LAB_V3_STORE_VERSION = 2;
 
@@ -55,6 +57,7 @@ function normalizeReview(episodeId, review = {}, now = Date.now()) {
     errorLabels: Object.freeze([...new Set((Array.isArray(review.errorLabels) ? review.errorLabels : [])
       .map((value) => safeText(value, 48))
       .filter(Boolean))].slice(0, 24)),
+    calibration: normalizeCascadeCalibration(review.calibration ?? {}, now),
     referencePrice: finite(review.referencePrice),
     invalidationPrice: finite(review.invalidationPrice),
     updatedAt: finite(review.updatedAt) ?? now,
@@ -310,6 +313,7 @@ export class SignalLabV3Store {
       limitations: Array.isArray(row.latest?.quality?.limitations)
         ? row.latest.quality.limitations.join(" | ")
         : "",
+      ...(cascadeCalibrationCsvRow(row) ?? {}),
     }));
   }
 
