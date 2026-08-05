@@ -36,7 +36,7 @@ test("Signal Lab V3 reports LIVE only after a real miniTicker packet", () => {
 
 test("Signal Lab V3 owner page exposes truthful live diagnostics and evidence replay", () => {
   assert.equal(ownerHtml.includes('name="robots" content="noindex,nofollow,noarchive"'), true);
-  assert.equal(ownerHtml.includes("signal-lab-v3-evidence-replay-v1"), true);
+  assert.equal(ownerHtml.includes("signal-lab-v3-four-patterns-v1"), true);
   assert.equal(ownerRuntime.includes('syncing: "синхронизация"'), true);
   assert.equal(ownerRuntime.includes("miniTicker"), true);
   assert.equal(ownerRuntime.includes("aggTradePackets"), true);
@@ -45,4 +45,13 @@ test("Signal Lab V3 owner page exposes truthful live diagnostics and evidence re
   assert.equal(ownerHtml.includes('data-field="replay-slider"'), true);
   assert.equal(ownerHtml.includes("Почему я выбрал гипотезу"), true);
   assert.equal(/api[_-]?key|secret|private[_-]?key/i.test(ownerHtml), false);
+});
+
+
+test("Signal Lab V3 collector tracks trades and depth only after both market filters", () => {
+  assert.match(collectorSource, /minimumQuoteVolume24h/);
+  assert.match(collectorSource, /minimumNatr5Percent/);
+  assert.match(collectorSource, /finite\(row\.natr5m\)/);
+  assert.match(ownerHtml, /выше \$100 млн/);
+  assert.match(ownerHtml, /NATR5 выше 1%/);
 });
