@@ -1,0 +1,4913 @@
+
+> test
+> node --test
+
+TAP version 13
+# Subtest: negative calibrated RX is unavailable instead of a false zero
+ok 1 - negative calibrated RX is unavailable instead of a false zero
+  ---
+  duration_ms: 2.56984
+  type: 'test'
+  ...
+# Subtest: header RX uses only the stable aggTrade feed and never renders literal zero
+ok 2 - header RX uses only the stable aggTrade feed and never renders literal zero
+  ---
+  duration_ms: 0.431999
+  type: 'test'
+  ...
+# Subtest: AGG painter renders the aggregate price sweep instead of only its first-price label
+ok 3 - AGG painter renders the aggregate price sweep instead of only its first-price label
+  ---
+  duration_ms: 0.654715
+  type: 'test'
+  ...
+# Subtest: Binance clock estimator uses the fastest midpoint-compensated samples
+ok 4 - Binance clock estimator uses the fastest midpoint-compensated samples
+  ---
+  duration_ms: 4.377773
+  type: 'test'
+  ...
+# Subtest: first calibration replaces an inaccurate local fallback with Binance time
+ok 5 - first calibration replaces an inaccurate local fallback with Binance time
+  ---
+  duration_ms: 0.539089
+  type: 'test'
+  ...
+# Subtest: calibrated Binance time advances from a monotonic performance anchor
+ok 6 - calibrated Binance time advances from a monotonic performance anchor
+  ---
+  duration_ms: 0.432599
+  type: 'test'
+  ...
+# Subtest: Tape live edge follows the shared Binance time instead of the last packet alone
+ok 7 - Tape live edge follows the shared Binance time instead of the last packet alone
+  ---
+  duration_ms: 0.329306
+  type: 'test'
+  ...
+# Subtest: browser clock, flow window and Tape use one shared calibrated source
+ok 8 - browser clock, flow window and Tape use one shared calibrated source
+  ---
+  duration_ms: 4.063956
+  type: 'test'
+  ...
+# Subtest: comfort preview remains isolated to chart and Tape canvases
+ok 9 - comfort preview remains isolated to chart and Tape canvases
+  ---
+  duration_ms: 1.344577
+  type: 'test'
+  ...
+# Subtest: canvas preview does not mutate persisted comfort state
+ok 10 - canvas preview does not mutate persisted comfort state
+  ---
+  duration_ms: 0.43829
+  type: 'test'
+  ...
+# Subtest: thumb stays frame-smooth while palette preview is throttled
+ok 11 - thumb stays frame-smooth while palette preview is throttled
+  ---
+  duration_ms: 6.430364
+  type: 'test'
+  ...
+# Subtest: palette preview yields while Tape has pending flow work
+ok 12 - palette preview yields while Tape has pending flow work
+  ---
+  duration_ms: 1.185409
+  type: 'test'
+  ...
+# Subtest: drag preview updates the complete site palette and Canvas theme
+ok 13 - drag preview updates the complete site palette and Canvas theme
+  ---
+  duration_ms: 0.540442
+  type: 'test'
+  ...
+# Subtest: release applies the complete palette and heavy visual modules once
+ok 14 - release applies the complete palette and heavy visual modules once
+  ---
+  duration_ms: 0.308597
+  type: 'test'
+  ...
+# Subtest: Tape-priority comfort build ships fresh cache keys
+ok 15 - Tape-priority comfort build ships fresh cache keys
+  ---
+  duration_ms: 0.279183
+  type: 'test'
+  ...
+# Subtest: event radar groups current signal types without changing signal formulas
+ok 16 - event radar groups current signal types without changing signal formulas
+  ---
+  duration_ms: 1.699831
+  type: 'test'
+  ...
+# Subtest: event radar remembers first seen time and restarts after a real gap
+ok 17 - event radar remembers first seen time and restarts after a real gap
+  ---
+  duration_ms: 0.728072
+  type: 'test'
+  ...
+# Subtest: event radar reports lifecycle and data quality honestly
+ok 18 - event radar reports lifecycle and data quality honestly
+  ---
+  duration_ms: 1.142859
+  type: 'test'
+  ...
+# Subtest: event radar distinguishes waiting, warmup, live and stale feed states
+ok 19 - event radar distinguishes waiting, warmup, live and stale feed states
+  ---
+  duration_ms: 0.321823
+  type: 'test'
+  ...
+# Subtest: full-market bootstrap only targets the Binance core miniTicker stream
+ok 20 - full-market bootstrap only targets the Binance core miniTicker stream
+  ---
+  duration_ms: 0.94566
+  type: 'test'
+  ...
+# Subtest: REST rows become one valid miniTicker market batch
+ok 21 - REST rows become one valid miniTicker market batch
+  ---
+  duration_ms: 0.343163
+  type: 'test'
+  ...
+# Subtest: history warmup waits for the base list and then advances in bounded batches
+ok 22 - history warmup waits for the base list and then advances in bounded batches
+  ---
+  duration_ms: 1.663594
+  type: 'test'
+  ...
+# Subtest: market bootstrap uses sequential fallback instead of three duplicate downloads
+ok 23 - market bootstrap uses sequential fallback instead of three duplicate downloads
+  ---
+  duration_ms: 0.323565
+  type: 'test'
+  ...
+# Subtest: browser shim is bounded and does not touch user storage
+ok 24 - browser shim is bounded and does not touch user storage
+  ---
+  duration_ms: 0.377065
+  type: 'test'
+  ...
+# Subtest: footprint projection ignores the transient off-grid current-price row
+ok 25 - footprint projection ignores the transient off-grid current-price row
+  ---
+  duration_ms: 2.943629
+  type: 'test'
+  ...
+# Subtest: partial OHLC remains projected at the visible edge
+ok 26 - partial OHLC remains projected at the visible edge
+  ---
+  duration_ms: 0.527057
+  type: 'test'
+  ...
+# Subtest: series keeps one staircase coordinate per visual millisecond
+ok 27 - series keeps one staircase coordinate per visual millisecond
+  ---
+  duration_ms: 0.850632
+  type: 'test'
+  ...
+# Subtest: runtime draws chart-style cluster candles and a Tape staircase
+ok 28 - runtime draws chart-style cluster candles and a Tape staircase
+  ---
+  duration_ms: 1.884036
+  type: 'test'
+  ...
+# Subtest: brightness is between Download and Sound and runtime key is atomic
+ok 29 - brightness is between Download and Sound and runtime key is atomic
+  ---
+  duration_ms: 3.994977
+  type: 'test'
+  ...
+# Subtest: footprint ignores a repeated execution instead of growing closed clusters
+ok 30 - footprint ignores a repeated execution instead of growing closed clusters
+  ---
+  duration_ms: 4.850428
+  type: 'test'
+  ...
+# Subtest: POC selects the largest traded price and resolves ties near the close
+ok 31 - POC selects the largest traded price and resolves ties near the close
+  ---
+  duration_ms: 0.364642
+  type: 'test'
+  ...
+# Subtest: Tape preserves exact execution time while the shared clock owns the live edge
+ok 32 - Tape preserves exact execution time while the shared clock owns the live edge
+  ---
+  duration_ms: 0.339174
+  type: 'test'
+  ...
+# Subtest: comfort preview covers the full palette and all live Canvas surfaces
+ok 33 - comfort preview covers the full palette and all live Canvas surfaces
+  ---
+  duration_ms: 1.676508
+  type: 'test'
+  ...
+# Subtest: closed footprint levels and site clock stay stable
+ok 34 - closed footprint levels and site clock stay stable
+  ---
+  duration_ms: 3.825769
+  type: 'test'
+  ...
+# Subtest: header exposes exactly four command buttons in requested order
+ok 35 - header exposes exactly four command buttons in requested order
+  ---
+  duration_ms: 3.135468
+  type: 'test'
+  ...
+# Subtest: supplied logo and compact brand are used
+ok 36 - supplied logo and compact brand are used
+  ---
+  duration_ms: 1.557375
+  type: 'test'
+  ...
+# Subtest: clock can float and magnetically return to its dock
+ok 37 - clock can float and magnetically return to its dock
+  ---
+  duration_ms: 1.770834
+  type: 'test'
+  ...
+# Subtest: brightness sits between Download and Sound while radar stays in settings
+ok 38 - brightness sits between Download and Sound while radar stays in settings
+  ---
+  duration_ms: 0.817329
+  type: 'test'
+  ...
+# Subtest: release inventory includes the product logo
+ok 39 - release inventory includes the product logo
+  ---
+  duration_ms: 0.462165
+  type: 'test'
+  ...
+# Subtest: lite shell disables removed first-screen modules before app startup
+ok 40 - lite shell disables removed first-screen modules before app startup
+  ---
+  duration_ms: 1.444654
+  type: 'test'
+  ...
+# Subtest: lite shell preserves user-created workspace panels
+ok 41 - lite shell preserves user-created workspace panels
+  ---
+  duration_ms: 0.312255
+  type: 'test'
+  ...
+# Subtest: hidden primary chart no longer performs heavy history requests or kline streaming
+ok 42 - hidden primary chart no longer performs heavy history requests or kline streaming
+  ---
+  duration_ms: 0.228538
+  type: 'test'
+  ...
+# Subtest: first market render is immediate and subsequent renders are paced
+ok 43 - first market render is immediate and subsequent renders are paced
+  ---
+  duration_ms: 1.70953
+  type: 'test'
+  ...
+# Subtest: lite shell never clears user settings or Signal Lab storage
+ok 44 - lite shell never clears user settings or Signal Lab storage
+  ---
+  duration_ms: 0.410829
+  type: 'test'
+  ...
+# Subtest: priority Worker Tape uses a 4 ms micro-batch
+ok 45 - priority Worker Tape uses a 4 ms micro-batch
+  ---
+  duration_ms: 2.072539
+  type: 'test'
+  ...
+# Subtest: legacy fallback uses the same 4 ms target
+ok 46 - legacy fallback uses the same 4 ms target
+  ---
+  duration_ms: 1.815538
+  type: 'test'
+  ...
+# Subtest: new Worker build is consistent across runtime
+ok 47 - new Worker build is consistent across runtime
+  ---
+  duration_ms: 1.654807
+  type: 'test'
+  ...
+# Subtest: runtime leaves animation frames native and local to each widget
+ok 48 - runtime leaves animation frames native and local to each widget
+  ---
+  duration_ms: 1.376596
+  type: 'test'
+  ...
+# Subtest: removing render lanes does not widen recovery storage cleanup
+ok 49 - removing render lanes does not widen recovery storage cleanup
+  ---
+  duration_ms: 0.244598
+  type: 'test'
+  ...
+# Subtest: files keep correct identities
+ok 50 - files keep correct identities
+  ---
+  duration_ms: 1.387697
+  type: 'test'
+  ...
+# Subtest: background return reuses Worker with guarded staggered recovery
+ok 51 - background return reuses Worker with guarded staggered recovery
+  ---
+  duration_ms: 0.461815
+  type: 'test'
+  ...
+# Subtest: normalizes and deduplicates trade history
+ok 52 - normalizes and deduplicates trade history
+  ---
+  duration_ms: 29.321866
+  type: 'test'
+  ...
+# Subtest: footprint columns preserve time, price and aggressor totals
+ok 53 - footprint columns preserve time, price and aggressor totals
+  ---
+  duration_ms: 0.733072
+  type: 'test'
+  ...
+# Subtest: flow window and visible count stay independent from pane width
+ok 54 - flow window and visible count stay independent from pane width
+  ---
+  duration_ms: 0.495196
+  type: 'test'
+  ...
+# Subtest: footprint tone reports buy and sell dominance
+ok 55 - footprint tone reports buy and sell dominance
+  ---
+  duration_ms: 0.274865
+  type: 'test'
+  ...
+# Subtest: 1M and 5M clusters use aligned live intervals without delta
+ok 56 - 1M and 5M clusters use aligned live intervals without delta
+  ---
+  duration_ms: 3.529285
+  type: 'test'
+  ...
+# Subtest: a live reset clears both cluster timeframes
+ok 57 - a live reset clears both cluster timeframes
+  ---
+  duration_ms: 0.332081
+  type: 'test'
+  ...
+# Subtest: cluster history keeps aligned 1M and 5M columns
+ok 58 - cluster history keeps aligned 1M and 5M columns
+  ---
+  duration_ms: 1.064532
+  type: 'test'
+  ...
+# Subtest: Ctrl+wheel compacts columns toward LIVE and dragging can inspect older intervals
+ok 59 - Ctrl+wheel compacts columns toward LIVE and dragging can inspect older intervals
+  ---
+  duration_ms: 0.568804
+  type: 'test'
+  ...
+# Subtest: Flow Workspace redraw observer cannot trigger itself
+ok 60 - Flow Workspace redraw observer cannot trigger itself
+  ---
+  duration_ms: 1.849341
+  type: 'test'
+  ...
+# Subtest: starts on aggregate live and promotes raw only inside the shadow guard
+ok 61 - starts on aggregate live and promotes raw only inside the shadow guard
+  ---
+  duration_ms: 1.238618
+  type: 'test'
+  ...
+# Subtest: raw sequence gap immediately falls back without emitting the broken trade
+ok 62 - raw sequence gap immediately falls back without emitting the broken trade
+  ---
+  duration_ms: 0.343653
+  type: 'test'
+  ...
+# Subtest: aggregate fallback waits for a fully new range to avoid double volume
+ok 63 - aggregate fallback waits for a fully new range to avoid double volume
+  ---
+  duration_ms: 1.327064
+  type: 'test'
+  ...
+# Subtest: recovery to raw requires consecutive IDs beyond the aggregate boundary
+ok 64 - recovery to raw requires consecutive IDs beyond the aggregate boundary
+  ---
+  duration_ms: 0.256911
+  type: 'test'
+  ...
+# Subtest: invalid, duplicate and out-of-order events never reach the tape
+ok 65 - invalid, duplicate and out-of-order events never reach the tape
+  ---
+  duration_ms: 0.362318
+  type: 'test'
+  ...
+# Subtest: production worker keeps visual RAW stable and routes guarded raw trades only to AGG
+ok 66 - production worker keeps visual RAW stable and routes guarded raw trades only to AGG
+  ---
+  duration_ms: 0.944848
+  type: 'test'
+  ...
+# Subtest: manual orderbook scroll remains authoritative
+ok 67 - manual orderbook scroll remains authoritative
+  ---
+  duration_ms: 3.021465
+  type: 'test'
+  ...
+# Subtest: Ctrl+wheel changes a fixed 1/2/5 price-step multiplier
+ok 68 - Ctrl+wheel changes a fixed 1/2/5 price-step multiplier
+  ---
+  duration_ms: 1.259317
+  type: 'test'
+  ...
+# Subtest: short background switches use a grace period
+ok 69 - short background switches use a grace period
+  ---
+  duration_ms: 1.583824
+  type: 'test'
+  ...
+# Subtest: healthy sockets resume without REST backfill
+ok 70 - healthy sockets resume without REST backfill
+  ---
+  duration_ms: 0.882692
+  type: 'test'
+  ...
+# Subtest: long background keeps a frozen Tape frame
+ok 71 - long background keeps a frozen Tape frame
+  ---
+  duration_ms: 0.672379
+  type: 'test'
+  ...
+# Subtest: Tape clock advances continuously while the live stream is healthy
+ok 72 - Tape clock advances continuously while the live stream is healthy
+  ---
+  duration_ms: 0.35276
+  type: 'test'
+  ...
+# Subtest: footprint preserves its canvas while the feed recovers
+ok 73 - footprint preserves its canvas while the feed recovers
+  ---
+  duration_ms: 0.442298
+  type: 'test'
+  ...
+# Subtest: a delayed feed retries independently
+ok 74 - a delayed feed retries independently
+  ---
+  duration_ms: 0.415928
+  type: 'test'
+  ...
+# Subtest: Resume v2 ships one consistent runtime
+ok 75 - Resume v2 ships one consistent runtime
+  ---
+  duration_ms: 0.262302
+  type: 'test'
+  ...
+# Subtest: manager hard restart preserves frozen symbol frames
+ok 76 - manager hard restart preserves frozen symbol frames
+  ---
+  duration_ms: 0.37454
+  type: 'test'
+  ...
+# Subtest: normal reload keeps one consistent runtime build
+ok 77 - normal reload keeps one consistent runtime build
+  ---
+  duration_ms: 1.796813
+  type: 'test'
+  ...
+# Subtest: worker-unavailable fallback does not leave a health interval open
+ok 78 - worker-unavailable fallback does not leave a health interval open
+  ---
+  duration_ms: 0.355084
+  type: 'test'
+  ...
+# Subtest: hidden tabs close sockets instead of accumulating a stale queue
+ok 79 - hidden tabs close sockets instead of accumulating a stale queue
+  ---
+  duration_ms: 0.452376
+  type: 'test'
+  ...
+# Subtest: workspace order is footprint then Tape then book
+ok 80 - workspace order is footprint then Tape then book
+  ---
+  duration_ms: 0.33142
+  type: 'test'
+  ...
+# Subtest: Tape and footprint visibility controls stay independent
+ok 81 - Tape and footprint visibility controls stay independent
+  ---
+  duration_ms: 0.409386
+  type: 'test'
+  ...
+# Subtest: RX uses calibrated Binance server time
+ok 82 - RX uses calibrated Binance server time
+  ---
+  duration_ms: 0.439222
+  type: 'test'
+  ...
+# Subtest: multi-book worker prioritizes UI without truncating local depth
+ok 83 - multi-book worker prioritizes UI without truncating local depth
+  ---
+  duration_ms: 0.760173
+  type: 'test'
+  ...
+# Subtest: background return reuses the existing worker before a guarded restart
+ok 84 - background return reuses the existing worker before a guarded restart
+  ---
+  duration_ms: 1.67785
+  type: 'test'
+  ...
+# Subtest: last rendered book remains visible while strict resync happens
+ok 85 - last rendered book remains visible while strict resync happens
+  ---
+  duration_ms: 0.567672
+  type: 'test'
+  ...
+# Subtest: resume prioritizes the last selected symbol and staggers other feeds
+ok 86 - resume prioritizes the last selected symbol and staggers other feeds
+  ---
+  duration_ms: 0.273522
+  type: 'test'
+  ...
+# Subtest: every resume starts a clean live-only Tape without REST history
+ok 87 - every resume starts a clean live-only Tape without REST history
+  ---
+  duration_ms: 2.086986
+  type: 'test'
+  ...
+# Subtest: cache versions keep seamless resume while shipping Resume v2
+ok 88 - cache versions keep seamless resume while shipping Resume v2
+  ---
+  duration_ms: 0.392314
+  type: 'test'
+  ...
+# Subtest: latency helper keeps exchange and browser timestamps separate
+ok 89 - latency helper keeps exchange and browser timestamps separate
+  ---
+  duration_ms: 2.247827
+  type: 'test'
+  ...
+# Subtest: REST timing stays without a fake receive timestamp
+ok 90 - REST timing stays without a fake receive timestamp
+  ---
+  duration_ms: 0.492372
+  type: 'test'
+  ...
+# Subtest: latency helper rejects clock outliers
+ok 91 - latency helper rejects clock outliers
+  ---
+  duration_ms: 1.809386
+  type: 'test'
+  ...
+# Subtest: RX display is a rolling short-window median
+ok 92 - RX display is a rolling short-window median
+  ---
+  duration_ms: 0.610173
+  type: 'test'
+  ...
+# Subtest: worker records receive time and exposes RX in live status
+ok 93 - worker records receive time and exposes RX in live status
+  ---
+  duration_ms: 0.569747
+  type: 'test'
+  ...
+# Subtest: UI preserves timing fields for future hover and replay
+ok 94 - UI preserves timing fields for future hover and replay
+  ---
+  duration_ms: 0.384479
+  type: 'test'
+  ...
+# Subtest: Tape cycles RAW, AGG and SERIES while keeping RAW default
+ok 95 - Tape cycles RAW, AGG and SERIES while keeping RAW default
+  ---
+  duration_ms: 1.621465
+  type: 'test'
+  ...
+# Subtest: water renderer owns stable event geometry
+ok 96 - water renderer owns stable event geometry
+  ---
+  duration_ms: 1.233679
+  type: 'test'
+  ...
+# Subtest: Flow Workspace cache and reset page point to water runtime
+ok 97 - Flow Workspace cache and reset page point to water runtime
+  ---
+  duration_ms: 0.218388
+  type: 'test'
+  ...
+# Subtest: production TAPE accepts only live packets and starts from an empty frame
+ok 98 - production TAPE accepts only live packets and starts from an empty frame
+  ---
+  duration_ms: 1.112122
+  type: 'test'
+  ...
+# Subtest: sparse trades stay on real time
+ok 99 - sparse trades stay on real time
+  ---
+  duration_ms: 1.602228
+  type: 'test'
+  ...
+# Subtest: same-time packet remains local and chronological
+ok 100 - same-time packet remains local and chronological
+  ---
+  duration_ms: 8.215405
+  type: 'test'
+  ...
+# Subtest: continuous flow is split into local groups
+ok 101 - continuous flow is split into local groups
+  ---
+  duration_ms: 1.91819
+  type: 'test'
+  ...
+# Subtest: past trades never receive density-dependent vertical offsets
+ok 102 - past trades never receive density-dependent vertical offsets
+  ---
+  duration_ms: 0.487231
+  type: 'test'
+  ...
+# Subtest: neighboring dense groups never cross chronological order
+ok 103 - neighboring dense groups never cross chronological order
+  ---
+  duration_ms: 0.691905
+  type: 'test'
+  ...
+# Subtest: dense raw dots shrink while large sparse dots stay visible
+ok 104 - dense raw dots shrink while large sparse dots stay visible
+  ---
+  duration_ms: 0.33129
+  type: 'test'
+  ...
+# Subtest: agg labels are selective and non-overlapping
+ok 105 - agg labels are selective and non-overlapping
+  ---
+  duration_ms: 0.893943
+  type: 'test'
+  ...
+# Subtest: AGG label uses the price-range midpoint
+ok 106 - AGG label uses the price-range midpoint
+  ---
+  duration_ms: 1.427301
+  type: 'test'
+  ...
+# Subtest: same-millisecond AGG groups receive stable non-overlapping ordinals
+ok 107 - same-millisecond AGG groups receive stable non-overlapping ordinals
+  ---
+  duration_ms: 2.833463
+  type: 'test'
+  ...
+# Subtest: tape time scale supports close flow and long history
+ok 108 - tape time scale supports close flow and long history
+  ---
+  duration_ms: 0.323816
+  type: 'test'
+  ...
+# Subtest: settings expose 80-200 font scale and verified shortcut sections only
+ok 109 - settings expose 80-200 font scale and verified shortcut sections only
+  ---
+  duration_ms: 1.746239
+  type: 'test'
+  ...
+# Subtest: clusters use the brighter dominance fill
+ok 110 - clusters use the brighter dominance fill
+  ---
+  duration_ms: 0.432159
+  type: 'test'
+  ...
+# Subtest: narrow books give unused price space back to sizes and mark the full current level
+ok 111 - narrow books give unused price space back to sizes and mark the full current level
+  ---
+  duration_ms: 2.443964
+  type: 'test'
+  ...
+# Subtest: ordinary sizes are neutral and full-book anomalies have three tiers
+ok 112 - ordinary sizes are neutral and full-book anomalies have three tiers
+  ---
+  duration_ms: 1.556774
+  type: 'test'
+  ...
+# Subtest: size labels stay readable and hover shows distance from current price
+ok 113 - size labels stay readable and hover shows distance from current price
+  ---
+  duration_ms: 1.452168
+  type: 'test'
+  ...
+# Subtest: footprint uses one proportional dominance cell and interval candles
+ok 114 - footprint uses one proportional dominance cell and interval candles
+  ---
+  duration_ms: 0.627223
+  type: 'test'
+  ...
+# Subtest: cluster history is compact, pannable and follows the brightness palette
+ok 115 - cluster history is compact, pannable and follows the brightness palette
+  ---
+  duration_ms: 0.686354
+  type: 'test'
+  ...
+# Subtest: Tape paints the active panel theme instead of a black canvas
+ok 116 - Tape paints the active panel theme instead of a black canvas
+  ---
+  duration_ms: 0.345928
+  type: 'test'
+  ...
+# Subtest: only full round prices affect text and the liquidity meter stays readable
+ok 117 - only full round prices affect text and the liquidity meter stays readable
+  ---
+  duration_ms: 1.522619
+  type: 'test'
+  ...
+# Subtest: live flow invalidates footprint while Tape keeps one coherent viewport
+ok 118 - live flow invalidates footprint while Tape keeps one coherent viewport
+  ---
+  duration_ms: 2.055828
+  type: 'test'
+  ...
+# Subtest: trade count is not shown above Tape
+ok 119 - trade count is not shown above Tape
+  ---
+  duration_ms: 0.584623
+  type: 'test'
+  ...
+# Subtest: visual priority ships one consistent runtime
+ok 120 - visual priority ships one consistent runtime
+  ---
+  duration_ms: 0.625621
+  type: 'test'
+  ...
+# Subtest: SERIES breaks on the first opposite raw aggressor
+ok 121 - SERIES breaks on the first opposite raw aggressor
+  ---
+  duration_ms: 2.887715
+  type: 'test'
+  ...
+# Subtest: footprint OHLC uses execution time rather than receive/display time
+ok 122 - footprint OHLC uses execution time rather than receive/display time
+  ---
+  duration_ms: 2.951694
+  type: 'test'
+  ...
+# Subtest: worker and main keep SERIES on a dedicated raw-only channel
+ok 123 - worker and main keep SERIES on a dedicated raw-only channel
+  ---
+  duration_ms: 2.197242
+  type: 'test'
+  ...
+# Subtest: SERIES ladder is visually stronger than aggregate paths
+ok 124 - SERIES ladder is visually stronger than aggregate paths
+  ---
+  duration_ms: 1.27674
+  type: 'test'
+  ...
+# Subtest: symbol lists are normalized, deduplicated and capped
+ok 125 - symbol lists are normalized, deduplicated and capped
+  ---
+  duration_ms: 2.654798
+  type: 'test'
+  ...
+# Subtest: RAW sequence gaps are counted only after the segment anchor
+ok 126 - RAW sequence gaps are counted only after the segment anchor
+  ---
+  duration_ms: 0.488134
+  type: 'test'
+  ...
+# Subtest: rejected trade payloads keep a usable sequence identity and an exact reason
+ok 127 - rejected trade payloads keep a usable sequence identity and an exact reason
+  ---
+  duration_ms: 0.435866
+  type: 'test'
+  ...
+# Subtest: zero-price zero-quantity RAW events are accepted only as sequence markers
+ok 128 - zero-price zero-quantity RAW events are accepted only as sequence markers
+  ---
+  duration_ms: 0.605744
+  type: 'test'
+  ...
+# Subtest: sequence markers complete aggregate ID coverage without adding executed volume
+ok 129 - sequence markers complete aggregate ID coverage without adding executed volume
+  ---
+  duration_ms: 0.462736
+  type: 'test'
+  ...
+# Subtest: invalid payload diagnostics are bounded to public market fields
+ok 130 - invalid payload diagnostics are bounded to public market fields
+  ---
+  duration_ms: 0.419174
+  type: 'test'
+  ...
+# Subtest: source-only stalls require continued counterpart activity after market silence
+ok 131 - source-only stalls require continued counterpart activity after market silence
+  ---
+  duration_ms: 0.414956
+  type: 'test'
+  ...
+# Subtest: aggregate sequence uses the complete f-l coverage range
+ok 132 - aggregate sequence uses the complete f-l coverage range
+  ---
+  duration_ms: 0.411861
+  type: 'test'
+  ...
+# Subtest: reconnect backoff is bounded and includes controlled jitter
+ok 133 - reconnect backoff is bounded and includes controlled jitter
+  ---
+  duration_ms: 0.553906
+  type: 'test'
+  ...
+# Subtest: reservoir keeps exact seen count while bounding retained values
+ok 134 - reservoir keeps exact seen count while bounding retained values
+  ---
+  duration_ms: 0.674072
+  type: 'test'
+  ...
+# Subtest: assessment never promotes an incomplete or short run
+ok 135 - assessment never promotes an incomplete or short run
+  ---
+  duration_ms: 0.723815
+  type: 'test'
+  ...
+# Subtest: assessment blocks RAW gaps, stalls and incomplete group coverage
+ok 136 - assessment blocks RAW gaps, stalls and incomplete group coverage
+  ---
+  duration_ms: 0.247143
+  type: 'test'
+  ...
+# Subtest: assessment blocks fast unplanned reconnects and unfinished recovery
+ok 137 - assessment blocks fast unplanned reconnects and unfinished recovery
+  ---
+  duration_ms: 0.292397
+  type: 'test'
+  ...
+# Subtest: clean assessment is explicitly one-run evidence, not production promotion
+ok 138 - clean assessment is explicitly one-run evidence, not production promotion
+  ---
+  duration_ms: 0.223949
+  type: 'test'
+  ...
+# Subtest: matching summary keeps exact totals and sampled distributions
+ok 139 - matching summary keeps exact totals and sampled distributions
+  ---
+  duration_ms: 0.662651
+  type: 'test'
+  ...
+# Subtest: browser lab stays isolated while production adds a guarded raw AGG channel
+ok 140 - browser lab stays isolated while production adds a guarded raw AGG channel
+  ---
+  duration_ms: 1.616356
+  type: 'test'
+  ...
+# runtime boot/network-only-sw/feed contracts passed
+# Subtest: test-runtime-boot-cache-feed-v1.mjs
+ok 27 - test-runtime-boot-cache-feed-v1.mjs
+  ---
+  duration_ms: 35.264608
+  type: 'test'
+  ...
+# runtime self-healing contracts passed
+# Subtest: test-runtime-self-heal-v1.mjs
+ok 28 - test-runtime-self-heal-v1.mjs
+  ---
+  duration_ms: 39.569269
+  type: 'test'
+  ...
+# Subtest: zero-ms AGG groups only consecutive executions with equal event time and side
+ok 143 - zero-ms AGG groups only consecutive executions with equal event time and side
+  ---
+  duration_ms: 2.095652
+  type: 'test'
+  ...
+# Subtest: only the right-most aggregate is OPEN and sealed history keeps object identity
+ok 144 - only the right-most aggregate is OPEN and sealed history keeps object identity
+  ---
+  duration_ms: 2.079392
+  type: 'test'
+  ...
+# Subtest: Tape UI keeps zero-ms AGG, adds SERIES and restores the marker threshold
+ok 145 - Tape UI keeps zero-ms AGG, adds SERIES and restores the marker threshold
+  ---
+  duration_ms: 1.099888
+  type: 'test'
+  ...
+# Subtest: live candles update in place instead of copying history per packet
+ok 146 - live candles update in place instead of copying history per packet
+  ---
+  duration_ms: 1.256983
+  type: 'test'
+  ...
+# Subtest: KlineFeed coalesces live chart paints and throttles cache snapshots
+ok 147 - KlineFeed coalesces live chart paints and throttles cache snapshots
+  ---
+  duration_ms: 0.330619
+  type: 'test'
+  ...
+# Subtest: full application rendering is no longer tied to each exact second
+ok 148 - full application rendering is no longer tied to each exact second
+  ---
+  duration_ms: 0.645868
+  type: 'test'
+  ...
+# Subtest: clock work avoids hidden timezone scans and cached modules are refreshed
+ok 149 - clock work avoids hidden timezone scans and cached modules are refreshed
+  ---
+  duration_ms: 0.663141
+  type: 'test'
+  ...
+# Subtest: footprint live interval uses explicit arrival time
+ok 150 - footprint live interval uses explicit arrival time
+  ---
+  duration_ms: 1.860342
+  type: 'test'
+  ...
+# Subtest: Tape aligns local receipt with the main Binance clock
+ok 151 - Tape aligns local receipt with the main Binance clock
+  ---
+  duration_ms: 1.528129
+  type: 'test'
+  ...
+# Subtest: footprint column shows total quote above its time
+ok 152 - footprint column shows total quote above its time
+  ---
+  duration_ms: 0.493224
+  type: 'test'
+  ...
+# Subtest: Tape visual time uses calibrated receive time
+ok 153 - Tape visual time uses calibrated receive time
+  ---
+  duration_ms: 2.267474
+  type: 'test'
+  ...
+# Subtest: footprint step ignores an off-grid current-price row
+ok 154 - footprint step ignores an off-grid current-price row
+  ---
+  duration_ms: 0.456585
+  type: 'test'
+  ...
+# Subtest: new live interval exists before its first trade
+ok 155 - new live interval exists before its first trade
+  ---
+  duration_ms: 2.655419
+  type: 'test'
+  ...
+# Subtest: historical Tape X coordinates do not depend on newly appended neighbours
+ok 156 - historical Tape X coordinates do not depend on newly appended neighbours
+  ---
+  duration_ms: 1.516438
+  type: 'test'
+  ...
+# Subtest: zero-ms AGG keeps sealed identity while only the newest group stays open
+ok 157 - zero-ms AGG keeps sealed identity while only the newest group stays open
+  ---
+  duration_ms: 0.779008
+  type: 'test'
+  ...
+# Subtest: distance badge is unsigned and fixed to tenths
+ok 158 - distance badge is unsigned and fixed to tenths
+  ---
+  duration_ms: 0.231954
+  type: 'test'
+  ...
+# Subtest: footprint exposes the same timeframe set and exchange-aligned boundaries
+ok 159 - footprint exposes the same timeframe set and exchange-aligned boundaries
+  ---
+  duration_ms: 0.83327
+  type: 'test'
+  ...
+# Subtest: first cluster candle is aligned but explicitly marked session-partial
+ok 160 - first cluster candle is aligned but explicitly marked session-partial
+  ---
+  duration_ms: 1.804587
+  type: 'test'
+  ...
+# Subtest: runtime ships RAW, zero-ms AGG, SERIES, synchronized canvas and density age toggle
+ok 161 - runtime ships RAW, zero-ms AGG, SERIES, synchronized canvas and density age toggle
+  ---
+  duration_ms: 0.719126
+  type: 'test'
+  ...
+# Subtest: Tape heartbeat no longer scans the document or redraws canvases every second
+ok 162 - Tape heartbeat no longer scans the document or redraws canvases every second
+  ---
+  duration_ms: 1.15947
+  type: 'test'
+  ...
+# Subtest: bound Tape cards are event-discovered and disconnected cards are pruned
+ok 163 - bound Tape cards are event-discovered and disconnected cards are pruned
+  ---
+  duration_ms: 1.393288
+  type: 'test'
+  ...
+# Subtest: hidden density-age mode performs no ladder-row scan
+ok 164 - hidden density-age mode performs no ladder-row scan
+  ---
+  duration_ms: 0.268031
+  type: 'test'
+  ...
+# Subtest: book data refreshes density ages only for visible matching cards
+ok 165 - book data refreshes density ages only for visible matching cards
+  ---
+  duration_ms: 0.194153
+  type: 'test'
+  ...
+# Subtest: isolated Tape build ships through fresh module keys
+ok 166 - isolated Tape build ships through fresh module keys
+  ---
+  duration_ms: 0.217387
+  type: 'test'
+  ...
+# Subtest: minute boundary creates a zero-volume provisional candle from the last close
+ok 167 - minute boundary creates a zero-volume provisional candle from the last close
+  ---
+  duration_ms: 2.261622
+  type: 'test'
+  ...
+# Subtest: current footprint interval is represented honestly before its first execution
+ok 168 - current footprint interval is represented honestly before its first execution
+  ---
+  duration_ms: 0.452056
+  type: 'test'
+  ...
+# Subtest: runtime loads the live Canvas preview and fresh boundary build
+ok 169 - runtime loads the live Canvas preview and fresh boundary build
+  ---
+  duration_ms: 2.15884
+  type: 'test'
+  ...
+# Subtest: Tape and footprint share the main Binance clock
+ok 170 - Tape and footprint share the main Binance clock
+  ---
+  duration_ms: 2.439265
+  type: 'test'
+  ...
+# Subtest: receipt alignment never moves before execution
+ok 171 - receipt alignment never moves before execution
+  ---
+  duration_ms: 0.471973
+  type: 'test'
+  ...
+# Subtest: footprint aggregates exact prices by the current ladder step
+ok 172 - footprint aggregates exact prices by the current ladder step
+  ---
+  duration_ms: 1.061156
+  type: 'test'
+  ...
+# Subtest: Tape never exposes more than two minutes
+ok 173 - Tape never exposes more than two minutes
+  ---
+  duration_ms: 0.190336
+  type: 'test'
+  ...
+# Subtest: Tape ships a right-side NOW line and a precise slider
+ok 174 - Tape ships a right-side NOW line and a precise slider
+  ---
+  duration_ms: 1.674665
+  type: 'test'
+  ...
+# Subtest: Tape uses main-clock receipt time and preserves execution time
+ok 175 - Tape uses main-clock receipt time and preserves execution time
+  ---
+  duration_ms: 1.494888
+  type: 'test'
+  ...
+# Subtest: Tape mode cycles RAW to AGG to SERIES
+ok 176 - Tape mode cycles RAW to AGG to SERIES
+  ---
+  duration_ms: 1.557024
+  type: 'test'
+  ...
+# Subtest: same aggressor merges until opposite side or silence boundary
+ok 177 - same aggressor merges until opposite side or silence boundary
+  ---
+  duration_ms: 1.316424
+  type: 'test'
+  ...
+# Subtest: only the live right-most series grows and silence seals it visually
+ok 178 - only the live right-most series grows and silence seals it visually
+  ---
+  duration_ms: 1.640991
+  type: 'test'
+  ...
+# Subtest: psychological levels keep one anchored unit per symbol
+ok 179 - psychological levels keep one anchored unit per symbol
+  ---
+  duration_ms: 2.387748
+  type: 'test'
+  ...
+# Subtest: water clock moves continuously between WebSocket packets
+ok 180 - water clock moves continuously between WebSocket packets
+  ---
+  duration_ms: 0.575708
+  type: 'test'
+  ...
+# Subtest: all trades share one coherent affine price viewport
+ok 181 - all trades share one coherent affine price viewport
+  ---
+  duration_ms: 0.853728
+  type: 'test'
+  ...
+# Subtest: zero-ms AGG groups exact event time and freezes completed history
+ok 182 - zero-ms AGG groups exact event time and freezes completed history
+  ---
+  duration_ms: 0.896357
+  type: 'test'
+  ...
+# Subtest: marker geometry is absolute and independent of visible neighbours
+ok 183 - marker geometry is absolute and independent of visible neighbours
+  ---
+  duration_ms: 0.942885
+  type: 'test'
+  ...
+# Subtest: footprint and chart visual requests stay applied
+ok 184 - footprint and chart visual requests stay applied
+  ---
+  duration_ms: 0.351227
+  type: 'test'
+  ...
+# Subtest: Tape threshold is restored without restoring aggregation levels
+ok 185 - Tape threshold is restored without restoring aggregation levels
+  ---
+  duration_ms: 1.385954
+  type: 'test'
+  ...
+# Subtest: threshold filters markers while the path still uses every RAW trade
+ok 186 - threshold filters markers while the path still uses every RAW trade
+  ---
+  duration_ms: 0.387555
+  type: 'test'
+  ...
+# Subtest: zero threshold no longer writes a label on every aggregate
+ok 187 - zero threshold no longer writes a label on every aggregate
+  ---
+  duration_ms: 0.372609
+  type: 'test'
+  ...
+# Subtest: Worker keeps visual RAW on aggTrade and exposes guarded trade input for AGG
+ok 188 - Worker keeps visual RAW on aggTrade and exposes guarded trade input for AGG
+  ---
+  duration_ms: 1.436528
+  type: 'test'
+  ...
+# Subtest: Main renders AGG from the selected source and keeps fallback
+ok 189 - Main renders AGG from the selected source and keeps fallback
+  ---
+  duration_ms: 0.391633
+  type: 'test'
+  ...
+# Subtest: Tiger-style zero-ms aggregation joins individual same-time same-side executions
+ok 190 - Tiger-style zero-ms aggregation joins individual same-time same-side executions
+  ---
+  duration_ms: 2.75732
+  type: 'test'
+  ...
+# Subtest: Tape marker threshold remains available
+ok 191 - Tape marker threshold remains available
+  ---
+  duration_ms: 0.314148
+  type: 'test'
+  ...
+# Subtest: percentile and summary are deterministic
+ok 192 - percentile and summary are deterministic
+  ---
+  duration_ms: 2.094239
+  type: 'test'
+  ...
+# Subtest: clock offset uses the lowest RTT samples
+ok 193 - clock offset uses the lowest RTT samples
+  ---
+  duration_ms: 0.444772
+  type: 'test'
+  ...
+# Subtest: combined payload source is classified exactly
+ok 194 - combined payload source is classified exactly
+  ---
+  duration_ms: 0.194514
+  type: 'test'
+  ...
+# Subtest: normalization rejects zero values and wrong symbols
+ok 195 - normalization rejects zero values and wrong symbols
+  ---
+  duration_ms: 0.26163
+  type: 'test'
+  ...
+# Subtest: normalization supports valid trade and aggTrade payloads
+ok 196 - normalization supports valid trade and aggTrade payloads
+  ---
+  duration_ms: 0.319438
+  type: 'test'
+  ...
+# Subtest: raw trades match aggregate by receive and render times
+ok 197 - raw trades match aggregate by receive and render times
+  ---
+  duration_ms: 0.353952
+  type: 'test'
+  ...
+# Subtest: null render timestamps are not treated as painted
+ok 198 - null render timestamps are not treated as painted
+  ---
+  duration_ms: 0.273011
+  type: 'test'
+  ...
+# Subtest: run validity fails on reconnect, invalid payload or hidden tab
+ok 199 - run validity fails on reconnect, invalid payload or hidden tab
+  ---
+  duration_ms: 0.249597
+  type: 'test'
+  ...
+# Subtest: verdict requires valid run, quality and material visual lead
+ok 200 - verdict requires valid run, quality and material visual lead
+  ---
+  duration_ms: 0.435947
+  type: 'test'
+  ...
+# Subtest: v2 browser lab compares streams through their routed endpoints
+ok 201 - v2 browser lab compares streams through their routed endpoints
+  ---
+  duration_ms: 1.051507
+  type: 'test'
+  ...
+# Subtest: frame arrays and projection slots are reused
+ok 202 - frame arrays and projection slots are reused
+  ---
+  duration_ms: 1.656481
+  type: 'test'
+  ...
+# Subtest: unfiltered RAW dots are drawn in a bounded number of Canvas batches
+ok 203 - unfiltered RAW dots are drawn in a bounded number of Canvas batches
+  ---
+  duration_ms: 0.466844
+  type: 'test'
+  ...
+# Subtest: status overlays do not mutate DOM twice per frame
+ok 204 - status overlays do not mutate DOM twice per frame
+  ---
+  duration_ms: 0.391683
+  type: 'test'
+  ...
+# Subtest: batched renderer keeps near-fluid cadence under high trade rate
+ok 205 - batched renderer keeps near-fluid cadence under high trade rate
+  ---
+  duration_ms: 0.23516
+  type: 'test'
+  ...
+# Subtest: 60 FPS painter does not force DOM geometry on every frame
+ok 206 - 60 FPS painter does not force DOM geometry on every frame
+  ---
+  duration_ms: 1.609863
+  type: 'test'
+  ...
+# Subtest: render model reuses immutable nodes and skips full sorting
+ok 207 - render model reuses immutable nodes and skips full sorting
+  ---
+  duration_ms: 0.316432
+  type: 'test'
+  ...
+# Subtest: Tape surface theme lookup is cached outside the frame hot path
+ok 208 - Tape surface theme lookup is cached outside the frame hot path
+  ---
+  duration_ms: 0.541844
+  type: 'test'
+  ...
+# Subtest: replace packets reset only current water renderer state
+ok 209 - replace packets reset only current water renderer state
+  ---
+  duration_ms: 0.381725
+  type: 'test'
+  ...
+# Subtest: adding a neighbouring trade cannot change an existing event coordinate
+ok 210 - adding a neighbouring trade cannot change an existing event coordinate
+  ---
+  duration_ms: 1.866433
+  type: 'test'
+  ...
+# Subtest: viewport changes move the whole historical layer coherently
+ok 211 - viewport changes move the whole historical layer coherently
+  ---
+  duration_ms: 1.416491
+  type: 'test'
+  ...
+# Subtest: clock never steps backward and does not depend on packet cadence
+ok 212 - clock never steps backward and does not depend on packet cadence
+  ---
+  duration_ms: 0.227886
+  type: 'test'
+  ...
+# Subtest: renderer does not feed historical items through collision layout
+ok 213 - renderer does not feed historical items through collision layout
+  ---
+  duration_ms: 0.631953
+  type: 'test'
+  ...
+# Subtest: REST kline is normalized
+ok 214 - REST kline is normalized
+  ---
+  duration_ms: 2.139905
+  type: 'test'
+  ...
+# Subtest: stream kline is normalized
+ok 215 - stream kline is normalized
+  ---
+  duration_ms: 0.44345
+  type: 'test'
+  ...
+# Subtest: live update replaces an open candle
+ok 216 - live update replaces an open candle
+  ---
+  duration_ms: 2.752221
+  type: 'test'
+  ...
+# Subtest: new candles append and respect the history limit
+ok 217 - new candles append and respect the history limit
+  ---
+  duration_ms: 0.231173
+  type: 'test'
+  ...
+# Subtest: one-second candles aggregate into a five-second history
+ok 218 - one-second candles aggregate into a five-second history
+  ---
+  duration_ms: 0.664303
+  type: 'test'
+  ...
+# Subtest: screen density keeps at least one distinct pixel slot per rendered candle
+ok 219 - screen density keeps at least one distinct pixel slot per rendered candle
+  ---
+  duration_ms: 0.214852
+  type: 'test'
+  ...
+# Subtest: second-history fallback walks backward through aggregate-trade pages
+ok 220 - second-history fallback walks backward through aggregate-trade pages
+  ---
+  duration_ms: 90.064569
+  type: 'test'
+  ...
+# Subtest: price-axis drag changes vertical scale
+ok 221 - price-axis drag changes vertical scale
+  ---
+  duration_ms: 0.624969
+  type: 'test'
+  ...
+# Subtest: time-axis drag changes visible history
+ok 222 - time-axis drag changes visible history
+  ---
+  duration_ms: 0.447387
+  type: 'test'
+  ...
+# Subtest: NATR normalizes Wilder ATR as a percentage
+ok 223 - NATR normalizes Wilder ATR as a percentage
+  ---
+  duration_ms: 0.936683
+  type: 'test'
+  ...
+# Subtest: Pearson correlation detects aligned and inverse returns
+ok 224 - Pearson correlation detects aligned and inverse returns
+  ---
+  duration_ms: 0.429243
+  type: 'test'
+  ...
+# Subtest: drawing ruler reports signed price change
+ok 225 - drawing ruler reports signed price change
+  ---
+  duration_ms: 0.182431
+  type: 'test'
+  ...
+# Subtest: Ctrl magnet snaps to nearest candle body or wick extreme
+ok 226 - Ctrl magnet snaps to nearest candle body or wick extreme
+  ---
+  duration_ms: 0.262902
+  type: 'test'
+  ...
+# Subtest: Ctrl magnet resolves the candle centered under the cursor
+ok 227 - Ctrl magnet resolves the candle centered under the cursor
+  ---
+  duration_ms: 0.190036
+  type: 'test'
+  ...
+# Subtest: Ctrl magnet snaps the first drawing anchor before the drawing exists
+ok 228 - Ctrl magnet snaps the first drawing anchor before the drawing exists
+  ---
+  duration_ms: 0.216375
+  type: 'test'
+  ...
+# Subtest: live data keeps the fractional manual viewport offset
+ok 229 - live data keeps the fractional manual viewport offset
+  ---
+  duration_ms: 0.123812
+  type: 'test'
+  ...
+# Subtest: time scale marks trading sessions without a separate day marker
+ok 230 - time scale marks trading sessions without a separate day marker
+  ---
+  duration_ms: 0.262511
+  type: 'test'
+  ...
+# Subtest: progressive time scale selects round divisions
+ok 231 - progressive time scale selects round divisions
+  ---
+  duration_ms: 0.214742
+  type: 'test'
+  ...
+# Subtest: price scale uses round and half-round increments
+ok 232 - price scale uses round and half-round increments
+  ---
+  duration_ms: 0.161683
+  type: 'test'
+  ...
+# Subtest: Worker REST startup uses staggered cancellable host fallback
+ok 233 - Worker REST startup uses staggered cancellable host fallback
+  ---
+  duration_ms: 1.105258
+  type: 'test'
+  ...
+# Subtest: connection lifecycle identifies WebSocket, snapshot, retry and LIVE phases
+ok 234 - connection lifecycle identifies WebSocket, snapshot, retry and LIVE phases
+  ---
+  duration_ms: 0.547234
+  type: 'test'
+  ...
+# Subtest: cross-context timing uses epoch timestamps and source kind
+ok 235 - cross-context timing uses epoch timestamps and source kind
+  ---
+  duration_ms: 0.198381
+  type: 'test'
+  ...
+# Subtest: main-thread render diagnostics cover computation, ladder DOM and skipped TAPE
+ok 236 - main-thread render diagnostics cover computation, ladder DOM and skipped TAPE
+  ---
+  duration_ms: 0.458688
+  type: 'test'
+  ...
+# Subtest: new diagnostic runtime files are in the Service Worker release
+ok 237 - new diagnostic runtime files are in the Service Worker release
+  ---
+  duration_ms: 0.166852
+  type: 'test'
+  ...
+# Subtest: percentChange returns a percentage
+ok 238 - percentChange returns a percentage
+  ---
+  duration_ms: 3.965031
+  type: 'test'
+  ...
+# Subtest: ticker filter keeps UM USDT pairs
+ok 239 - ticker filter keeps UM USDT pairs
+  ---
+  duration_ms: 0.441737
+  type: 'test'
+  ...
+# Subtest: symbol validation canonicalizes user input and rejects markup
+ok 240 - symbol validation canonicalizes user input and rejects markup
+  ---
+  duration_ms: 0.268011
+  type: 'test'
+  ...
+# Subtest: SymbolState calculates 15 second move
+ok 241 - SymbolState calculates 15 second move
+  ---
+  duration_ms: 1.656139
+  type: 'test'
+  ...
+# Subtest: book ticker updates the live midpoint without waiting for mini ticker
+ok 242 - book ticker updates the live midpoint without waiting for mini ticker
+  ---
+  duration_ms: 0.499555
+  type: 'test'
+  ...
+# Subtest: trade flow counts fills and aggressive side
+ok 243 - trade flow counts fills and aggressive side
+  ---
+  duration_ms: 0.359683
+  type: 'test'
+  ...
+# Subtest: funding is exposed for radar sorting
+ok 244 - funding is exposed for radar sorting
+  ---
+  duration_ms: 0.515836
+  type: 'test'
+  ...
+# Subtest: historical minutes warm up NATR without waiting
+ok 245 - historical minutes warm up NATR without waiting
+  ---
+  duration_ms: 1.134282
+  type: 'test'
+  ...
+# Subtest: liquidation snapshots are deduplicated
+ok 246 - liquidation snapshots are deduplicated
+  ---
+  duration_ms: 1.409317
+  type: 'test'
+  ...
+# Subtest: liquidation cascade is not mislabeled as the classic order-book cascade
+ok 247 - liquidation cascade is not mislabeled as the classic order-book cascade
+  ---
+  duration_ms: 0.714217
+  type: 'test'
+  ...
+# Subtest: compression is no longer classified as a scalper pattern
+ok 248 - compression is no longer classified as a scalper pattern
+  ---
+  duration_ms: 0.274715
+  type: 'test'
+  ...
+# Subtest: support and resistance breakouts are separate facts
+ok 249 - support and resistance breakouts are separate facts
+  ---
+  duration_ms: 0.312545
+  type: 'test'
+  ...
+# Subtest: knife and sharpening require a sharp move followed by a one-percent reversal
+ok 250 - knife and sharpening require a sharp move followed by a one-percent reversal
+  ---
+  duration_ms: 2.013268
+  type: 'test'
+  ...
+# Subtest: SignalEvent is an immutable formula-versioned snapshot without future results
+ok 251 - SignalEvent is an immutable formula-versioned snapshot without future results
+  ---
+  duration_ms: 17.335704
+  type: 'test'
+  ...
+# Subtest: marketwide pattern events preserve detector evidence and formula identity
+ok 252 - marketwide pattern events preserve detector evidence and formula identity
+  ---
+  duration_ms: 0.585005
+  type: 'test'
+  ...
+# Subtest: SignalContext keeps current facts separate and marks unavailable inputs partial
+ok 253 - SignalContext keeps current facts separate and marks unavailable inputs partial
+  ---
+  duration_ms: 1.9504
+  type: 'test'
+  ...
+# Subtest: context includes observed density interactions but excludes untouched size-only candidates
+ok 254 - context includes observed density interactions but excludes untouched size-only candidates
+  ---
+  duration_ms: 1.058121
+  type: 'test'
+  ...
+# Subtest: SignalObservation starts pending at the exact 15s, 1m, 3m and 5m horizons
+ok 255 - SignalObservation starts pending at the exact 15s, 1m, 3m and 5m horizons
+  ---
+  duration_ms: 0.773067
+  type: 'test'
+  ...
+# Subtest: tracker fills the 15s observation from a continuous live price path
+ok 256 - tracker fills the 15s observation from a continuous live price path
+  ---
+  duration_ms: 3.645212
+  type: 'test'
+  ...
+# Subtest: an observed result is partial when the price path has a material gap
+ok 257 - an observed result is partial when the price path has a material gap
+  ---
+  duration_ms: 0.778106
+  type: 'test'
+  ...
+# Subtest: MFE and MAE follow the signal direction while return stays market-signed
+ok 258 - MFE and MAE follow the signal direction while return stays market-signed
+  ---
+  duration_ms: 0.702024
+  type: 'test'
+  ...
+# Subtest: a missed horizon after a browser pause is unavailable instead of backfilled
+ok 259 - a missed horizon after a browser pause is unavailable instead of backfilled
+  ---
+  duration_ms: 0.842286
+  type: 'test'
+  ...
+# Subtest: the price path stays alive until later horizons resolve
+ok 260 - the price path stays alive until later horizons resolve
+  ---
+  duration_ms: 1.107312
+  type: 'test'
+  ...
+# Subtest: tracker emits once for a continuous signal and rearms only after a real absence
+ok 261 - tracker emits once for a continuous signal and rearms only after a real absence
+  ---
+  duration_ms: 1.336382
+  type: 'test'
+  ...
+# Subtest: tracker stores one card for overlapping detectors in the same market episode
+ok 262 - tracker stores one card for overlapping detectors in the same market episode
+  ---
+  duration_ms: 1.39999
+  type: 'test'
+  ...
+# Subtest: tracker allows the opposite direction and a genuinely later episode
+ok 263 - tracker allows the opposite direction and a genuinely later episode
+  ---
+  duration_ms: 1.24491
+  type: 'test'
+  ...
+# Subtest: a long render pause does not fabricate an absence or duplicate a continuous signal
+ok 264 - a long render pause does not fabricate an absence or duplicate a continuous signal
+  ---
+  duration_ms: 0.55071
+  type: 'test'
+  ...
+# Subtest: a settings change creates a new formula snapshot even if the signal stays active
+ok 265 - a settings change creates a new formula snapshot even if the signal stays active
+  ---
+  duration_ms: 0.558775
+  type: 'test'
+  ...
+# Subtest: tracker does not create new signal facts from stale market snapshots
+ok 266 - tracker does not create new signal facts from stale market snapshots
+  ---
+  duration_ms: 0.159058
+  type: 'test'
+  ...
+# Subtest: browser runtime captures the contract and ships it in the atomic app shell
+ok 267 - browser runtime captures the contract and ships it in the atomic app shell
+  ---
+  duration_ms: 18.509401
+  type: 'test'
+  ...
+# Subtest: marketwide scanner detects a comparable strong size moving on the same side
+ok 268 - marketwide scanner detects a comparable strong size moving on the same side
+  ---
+  duration_ms: 2.241696
+  type: 'test'
+  ...
+# Subtest: marketwide scanner detects repeated strong best-quote support
+ok 269 - marketwide scanner detects repeated strong best-quote support
+  ---
+  duration_ms: 1.530615
+  type: 'test'
+  ...
+# Subtest: cascade detector requires three staircase highs and enters on the nearest breakout
+ok 270 - cascade detector requires three staircase highs and enters on the nearest breakout
+  ---
+  duration_ms: 0.964936
+  type: 'test'
+  ...
+# Subtest: cascade detector enters short below the newest staircase low
+ok 271 - cascade detector enters short below the newest staircase low
+  ---
+  duration_ms: 0.419135
+  type: 'test'
+  ...
+# Subtest: cascade detector rejects extrema zones wider than five percent
+ok 272 - cascade detector rejects extrema zones wider than five percent
+  ---
+  duration_ms: 0.290173
+  type: 'test'
+  ...
+# Subtest: cascade detector rejects a staircase narrower than one percent
+ok 273 - cascade detector rejects a staircase narrower than one percent
+  ---
+  duration_ms: 0.459771
+  type: 'test'
+  ...
+# Subtest: observability stays disabled without an explicit runtime flag
+ok 274 - observability stays disabled without an explicit runtime flag
+  ---
+  duration_ms: 7.026013
+  type: 'test'
+  ...
+# Subtest: observability aggregates bounded percentile samples when enabled
+ok 275 - observability aggregates bounded percentile samples when enabled
+  ---
+  duration_ms: 2.29768
+  type: 'test'
+  ...
+# Subtest: worker timing metadata is converted into end-to-end metrics
+ok 276 - worker timing metadata is converted into end-to-end metrics
+  ---
+  duration_ms: 15.165012
+  type: 'test'
+  ...
+# Subtest: worker flow diagnostics become per-symbol backpressure metrics
+ok 277 - worker flow diagnostics become per-symbol backpressure metrics
+  ---
+  duration_ms: 3.378854
+  type: 'test'
+  ...
+# Subtest: capture exports connection phases, render skips and five-second intervals
+ok 278 - capture exports connection phases, render skips and five-second intervals
+  ---
+  duration_ms: 5.077513
+  type: 'test'
+  ...
+# Subtest: recent trade history prepends in O(1) while evicting the oldest trade
+ok 279 - recent trade history prepends in O(1) while evicting the oldest trade
+  ---
+  duration_ms: 2.076807
+  type: 'test'
+  ...
+# Subtest: latest TAPE queue drops stale backlog and keeps chronological output
+ok 280 - latest TAPE queue drops stale backlog and keeps chronological output
+  ---
+  duration_ms: 0.514543
+  type: 'test'
+  ...
+# Subtest: production Worker keeps aggTrade for visual RAW and guards trade for AGG
+ok 281 - production Worker keeps aggTrade for visual RAW and guards trade for AGG
+  ---
+  duration_ms: 0.547184
+  type: 'test'
+  ...
+# Subtest: backpressure never coalesces or drops depth sequence events
+ok 282 - backpressure never coalesces or drops depth sequence events
+  ---
+  duration_ms: 0.298368
+  type: 'test'
+  ...
+# Subtest: Worker reports flow rates, processing cost, queue pressure and source freshness
+ok 283 - Worker reports flow rates, processing cost, queue pressure and source freshness
+  ---
+  duration_ms: 0.425326
+  type: 'test'
+  ...
+# Subtest: Worker publishes one full-book size scale without expanding UI depth
+ok 284 - Worker publishes one full-book size scale without expanding UI depth
+  ---
+  duration_ms: 0.24047
+  type: 'test'
+  ...
+# Subtest: multi-book depth keeps distant liquidity through compact projection
+ok 285 - multi-book depth keeps distant liquidity through compact projection
+  ---
+  duration_ms: 0.371375
+  type: 'test'
+  ...
+# Subtest: size alone remains an unrated candidate without claiming importance
+ok 286 - size alone remains an unrated candidate without claiming importance
+  ---
+  duration_ms: 4.375829
+  type: 'test'
+  ...
+# Subtest: only the correct aggressor touching the exact density price is correlated
+ok 287 - only the correct aggressor touching the exact density price is correlated
+  ---
+  duration_ms: 1.574005
+  type: 'test'
+  ...
+# Subtest: matching executions plus a remaining level classify a partial fill
+ok 288 - matching executions plus a remaining level classify a partial fill
+  ---
+  duration_ms: 1.925183
+  type: 'test'
+  ...
+# Subtest: a removed level is consumed only when matching executions cover it
+ok 289 - a removed level is consumed only when matching executions cover it
+  ---
+  duration_ms: 1.384
+  type: 'test'
+  ...
+# Subtest: a trade arriving after the depth decrease still correlates inside the window
+ok 290 - a trade arriving after the depth decrease still correlates inside the window
+  ---
+  duration_ms: 1.464641
+  type: 'test'
+  ...
+# Subtest: a removal without matching executions settles as pulled
+ok 291 - a removal without matching executions settles as pulled
+  ---
+  duration_ms: 0.606415
+  type: 'test'
+  ...
+# Subtest: a nearby similar replacement is marked moved only as a low-confidence heuristic
+ok 292 - a nearby similar replacement is marked moved only as a low-confidence heuristic
+  ---
+  duration_ms: 0.993971
+  type: 'test'
+  ...
+# Subtest: gap reset and partial depth clear correlation evidence
+ok 293 - gap reset and partial depth clear correlation evidence
+  ---
+  duration_ms: 0.450773
+  type: 'test'
+  ...
+# Subtest: Worker and Legacy fallback ingest the same accepted trades into density correlation
+ok 294 - Worker and Legacy fallback ingest the same accepted trades into density correlation
+  ---
+  duration_ms: 12.539779
+  type: 'test'
+  ...
+# Subtest: density reference uses a robust per-side quote distribution
+ok 295 - density reference uses a robust per-side quote distribution
+  ---
+  duration_ms: 3.100102
+  type: 'test'
+  ...
+# Subtest: snapshot seeds observed densities without fabricating depth events
+ok 296 - snapshot seeds observed densities without fabricating depth events
+  ---
+  duration_ms: 4.428148
+  type: 'test'
+  ...
+# Subtest: a density transitions through strengthening, weakening and replenished
+ok 297 - a density transitions through strengthening, weakening and replenished
+  ---
+  duration_ms: 2.353996
+  type: 'test'
+  ...
+# Subtest: a zero quantity closes a density as removed without claiming execution
+ok 298 - a zero quantity closes a density as removed without claiming execution
+  ---
+  duration_ms: 1.181421
+  type: 'test'
+  ...
+# Subtest: hysteresis closes a weakened level only after the fade grace window
+ok 299 - hysteresis closes a weakened level only after the fade grace window
+  ---
+  duration_ms: 2.312768
+  type: 'test'
+  ...
+# Subtest: gap reset and partial fallback cannot leak lifecycle state
+ok 300 - gap reset and partial fallback cannot leak lifecycle state
+  ---
+  duration_ms: 0.707835
+  type: 'test'
+  ...
+# Subtest: Legacy symbol changes reset cross-symbol lifetime counters
+ok 301 - Legacy symbol changes reset cross-symbol lifetime counters
+  ---
+  duration_ms: 0.41651
+  type: 'test'
+  ...
+# Subtest: active and serialized density collections stay bounded
+ok 302 - active and serialized density collections stay bounded
+  ---
+  duration_ms: 0.693849
+  type: 'test'
+  ...
+# Subtest: Worker and Legacy fallback share the density lifecycle contract
+ok 303 - Worker and Legacy fallback share the density lifecycle contract
+  ---
+  duration_ms: 16.076387
+  type: 'test'
+  ...
+# Subtest: deep projection preserves exact near levels and total quote
+ok 304 - deep projection preserves exact near levels and total quote
+  ---
+  duration_ms: 9.257836
+  type: 'test'
+  ...
+# Subtest: deep projection stays ordered on both sides
+ok 305 - deep projection stays ordered on both sides
+  ---
+  duration_ms: 2.015512
+  type: 'test'
+  ...
+# Subtest: small books pass through without compaction
+ok 306 - small books pass through without compaction
+  ---
+  duration_ms: 0.230551
+  type: 'test'
+  ...
+# Subtest: depth changes map to the four normalized lifecycle event types
+ok 307 - depth changes map to the four normalized lifecycle event types
+  ---
+  duration_ms: 1.304791
+  type: 'test'
+  ...
+# Subtest: snapshot seeds the book as a baseline without fabricating appeared events
+ok 308 - snapshot seeds the book as a baseline without fabricating appeared events
+  ---
+  duration_ms: 3.171616
+  type: 'test'
+  ...
+# Subtest: a continuous diff emits normalized bid and ask events before updating the book
+ok 309 - a continuous diff emits normalized bid and ask events before updating the book
+  ---
+  duration_ms: 0.881579
+  type: 'test'
+  ...
+# Subtest: missing zero levels, unchanged quantities and invalid rows stay silent
+ok 310 - missing zero levels, unchanged quantities and invalid rows stay silent
+  ---
+  duration_ms: 0.297928
+  type: 'test'
+  ...
+# Subtest: journal marks bridge events as recovered and live events as live
+ok 311 - journal marks bridge events as recovered and live events as live
+  ---
+  duration_ms: 0.63572
+  type: 'test'
+  ...
+# Subtest: gap reset opens a new epoch and cannot leak old lifecycle events
+ok 312 - gap reset opens a new epoch and cannot leak old lifecycle events
+  ---
+  duration_ms: 0.349945
+  type: 'test'
+  ...
+# Subtest: journal history is bounded and keeps the newest normalized events
+ok 313 - journal history is bounded and keeps the newest normalized events
+  ---
+  duration_ms: 0.525884
+  type: 'test'
+  ...
+# Subtest: Worker and Legacy fallback share the event-first runtime contract
+ok 314 - Worker and Legacy fallback share the event-first runtime contract
+  ---
+  duration_ms: 13.122188
+  type: 'test'
+  ...
+# Subtest: a fast primary REST host prevents backup requests from starting
+ok 315 - a fast primary REST host prevents backup requests from starting
+  ---
+  duration_ms: 4.118097
+  type: 'test'
+  ...
+# Subtest: a failed primary starts a delayed backup and preserves failure diagnostics
+ok 316 - a failed primary starts a delayed backup and preserves failure diagnostics
+  ---
+  duration_ms: 6.387775
+  type: 'test'
+  ...
+# Subtest: the winning REST response aborts requests that are still in flight
+ok 317 - the winning REST response aborts requests that are still in flight
+  ---
+  duration_ms: 1.72587
+  type: 'test'
+  ...
+# Subtest: network errors are classified without claiming that CORS is proven
+ok 318 - network errors are classified without claiming that CORS is proven
+  ---
+  duration_ms: 0.47015
+  type: 'test'
+  ...
+# Subtest: all orderbook panels share one latest-only frame scheduler
+ok 319 - all orderbook panels share one latest-only frame scheduler
+  ---
+  duration_ms: 1.269616
+  type: 'test'
+  ...
+# Subtest: canvas runtime disables the hidden legacy DOM footprint
+ok 320 - canvas runtime disables the hidden legacy DOM footprint
+  ---
+  duration_ms: 0.269986
+  type: 'test'
+  ...
+# Subtest: Tape draw work yields across animation frames without dropping dirty cards
+ok 321 - Tape draw work yields across animation frames without dropping dirty cards
+  ---
+  duration_ms: 0.354935
+  type: 'test'
+  ...
+# Subtest: Tape ingestion shares each frame between symbols and both trade channels
+ok 322 - Tape ingestion shares each frame between symbols and both trade channels
+  ---
+  duration_ms: 0.615732
+  type: 'test'
+  ...
+# Subtest: footprint renders only dirty cards under the same frame budget
+ok 323 - footprint renders only dirty cards under the same frame budget
+  ---
+  duration_ms: 0.312735
+  type: 'test'
+  ...
+# Subtest: render optimization leaves strict depth sequencing untouched
+ok 324 - render optimization leaves strict depth sequencing untouched
+  ---
+  duration_ms: 0.218679
+  type: 'test'
+  ...
+# Subtest: depth updates add, replace and remove price levels
+ok 325 - depth updates add, replace and remove price levels
+  ---
+  duration_ms: 2.140696
+  type: 'test'
+  ...
+# Subtest: order book view keeps best bids and asks first
+ok 326 - order book view keeps best bids and asks first
+  ---
+  duration_ms: 0.451455
+  type: 'test'
+  ...
+# Subtest: partial depth stream becomes a ready top-20 book without REST snapshot
+ok 327 - partial depth stream becomes a ready top-20 book without REST snapshot
+  ---
+  duration_ms: 0.25661
+  type: 'test'
+  ...
+# Subtest: depth range is aggregated into stable price bands
+ok 328 - depth range is aggregated into stable price bands
+  ---
+  duration_ms: 0.398727
+  type: 'test'
+  ...
+# Subtest: aggregate trade identifies the aggressive market side
+ok 329 - aggregate trade identifies the aggressive market side
+  ---
+  duration_ms: 1.205927
+  type: 'test'
+  ...
+# Subtest: price ladder keeps the market row visible and fills both sides
+ok 330 - price ladder keeps the market row visible and fills both sides
+  ---
+  duration_ms: 1.283162
+  type: 'test'
+  ...
+# Subtest: orderbook wheel uses the trader-facing step direction
+ok 331 - orderbook wheel uses the trader-facing step direction
+  ---
+  duration_ms: 0.195617
+  type: 'test'
+  ...
+# Subtest: reducing the step converges a free viewport toward market and snaps at x1
+ok 332 - reducing the step converges a free viewport toward market and snaps at x1
+  ---
+  duration_ms: 0.188463
+  type: 'test'
+  ...
+# Subtest: price ladder cannot be scrolled below zero
+ok 333 - price ladder cannot be scrolled below zero
+  ---
+  duration_ms: 0.529912
+  type: 'test'
+  ...
+# Subtest: size bars use the complete projected book instead of the visible ladder
+ok 334 - size bars use the complete projected book instead of the visible ladder
+  ---
+  duration_ms: 0.842146
+  type: 'test'
+  ...
+# Subtest: automatic anomaly reference uses the complete book rather than the visible ladder
+ok 335 - automatic anomaly reference uses the complete book rather than the visible ladder
+  ---
+  duration_ms: 1.927056
+  type: 'test'
+  ...
+# Subtest: highlight modes preserve displayed size while AUTO inspects the largest real order
+ok 336 - highlight modes preserve displayed size while AUTO inspects the largest real order
+  ---
+  duration_ms: 0.280014
+  type: 'test'
+  ...
+# Subtest: AUTO keeps one threshold per coin for the whole session
+ok 337 - AUTO keeps one threshold per coin for the whole session
+  ---
+  duration_ms: 0.172303
+  type: 'test'
+  ...
+# Subtest: hover distance uses color for direction and absolute compact text
+ok 338 - hover distance uses color for direction and absolute compact text
+  ---
+  duration_ms: 0.139922
+  type: 'test'
+  ...
+# Subtest: Tape maps every execution to its exact interpolated price coordinate
+ok 339 - Tape maps every execution to its exact interpolated price coordinate
+  ---
+  duration_ms: 0.44892
+  type: 'test'
+  ...
+# Subtest: percent depth gives BTC and alt books the same visible range
+ok 340 - percent depth gives BTC and alt books the same visible range
+  ---
+  duration_ms: 38.036304
+  type: 'test'
+  ...
+# Subtest: trade clusters respect the minimum quote filter
+ok 341 - trade clusters respect the minimum quote filter
+  ---
+  duration_ms: 0.363551
+  type: 'test'
+  ...
+# Subtest: RAW trade path preserves executions and applies the minimum filter per event
+ok 342 - RAW trade path preserves executions and applies the minimum filter per event
+  ---
+  duration_ms: 0.377095
+  type: 'test'
+  ...
+# Subtest: impulse adaptation preserves the user-selected price step
+ok 343 - impulse adaptation preserves the user-selected price step
+  ---
+  duration_ms: 0.173705
+  type: 'test'
+  ...
+# Subtest: AUTO depth fits the working area and scale recovery preserves the user value
+ok 344 - AUTO depth fits the working area and scale recovery preserves the user value
+  ---
+  duration_ms: 0.426598
+  type: 'test'
+  ...
+# Subtest: time window and footprint preserve exact time-price cells
+ok 345 - time window and footprint preserve exact time-price cells
+  ---
+  duration_ms: 0.424945
+  type: 'test'
+  ...
+# Subtest: order book separates public depth and market trade streams
+ok 346 - order book separates public depth and market trade streams
+  ---
+  duration_ms: 4.453865
+  type: 'test'
+  ...
+# Subtest: owner dashboard creates a safe same-origin InPuls orderbook link
+ok 347 - owner dashboard creates a safe same-origin InPuls orderbook link
+  ---
+  duration_ms: 1.66157
+  type: 'test'
+  ...
+# Subtest: owner navigation rejects invalid symbols and unknown actions
+ok 348 - owner navigation rejects invalid symbols and unknown actions
+  ---
+  duration_ms: 1.242696
+  type: 'test'
+  ...
+# Subtest: owner dashboard stays unlinked, local-only and exposes no destructive history controls
+ok 349 - owner dashboard stays unlinked, local-only and exposes no destructive history controls
+  ---
+  duration_ms: 12.367867
+  type: 'test'
+  ...
+# Subtest: catalog has only the agreed pattern groups plus explicit market events
+ok 350 - catalog has only the agreed pattern groups plus explicit market events
+  ---
+  duration_ms: 1.300283
+  type: 'test'
+  ...
+# Subtest: minute structure stores one-minute extrema for cascade research
+ok 351 - minute structure stores one-minute extrema for cascade research
+  ---
+  duration_ms: 1.491581
+  type: 'test'
+  ...
+# Subtest: 59th-minute evidence uses UTC exchange time
+ok 352 - 59th-minute evidence uses UTC exchange time
+  ---
+  duration_ms: 0.409056
+  type: 'test'
+  ...
+# Subtest: density geometry preserves layout and observed move chains without scoring intent
+ok 353 - density geometry preserves layout and observed move chains without scoring intent
+  ---
+  duration_ms: 1.805068
+  type: 'test'
+  ...
+# Subtest: PWA reset recognizes only the InPuls worker at its exact scope
+ok 354 - PWA reset recognizes only the InPuls worker at its exact scope
+  ---
+  duration_ms: 1.483877
+  type: 'test'
+  ...
+# Subtest: PWA reset leaves unrelated registrations and caches untouched
+ok 355 - PWA reset leaves unrelated registrations and caches untouched
+  ---
+  duration_ms: 1.592991
+  type: 'test'
+  ...
+# Subtest: latest scheduler coalesces repeated data for one panel
+ok 356 - latest scheduler coalesces repeated data for one panel
+  ---
+  duration_ms: 1.878476
+  type: 'test'
+  ...
+# Subtest: frame budget yields remaining panels to the next frame
+ok 357 - frame budget yields remaining panels to the next frame
+  ---
+  duration_ms: 0.355405
+  type: 'test'
+  ...
+# Subtest: urgent interaction moves an already queued panel to the front
+ok 358 - urgent interaction moves an already queued panel to the front
+  ---
+  duration_ms: 0.350215
+  type: 'test'
+  ...
+# Subtest: removed panels never render from a stale queue entry
+ok 359 - removed panels never render from a stale queue entry
+  ---
+  duration_ms: 1.182033
+  type: 'test'
+  ...
+# Subtest: static server rejects malformed URLs without terminating
+ok 360 - static server rejects malformed URLs without terminating
+  ---
+  duration_ms: 35.90125
+  type: 'test'
+  ...
+# Subtest: static server blocks private files and missing scripts
+ok 361 - static server blocks private files and missing scripts
+  ---
+  duration_ms: 11.645746
+  type: 'test'
+  ...
+# Subtest: static server sends browser security headers and limits methods
+ok 362 - static server sends browser security headers and limits methods
+  ---
+  duration_ms: 7.701384
+  type: 'test'
+  ...
+# Subtest: owner Signal Lab is served as a protected same-origin page
+ok 363 - owner Signal Lab is served as a protected same-origin page
+  ---
+  duration_ms: 8.028496
+  type: 'test'
+  ...
+# Subtest: owner Signal Lab explains that collection runs in the main InPuls tab
+ok 364 - owner Signal Lab explains that collection runs in the main InPuls tab
+  ---
+  duration_ms: 6.633164
+  type: 'test'
+  ...
+# Subtest: service worker reports whether a same-origin main collector client is open
+ok 365 - service worker reports whether a same-origin main collector client is open
+  ---
+  duration_ms: 1.611566
+  type: 'test'
+  ...
+# Subtest: enriches current events with canonical pattern and facts
+ok 366 - enriches current events with canonical pattern and facts
+  ---
+  duration_ms: 2.355058
+  type: 'test'
+  ...
+# Subtest: groups repeated events into one market episode
+ok 367 - groups repeated events into one market episode
+  ---
+  duration_ms: 0.811169
+  type: 'test'
+  ...
+# Subtest: stored V2 review overrides event review
+ok 368 - stored V2 review overrides event review
+  ---
+  duration_ms: 0.439993
+  type: 'test'
+  ...
+# Subtest: team aliases resolve to canonical pattern ids
+ok 369 - team aliases resolve to canonical pattern ids
+  ---
+  duration_ms: 1.657292
+  type: 'test'
+  ...
+# Subtest: catalog keeps ambiguous team terminology as an explicit limitation
+ok 370 - catalog keeps ambiguous team terminology as an explicit limitation
+  ---
+  duration_ms: 0.493774
+  type: 'test'
+  ...
+# Subtest: candidate validation requires factual identity and direction
+ok 371 - candidate validation requires factual identity and direction
+  ---
+  duration_ms: 0.38478
+  type: 'test'
+  ...
+# Subtest: cascade explanation contains observable facts only
+ok 372 - cascade explanation contains observable facts only
+  ---
+  duration_ms: 1.117792
+  type: 'test'
+  ...
+# Subtest: liquidity explanation does not accuse spoofing
+ok 373 - liquidity explanation does not accuse spoofing
+  ---
+  duration_ms: 18.070259
+  type: 'test'
+  ...
+# Subtest: legacy reviews migrate without losing the manual comment
+ok 374 - legacy reviews migrate without losing the manual comment
+  ---
+  duration_ms: 0.48625
+  type: 'test'
+  ...
+# Subtest: valid review preserves trader markup
+ok 375 - valid review preserves trader markup
+  ---
+  duration_ms: 0.421539
+  type: 'test'
+  ...
+# Subtest: duplicate review requires an episode id
+ok 376 - duplicate review requires an episode id
+  ---
+  duration_ms: 0.202048
+  type: 'test'
+  ...
+# Subtest: same market move is grouped into one episode
+ok 377 - same market move is grouped into one episode
+  ---
+  duration_ms: 0.980755
+  type: 'test'
+  ...
+# Subtest: distant or late event starts a new episode
+ok 378 - distant or late event starts a new episode
+  ---
+  duration_ms: 0.52403
+  type: 'test'
+  ...
+# Subtest: episode state machine blocks impossible resurrection
+ok 379 - episode state machine blocks impossible resurrection
+  ---
+  duration_ms: 0.693658
+  type: 'test'
+  ...
+# Subtest: terminal episode rejects duplicate events
+ok 380 - terminal episode rejects duplicate events
+  ---
+  duration_ms: 0.323345
+  type: 'test'
+  ...
+# Subtest: training sample preserves formula version, outcome and data limitations
+ok 381 - training sample preserves formula version, outcome and data limitations
+  ---
+  duration_ms: 1.427913
+  type: 'test'
+  ...
+# Subtest: readiness gate never treats a few pretty examples as sufficient
+ok 382 - readiness gate never treats a few pretty examples as sufficient
+  ---
+  duration_ms: 0.42197
+  type: 'test'
+  ...
+# Subtest: beta eligibility needs positives, counterexamples, live coverage and one formula version
+ok 383 - beta eligibility needs positives, counterexamples, live coverage and one formula version
+  ---
+  duration_ms: 0.258835
+  type: 'test'
+  ...
+# Subtest: Signal Lab V3 separates Binance market and public routes
+not ok 384 - Signal Lab V3 separates Binance market and public routes
+  ---
+  duration_ms: 6.505586
+  type: 'test'
+  location: '/home/runner/work/InPuls/InPuls/test/signal-lab-v3-collector.test.js:18:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /params:s*["!bookTicker"]/. Input:
+    
+    'import {\n' +
+      '  DEFAULT_SETTINGS,\n' +
+      '  SymbolState,\n' +
+      '  filterUsdtPerpetualTicker,\n' +
+      '  isUsdtPerpetualSymbol,\n' +
+      '  normalizeUsdtPerpetualSymbol,\n' +
+      '} from "./engine.js?v=26-65-structured-signal-collection-v1";\n' +
+      'import {\n' +
+      '  CandidateEpisodeTracker,\n' +
+      '  candidateWatchScore,\n' +
+      '  DEFAULT_CANDIDATE_SETTINGS,\n' +
+      '  SIGNAL_LAB_V3_FORMULA_VERSION,\n' +
+      '} from "./signal-lab-v3-candidates.js";\n' +
+      '\n' +
+      'const BINANCE_MARKET_STREAM_ENDPOINT = "wss://fstream.binance.com/market/ws";\n' +
+      'const BINANCE_PUBLIC_STREAM_ENDPOINT = "wss://fstream.binance.com/public/ws";\n' +
+      'const BINANCE_KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";\n' +
+      'const CONNECTION_TIMEOUT_MS = 10_000;\n' +
+      '\n' +
+      'const finite = (value) => {\n' +
+      '  const number = Number(value);\n' +
+      '  return Number.isFinite(number) ? number : null;\n' +
+      '};\n' +
+      '\n' +
+      'function median(values) {\n' +
+      '  const sorted = values.filter(Number.isFinite).sort((left, right) => left - right);\n' +
+      '  if (!sorted.length) return null;\n' +
+      '  const middle = Math.floor(sorted.length / 2);\n' +
+      '  return sorted.length % 2\n' +
+      '    ? sorted[middle]\n' +
+      '    : (sorted[middle - 1] + sorted[middle]) / 2;\n' +
+      '}\n' +
+      '\n' +
+      'function sizeSimilarityPercent(left, right) {\n' +
+      '  if (!(left > 0) || !(right > 0)) return Infinity;\n' +
+      '  return Math.abs(left - right) / Math.max(left, right) * 100;\n' +
+      '}\n' +
+      '\n' +
+      'function sideState() {\n' +
+      '  return {\n' +
+      '    samples: [],\n' +
+      '    latestStrong: null,\n' +
+      '    strongTouches: [],\n' +
+      '  };\n' +
+      '}\n' +
+      '\n' +
+      'export class ExpertBookCandidateTracker {\n' +
+      '  constructor(options = {}) {\n' +
+      '    this.options = {\n' +
+      '      minimumSamples: 12,\n' +
+      '      sampleLimit: 80,\n' +
+      '      minimumQuoteUsd: DEFAULT_CANDIDATE_SETTINGS.minimumLiquidityQuoteUsd,\n' +
+      '      minimumMultiple: DEFAULT_CANDIDATE_SETTINGS.minimumLiquidityMultiple,\n' +
+      '      similarityPercent: 24,\n' +
+      '      repeatWindowMs: 8_000,\n' +
+      '      moveWindowMs: 3_000,\n' +
+      '      lifetimeMs: 4_500,\n' +
+      '      ...options,\n' +
+      '    };\n' +
+      '    this.symbols = new Map();\n' +
+      '  }\n' +
+      '\n' +
+      '  #symbol(symbol) {\n' +
+      '    if (!this.symbols.has(symbol)) {\n' +
+      '      this.symbols.set(symbol, { bid: sideState(), ask: sideState() });\n' +
+      '    }\n' +
+      '    return this.symbols.get(symbol);\n' +
+      '  }\n' +
+      '\n' +
+      '  #observe(symbol, side, price, quantity, at) {\n' +
+      '    if (!(price > 0) || !(quantity > 0)) return;\n' +
+      '    const state = this.#symbol(symbol)[side];\n' +
+      '    const quoteUsd = price * quantity;\n' +
+      '    const baselineQuoteUsd = median(state.samples);\n' +
+      '    state.samples.push(quoteUsd);\n' +
+      '    if (state.samples.length > this.options.sampleLimit) state.samples.shift();\n' +
+      '    if (\n' +
+      '      state.samples.length < this.options.minimumSamples\n' +
+      '      || !(baselineQuoteUsd > 0)\n' +
+      '      || quoteUsd < this.options.minimumQuoteUsd\n' +
+      '      || quoteUsd < baselineQuoteUsd * this.options.minimumMultiple\n' +
+      '    ) return;\n' +
+      '\n' +
+      '    const previous = state.latestStrong;\n' +
+      '    const moved = Boolean(\n' +
+      '      previous\n' +
+      '      && at - previous.observedAt <= this.options.moveWindowMs\n' +
+      '      && previous.price !== price\n' +
+      '      && sizeSimilarityPercent(previous.quoteUsd, quoteUsd) <= this.options.similarityPercent\n' +
+      '    );\n' +
+      '    state.strongTouches.push({ price, quoteUsd, observedAt: at });\n' +
+      '    state.strongTouches = state.strongTouches.filter(\n' +
+      '      (touch) => at - touch.observedAt <= this.options.repeatWindowMs,\n' +
+      '    );\n' +
+      '    const comparableTouches = state.strongTouches.filter(\n' +
+      '      (touch) => sizeSimilarityPercent(touch.quoteUsd, quoteUsd) <= this.options.similarityPercent,\n' +
+      '    );\n' +
+      '    state.latestStrong = {\n' +
+      '      side,\n' +
+      '      price,\n' +
+      '      quoteUsd,\n' +
+      '      baselineQuoteUsd,\n' +
+      '      sizeMultiple: quoteUsd / baselineQuoteUsd,\n' +
+      '      touchCount: comparableTouches.length,\n' +
+      '      moved,\n' +
+      '      fromPrice: moved ? previous.price : null,\n' +
+      '      observedAt: at,\n' +
+      '    };\n' +
+      '  }\n' +
+      '\n' +
+      '  ingest(ticker, now = Date.now()) {\n' +
+      '    const symbol = normalizeUsdtPerpetualSymbol(ticker?.s);\n' +
+      '    if (!symbol) return;\n' +
+      '    const at = finite(ticker?.E) ?? now;\n' +
+      '    const bidPrice = finite(ticker?.b);\n' +
+      '    const bidQuantity = finite(ticker?.B);\n' +
+      '    const askPrice = finite(ticker?.a);\n' +
+      '    const askQuantity = finite(ticker?.A);\n' +
+      '    if (bidPrice !== null && bidQuantity !== null) {\n' +
+      '      this.#observe(symbol, "bid", bidPrice, bidQuantity, at);\n' +
+      '    }\n' +
+      '    if (askPrice !== null && askQuantity !== null) {\n' +
+      '      this.#observe(symbol, "ask", askPrice, askQuantity, at);\n' +
+      '    }\n' +
+      '  }\n' +
+      '\n' +
+      '  candidateFor(symbol, now = Date.now()) {\n' +
+      '    const states = this.symbols.get(normalizeUsdtPerpetualSymbol(symbol));\n' +
+      '    if (!states) return null;\n' +
+      '    const candidates = [states.bid.latestStrong, states.ask.latestStrong]\n' +
+      '      .filter((item) => item && now - item.observedAt <= this.options.lifetimeMs)\n' +
+      '      .sort((left, right) => (\n' +
+      '        right.sizeMultiple - left.sizeMultiple\n' +
+      '        || right.touchCount - left.touchCount\n' +
+      '        || right.observedAt - left.observedAt\n' +
+      '      ));\n' +
+      '    return candidates[0] ? Object.freeze({ ...candidates[0] }) : null;\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'function normalizeKline(row) {\n' +
+      '  if (!Array.isArray(row) || row.length < 5) return null;\n' +
+      '  const candle = {\n' +
+      '    time: finite(row[0]),\n' +
+      '    open: finite(row[1]),\n' +
+      '    high: finite(row[2]),\n' +
+      '    low: finite(row[3]),\n' +
+      '    close: finite(row[4]),\n' +
+      '  };\n' +
+      '  return [candle.time, candle.open, candle.high, candle.low, candle.close]\n' +
+      '    .every((value) => value !== null && value > 0)\n' +
+      '    ? candle\n' +
+      '    : null;\n' +
+      '}\n' +
+      '\n' +
+      'export class SignalLabV3Collector {\n' +
+      '  constructor({\n' +
+      '    onEpisodes = () => {},\n' +
+      '    onStatus = () => {},\n' +
+      '    candidateSettings = {},\n' +
+      '    maximumTrackedTrades = 32,\n' +
+      '    maximumWarmupSymbols = 80,\n' +
+      '  } = {}) {\n' +
+      '    this.onEpisodes = onEpisodes;\n' +
+      '    this.onStatus = onStatus;\n' +
+      '    this.settings = { ...DEFAULT_CANDIDATE_SETTINGS, ...candidateSettings };\n' +
+      '    this.maximumTrackedTrades = maximumTrackedTrades;\n' +
+      '    this.maximumWarmupSymbols = maximumWarmupSymbols;\n' +
+      '    this.socket = null;\n' +
+      '    this.bookSocket = null;\n' +
+      '    this.requestId = 1;\n' +
+      '    this.bookRequestId = 1;\n' +
+      '    this.reconnectAttempt = 0;\n' +
+      '    this.bookReconnectAttempt = 0;\n' +
+      '    this.reconnectTimer = null;\n' +
+      '    this.bookReconnectTimer = null;\n' +
+      '    this.connectionTimer = null;\n' +
+      '    this.corePacketTimer = null;\n' +
+      '    this.bookConnectionTimer = null;\n' +
+      '    this.manualClose = false;\n' +
+      '    this.symbols = new Map();\n' +
+      '    this.bookTracker = new ExpertBookCandidateTracker(this.settings);\n' +
+      '    this.episodes = new CandidateEpisodeTracker(this.settings);\n' +
+      '    this.trackedAggTrades = new Set();\n' +
+      '    this.historyLoaded = new Set();\n' +
+      '    this.historyLoading = new Set();\n' +
+      '    this.lastSubscriptionRefreshAt = 0;\n' +
+      '    this.statusState = {\n' +
+      '      formulaVersion: SIGNAL_LAB_V3_FORMULA_VERSION,\n' +
+      '      connection: "idle",\n' +
+      '      startedAt: null,\n' +
+      '      lastMessageAt: null,\n' +
+      '      lastBookMessageAt: null,\n' +
+      '      lastCheckAt: null,\n' +
+      '      marketPackets: 0,\n' +
+      '      miniTickerPackets: 0,\n' +
+      '      bookPackets: 0,\n' +
+      '      aggTradePackets: 0,\n' +
+      '      subscriptionErrors: 0,\n' +
+      '      checks: 0,\n' +
+      '      createdEpisodes: 0,\n' +
+      '      updatedEpisodes: 0,\n' +
+      '      expiredEpisodes: 0,\n' +
+      '      symbols: 0,\n' +
+      '      trackedTrades: 0,\n' +
+      '      warmupLoaded: 0,\n' +
+      '      warmupLoading: 0,\n' +
+      '      lastError: null,\n' +
+      '    };\n' +
+      '  }\n' +
+      '\n' +
+      '  connect() {\n' +
+      '    this.manualClose = false;\n' +
+      '    this.#connectMarket();\n' +
+      '    this.#connectBook();\n' +
+      '  }\n' +
+      '\n' +
+      '  #connectMarket() {\n' +
+      '    clearTimeout(this.reconnectTimer);\n' +
+      '    clearTimeout(this.connectionTimer);\n' +
+      '    clearTimeout(this.corePacketTimer);\n' +
+      '    if (this.manualClose) return;\n' +
+      '    this.#publish({\n' +
+      '      connection: "connecting",\n' +
+      '      startedAt: this.statusState.startedAt ?? Date.now(),\n' +
+      '      lastError: null,\n' +
+      '    });\n' +
+      '    const checksAtOpen = this.statusState.checks;\n' +
+      '    const socket = new WebSocket(BINANCE_MARKET_STREAM_ENDPOINT);\n' +
+      '    this.socket = socket;\n' +
+      '    this.connectionTimer = setTimeout(() => {\n' +
+      '      if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;\n' +
+      '      this.#publish({ connection: "error", lastError: "Binance market не отвечает более 10 секунд" });\n' +
+      '      socket.close();\n' +
+      '    }, CONNECTION_TIMEOUT_MS);\n' +
+      '\n' +
+      '    socket.addEventListener("open", () => {\n' +
+      '      if (this.socket !== socket) return;\n' +
+      '      clearTimeout(this.connectionTimer);\n' +
+      '      this.reconnectAttempt = 0;\n' +
+      '      this.#publish({ connection: "syncing", lastError: null });\n' +
+      '      this.#send("SUBSCRIBE", [\n' +
+      '        "!miniTicker@arr",\n' +
+      '        "!markPrice@arr@1s",\n' +
+      '        "!forceOrder@arr",\n' +
+      '      ]);\n' +
+      '      if (this.trackedAggTrades.size) {\n' +
+      '        this.#send("SUBSCRIBE", [...this.trackedAggTrades].map(\n' +
+      '          (symbol) => `${symbol.toLowerCase()}@aggTrade`,\n' +
+      '        ));\n' +
+      '      }\n' +
+      '      this.corePacketTimer = setTimeout(() => {\n' +
+      '        if (this.socket !== socket || this.statusState.checks !== checksAtOpen) return;\n' +
+      '        this.#publish({\n' +
+      '          connection: "error",\n' +
+      '          lastError: "Сокет открыт, но обязательный miniTicker не поступает",\n' +
+      '        });\n' +
+      '        socket.close();\n' +
+      '      }, 7_000);\n' +
+      '    });\n' +
+      '\n' +
+      '    socket.addEventListener("message", (event) => {\n' +
+      '      if (this.socket !== socket) return;\n' +
+      '      let payload;\n' +
+      '      try {\n' +
+      '        payload = JSON.parse(event.data);\n' +
+      '      } catch {\n' +
+      '        return;\n' +
+      '      }\n' +
+      '      if (Number.isFinite(Number(payload?.code))) {\n' +
+      '        this.#publish({\n' +
+      '          connection: "error",\n' +
+      '          subscriptionErrors: this.statusState.subscriptionErrors + 1,\n' +
+      '          lastError: `Binance subscription: ${String(payload?.msg ?? payload.code).slice(0, 140)}`,\n' +
+      '        });\n' +
+      '        socket.close();\n' +
+      '        return;\n' +
+      '      }\n' +
+      '      if (payload?.result === null || (payload?.id && payload?.result !== undefined)) return;\n' +
+      '      const data = payload?.data ?? payload;\n' +
+      '      const receivedAt = Date.now();\n' +
+      '      const hasMiniTicker = Array.isArray(data) && data.some((row) => (\n' +
+      '        row?.e === "24hrMiniTicker"\n' +
+      '        && isUsdtPerpetualSymbol(row.s)\n' +
+      '        && finite(row.c) > 0\n' +
+      '      ));\n' +
+      '      const aggTradePackets = Array.isArray(data)\n' +
+      '        ? data.filter((row) => row?.e === "aggTrade").length\n' +
+      '        : data?.e === "aggTrade" ? 1 : 0;\n' +
+      '      const patch = {\n' +
+      '        lastMessageAt: receivedAt,\n' +
+      '        marketPackets: this.statusState.marketPackets + 1,\n' +
+      '        aggTradePackets: this.statusState.aggTradePackets + aggTradePackets,\n' +
+      '      };\n' +
+      '      if (hasMiniTicker) {\n' +
+      '        clearTimeout(this.corePacketTimer);\n' +
+      '        patch.connection = "live";\n' +
+      '        patch.miniTickerPackets = this.statusState.miniTickerPackets + 1;\n' +
+      '        patch.lastError = null;\n' +
+      '      }\n' +
+      '      this.#publish(patch);\n' +
+      '      this.#handle(data);\n' +
+      '    });\n' +
+      '\n' +
+      '    socket.addEventListener("close", () => {\n' +
+      '      if ('... 9447 more characters
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: |-
+    import {
+      DEFAULT_SETTINGS,
+      SymbolState,
+      filterUsdtPerpetualTicker,
+      isUsdtPerpetualSymbol,
+      normalizeUsdtPerpetualSymbol,
+    } from "./engine.js?v=26-65-structured-signal-collection-v1";
+    import {
+      CandidateEpisodeTracker,
+      candidateWatchScore,
+      DEFAULT_CANDIDATE_SETTINGS,
+      SIGNAL_LAB_V3_FORMULA_VERSION,
+    } from "./signal-lab-v3-candidates.js";
+    
+    const BINANCE_MARKET_STREAM_ENDPOINT = "wss://fstream.binance.com/market/ws";
+    const BINANCE_PUBLIC_STREAM_ENDPOINT = "wss://fstream.binance.com/public/ws";
+    const BINANCE_KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
+    const CONNECTION_TIMEOUT_MS = 10_000;
+    
+    const finite = (value) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    };
+    
+    function median(values) {
+      const sorted = values.filter(Number.isFinite).sort((left, right) => left - right);
+      if (!sorted.length) return null;
+      const middle = Math.floor(sorted.length / 2);
+      return sorted.length % 2
+        ? sorted[middle]
+        : (sorted[middle - 1] + sorted[middle]) / 2;
+    }
+    
+    function sizeSimilarityPercent(left, right) {
+      if (!(left > 0) || !(right > 0)) return Infinity;
+      return Math.abs(left - right) / Math.max(left, right) * 100;
+    }
+    
+    function sideState() {
+      return {
+        samples: [],
+        latestStrong: null,
+        strongTouches: [],
+      };
+    }
+    
+    export class ExpertBookCandidateTracker {
+      constructor(options = {}) {
+        this.options = {
+          minimumSamples: 12,
+          sampleLimit: 80,
+          minimumQuoteUsd: DEFAULT_CANDIDATE_SETTINGS.minimumLiquidityQuoteUsd,
+          minimumMultiple: DEFAULT_CANDIDATE_SETTINGS.minimumLiquidityMultiple,
+          similarityPercent: 24,
+          repeatWindowMs: 8_000,
+          moveWindowMs: 3_000,
+          lifetimeMs: 4_500,
+          ...options,
+        };
+        this.symbols = new Map();
+      }
+    
+      #symbol(symbol) {
+        if (!this.symbols.has(symbol)) {
+          this.symbols.set(symbol, { bid: sideState(), ask: sideState() });
+        }
+        return this.symbols.get(symbol);
+      }
+    
+      #observe(symbol, side, price, quantity, at) {
+        if (!(price > 0) || !(quantity > 0)) return;
+        const state = this.#symbol(symbol)[side];
+        const quoteUsd = price * quantity;
+        const baselineQuoteUsd = median(state.samples);
+        state.samples.push(quoteUsd);
+        if (state.samples.length > this.options.sampleLimit) state.samples.shift();
+        if (
+          state.samples.length < this.options.minimumSamples
+          || !(baselineQuoteUsd > 0)
+          || quoteUsd < this.options.minimumQuoteUsd
+          || quoteUsd < baselineQuoteUsd * this.options.minimumMultiple
+        ) return;
+    
+        const previous = state.latestStrong;
+        const moved = Boolean(
+          previous
+          && at - previous.observedAt <= this.options.moveWindowMs
+          && previous.price !== price
+          && sizeSimilarityPercent(previous.quoteUsd, quoteUsd) <= this.options.similarityPercent
+        );
+        state.strongTouches.push({ price, quoteUsd, observedAt: at });
+        state.strongTouches = state.strongTouches.filter(
+          (touch) => at - touch.observedAt <= this.options.repeatWindowMs,
+        );
+        const comparableTouches = state.strongTouches.filter(
+          (touch) => sizeSimilarityPercent(touch.quoteUsd, quoteUsd) <= this.options.similarityPercent,
+        );
+        state.latestStrong = {
+          side,
+          price,
+          quoteUsd,
+          baselineQuoteUsd,
+          sizeMultiple: quoteUsd / baselineQuoteUsd,
+          touchCount: comparableTouches.length,
+          moved,
+          fromPrice: moved ? previous.price : null,
+          observedAt: at,
+        };
+      }
+    
+      ingest(ticker, now = Date.now()) {
+        const symbol = normalizeUsdtPerpetualSymbol(ticker?.s);
+        if (!symbol) return;
+        const at = finite(ticker?.E) ?? now;
+        const bidPrice = finite(ticker?.b);
+        const bidQuantity = finite(ticker?.B);
+        const askPrice = finite(ticker?.a);
+        const askQuantity = finite(ticker?.A);
+        if (bidPrice !== null && bidQuantity !== null) {
+          this.#observe(symbol, "bid", bidPrice, bidQuantity, at);
+        }
+        if (askPrice !== null && askQuantity !== null) {
+          this.#observe(symbol, "ask", askPrice, askQuantity, at);
+        }
+      }
+    
+      candidateFor(symbol, now = Date.now()) {
+        const states = this.symbols.get(normalizeUsdtPerpetualSymbol(symbol));
+        if (!states) return null;
+        const candidates = [states.bid.latestStrong, states.ask.latestStrong]
+          .filter((item) => item && now - item.observedAt <= this.options.lifetimeMs)
+          .sort((left, right) => (
+            right.sizeMultiple - left.sizeMultiple
+            || right.touchCount - left.touchCount
+            || right.observedAt - left.observedAt
+          ));
+        return candidates[0] ? Object.freeze({ ...candidates[0] }) : null;
+      }
+    }
+    
+    function normalizeKline(row) {
+      if (!Array.isArray(row) || row.length < 5) return null;
+      const candle = {
+        time: finite(row[0]),
+        open: finite(row[1]),
+        high: finite(row[2]),
+        low: finite(row[3]),
+        close: finite(row[4]),
+      };
+      return [candle.time, candle.open, candle.high, candle.low, candle.close]
+        .every((value) => value !== null && value > 0)
+        ? candle
+        : null;
+    }
+    
+    export class SignalLabV3Collector {
+      constructor({
+        onEpisodes = () => {},
+        onStatus = () => {},
+        candidateSettings = {},
+        maximumTrackedTrades = 32,
+        maximumWarmupSymbols = 80,
+      } = {}) {
+        this.onEpisodes = onEpisodes;
+        this.onStatus = onStatus;
+        this.settings = { ...DEFAULT_CANDIDATE_SETTINGS, ...candidateSettings };
+        this.maximumTrackedTrades = maximumTrackedTrades;
+        this.maximumWarmupSymbols = maximumWarmupSymbols;
+        this.socket = null;
+        this.bookSocket = null;
+        this.requestId = 1;
+        this.bookRequestId = 1;
+        this.reconnectAttempt = 0;
+        this.bookReconnectAttempt = 0;
+        this.reconnectTimer = null;
+        this.bookReconnectTimer = null;
+        this.connectionTimer = null;
+        this.corePacketTimer = null;
+        this.bookConnectionTimer = null;
+        this.manualClose = false;
+        this.symbols = new Map();
+        this.bookTracker = new ExpertBookCandidateTracker(this.settings);
+        this.episodes = new CandidateEpisodeTracker(this.settings);
+        this.trackedAggTrades = new Set();
+        this.historyLoaded = new Set();
+        this.historyLoading = new Set();
+        this.lastSubscriptionRefreshAt = 0;
+        this.statusState = {
+          formulaVersion: SIGNAL_LAB_V3_FORMULA_VERSION,
+          connection: "idle",
+          startedAt: null,
+          lastMessageAt: null,
+          lastBookMessageAt: null,
+          lastCheckAt: null,
+          marketPackets: 0,
+          miniTickerPackets: 0,
+          bookPackets: 0,
+          aggTradePackets: 0,
+          subscriptionErrors: 0,
+          checks: 0,
+          createdEpisodes: 0,
+          updatedEpisodes: 0,
+          expiredEpisodes: 0,
+          symbols: 0,
+          trackedTrades: 0,
+          warmupLoaded: 0,
+          warmupLoading: 0,
+          lastError: null,
+        };
+      }
+    
+      connect() {
+        this.manualClose = false;
+        this.#connectMarket();
+        this.#connectBook();
+      }
+    
+      #connectMarket() {
+        clearTimeout(this.reconnectTimer);
+        clearTimeout(this.connectionTimer);
+        clearTimeout(this.corePacketTimer);
+        if (this.manualClose) return;
+        this.#publish({
+          connection: "connecting",
+          startedAt: this.statusState.startedAt ?? Date.now(),
+          lastError: null,
+        });
+        const checksAtOpen = this.statusState.checks;
+        const socket = new WebSocket(BINANCE_MARKET_STREAM_ENDPOINT);
+        this.socket = socket;
+        this.connectionTimer = setTimeout(() => {
+          if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+          this.#publish({ connection: "error", lastError: "Binance market не отвечает более 10 секунд" });
+          socket.close();
+        }, CONNECTION_TIMEOUT_MS);
+    
+        socket.addEventListener("open", () => {
+          if (this.socket !== socket) return;
+          clearTimeout(this.connectionTimer);
+          this.reconnectAttempt = 0;
+          this.#publish({ connection: "syncing", lastError: null });
+          this.#send("SUBSCRIBE", [
+            "!miniTicker@arr",
+            "!markPrice@arr@1s",
+            "!forceOrder@arr",
+          ]);
+          if (this.trackedAggTrades.size) {
+            this.#send("SUBSCRIBE", [...this.trackedAggTrades].map(
+              (symbol) => `${symbol.toLowerCase()}@aggTrade`,
+            ));
+          }
+          this.corePacketTimer = setTimeout(() => {
+            if (this.socket !== socket || this.statusState.checks !== checksAtOpen) return;
+            this.#publish({
+              connection: "error",
+              lastError: "Сокет открыт, но обязательный miniTicker не поступает",
+            });
+            socket.close();
+          }, 7_000);
+        });
+    
+        socket.addEventListener("message", (event) => {
+          if (this.socket !== socket) return;
+          let payload;
+          try {
+            payload = JSON.parse(event.data);
+          } catch {
+            return;
+          }
+          if (Number.isFinite(Number(payload?.code))) {
+            this.#publish({
+              connection: "error",
+              subscriptionErrors: this.statusState.subscriptionErrors + 1,
+              lastError: `Binance subscription: ${String(payload?.msg ?? payload.code).slice(0, 140)}`,
+            });
+            socket.close();
+            return;
+          }
+          if (payload?.result === null || (payload?.id && payload?.result !== undefined)) return;
+          const data = payload?.data ?? payload;
+          const receivedAt = Date.now();
+          const hasMiniTicker = Array.isArray(data) && data.some((row) => (
+            row?.e === "24hrMiniTicker"
+            && isUsdtPerpetualSymbol(row.s)
+            && finite(row.c) > 0
+          ));
+          const aggTradePackets = Array.isArray(data)
+            ? data.filter((row) => row?.e === "aggTrade").length
+            : data?.e === "aggTrade" ? 1 : 0;
+          const patch = {
+            lastMessageAt: receivedAt,
+            marketPackets: this.statusState.marketPackets + 1,
+            aggTradePackets: this.statusState.aggTradePackets + aggTradePackets,
+          };
+          if (hasMiniTicker) {
+            clearTimeout(this.corePacketTimer);
+            patch.connection = "live";
+            patch.miniTickerPackets = this.statusState.miniTickerPackets + 1;
+            patch.lastError = null;
+          }
+          this.#publish(patch);
+          this.#handle(data);
+        });
+    
+        socket.addEventListener("close", () => {
+          if (this.socket !== socket || this.manualClose) return;
+          clearTimeout(this.connectionTimer);
+          clearTimeout(this.corePacketTimer);
+          this.reconnectAttempt += 1;
+          const delay = Math.min(30_000, 1_000 * 2 ** Math.min(this.reconnectAttempt, 5));
+          this.#publish({ connection: "reconnecting" });
+          this.reconnectTimer = setTimeout(() => this.#connectMarket(), delay);
+        });
+    
+        socket.addEventListener("error", () => {
+          if (this.socket !== socket) return;
+          clearTimeout(this.connectionTimer);
+          clearTimeout(this.corePacketTimer);
+          this.#publish({ connection: "error", lastError: "Ошибка market-потока Binance" });
+        });
+      }
+    
+      #connectBook() {
+        clearTimeout(this.bookReconnectTimer);
+        clearTimeout(this.bookConnectionTimer);
+        if (this.manualClose) return;
+        const socket = new WebSocket(BINANCE_PUBLIC_STREAM_ENDPOINT);
+        this.bookSocket = socket;
+        this.bookConnectionTimer = setTimeout(() => {
+          if (this.bookSocket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+          socket.close();
+        }, CONNECTION_TIMEOUT_MS);
+    
+        socket.addEventListener("open", () => {
+          if (this.bookSocket !== socket) return;
+          clearTimeout(this.bookConnectionTimer);
+          this.bookReconnectAttempt = 0;
+          socket.send(JSON.stringify({
+            method: "SUBSCRIBE",
+            params: ["!bookTicker"],
+            id: this.bookRequestId++,
+          }));
+        });
+    
+        socket.addEventListener("message", (event) => {
+          if (this.bookSocket !== socket) return;
+          let payload;
+          try {
+            payload = JSON.parse(event.data);
+          } catch {
+            return;
+          }
+          if (Number.isFinite(Number(payload?.code))) {
+            this.#publish({
+              subscriptionErrors: this.statusState.subscriptionErrors + 1,
+              lastError: `Binance book subscription: ${String(payload?.msg ?? payload.code).slice(0, 140)}`,
+            });
+            socket.close();
+            return;
+          }
+          if (payload?.result === null || (payload?.id && payload?.result !== undefined)) return;
+          const raw = payload?.data ?? payload;
+          const normalizeBook = (row) => {
+            if (!row || typeof row !== "object") return row;
+            if (row.e === "bookTicker") return row;
+            if (
+              isUsdtPerpetualSymbol(row.s)
+              && finite(row.b) !== null
+              && finite(row.B) !== null
+              && finite(row.a) !== null
+              && finite(row.A) !== null
+            ) return { ...row, e: "bookTicker", E: finite(row.E) ?? Date.now() };
+            return row;
+          };
+          const data = Array.isArray(raw) ? raw.map(normalizeBook) : normalizeBook(raw);
+          this.#publish({
+            lastBookMessageAt: Date.now(),
+            bookPackets: this.statusState.bookPackets + 1,
+          });
+          this.#handle(data);
+        });
+    
+        socket.addEventListener("close", () => {
+          if (this.bookSocket !== socket || this.manualClose) return;
+          clearTimeout(this.bookConnectionTimer);
+          this.bookReconnectAttempt += 1;
+          const delay = Math.min(30_000, 1_000 * 2 ** Math.min(this.bookReconnectAttempt, 5));
+          this.bookReconnectTimer = setTimeout(() => this.#connectBook(), delay);
+        });
+    
+        socket.addEventListener("error", () => {
+          if (this.bookSocket !== socket) return;
+          clearTimeout(this.bookConnectionTimer);
+        });
+      }
+    
+      disconnect() {
+        this.manualClose = true;
+        clearTimeout(this.reconnectTimer);
+        clearTimeout(this.bookReconnectTimer);
+        clearTimeout(this.connectionTimer);
+        clearTimeout(this.corePacketTimer);
+        clearTimeout(this.bookConnectionTimer);
+        this.socket?.close();
+        this.bookSocket?.close();
+        this.socket = null;
+        this.bookSocket = null;
+        this.#publish({ connection: "stopped" });
+      }
+    
+      status() {
+        return Object.freeze({ ...this.statusState });
+      }
+    
+      #send(method, params) {
+        if (this.socket?.readyState !== WebSocket.OPEN || !params.length) return;
+        this.socket.send(JSON.stringify({ method, params, id: this.requestId++ }));
+      }
+    
+      #symbol(symbol, now = Date.now()) {
+        const normalized = normalizeUsdtPerpetualSymbol(symbol);
+        if (!normalized) return null;
+        if (!this.symbols.has(normalized)) this.symbols.set(normalized, new SymbolState(normalized, now));
+        return this.symbols.get(normalized);
+      }
+    
+      #handle(data) {
+        if (Array.isArray(data)) {
+          let hasMiniTicker = false;
+          for (const row of data) {
+            if (row?.e === "bookTicker" && isUsdtPerpetualSymbol(row.s)) {
+              this.bookTracker.ingest(row);
+              continue;
+            }
+            if (row?.e === "markPriceUpdate" && isUsdtPerpetualSymbol(row.s)) {
+              this.#symbol(row.s, finite(row.E) ?? Date.now())?.updateFunding(row);
+              continue;
+            }
+            if (!filterUsdtPerpetualTicker(row)) continue;
+            this.#symbol(row.s, finite(row.E) ?? Date.now())?.updateTicker(row);
+            hasMiniTicker = true;
+          }
+          if (hasMiniTicker) this.#check(Date.now());
+          return;
+        }
+        if (!data || typeof data !== "object") return;
+        if (data.e === "bookTicker" && isUsdtPerpetualSymbol(data.s)) {
+          this.bookTracker.ingest(data);
+          if (this.trackedAggTrades.has(data.s)) {
+            this.#symbol(data.s, finite(data.E) ?? Date.now())?.updateBookTicker(data);
+          }
+          return;
+        }
+        if (data.e === "aggTrade" && filterUsdtPerpetualTicker(data)) {
+          this.#symbol(data.s)?.updateTrade(data);
+          return;
+        }
+        if (data.e === "forceOrder") {
+          const symbol = data?.o?.s;
+          if (isUsdtPerpetualSymbol(symbol)) this.#symbol(symbol)?.updateLiquidation(data);
+        }
+      }
+    
+      #metrics(now) {
+        return [...this.symbols.values()]
+          .map((state) => {
+            const metrics = state.metrics(DEFAULT_SETTINGS, now);
+            return {
+              ...metrics,
+              bookCandidate: this.bookTracker.candidateFor(metrics.symbol, now),
+            };
+          });
+      }
+    
+      #check(now) {
+        const metrics = this.#metrics(now);
+        const result = this.episodes.ingest(metrics, now);
+        this.onEpisodes(result, metrics);
+        this.#publish({
+          lastCheckAt: now,
+          checks: this.statusState.checks + 1,
+          createdEpisodes: this.statusState.createdEpisodes + result.created.length,
+          updatedEpisodes: this.statusState.updatedEpisodes + result.updated.length,
+          expiredEpisodes: this.statusState.expiredEpisodes + result.expired.length,
+          symbols: metrics.length,
+        });
+        this.#refreshTrackedTrades(metrics, now);
+        this.#queueWarmup(metrics);
+      }
+    
+      #refreshTrackedTrades(metrics, now) {
+        if (now - this.lastSubscriptionRefreshAt < 5_000) return;
+        this.lastSubscriptionRefreshAt = now;
+        const activeSymbols = new Set([...this.episodes.active.values()].map((episode) => episode.symbol));
+        const ranked = metrics
+          .filter((row) => (finite(row.quoteVolume24h) ?? 0) >= this.settings.minimumQuoteVolume24h)
+          .sort((left, right) => candidateWatchScore(right) - candidateWatchScore(left));
+        const next = new Set([
+          ...activeSymbols,
+          ...ranked.slice(0, this.maximumTrackedTrades).map((row) => row.symbol),
+        ]);
+        const subscribe = [...next].filter((symbol) => !this.trackedAggTrades.has(symbol));
+        const unsubscribe = [...this.trackedAggTrades].filter((symbol) => !next.has(symbol));
+        this.trackedAggTrades = next;
+        if (unsubscribe.length) {
+          this.#send("UNSUBSCRIBE", unsubscribe.map((symbol) => `${symbol.toLowerCase()}@aggTrade`));
+        }
+        if (subscribe.length) {
+          this.#send("SUBSCRIBE", subscribe.map((symbol) => `${symbol.toLowerCase()}@aggTrade`));
+        }
+        this.#publish({ trackedTrades: next.size });
+      }
+    
+      #queueWarmup(metrics) {
+        const ranked = metrics
+          .filter((row) => (finite(row.quoteVolume24h) ?? 0) >= this.settings.minimumQuoteVolume24h)
+          .sort((left, right) => (finite(right.quoteVolume24h) ?? 0) - (finite(left.quoteVolume24h) ?? 0))
+          .slice(0, this.maximumWarmupSymbols);
+        const availableSlots = Math.max(0, 3 - this.historyLoading.size);
+        const pending = ranked
+          .map((row) => row.symbol)
+          .filter((symbol) => !this.historyLoaded.has(symbol) && !this.historyLoading.has(symbol))
+          .slice(0, availableSlots);
+        for (const symbol of pending) this.#warmupSymbol(symbol);
+      }
+    
+      async #warmupSymbol(symbol) {
+        this.historyLoading.add(symbol);
+        this.#publish({ warmupLoading: this.historyLoading.size });
+        try {
+          const url = new URL(BINANCE_KLINES_ENDPOINT);
+          url.searchParams.set("symbol", symbol);
+          url.searchParams.set("interval", "1m");
+          url.searchParams.set("limit", "100");
+          const response = await fetch(url, { cache: "no-store" });
+          if (!response.ok) throw new Error(`Klines HTTP ${response.status}`);
+          const rows = await response.json();
+          const candles = (Array.isArray(rows) ? rows : []).map(normalizeKline).filter(Boolean);
+          this.#symbol(symbol)?.hydrateMinuteCandles(candles);
+          this.historyLoaded.add(symbol);
+          this.#publish({
+            warmupLoaded: this.historyLoaded.size,
+            lastError: null,
+          });
+        } catch (error) {
+          this.#publish({ lastError: String(error?.message ?? error).slice(0, 180) });
+        } finally {
+          this.historyLoading.delete(symbol);
+          this.#publish({ warmupLoading: this.historyLoading.size });
+        }
+      }
+    
+      #publish(patch = {}) {
+        Object.assign(this.statusState, patch);
+        try {
+          this.onStatus(Object.freeze({ ...this.statusState }));
+        } catch {
+          // UI callbacks must not interrupt the collector.
+        }
+      }
+    }
+    
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/InPuls/InPuls/test/signal-lab-v3-collector.test.js:22:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: Signal Lab V3 reports LIVE only after a real miniTicker packet
+not ok 385 - Signal Lab V3 reports LIVE only after a real miniTicker packet
+  ---
+  duration_ms: 2.084371
+  type: 'test'
+  location: '/home/runner/work/InPuls/InPuls/test/signal-lab-v3-collector.test.js:26:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /connection:s*"syncing"/. Input:
+    
+    'import {\n' +
+      '  DEFAULT_SETTINGS,\n' +
+      '  SymbolState,\n' +
+      '  filterUsdtPerpetualTicker,\n' +
+      '  isUsdtPerpetualSymbol,\n' +
+      '  normalizeUsdtPerpetualSymbol,\n' +
+      '} from "./engine.js?v=26-65-structured-signal-collection-v1";\n' +
+      'import {\n' +
+      '  CandidateEpisodeTracker,\n' +
+      '  candidateWatchScore,\n' +
+      '  DEFAULT_CANDIDATE_SETTINGS,\n' +
+      '  SIGNAL_LAB_V3_FORMULA_VERSION,\n' +
+      '} from "./signal-lab-v3-candidates.js";\n' +
+      '\n' +
+      'const BINANCE_MARKET_STREAM_ENDPOINT = "wss://fstream.binance.com/market/ws";\n' +
+      'const BINANCE_PUBLIC_STREAM_ENDPOINT = "wss://fstream.binance.com/public/ws";\n' +
+      'const BINANCE_KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";\n' +
+      'const CONNECTION_TIMEOUT_MS = 10_000;\n' +
+      '\n' +
+      'const finite = (value) => {\n' +
+      '  const number = Number(value);\n' +
+      '  return Number.isFinite(number) ? number : null;\n' +
+      '};\n' +
+      '\n' +
+      'function median(values) {\n' +
+      '  const sorted = values.filter(Number.isFinite).sort((left, right) => left - right);\n' +
+      '  if (!sorted.length) return null;\n' +
+      '  const middle = Math.floor(sorted.length / 2);\n' +
+      '  return sorted.length % 2\n' +
+      '    ? sorted[middle]\n' +
+      '    : (sorted[middle - 1] + sorted[middle]) / 2;\n' +
+      '}\n' +
+      '\n' +
+      'function sizeSimilarityPercent(left, right) {\n' +
+      '  if (!(left > 0) || !(right > 0)) return Infinity;\n' +
+      '  return Math.abs(left - right) / Math.max(left, right) * 100;\n' +
+      '}\n' +
+      '\n' +
+      'function sideState() {\n' +
+      '  return {\n' +
+      '    samples: [],\n' +
+      '    latestStrong: null,\n' +
+      '    strongTouches: [],\n' +
+      '  };\n' +
+      '}\n' +
+      '\n' +
+      'export class ExpertBookCandidateTracker {\n' +
+      '  constructor(options = {}) {\n' +
+      '    this.options = {\n' +
+      '      minimumSamples: 12,\n' +
+      '      sampleLimit: 80,\n' +
+      '      minimumQuoteUsd: DEFAULT_CANDIDATE_SETTINGS.minimumLiquidityQuoteUsd,\n' +
+      '      minimumMultiple: DEFAULT_CANDIDATE_SETTINGS.minimumLiquidityMultiple,\n' +
+      '      similarityPercent: 24,\n' +
+      '      repeatWindowMs: 8_000,\n' +
+      '      moveWindowMs: 3_000,\n' +
+      '      lifetimeMs: 4_500,\n' +
+      '      ...options,\n' +
+      '    };\n' +
+      '    this.symbols = new Map();\n' +
+      '  }\n' +
+      '\n' +
+      '  #symbol(symbol) {\n' +
+      '    if (!this.symbols.has(symbol)) {\n' +
+      '      this.symbols.set(symbol, { bid: sideState(), ask: sideState() });\n' +
+      '    }\n' +
+      '    return this.symbols.get(symbol);\n' +
+      '  }\n' +
+      '\n' +
+      '  #observe(symbol, side, price, quantity, at) {\n' +
+      '    if (!(price > 0) || !(quantity > 0)) return;\n' +
+      '    const state = this.#symbol(symbol)[side];\n' +
+      '    const quoteUsd = price * quantity;\n' +
+      '    const baselineQuoteUsd = median(state.samples);\n' +
+      '    state.samples.push(quoteUsd);\n' +
+      '    if (state.samples.length > this.options.sampleLimit) state.samples.shift();\n' +
+      '    if (\n' +
+      '      state.samples.length < this.options.minimumSamples\n' +
+      '      || !(baselineQuoteUsd > 0)\n' +
+      '      || quoteUsd < this.options.minimumQuoteUsd\n' +
+      '      || quoteUsd < baselineQuoteUsd * this.options.minimumMultiple\n' +
+      '    ) return;\n' +
+      '\n' +
+      '    const previous = state.latestStrong;\n' +
+      '    const moved = Boolean(\n' +
+      '      previous\n' +
+      '      && at - previous.observedAt <= this.options.moveWindowMs\n' +
+      '      && previous.price !== price\n' +
+      '      && sizeSimilarityPercent(previous.quoteUsd, quoteUsd) <= this.options.similarityPercent\n' +
+      '    );\n' +
+      '    state.strongTouches.push({ price, quoteUsd, observedAt: at });\n' +
+      '    state.strongTouches = state.strongTouches.filter(\n' +
+      '      (touch) => at - touch.observedAt <= this.options.repeatWindowMs,\n' +
+      '    );\n' +
+      '    const comparableTouches = state.strongTouches.filter(\n' +
+      '      (touch) => sizeSimilarityPercent(touch.quoteUsd, quoteUsd) <= this.options.similarityPercent,\n' +
+      '    );\n' +
+      '    state.latestStrong = {\n' +
+      '      side,\n' +
+      '      price,\n' +
+      '      quoteUsd,\n' +
+      '      baselineQuoteUsd,\n' +
+      '      sizeMultiple: quoteUsd / baselineQuoteUsd,\n' +
+      '      touchCount: comparableTouches.length,\n' +
+      '      moved,\n' +
+      '      fromPrice: moved ? previous.price : null,\n' +
+      '      observedAt: at,\n' +
+      '    };\n' +
+      '  }\n' +
+      '\n' +
+      '  ingest(ticker, now = Date.now()) {\n' +
+      '    const symbol = normalizeUsdtPerpetualSymbol(ticker?.s);\n' +
+      '    if (!symbol) return;\n' +
+      '    const at = finite(ticker?.E) ?? now;\n' +
+      '    const bidPrice = finite(ticker?.b);\n' +
+      '    const bidQuantity = finite(ticker?.B);\n' +
+      '    const askPrice = finite(ticker?.a);\n' +
+      '    const askQuantity = finite(ticker?.A);\n' +
+      '    if (bidPrice !== null && bidQuantity !== null) {\n' +
+      '      this.#observe(symbol, "bid", bidPrice, bidQuantity, at);\n' +
+      '    }\n' +
+      '    if (askPrice !== null && askQuantity !== null) {\n' +
+      '      this.#observe(symbol, "ask", askPrice, askQuantity, at);\n' +
+      '    }\n' +
+      '  }\n' +
+      '\n' +
+      '  candidateFor(symbol, now = Date.now()) {\n' +
+      '    const states = this.symbols.get(normalizeUsdtPerpetualSymbol(symbol));\n' +
+      '    if (!states) return null;\n' +
+      '    const candidates = [states.bid.latestStrong, states.ask.latestStrong]\n' +
+      '      .filter((item) => item && now - item.observedAt <= this.options.lifetimeMs)\n' +
+      '      .sort((left, right) => (\n' +
+      '        right.sizeMultiple - left.sizeMultiple\n' +
+      '        || right.touchCount - left.touchCount\n' +
+      '        || right.observedAt - left.observedAt\n' +
+      '      ));\n' +
+      '    return candidates[0] ? Object.freeze({ ...candidates[0] }) : null;\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'function normalizeKline(row) {\n' +
+      '  if (!Array.isArray(row) || row.length < 5) return null;\n' +
+      '  const candle = {\n' +
+      '    time: finite(row[0]),\n' +
+      '    open: finite(row[1]),\n' +
+      '    high: finite(row[2]),\n' +
+      '    low: finite(row[3]),\n' +
+      '    close: finite(row[4]),\n' +
+      '  };\n' +
+      '  return [candle.time, candle.open, candle.high, candle.low, candle.close]\n' +
+      '    .every((value) => value !== null && value > 0)\n' +
+      '    ? candle\n' +
+      '    : null;\n' +
+      '}\n' +
+      '\n' +
+      'export class SignalLabV3Collector {\n' +
+      '  constructor({\n' +
+      '    onEpisodes = () => {},\n' +
+      '    onStatus = () => {},\n' +
+      '    candidateSettings = {},\n' +
+      '    maximumTrackedTrades = 32,\n' +
+      '    maximumWarmupSymbols = 80,\n' +
+      '  } = {}) {\n' +
+      '    this.onEpisodes = onEpisodes;\n' +
+      '    this.onStatus = onStatus;\n' +
+      '    this.settings = { ...DEFAULT_CANDIDATE_SETTINGS, ...candidateSettings };\n' +
+      '    this.maximumTrackedTrades = maximumTrackedTrades;\n' +
+      '    this.maximumWarmupSymbols = maximumWarmupSymbols;\n' +
+      '    this.socket = null;\n' +
+      '    this.bookSocket = null;\n' +
+      '    this.requestId = 1;\n' +
+      '    this.bookRequestId = 1;\n' +
+      '    this.reconnectAttempt = 0;\n' +
+      '    this.bookReconnectAttempt = 0;\n' +
+      '    this.reconnectTimer = null;\n' +
+      '    this.bookReconnectTimer = null;\n' +
+      '    this.connectionTimer = null;\n' +
+      '    this.corePacketTimer = null;\n' +
+      '    this.bookConnectionTimer = null;\n' +
+      '    this.manualClose = false;\n' +
+      '    this.symbols = new Map();\n' +
+      '    this.bookTracker = new ExpertBookCandidateTracker(this.settings);\n' +
+      '    this.episodes = new CandidateEpisodeTracker(this.settings);\n' +
+      '    this.trackedAggTrades = new Set();\n' +
+      '    this.historyLoaded = new Set();\n' +
+      '    this.historyLoading = new Set();\n' +
+      '    this.lastSubscriptionRefreshAt = 0;\n' +
+      '    this.statusState = {\n' +
+      '      formulaVersion: SIGNAL_LAB_V3_FORMULA_VERSION,\n' +
+      '      connection: "idle",\n' +
+      '      startedAt: null,\n' +
+      '      lastMessageAt: null,\n' +
+      '      lastBookMessageAt: null,\n' +
+      '      lastCheckAt: null,\n' +
+      '      marketPackets: 0,\n' +
+      '      miniTickerPackets: 0,\n' +
+      '      bookPackets: 0,\n' +
+      '      aggTradePackets: 0,\n' +
+      '      subscriptionErrors: 0,\n' +
+      '      checks: 0,\n' +
+      '      createdEpisodes: 0,\n' +
+      '      updatedEpisodes: 0,\n' +
+      '      expiredEpisodes: 0,\n' +
+      '      symbols: 0,\n' +
+      '      trackedTrades: 0,\n' +
+      '      warmupLoaded: 0,\n' +
+      '      warmupLoading: 0,\n' +
+      '      lastError: null,\n' +
+      '    };\n' +
+      '  }\n' +
+      '\n' +
+      '  connect() {\n' +
+      '    this.manualClose = false;\n' +
+      '    this.#connectMarket();\n' +
+      '    this.#connectBook();\n' +
+      '  }\n' +
+      '\n' +
+      '  #connectMarket() {\n' +
+      '    clearTimeout(this.reconnectTimer);\n' +
+      '    clearTimeout(this.connectionTimer);\n' +
+      '    clearTimeout(this.corePacketTimer);\n' +
+      '    if (this.manualClose) return;\n' +
+      '    this.#publish({\n' +
+      '      connection: "connecting",\n' +
+      '      startedAt: this.statusState.startedAt ?? Date.now(),\n' +
+      '      lastError: null,\n' +
+      '    });\n' +
+      '    const checksAtOpen = this.statusState.checks;\n' +
+      '    const socket = new WebSocket(BINANCE_MARKET_STREAM_ENDPOINT);\n' +
+      '    this.socket = socket;\n' +
+      '    this.connectionTimer = setTimeout(() => {\n' +
+      '      if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;\n' +
+      '      this.#publish({ connection: "error", lastError: "Binance market не отвечает более 10 секунд" });\n' +
+      '      socket.close();\n' +
+      '    }, CONNECTION_TIMEOUT_MS);\n' +
+      '\n' +
+      '    socket.addEventListener("open", () => {\n' +
+      '      if (this.socket !== socket) return;\n' +
+      '      clearTimeout(this.connectionTimer);\n' +
+      '      this.reconnectAttempt = 0;\n' +
+      '      this.#publish({ connection: "syncing", lastError: null });\n' +
+      '      this.#send("SUBSCRIBE", [\n' +
+      '        "!miniTicker@arr",\n' +
+      '        "!markPrice@arr@1s",\n' +
+      '        "!forceOrder@arr",\n' +
+      '      ]);\n' +
+      '      if (this.trackedAggTrades.size) {\n' +
+      '        this.#send("SUBSCRIBE", [...this.trackedAggTrades].map(\n' +
+      '          (symbol) => `${symbol.toLowerCase()}@aggTrade`,\n' +
+      '        ));\n' +
+      '      }\n' +
+      '      this.corePacketTimer = setTimeout(() => {\n' +
+      '        if (this.socket !== socket || this.statusState.checks !== checksAtOpen) return;\n' +
+      '        this.#publish({\n' +
+      '          connection: "error",\n' +
+      '          lastError: "Сокет открыт, но обязательный miniTicker не поступает",\n' +
+      '        });\n' +
+      '        socket.close();\n' +
+      '      }, 7_000);\n' +
+      '    });\n' +
+      '\n' +
+      '    socket.addEventListener("message", (event) => {\n' +
+      '      if (this.socket !== socket) return;\n' +
+      '      let payload;\n' +
+      '      try {\n' +
+      '        payload = JSON.parse(event.data);\n' +
+      '      } catch {\n' +
+      '        return;\n' +
+      '      }\n' +
+      '      if (Number.isFinite(Number(payload?.code))) {\n' +
+      '        this.#publish({\n' +
+      '          connection: "error",\n' +
+      '          subscriptionErrors: this.statusState.subscriptionErrors + 1,\n' +
+      '          lastError: `Binance subscription: ${String(payload?.msg ?? payload.code).slice(0, 140)}`,\n' +
+      '        });\n' +
+      '        socket.close();\n' +
+      '        return;\n' +
+      '      }\n' +
+      '      if (payload?.result === null || (payload?.id && payload?.result !== undefined)) return;\n' +
+      '      const data = payload?.data ?? payload;\n' +
+      '      const receivedAt = Date.now();\n' +
+      '      const hasMiniTicker = Array.isArray(data) && data.some((row) => (\n' +
+      '        row?.e === "24hrMiniTicker"\n' +
+      '        && isUsdtPerpetualSymbol(row.s)\n' +
+      '        && finite(row.c) > 0\n' +
+      '      ));\n' +
+      '      const aggTradePackets = Array.isArray(data)\n' +
+      '        ? data.filter((row) => row?.e === "aggTrade").length\n' +
+      '        : data?.e === "aggTrade" ? 1 : 0;\n' +
+      '      const patch = {\n' +
+      '        lastMessageAt: receivedAt,\n' +
+      '        marketPackets: this.statusState.marketPackets + 1,\n' +
+      '        aggTradePackets: this.statusState.aggTradePackets + aggTradePackets,\n' +
+      '      };\n' +
+      '      if (hasMiniTicker) {\n' +
+      '        clearTimeout(this.corePacketTimer);\n' +
+      '        patch.connection = "live";\n' +
+      '        patch.miniTickerPackets = this.statusState.miniTickerPackets + 1;\n' +
+      '        patch.lastError = null;\n' +
+      '      }\n' +
+      '      this.#publish(patch);\n' +
+      '      this.#handle(data);\n' +
+      '    });\n' +
+      '\n' +
+      '    socket.addEventListener("close", () => {\n' +
+      '      if ('... 9447 more characters
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: |-
+    import {
+      DEFAULT_SETTINGS,
+      SymbolState,
+      filterUsdtPerpetualTicker,
+      isUsdtPerpetualSymbol,
+      normalizeUsdtPerpetualSymbol,
+    } from "./engine.js?v=26-65-structured-signal-collection-v1";
+    import {
+      CandidateEpisodeTracker,
+      candidateWatchScore,
+      DEFAULT_CANDIDATE_SETTINGS,
+      SIGNAL_LAB_V3_FORMULA_VERSION,
+    } from "./signal-lab-v3-candidates.js";
+    
+    const BINANCE_MARKET_STREAM_ENDPOINT = "wss://fstream.binance.com/market/ws";
+    const BINANCE_PUBLIC_STREAM_ENDPOINT = "wss://fstream.binance.com/public/ws";
+    const BINANCE_KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
+    const CONNECTION_TIMEOUT_MS = 10_000;
+    
+    const finite = (value) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    };
+    
+    function median(values) {
+      const sorted = values.filter(Number.isFinite).sort((left, right) => left - right);
+      if (!sorted.length) return null;
+      const middle = Math.floor(sorted.length / 2);
+      return sorted.length % 2
+        ? sorted[middle]
+        : (sorted[middle - 1] + sorted[middle]) / 2;
+    }
+    
+    function sizeSimilarityPercent(left, right) {
+      if (!(left > 0) || !(right > 0)) return Infinity;
+      return Math.abs(left - right) / Math.max(left, right) * 100;
+    }
+    
+    function sideState() {
+      return {
+        samples: [],
+        latestStrong: null,
+        strongTouches: [],
+      };
+    }
+    
+    export class ExpertBookCandidateTracker {
+      constructor(options = {}) {
+        this.options = {
+          minimumSamples: 12,
+          sampleLimit: 80,
+          minimumQuoteUsd: DEFAULT_CANDIDATE_SETTINGS.minimumLiquidityQuoteUsd,
+          minimumMultiple: DEFAULT_CANDIDATE_SETTINGS.minimumLiquidityMultiple,
+          similarityPercent: 24,
+          repeatWindowMs: 8_000,
+          moveWindowMs: 3_000,
+          lifetimeMs: 4_500,
+          ...options,
+        };
+        this.symbols = new Map();
+      }
+    
+      #symbol(symbol) {
+        if (!this.symbols.has(symbol)) {
+          this.symbols.set(symbol, { bid: sideState(), ask: sideState() });
+        }
+        return this.symbols.get(symbol);
+      }
+    
+      #observe(symbol, side, price, quantity, at) {
+        if (!(price > 0) || !(quantity > 0)) return;
+        const state = this.#symbol(symbol)[side];
+        const quoteUsd = price * quantity;
+        const baselineQuoteUsd = median(state.samples);
+        state.samples.push(quoteUsd);
+        if (state.samples.length > this.options.sampleLimit) state.samples.shift();
+        if (
+          state.samples.length < this.options.minimumSamples
+          || !(baselineQuoteUsd > 0)
+          || quoteUsd < this.options.minimumQuoteUsd
+          || quoteUsd < baselineQuoteUsd * this.options.minimumMultiple
+        ) return;
+    
+        const previous = state.latestStrong;
+        const moved = Boolean(
+          previous
+          && at - previous.observedAt <= this.options.moveWindowMs
+          && previous.price !== price
+          && sizeSimilarityPercent(previous.quoteUsd, quoteUsd) <= this.options.similarityPercent
+        );
+        state.strongTouches.push({ price, quoteUsd, observedAt: at });
+        state.strongTouches = state.strongTouches.filter(
+          (touch) => at - touch.observedAt <= this.options.repeatWindowMs,
+        );
+        const comparableTouches = state.strongTouches.filter(
+          (touch) => sizeSimilarityPercent(touch.quoteUsd, quoteUsd) <= this.options.similarityPercent,
+        );
+        state.latestStrong = {
+          side,
+          price,
+          quoteUsd,
+          baselineQuoteUsd,
+          sizeMultiple: quoteUsd / baselineQuoteUsd,
+          touchCount: comparableTouches.length,
+          moved,
+          fromPrice: moved ? previous.price : null,
+          observedAt: at,
+        };
+      }
+    
+      ingest(ticker, now = Date.now()) {
+        const symbol = normalizeUsdtPerpetualSymbol(ticker?.s);
+        if (!symbol) return;
+        const at = finite(ticker?.E) ?? now;
+        const bidPrice = finite(ticker?.b);
+        const bidQuantity = finite(ticker?.B);
+        const askPrice = finite(ticker?.a);
+        const askQuantity = finite(ticker?.A);
+        if (bidPrice !== null && bidQuantity !== null) {
+          this.#observe(symbol, "bid", bidPrice, bidQuantity, at);
+        }
+        if (askPrice !== null && askQuantity !== null) {
+          this.#observe(symbol, "ask", askPrice, askQuantity, at);
+        }
+      }
+    
+      candidateFor(symbol, now = Date.now()) {
+        const states = this.symbols.get(normalizeUsdtPerpetualSymbol(symbol));
+        if (!states) return null;
+        const candidates = [states.bid.latestStrong, states.ask.latestStrong]
+          .filter((item) => item && now - item.observedAt <= this.options.lifetimeMs)
+          .sort((left, right) => (
+            right.sizeMultiple - left.sizeMultiple
+            || right.touchCount - left.touchCount
+            || right.observedAt - left.observedAt
+          ));
+        return candidates[0] ? Object.freeze({ ...candidates[0] }) : null;
+      }
+    }
+    
+    function normalizeKline(row) {
+      if (!Array.isArray(row) || row.length < 5) return null;
+      const candle = {
+        time: finite(row[0]),
+        open: finite(row[1]),
+        high: finite(row[2]),
+        low: finite(row[3]),
+        close: finite(row[4]),
+      };
+      return [candle.time, candle.open, candle.high, candle.low, candle.close]
+        .every((value) => value !== null && value > 0)
+        ? candle
+        : null;
+    }
+    
+    export class SignalLabV3Collector {
+      constructor({
+        onEpisodes = () => {},
+        onStatus = () => {},
+        candidateSettings = {},
+        maximumTrackedTrades = 32,
+        maximumWarmupSymbols = 80,
+      } = {}) {
+        this.onEpisodes = onEpisodes;
+        this.onStatus = onStatus;
+        this.settings = { ...DEFAULT_CANDIDATE_SETTINGS, ...candidateSettings };
+        this.maximumTrackedTrades = maximumTrackedTrades;
+        this.maximumWarmupSymbols = maximumWarmupSymbols;
+        this.socket = null;
+        this.bookSocket = null;
+        this.requestId = 1;
+        this.bookRequestId = 1;
+        this.reconnectAttempt = 0;
+        this.bookReconnectAttempt = 0;
+        this.reconnectTimer = null;
+        this.bookReconnectTimer = null;
+        this.connectionTimer = null;
+        this.corePacketTimer = null;
+        this.bookConnectionTimer = null;
+        this.manualClose = false;
+        this.symbols = new Map();
+        this.bookTracker = new ExpertBookCandidateTracker(this.settings);
+        this.episodes = new CandidateEpisodeTracker(this.settings);
+        this.trackedAggTrades = new Set();
+        this.historyLoaded = new Set();
+        this.historyLoading = new Set();
+        this.lastSubscriptionRefreshAt = 0;
+        this.statusState = {
+          formulaVersion: SIGNAL_LAB_V3_FORMULA_VERSION,
+          connection: "idle",
+          startedAt: null,
+          lastMessageAt: null,
+          lastBookMessageAt: null,
+          lastCheckAt: null,
+          marketPackets: 0,
+          miniTickerPackets: 0,
+          bookPackets: 0,
+          aggTradePackets: 0,
+          subscriptionErrors: 0,
+          checks: 0,
+          createdEpisodes: 0,
+          updatedEpisodes: 0,
+          expiredEpisodes: 0,
+          symbols: 0,
+          trackedTrades: 0,
+          warmupLoaded: 0,
+          warmupLoading: 0,
+          lastError: null,
+        };
+      }
+    
+      connect() {
+        this.manualClose = false;
+        this.#connectMarket();
+        this.#connectBook();
+      }
+    
+      #connectMarket() {
+        clearTimeout(this.reconnectTimer);
+        clearTimeout(this.connectionTimer);
+        clearTimeout(this.corePacketTimer);
+        if (this.manualClose) return;
+        this.#publish({
+          connection: "connecting",
+          startedAt: this.statusState.startedAt ?? Date.now(),
+          lastError: null,
+        });
+        const checksAtOpen = this.statusState.checks;
+        const socket = new WebSocket(BINANCE_MARKET_STREAM_ENDPOINT);
+        this.socket = socket;
+        this.connectionTimer = setTimeout(() => {
+          if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+          this.#publish({ connection: "error", lastError: "Binance market не отвечает более 10 секунд" });
+          socket.close();
+        }, CONNECTION_TIMEOUT_MS);
+    
+        socket.addEventListener("open", () => {
+          if (this.socket !== socket) return;
+          clearTimeout(this.connectionTimer);
+          this.reconnectAttempt = 0;
+          this.#publish({ connection: "syncing", lastError: null });
+          this.#send("SUBSCRIBE", [
+            "!miniTicker@arr",
+            "!markPrice@arr@1s",
+            "!forceOrder@arr",
+          ]);
+          if (this.trackedAggTrades.size) {
+            this.#send("SUBSCRIBE", [...this.trackedAggTrades].map(
+              (symbol) => `${symbol.toLowerCase()}@aggTrade`,
+            ));
+          }
+          this.corePacketTimer = setTimeout(() => {
+            if (this.socket !== socket || this.statusState.checks !== checksAtOpen) return;
+            this.#publish({
+              connection: "error",
+              lastError: "Сокет открыт, но обязательный miniTicker не поступает",
+            });
+            socket.close();
+          }, 7_000);
+        });
+    
+        socket.addEventListener("message", (event) => {
+          if (this.socket !== socket) return;
+          let payload;
+          try {
+            payload = JSON.parse(event.data);
+          } catch {
+            return;
+          }
+          if (Number.isFinite(Number(payload?.code))) {
+            this.#publish({
+              connection: "error",
+              subscriptionErrors: this.statusState.subscriptionErrors + 1,
+              lastError: `Binance subscription: ${String(payload?.msg ?? payload.code).slice(0, 140)}`,
+            });
+            socket.close();
+            return;
+          }
+          if (payload?.result === null || (payload?.id && payload?.result !== undefined)) return;
+          const data = payload?.data ?? payload;
+          const receivedAt = Date.now();
+          const hasMiniTicker = Array.isArray(data) && data.some((row) => (
+            row?.e === "24hrMiniTicker"
+            && isUsdtPerpetualSymbol(row.s)
+            && finite(row.c) > 0
+          ));
+          const aggTradePackets = Array.isArray(data)
+            ? data.filter((row) => row?.e === "aggTrade").length
+            : data?.e === "aggTrade" ? 1 : 0;
+          const patch = {
+            lastMessageAt: receivedAt,
+            marketPackets: this.statusState.marketPackets + 1,
+            aggTradePackets: this.statusState.aggTradePackets + aggTradePackets,
+          };
+          if (hasMiniTicker) {
+            clearTimeout(this.corePacketTimer);
+            patch.connection = "live";
+            patch.miniTickerPackets = this.statusState.miniTickerPackets + 1;
+            patch.lastError = null;
+          }
+          this.#publish(patch);
+          this.#handle(data);
+        });
+    
+        socket.addEventListener("close", () => {
+          if (this.socket !== socket || this.manualClose) return;
+          clearTimeout(this.connectionTimer);
+          clearTimeout(this.corePacketTimer);
+          this.reconnectAttempt += 1;
+          const delay = Math.min(30_000, 1_000 * 2 ** Math.min(this.reconnectAttempt, 5));
+          this.#publish({ connection: "reconnecting" });
+          this.reconnectTimer = setTimeout(() => this.#connectMarket(), delay);
+        });
+    
+        socket.addEventListener("error", () => {
+          if (this.socket !== socket) return;
+          clearTimeout(this.connectionTimer);
+          clearTimeout(this.corePacketTimer);
+          this.#publish({ connection: "error", lastError: "Ошибка market-потока Binance" });
+        });
+      }
+    
+      #connectBook() {
+        clearTimeout(this.bookReconnectTimer);
+        clearTimeout(this.bookConnectionTimer);
+        if (this.manualClose) return;
+        const socket = new WebSocket(BINANCE_PUBLIC_STREAM_ENDPOINT);
+        this.bookSocket = socket;
+        this.bookConnectionTimer = setTimeout(() => {
+          if (this.bookSocket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+          socket.close();
+        }, CONNECTION_TIMEOUT_MS);
+    
+        socket.addEventListener("open", () => {
+          if (this.bookSocket !== socket) return;
+          clearTimeout(this.bookConnectionTimer);
+          this.bookReconnectAttempt = 0;
+          socket.send(JSON.stringify({
+            method: "SUBSCRIBE",
+            params: ["!bookTicker"],
+            id: this.bookRequestId++,
+          }));
+        });
+    
+        socket.addEventListener("message", (event) => {
+          if (this.bookSocket !== socket) return;
+          let payload;
+          try {
+            payload = JSON.parse(event.data);
+          } catch {
+            return;
+          }
+          if (Number.isFinite(Number(payload?.code))) {
+            this.#publish({
+              subscriptionErrors: this.statusState.subscriptionErrors + 1,
+              lastError: `Binance book subscription: ${String(payload?.msg ?? payload.code).slice(0, 140)}`,
+            });
+            socket.close();
+            return;
+          }
+          if (payload?.result === null || (payload?.id && payload?.result !== undefined)) return;
+          const raw = payload?.data ?? payload;
+          const normalizeBook = (row) => {
+            if (!row || typeof row !== "object") return row;
+            if (row.e === "bookTicker") return row;
+            if (
+              isUsdtPerpetualSymbol(row.s)
+              && finite(row.b) !== null
+              && finite(row.B) !== null
+              && finite(row.a) !== null
+              && finite(row.A) !== null
+            ) return { ...row, e: "bookTicker", E: finite(row.E) ?? Date.now() };
+            return row;
+          };
+          const data = Array.isArray(raw) ? raw.map(normalizeBook) : normalizeBook(raw);
+          this.#publish({
+            lastBookMessageAt: Date.now(),
+            bookPackets: this.statusState.bookPackets + 1,
+          });
+          this.#handle(data);
+        });
+    
+        socket.addEventListener("close", () => {
+          if (this.bookSocket !== socket || this.manualClose) return;
+          clearTimeout(this.bookConnectionTimer);
+          this.bookReconnectAttempt += 1;
+          const delay = Math.min(30_000, 1_000 * 2 ** Math.min(this.bookReconnectAttempt, 5));
+          this.bookReconnectTimer = setTimeout(() => this.#connectBook(), delay);
+        });
+    
+        socket.addEventListener("error", () => {
+          if (this.bookSocket !== socket) return;
+          clearTimeout(this.bookConnectionTimer);
+        });
+      }
+    
+      disconnect() {
+        this.manualClose = true;
+        clearTimeout(this.reconnectTimer);
+        clearTimeout(this.bookReconnectTimer);
+        clearTimeout(this.connectionTimer);
+        clearTimeout(this.corePacketTimer);
+        clearTimeout(this.bookConnectionTimer);
+        this.socket?.close();
+        this.bookSocket?.close();
+        this.socket = null;
+        this.bookSocket = null;
+        this.#publish({ connection: "stopped" });
+      }
+    
+      status() {
+        return Object.freeze({ ...this.statusState });
+      }
+    
+      #send(method, params) {
+        if (this.socket?.readyState !== WebSocket.OPEN || !params.length) return;
+        this.socket.send(JSON.stringify({ method, params, id: this.requestId++ }));
+      }
+    
+      #symbol(symbol, now = Date.now()) {
+        const normalized = normalizeUsdtPerpetualSymbol(symbol);
+        if (!normalized) return null;
+        if (!this.symbols.has(normalized)) this.symbols.set(normalized, new SymbolState(normalized, now));
+        return this.symbols.get(normalized);
+      }
+    
+      #handle(data) {
+        if (Array.isArray(data)) {
+          let hasMiniTicker = false;
+          for (const row of data) {
+            if (row?.e === "bookTicker" && isUsdtPerpetualSymbol(row.s)) {
+              this.bookTracker.ingest(row);
+              continue;
+            }
+            if (row?.e === "markPriceUpdate" && isUsdtPerpetualSymbol(row.s)) {
+              this.#symbol(row.s, finite(row.E) ?? Date.now())?.updateFunding(row);
+              continue;
+            }
+            if (!filterUsdtPerpetualTicker(row)) continue;
+            this.#symbol(row.s, finite(row.E) ?? Date.now())?.updateTicker(row);
+            hasMiniTicker = true;
+          }
+          if (hasMiniTicker) this.#check(Date.now());
+          return;
+        }
+        if (!data || typeof data !== "object") return;
+        if (data.e === "bookTicker" && isUsdtPerpetualSymbol(data.s)) {
+          this.bookTracker.ingest(data);
+          if (this.trackedAggTrades.has(data.s)) {
+            this.#symbol(data.s, finite(data.E) ?? Date.now())?.updateBookTicker(data);
+          }
+          return;
+        }
+        if (data.e === "aggTrade" && filterUsdtPerpetualTicker(data)) {
+          this.#symbol(data.s)?.updateTrade(data);
+          return;
+        }
+        if (data.e === "forceOrder") {
+          const symbol = data?.o?.s;
+          if (isUsdtPerpetualSymbol(symbol)) this.#symbol(symbol)?.updateLiquidation(data);
+        }
+      }
+    
+      #metrics(now) {
+        return [...this.symbols.values()]
+          .map((state) => {
+            const metrics = state.metrics(DEFAULT_SETTINGS, now);
+            return {
+              ...metrics,
+              bookCandidate: this.bookTracker.candidateFor(metrics.symbol, now),
+            };
+          });
+      }
+    
+      #check(now) {
+        const metrics = this.#metrics(now);
+        const result = this.episodes.ingest(metrics, now);
+        this.onEpisodes(result, metrics);
+        this.#publish({
+          lastCheckAt: now,
+          checks: this.statusState.checks + 1,
+          createdEpisodes: this.statusState.createdEpisodes + result.created.length,
+          updatedEpisodes: this.statusState.updatedEpisodes + result.updated.length,
+          expiredEpisodes: this.statusState.expiredEpisodes + result.expired.length,
+          symbols: metrics.length,
+        });
+        this.#refreshTrackedTrades(metrics, now);
+        this.#queueWarmup(metrics);
+      }
+    
+      #refreshTrackedTrades(metrics, now) {
+        if (now - this.lastSubscriptionRefreshAt < 5_000) return;
+        this.lastSubscriptionRefreshAt = now;
+        const activeSymbols = new Set([...this.episodes.active.values()].map((episode) => episode.symbol));
+        const ranked = metrics
+          .filter((row) => (finite(row.quoteVolume24h) ?? 0) >= this.settings.minimumQuoteVolume24h)
+          .sort((left, right) => candidateWatchScore(right) - candidateWatchScore(left));
+        const next = new Set([
+          ...activeSymbols,
+          ...ranked.slice(0, this.maximumTrackedTrades).map((row) => row.symbol),
+        ]);
+        const subscribe = [...next].filter((symbol) => !this.trackedAggTrades.has(symbol));
+        const unsubscribe = [...this.trackedAggTrades].filter((symbol) => !next.has(symbol));
+        this.trackedAggTrades = next;
+        if (unsubscribe.length) {
+          this.#send("UNSUBSCRIBE", unsubscribe.map((symbol) => `${symbol.toLowerCase()}@aggTrade`));
+        }
+        if (subscribe.length) {
+          this.#send("SUBSCRIBE", subscribe.map((symbol) => `${symbol.toLowerCase()}@aggTrade`));
+        }
+        this.#publish({ trackedTrades: next.size });
+      }
+    
+      #queueWarmup(metrics) {
+        const ranked = metrics
+          .filter((row) => (finite(row.quoteVolume24h) ?? 0) >= this.settings.minimumQuoteVolume24h)
+          .sort((left, right) => (finite(right.quoteVolume24h) ?? 0) - (finite(left.quoteVolume24h) ?? 0))
+          .slice(0, this.maximumWarmupSymbols);
+        const availableSlots = Math.max(0, 3 - this.historyLoading.size);
+        const pending = ranked
+          .map((row) => row.symbol)
+          .filter((symbol) => !this.historyLoaded.has(symbol) && !this.historyLoading.has(symbol))
+          .slice(0, availableSlots);
+        for (const symbol of pending) this.#warmupSymbol(symbol);
+      }
+    
+      async #warmupSymbol(symbol) {
+        this.historyLoading.add(symbol);
+        this.#publish({ warmupLoading: this.historyLoading.size });
+        try {
+          const url = new URL(BINANCE_KLINES_ENDPOINT);
+          url.searchParams.set("symbol", symbol);
+          url.searchParams.set("interval", "1m");
+          url.searchParams.set("limit", "100");
+          const response = await fetch(url, { cache: "no-store" });
+          if (!response.ok) throw new Error(`Klines HTTP ${response.status}`);
+          const rows = await response.json();
+          const candles = (Array.isArray(rows) ? rows : []).map(normalizeKline).filter(Boolean);
+          this.#symbol(symbol)?.hydrateMinuteCandles(candles);
+          this.historyLoaded.add(symbol);
+          this.#publish({
+            warmupLoaded: this.historyLoaded.size,
+            lastError: null,
+          });
+        } catch (error) {
+          this.#publish({ lastError: String(error?.message ?? error).slice(0, 180) });
+        } finally {
+          this.historyLoading.delete(symbol);
+          this.#publish({ warmupLoading: this.historyLoading.size });
+        }
+      }
+    
+      #publish(patch = {}) {
+        Object.assign(this.statusState, patch);
+        try {
+          this.onStatus(Object.freeze({ ...this.statusState }));
+        } catch {
+          // UI callbacks must not interrupt the collector.
+        }
+      }
+    }
+    
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/InPuls/InPuls/test/signal-lab-v3-collector.test.js:27:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: Signal Lab V3 owner page exposes truthful live diagnostics
+not ok 386 - Signal Lab V3 owner page exposes truthful live diagnostics
+  ---
+  duration_ms: 1.84328
+  type: 'test'
+  location: '/home/runner/work/InPuls/InPuls/test/signal-lab-v3-collector.test.js:37:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /syncing:s*"синхронизация"/. Input:
+    
+    'import {\n' +
+      '  CANDIDATE_LABELS,\n' +
+      '  SIGNAL_LAB_V3_FORMULA_VERSION,\n' +
+      '} from "./signal-lab-v3-candidates.js";\n' +
+      'import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v3-live-routing-v1";\n' +
+      'import { rowsToCsv, SignalLabV3Store } from "./signal-lab-v3-store.js";\n' +
+      '\n' +
+      'const elements = {\n' +
+      '  collectorDot: document.querySelector("#collector-dot"),\n' +
+      '  collectorStatus: document.querySelector("#collector-status"),\n' +
+      '  collectorToggle: document.querySelector("#collector-toggle"),\n' +
+      '  symbolFilter: document.querySelector("#symbol-filter"),\n' +
+      '  candidateFilter: document.querySelector("#candidate-filter"),\n' +
+      '  reviewFilter: document.querySelector("#review-filter"),\n' +
+      '  refresh: document.querySelector("#refresh"),\n' +
+      '  checksCount: document.querySelector("#checks-count"),\n' +
+      '  episodesCount: document.querySelector("#episodes-count"),\n' +
+      '  activeCount: document.querySelector("#active-count"),\n' +
+      '  reviewedCount: document.querySelector("#reviewed-count"),\n' +
+      '  warmupCount: document.querySelector("#warmup-count"),\n' +
+      '  visibleCount: document.querySelector("#visible-count"),\n' +
+      '  emptyState: document.querySelector("#empty-state"),\n' +
+      '  candidateList: document.querySelector("#candidate-list"),\n' +
+      '  template: document.querySelector("#candidate-template"),\n' +
+      '  exportJson: document.querySelector("#export-json"),\n' +
+      '  exportCsv: document.querySelector("#export-csv"),\n' +
+      '  dayButtons: [...document.querySelectorAll("[data-days]")],\n' +
+      '};\n' +
+      '\n' +
+      'const store = new SignalLabV3Store();\n' +
+      'const liveEpisodes = new Map();\n' +
+      'const reviewStates = new Map();\n' +
+      'const state = {\n' +
+      '  days: 7,\n' +
+      '  running: true,\n' +
+      '  collectorStatus: null,\n' +
+      '  renderTimer: null,\n' +
+      '  rendering: false,\n' +
+      '};\n' +
+      '\n' +
+      'const hypothesisLabels = Object.freeze({\n' +
+      '  knife_reclaim: "Нож",\n' +
+      '  sharpening_rejection: "Заточка",\n' +
+      '  continuation_breakout: "Продолжение вверх",\n' +
+      '  continuation_breakdown: "Продолжение вниз",\n' +
+      '  level_breakout: "Пробой уровня",\n' +
+      '  false_breakout: "Ложный пробой",\n' +
+      '  liquidity_sweep: "Снятие ликвидности",\n' +
+      '  cascade_breakout: "Пробой каскада",\n' +
+      '  liquidity_hold: "Удержание сайза",\n' +
+      '  liquidity_rearrangement: "Переставляш",\n' +
+      '  participant_activity: "Направленный поток",\n' +
+      '  directional_impulse: "Направленный импульс",\n' +
+      '  liquidation_cascade: "Каскад ликвидаций",\n' +
+      '  exhaustion_reversal: "Истощение движения",\n' +
+      '});\n' +
+      '\n' +
+      'const stageLabels = Object.freeze({\n' +
+      '  observed: "наблюдение",\n' +
+      '  forming: "формируется",\n' +
+      '  triggered: "триггер",\n' +
+      '  completed: "завершён",\n' +
+      '});\n' +
+      '\n' +
+      'const verdictLabels = Object.freeze({\n' +
+      '  unreviewed: "не размечено",\n' +
+      '  valid: "годный",\n' +
+      '  weak: "слабый",\n' +
+      '  false_positive: "мусор",\n' +
+      '  duplicate_episode: "дубль",\n' +
+      '  wrong_pattern: "другой паттерн",\n' +
+      '  insufficient_data: "мало данных",\n' +
+      '  missed_pattern: "пропущенный паттерн",\n' +
+      '});\n' +
+      '\n' +
+      'function filters() {\n' +
+      '  const now = Date.now();\n' +
+      '  return {\n' +
+      '    from: now - state.days * 24 * 60 * 60 * 1_000,\n' +
+      '    to: now,\n' +
+      '    symbol: elements.symbolFilter.value,\n' +
+      '    candidateType: elements.candidateFilter.value,\n' +
+      '    reviewState: elements.reviewFilter.value,\n' +
+      '    limit: 1_000,\n' +
+      '  };\n' +
+      '}\n' +
+      '\n' +
+      'function scheduleRender(delay = 180) {\n' +
+      '  clearTimeout(state.renderTimer);\n' +
+      '  state.renderTimer = setTimeout(() => render(), delay);\n' +
+      '}\n' +
+      '\n' +
+      'function statusText(status) {\n' +
+      '  if (!status) return "Подготовка локального сборщика…";\n' +
+      '  const connection = {\n' +
+      '    idle: "ожидание",\n' +
+      '    connecting: "подключение",\n' +
+      '    syncing: "синхронизация",\n' +
+      '    live: "LIVE",\n' +
+      '    reconnecting: "переподключение",\n' +
+      '    error: "ошибка",\n' +
+      '    stopped: "остановлен",\n' +
+      '  }[status.connection] ?? status.connection;\n' +
+      '  const ageSeconds = status.lastMessageAt\n' +
+      '    ? Math.max(0, Math.round((Date.now() - status.lastMessageAt) / 1_000))\n' +
+      '    : null;\n' +
+      '  const age = ageSeconds === null ? "нет данных" : `${ageSeconds}с назад`;\n' +
+      '  return `${connection} · проверки ${status.checks} · эпизоды ${status.createdEpisodes} · miniTicker ${status.miniTickerPackets ?? 0} · aggTrade ${status.aggTradePackets ?? 0}/${status.trackedTrades} · book ${status.bookPackets ?? 0} · история ${status.warmupLoaded} · пакет ${age}`;\n' +
+      '}\n' +
+      '\n' +
+      'function renderCollectorStatus() {\n' +
+      '  const status = state.collectorStatus;\n' +
+      '  elements.collectorStatus.textContent = statusText(status);\n' +
+      '  elements.collectorDot.className = "status-dot";\n' +
+      '  if (status?.connection === "live") elements.collectorDot.classList.add("is-live");\n' +
+      '  else if (status?.connection === "error") elements.collectorDot.classList.add("is-error");\n' +
+      '  else if (status?.connection === "stopped") elements.collectorDot.classList.add("is-stopped");\n' +
+      '  elements.checksCount.textContent = String(status?.checks ?? 0);\n' +
+      '  elements.warmupCount.textContent = String(status?.warmupLoaded ?? 0);\n' +
+      '  elements.collectorToggle.textContent = state.running ? "Остановить сбор" : "Запустить сбор";\n' +
+      '}\n' +
+      '\n' +
+      'function mergeEpisode(row) {\n' +
+      '  const storedReview = row.review ?? null;\n' +
+      '  const live = liveEpisodes.get(row.id);\n' +
+      '  const merged = live ? { ...row, ...live, review: storedReview } : row;\n' +
+      '  const reviewState = reviewStates.get(row.id) ?? merged.reviewState ?? "unreviewed";\n' +
+      '  return { ...merged, reviewState };\n' +
+      '}\n' +
+      '\n' +
+      'function activeEpisodeCount(now = Date.now()) {\n' +
+      '  return [...liveEpisodes.values()].filter((episode) => (\n' +
+      '    episode.stage !== "completed" && now - episode.lastSeenAt <= 30_000\n' +
+      '  )).length;\n' +
+      '}\n' +
+      '\n' +
+      'function formatDate(timestamp) {\n' +
+      '  const date = new Date(Number(timestamp));\n' +
+      '  return new Intl.DateTimeFormat("ru-RU", {\n' +
+      '    day: "2-digit",\n' +
+      '    month: "2-digit",\n' +
+      '    hour: "2-digit",\n' +
+      '    minute: "2-digit",\n' +
+      '    second: "2-digit",\n' +
+      '  }).format(date);\n' +
+      '}\n' +
+      '\n' +
+      'function scoreLabel(value) {\n' +
+      '  const score = Math.round(Number(value) || 0);\n' +
+      '  return `${score}/100`;\n' +
+      '}\n' +
+      '\n' +
+      'function setList(target, rows) {\n' +
+      '  target.replaceChildren(...rows.map((text) => {\n' +
+      '    const item = document.createElement("li");\n' +
+      '    item.textContent = text;\n' +
+      '    return item;\n' +
+      '  }));\n' +
+      '}\n' +
+      '\n' +
+      'function setChips(target, rows) {\n' +
+      '  target.replaceChildren(...rows.map((value) => {\n' +
+      '    const chip = document.createElement("span");\n' +
+      '    chip.textContent = hypothesisLabels[value] ?? value;\n' +
+      '    return chip;\n' +
+      '  }));\n' +
+      '}\n' +
+      '\n' +
+      'async function saveReview(episode, card, verdict) {\n' +
+      `  const pattern = card.querySelector('[data-field="pattern"]');\n` +
+      `  const comment = card.querySelector('[data-field="comment"]');\n` +
+      '  const buttons = [...card.querySelectorAll("[data-verdict]")];\n' +
+      '  buttons.forEach((button) => { button.disabled = true; });\n' +
+      '  try {\n' +
+      '    const review = await store.saveReview(episode.id, {\n' +
+      '      verdict,\n' +
+      '      finalPatternId: pattern.value,\n' +
+      '      comment: comment.value,\n' +
+      '    });\n' +
+      '    reviewStates.set(episode.id, review.verdict);\n' +
+      '    buttons.forEach((button) => {\n' +
+      '      button.classList.toggle("is-selected", button.dataset.verdict === review.verdict);\n' +
+      '    });\n' +
+      '    scheduleRender(0);\n' +
+      '  } finally {\n' +
+      '    buttons.forEach((button) => { button.disabled = false; });\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'function renderCard(episode) {\n' +
+      '  const fragment = elements.template.content.cloneNode(true);\n' +
+      '  const card = fragment.querySelector(".candidate-card");\n' +
+      '  card.dataset.direction = episode.direction;\n' +
+      '  const latest = episode.latest ?? {};\n' +
+      `  card.querySelector('[data-field="symbol"]').textContent = episode.symbol;\n` +
+      `  card.querySelector('[data-field="label"]').textContent = episode.label;\n` +
+      `  card.querySelector('[data-field="stage"]').textContent = stageLabels[episode.stage] ?? episode.stage;\n` +
+      '  card.querySelector(\'[data-field="time"]\').textContent = `${formatDate(episode.firstSeenAt)} · ${episode.observations} наблюдений · ${episode.direction === "up" ? "вверх" : episode.direction === "down" ? "вниз" : "нейтрально"}`;\n' +
+      `  card.querySelector('[data-field="score"]').textContent = scoreLabel(episode.peakEvidenceScore);\n` +
+      `  setList(card.querySelector('[data-field="facts"]'), Array.isArray(latest.facts) ? latest.facts : []);\n` +
+      `  setChips(card.querySelector('[data-field="hypotheses"]'), Array.isArray(latest.patternHypotheses) ? latest.patternHypotheses : []);\n` +
+      '  const quality = latest.quality ?? {};\n' +
+      '  card.querySelector(\'[data-field="quality"]\').textContent = `Данные: ${quality.state ?? "unknown"} · формула ${latest.formulaVersion ?? SIGNAL_LAB_V3_FORMULA_VERSION}`;\n' +
+      `  setList(card.querySelector('[data-field="limitations"]'), Array.isArray(quality.limitations) ? quality.limitations : []);\n` +
+      '\n' +
+      `  const pattern = card.querySelector('[data-field="pattern"]');\n` +
+      `  const comment = card.querySelector('[data-field="comment"]');\n` +
+      '  pattern.value = episode.review?.finalPatternId ?? "";\n' +
+      '  comment.value = episode.review?.comment ?? "";\n' +
+      '  card.querySelectorAll("[data-verdict]").forEach((button) => {\n' +
+      '    button.classList.toggle("is-selected", button.dataset.verdict === episode.reviewState);\n' +
+      '    button.addEventListener("click", () => saveReview(episode, card, button.dataset.verdict));\n' +
+      '  });\n' +
+      '  return fragment;\n' +
+      '}\n' +
+      '\n' +
+      'async function render() {\n' +
+      '  if (state.rendering) return;\n' +
+      '  state.rendering = true;\n' +
+      '  try {\n' +
+      '    renderCollectorStatus();\n' +
+      '    const rows = await store.list(filters());\n' +
+      '    for (const row of rows) {\n' +
+      '      if (row.reviewState && row.reviewState !== "unreviewed") reviewStates.set(row.id, row.reviewState);\n' +
+      '    }\n' +
+      '    const merged = rows.map(mergeEpisode);\n' +
+      '    const summary = await store.summary(filters());\n' +
+      '    elements.episodesCount.textContent = String(summary.episodes);\n' +
+      '    elements.reviewedCount.textContent = String(summary.reviewed);\n' +
+      '    elements.activeCount.textContent = String(activeEpisodeCount());\n' +
+      '    elements.visibleCount.textContent = `${merged.length} эпизодов`;\n' +
+      '    elements.emptyState.hidden = merged.length > 0;\n' +
+      '    elements.candidateList.hidden = merged.length === 0;\n' +
+      '    elements.candidateList.replaceChildren(...merged.slice(0, 250).map(renderCard));\n' +
+      '  } catch (error) {\n' +
+      '    elements.emptyState.hidden = false;\n' +
+      '    elements.emptyState.textContent = `Не удалось прочитать локальную историю: ${String(error?.message ?? error)}`;\n' +
+      '  } finally {\n' +
+      '    state.rendering = false;\n' +
+      '  }\n' +
+      '}\n' +
+      '\n' +
+      'function download(name, type, content) {\n' +
+      '  const blob = new Blob([content], { type });\n' +
+      '  const url = URL.createObjectURL(blob);\n' +
+      '  const anchor = document.createElement("a");\n' +
+      '  anchor.href = url;\n' +
+      '  anchor.download = name;\n' +
+      '  anchor.click();\n' +
+      '  setTimeout(() => URL.revokeObjectURL(url), 1_000);\n' +
+      '}\n' +
+      '\n' +
+      'async function exportJson() {\n' +
+      '  const rows = await store.exportRows(filters());\n' +
+      '  download(\n' +
+      '    `inpuls-sig'... 2569 more characters
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: |-
+    import {
+      CANDIDATE_LABELS,
+      SIGNAL_LAB_V3_FORMULA_VERSION,
+    } from "./signal-lab-v3-candidates.js";
+    import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v3-live-routing-v1";
+    import { rowsToCsv, SignalLabV3Store } from "./signal-lab-v3-store.js";
+    
+    const elements = {
+      collectorDot: document.querySelector("#collector-dot"),
+      collectorStatus: document.querySelector("#collector-status"),
+      collectorToggle: document.querySelector("#collector-toggle"),
+      symbolFilter: document.querySelector("#symbol-filter"),
+      candidateFilter: document.querySelector("#candidate-filter"),
+      reviewFilter: document.querySelector("#review-filter"),
+      refresh: document.querySelector("#refresh"),
+      checksCount: document.querySelector("#checks-count"),
+      episodesCount: document.querySelector("#episodes-count"),
+      activeCount: document.querySelector("#active-count"),
+      reviewedCount: document.querySelector("#reviewed-count"),
+      warmupCount: document.querySelector("#warmup-count"),
+      visibleCount: document.querySelector("#visible-count"),
+      emptyState: document.querySelector("#empty-state"),
+      candidateList: document.querySelector("#candidate-list"),
+      template: document.querySelector("#candidate-template"),
+      exportJson: document.querySelector("#export-json"),
+      exportCsv: document.querySelector("#export-csv"),
+      dayButtons: [...document.querySelectorAll("[data-days]")],
+    };
+    
+    const store = new SignalLabV3Store();
+    const liveEpisodes = new Map();
+    const reviewStates = new Map();
+    const state = {
+      days: 7,
+      running: true,
+      collectorStatus: null,
+      renderTimer: null,
+      rendering: false,
+    };
+    
+    const hypothesisLabels = Object.freeze({
+      knife_reclaim: "Нож",
+      sharpening_rejection: "Заточка",
+      continuation_breakout: "Продолжение вверх",
+      continuation_breakdown: "Продолжение вниз",
+      level_breakout: "Пробой уровня",
+      false_breakout: "Ложный пробой",
+      liquidity_sweep: "Снятие ликвидности",
+      cascade_breakout: "Пробой каскада",
+      liquidity_hold: "Удержание сайза",
+      liquidity_rearrangement: "Переставляш",
+      participant_activity: "Направленный поток",
+      directional_impulse: "Направленный импульс",
+      liquidation_cascade: "Каскад ликвидаций",
+      exhaustion_reversal: "Истощение движения",
+    });
+    
+    const stageLabels = Object.freeze({
+      observed: "наблюдение",
+      forming: "формируется",
+      triggered: "триггер",
+      completed: "завершён",
+    });
+    
+    const verdictLabels = Object.freeze({
+      unreviewed: "не размечено",
+      valid: "годный",
+      weak: "слабый",
+      false_positive: "мусор",
+      duplicate_episode: "дубль",
+      wrong_pattern: "другой паттерн",
+      insufficient_data: "мало данных",
+      missed_pattern: "пропущенный паттерн",
+    });
+    
+    function filters() {
+      const now = Date.now();
+      return {
+        from: now - state.days * 24 * 60 * 60 * 1_000,
+        to: now,
+        symbol: elements.symbolFilter.value,
+        candidateType: elements.candidateFilter.value,
+        reviewState: elements.reviewFilter.value,
+        limit: 1_000,
+      };
+    }
+    
+    function scheduleRender(delay = 180) {
+      clearTimeout(state.renderTimer);
+      state.renderTimer = setTimeout(() => render(), delay);
+    }
+    
+    function statusText(status) {
+      if (!status) return "Подготовка локального сборщика…";
+      const connection = {
+        idle: "ожидание",
+        connecting: "подключение",
+        syncing: "синхронизация",
+        live: "LIVE",
+        reconnecting: "переподключение",
+        error: "ошибка",
+        stopped: "остановлен",
+      }[status.connection] ?? status.connection;
+      const ageSeconds = status.lastMessageAt
+        ? Math.max(0, Math.round((Date.now() - status.lastMessageAt) / 1_000))
+        : null;
+      const age = ageSeconds === null ? "нет данных" : `${ageSeconds}с назад`;
+      return `${connection} · проверки ${status.checks} · эпизоды ${status.createdEpisodes} · miniTicker ${status.miniTickerPackets ?? 0} · aggTrade ${status.aggTradePackets ?? 0}/${status.trackedTrades} · book ${status.bookPackets ?? 0} · история ${status.warmupLoaded} · пакет ${age}`;
+    }
+    
+    function renderCollectorStatus() {
+      const status = state.collectorStatus;
+      elements.collectorStatus.textContent = statusText(status);
+      elements.collectorDot.className = "status-dot";
+      if (status?.connection === "live") elements.collectorDot.classList.add("is-live");
+      else if (status?.connection === "error") elements.collectorDot.classList.add("is-error");
+      else if (status?.connection === "stopped") elements.collectorDot.classList.add("is-stopped");
+      elements.checksCount.textContent = String(status?.checks ?? 0);
+      elements.warmupCount.textContent = String(status?.warmupLoaded ?? 0);
+      elements.collectorToggle.textContent = state.running ? "Остановить сбор" : "Запустить сбор";
+    }
+    
+    function mergeEpisode(row) {
+      const storedReview = row.review ?? null;
+      const live = liveEpisodes.get(row.id);
+      const merged = live ? { ...row, ...live, review: storedReview } : row;
+      const reviewState = reviewStates.get(row.id) ?? merged.reviewState ?? "unreviewed";
+      return { ...merged, reviewState };
+    }
+    
+    function activeEpisodeCount(now = Date.now()) {
+      return [...liveEpisodes.values()].filter((episode) => (
+        episode.stage !== "completed" && now - episode.lastSeenAt <= 30_000
+      )).length;
+    }
+    
+    function formatDate(timestamp) {
+      const date = new Date(Number(timestamp));
+      return new Intl.DateTimeFormat("ru-RU", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }).format(date);
+    }
+    
+    function scoreLabel(value) {
+      const score = Math.round(Number(value) || 0);
+      return `${score}/100`;
+    }
+    
+    function setList(target, rows) {
+      target.replaceChildren(...rows.map((text) => {
+        const item = document.createElement("li");
+        item.textContent = text;
+        return item;
+      }));
+    }
+    
+    function setChips(target, rows) {
+      target.replaceChildren(...rows.map((value) => {
+        const chip = document.createElement("span");
+        chip.textContent = hypothesisLabels[value] ?? value;
+        return chip;
+      }));
+    }
+    
+    async function saveReview(episode, card, verdict) {
+      const pattern = card.querySelector('[data-field="pattern"]');
+      const comment = card.querySelector('[data-field="comment"]');
+      const buttons = [...card.querySelectorAll("[data-verdict]")];
+      buttons.forEach((button) => { button.disabled = true; });
+      try {
+        const review = await store.saveReview(episode.id, {
+          verdict,
+          finalPatternId: pattern.value,
+          comment: comment.value,
+        });
+        reviewStates.set(episode.id, review.verdict);
+        buttons.forEach((button) => {
+          button.classList.toggle("is-selected", button.dataset.verdict === review.verdict);
+        });
+        scheduleRender(0);
+      } finally {
+        buttons.forEach((button) => { button.disabled = false; });
+      }
+    }
+    
+    function renderCard(episode) {
+      const fragment = elements.template.content.cloneNode(true);
+      const card = fragment.querySelector(".candidate-card");
+      card.dataset.direction = episode.direction;
+      const latest = episode.latest ?? {};
+      card.querySelector('[data-field="symbol"]').textContent = episode.symbol;
+      card.querySelector('[data-field="label"]').textContent = episode.label;
+      card.querySelector('[data-field="stage"]').textContent = stageLabels[episode.stage] ?? episode.stage;
+      card.querySelector('[data-field="time"]').textContent = `${formatDate(episode.firstSeenAt)} · ${episode.observations} наблюдений · ${episode.direction === "up" ? "вверх" : episode.direction === "down" ? "вниз" : "нейтрально"}`;
+      card.querySelector('[data-field="score"]').textContent = scoreLabel(episode.peakEvidenceScore);
+      setList(card.querySelector('[data-field="facts"]'), Array.isArray(latest.facts) ? latest.facts : []);
+      setChips(card.querySelector('[data-field="hypotheses"]'), Array.isArray(latest.patternHypotheses) ? latest.patternHypotheses : []);
+      const quality = latest.quality ?? {};
+      card.querySelector('[data-field="quality"]').textContent = `Данные: ${quality.state ?? "unknown"} · формула ${latest.formulaVersion ?? SIGNAL_LAB_V3_FORMULA_VERSION}`;
+      setList(card.querySelector('[data-field="limitations"]'), Array.isArray(quality.limitations) ? quality.limitations : []);
+    
+      const pattern = card.querySelector('[data-field="pattern"]');
+      const comment = card.querySelector('[data-field="comment"]');
+      pattern.value = episode.review?.finalPatternId ?? "";
+      comment.value = episode.review?.comment ?? "";
+      card.querySelectorAll("[data-verdict]").forEach((button) => {
+        button.classList.toggle("is-selected", button.dataset.verdict === episode.reviewState);
+        button.addEventListener("click", () => saveReview(episode, card, button.dataset.verdict));
+      });
+      return fragment;
+    }
+    
+    async function render() {
+      if (state.rendering) return;
+      state.rendering = true;
+      try {
+        renderCollectorStatus();
+        const rows = await store.list(filters());
+        for (const row of rows) {
+          if (row.reviewState && row.reviewState !== "unreviewed") reviewStates.set(row.id, row.reviewState);
+        }
+        const merged = rows.map(mergeEpisode);
+        const summary = await store.summary(filters());
+        elements.episodesCount.textContent = String(summary.episodes);
+        elements.reviewedCount.textContent = String(summary.reviewed);
+        elements.activeCount.textContent = String(activeEpisodeCount());
+        elements.visibleCount.textContent = `${merged.length} эпизодов`;
+        elements.emptyState.hidden = merged.length > 0;
+        elements.candidateList.hidden = merged.length === 0;
+        elements.candidateList.replaceChildren(...merged.slice(0, 250).map(renderCard));
+      } catch (error) {
+        elements.emptyState.hidden = false;
+        elements.emptyState.textContent = `Не удалось прочитать локальную историю: ${String(error?.message ?? error)}`;
+      } finally {
+        state.rendering = false;
+      }
+    }
+    
+    function download(name, type, content) {
+      const blob = new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = name;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    }
+    
+    async function exportJson() {
+      const rows = await store.exportRows(filters());
+      download(
+        `inpuls-signal-lab-v3-${new Date().toISOString().slice(0, 10)}.json`,
+        "application/json;charset=utf-8",
+        JSON.stringify({
+          schemaVersion: 1,
+          formulaVersion: SIGNAL_LAB_V3_FORMULA_VERSION,
+          exportedAt: Date.now(),
+          filters: filters(),
+          rows,
+        }, null, 2),
+      );
+    }
+    
+    async function exportCsv() {
+      const rows = await store.exportRows(filters());
+      download(
+        `inpuls-signal-lab-v3-${new Date().toISOString().slice(0, 10)}.csv`,
+        "text/csv;charset=utf-8",
+        `\uFEFF${rowsToCsv(rows)}`,
+      );
+    }
+    
+    const collector = new SignalLabV3Collector({
+      onEpisodes: async ({ created, updated, expired }) => {
+        for (const episode of [...created, ...updated, ...expired]) {
+          const reviewState = reviewStates.get(episode.id) ?? episode.reviewState;
+          liveEpisodes.set(episode.id, { ...episode, reviewState });
+        }
+        const durableRows = [...created, ...expired].map((episode) => ({
+          ...episode,
+          reviewState: reviewStates.get(episode.id) ?? episode.reviewState,
+        }));
+        if (durableRows.length) await store.upsertEpisodes(durableRows);
+        scheduleRender(created.length || expired.length ? 0 : 350);
+      },
+      onStatus: (status) => {
+        state.collectorStatus = status;
+        renderCollectorStatus();
+      },
+    });
+    
+    async function initialize() {
+      await store.initialize();
+      for (const [value, label] of Object.entries(CANDIDATE_LABELS)) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        elements.candidateFilter.append(option);
+      }
+      collector.connect();
+      await render();
+    }
+    
+    elements.dayButtons.forEach((button) => button.addEventListener("click", () => {
+      state.days = Number(button.dataset.days) || 7;
+      elements.dayButtons.forEach((item) => item.classList.toggle("is-active", item === button));
+      scheduleRender(0);
+    }));
+    
+    elements.symbolFilter.addEventListener("input", () => scheduleRender(150));
+    elements.candidateFilter.addEventListener("change", () => scheduleRender(0));
+    elements.reviewFilter.addEventListener("change", () => scheduleRender(0));
+    elements.refresh.addEventListener("click", () => scheduleRender(0));
+    elements.exportJson.addEventListener("click", exportJson);
+    elements.exportCsv.addEventListener("click", exportCsv);
+    elements.collectorToggle.addEventListener("click", () => {
+      state.running = !state.running;
+      if (state.running) collector.connect();
+      else collector.disconnect();
+      renderCollectorStatus();
+    });
+    
+    window.addEventListener("beforeunload", () => collector.disconnect());
+    setInterval(() => scheduleRender(0), 5_000);
+    initialize();
+    
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/InPuls/InPuls/test/signal-lab-v3-collector.test.js:40:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: candidate-first engine ignores unprepared or illiquid symbols
+ok 387 - candidate-first engine ignores unprepared or illiquid symbols
+  ---
+  duration_ms: 2.664076
+  type: 'test'
+  ...
+# Subtest: relative displacement threshold collects a broad market episode without declaring a final pattern
+ok 388 - relative displacement threshold collects a broad market episode without declaring a final pattern
+  ---
+  duration_ms: 1.395922
+  type: 'test'
+  ...
+# Subtest: high-volatility symbol requires a larger displacement than a quiet symbol
+ok 389 - high-volatility symbol requires a larger displacement than a quiet symbol
+  ---
+  duration_ms: 0.332672
+  type: 'test'
+  ...
+# Subtest: fast reclaim is stored as a reversal attempt, not as a proven knife
+ok 390 - fast reclaim is stored as a reversal attempt, not as a proven knife
+  ---
+  duration_ms: 0.655637
+  type: 'test'
+  ...
+# Subtest: two independent tests create a level-pressure candidate before breakout
+ok 391 - two independent tests create a level-pressure candidate before breakout
+  ---
+  duration_ms: 0.678721
+  type: 'test'
+  ...
+# Subtest: three ordered extrema are collected as a cascade structure before final confirmation
+ok 392 - three ordered extrema are collected as a cascade structure before final confirmation
+  ---
+  duration_ms: 0.762717
+  type: 'test'
+  ...
+# Subtest: trade acceleration and aggressor imbalance create participant evidence without identifying a player
+ok 393 - trade acceleration and aggressor imbalance create participant evidence without identifying a player
+  ---
+  duration_ms: 0.323506
+  type: 'test'
+  ...
+# Subtest: displayed size is evidence with explicit intent limitation
+ok 394 - displayed size is evidence with explicit intent limitation
+  ---
+  duration_ms: 22.612029
+  type: 'test'
+  ...
+# Subtest: episode tracker updates one market episode instead of creating duplicate cards
+ok 395 - episode tracker updates one market episode instead of creating duplicate cards
+  ---
+  duration_ms: 2.242397
+  type: 'test'
+  ...
+# Subtest: candidate output contains facts and limitations but no trade command
+ok 396 - candidate output contains facts and limitations but no trade command
+  ---
+  duration_ms: 0.703877
+  type: 'test'
+  ...
+# Subtest: V3 store works in memory mode and preserves manual review
+ok 397 - V3 store works in memory mode and preserves manual review
+  ---
+  duration_ms: 2.339027
+  type: 'test'
+  ...
+# Subtest: Signal Lab publishes the intended 1d, 3d, 7d and 30d windows
+ok 398 - Signal Lab publishes the intended 1d, 3d, 7d and 30d windows
+  ---
+  duration_ms: 2.550503
+  type: 'test'
+  ...
+# Subtest: event review rows keep unique IDs, real chart evidence and manual verdicts
+ok 399 - event review rows keep unique IDs, real chart evidence and manual verdicts
+  ---
+  duration_ms: 2.547447
+  type: 'test'
+  ...
+# Subtest: impulses stay in raw memory but are excluded from the current Pattern Lab
+ok 400 - impulses stay in raw memory but are excluded from the current Pattern Lab
+  ---
+  duration_ms: 0.670675
+  type: 'test'
+  ...
+# Subtest: primary statistics use only complete live observations and expose every exclusion
+ok 401 - primary statistics use only complete live observations and expose every exclusion
+  ---
+  duration_ms: 1.252254
+  type: 'test'
+  ...
+# Subtest: formula versions and settings never share one statistical group
+ok 402 - formula versions and settings never share one statistical group
+  ---
+  duration_ms: 9.036251
+  type: 'test'
+  ...
+# Subtest: market groups combine symbols while symbol groups keep coin histories separate
+ok 403 - market groups combine symbols while symbol groups keep coin histories separate
+  ---
+  duration_ms: 0.46489
+  type: 'test'
+  ...
+# Subtest: lookback windows use signal time and do not leak older events into 1d
+ok 404 - lookback windows use signal time and do not leak older events into 1d
+  ---
+  duration_ms: 0.6681
+  type: 'test'
+  ...
+# Subtest: large density size is not promoted into importance or outcome statistics
+ok 405 - large density size is not promoted into importance or outcome statistics
+  ---
+  duration_ms: 0.487573
+  type: 'test'
+  ...
+# Subtest: duplicate entity IDs are de-duplicated before aggregation
+ok 406 - duplicate entity IDs are de-duplicated before aggregation
+  ---
+  duration_ms: 0.588371
+  type: 'test'
+  ...
+# Subtest: Signal Lab degrades safely when IndexedDB is unavailable
+ok 407 - Signal Lab degrades safely when IndexedDB is unavailable
+  ---
+  duration_ms: 1.446457
+  type: 'test'
+  ...
+# Subtest: browser runtime wires persistent Signal Lab without adding destructive controls
+ok 408 - browser runtime wires persistent Signal Lab without adding destructive controls
+  ---
+  duration_ms: 11.554774
+  type: 'test'
+  ...
+# Subtest: Signal Lab review UI exposes comments and enriched JSON/CSV export
+ok 409 - Signal Lab review UI exposes comments and enriched JSON/CSV export
+  ---
+  duration_ms: 1.735569
+  type: 'test'
+  ...
+# Subtest: browser entry points keep user version v23 and identify the current release build
+ok 410 - browser entry points keep user version v23 and identify the current release build
+  ---
+  duration_ms: 10.36027
+  type: 'test'
+  ...
+# Subtest: v23 DOM exposes fixed price steps, live Tape and footprint controls
+ok 411 - v23 DOM exposes fixed price steps, live Tape and footprint controls
+  ---
+  duration_ms: 2.668534
+  type: 'test'
+  ...
+# Subtest: INPLAY exposes and applies the NATR 5 filter
+ok 412 - INPLAY exposes and applies the NATR 5 filter
+  ---
+  duration_ms: 1.975459
+  type: 'test'
+  ...
+# Subtest: market symbols are validated before subscriptions and detail rendering avoids dynamic HTML
+ok 413 - market symbols are validated before subscriptions and detail rendering avoids dynamic HTML
+  ---
+  duration_ms: 2.002988
+  type: 'test'
+  ...
+# Subtest: browser entry points carry a restrictive CSP and reset scripts stay external
+ok 414 - browser entry points carry a restrictive CSP and reset scripts stay external
+  ---
+  duration_ms: 3.20021
+  type: 'test'
+  ...
+# Subtest: Service Worker removes retired app-shell caches and stays network-only
+ok 415 - Service Worker removes retired app-shell caches and stays network-only
+  ---
+  duration_ms: 1.123432
+  type: 'test'
+  ...
+# Subtest: chart pointer work is coalesced through animation frames and first-anchor snapping is available
+ok 416 - chart pointer work is coalesced through animation frames and first-anchor snapping is available
+  ---
+  duration_ms: 1.595064
+  type: 'test'
+  ...
+# Subtest: small panels keep compact menus and smaller resize corners
+ok 417 - small panels keep compact menus and smaller resize corners
+  ---
+  duration_ms: 2.881382
+  type: 'test'
+  ...
+# Subtest: brightness control keeps fixed accents and morphs from sun to moon
+ok 418 - brightness control keeps fixed accents and morphs from sun to moon
+  ---
+  duration_ms: 2.384963
+  type: 'test'
+  ...
+# Subtest: orderbook price text is separated from the size boundary
+ok 419 - orderbook price text is separated from the size boundary
+  ---
+  duration_ms: 2.478949
+  type: 'test'
+  ...
+# Subtest: event radar beta is isolated from the three existing discovery blocks
+ok 420 - event radar beta is isolated from the three existing discovery blocks
+  ---
+  duration_ms: 2.603963
+  type: 'test'
+  ...
+1..420
+# tests 420
+# suites 0
+# pass 417
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2171.956039
