@@ -38,7 +38,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -f .github/workflows/stabilize-signal-lab-v3-full-chart-review.yml scripts/stabilize-signal-lab-v3-full-chart-review.py .github/trigger-signal-lab-review-lock.txt
+          git rm -f .github/workflows/stabilize-signal-lab-v3-full-chart-review.yml scripts/stabilize-signal-lab-v3-full-chart-review.py
+          rm -f .github/trigger-signal-lab-review-lock.txt
           git add signal-lab-v3-full-chart.js owner-signal-lab-v3.js test/signal-lab-v3-full-chart.test.js
           git commit -m "Stabilize Signal Lab full chart review [signal-lab-review-lock-applied]"
           git push origin HEAD:agent/signal-lab-v3-full-chart-review
