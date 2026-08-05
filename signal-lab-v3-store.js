@@ -1,9 +1,11 @@
 export const SIGNAL_LAB_V3_DATABASE = "inpuls-signal-lab-v3";
-export const SIGNAL_LAB_V3_STORE_VERSION = 1;
+export const SIGNAL_LAB_V3_STORE_VERSION = 2;
 
 const EPISODES = "episodes";
 const REVIEWS = "reviews";
+const EVIDENCE = "evidence";
 const MAX_EPISODES = 5_000;
+const MAX_EVIDENCE_PACKS = 500;
 
 const finite = (value) => {
   const number = Number(value);
@@ -59,10 +61,12 @@ function normalizeReview(episodeId, review = {}, now = Date.now()) {
 function normalizeEpisode(episode, now = Date.now()) {
   const id = safeText(episode?.id ?? episode?.episodeId, 220);
   if (!id) throw new TypeError("Candidate episode requires an id");
+  const normalized = clone(episode);
+  delete normalized.evidencePack;
   const latest = episode?.latest && typeof episode.latest === "object" ? clone(episode.latest) : null;
   return Object.freeze({
-    ...clone(episode),
-    schemaVersion: 1,
+    ...normalized,
+    schemaVersion: Math.max(1, Math.round(finite(episode?.schemaVersion) ?? 1)),
     entity: "SignalLabCandidateEpisode",
     id,
     episodeId: id,
@@ -78,17 +82,37 @@ function normalizeEpisode(episode, now = Date.now()) {
     peakEvidenceScore: Math.max(0, Math.min(100, finite(episode?.peakEvidenceScore) ?? 0)),
     reviewState: safeText(episode?.reviewState, 40) || "unreviewed",
     latest,
+    hasEvidencePack: Boolean(episode?.evidencePack),
+  });
+}
+
+function normalizeEvidence(episode, now = Date.now()) {
+  const episodeId = safeText(episode?.id ?? episode?.episodeId, 220);
+  if (!episodeId || !episode?.evidencePack || typeof episode.evidencePack !== "object") return null;
+  const pack = clone(episode.evidencePack);
+  return Object.freeze({
+    episodeId,
+    symbol: safeText(episode?.symbol, 32).toUpperCase(),
+    firstSeenAt: finite(episode?.firstSeenAt) ?? now,
+    updatedAt: finite(pack?.window?.updatedAt) ?? finite(episode?.lastSeenAt) ?? now,
+    pack,
   });
 }
 
 export class SignalLabV3Store {
-  constructor({ indexedDB = globalThis.indexedDB, maximumEpisodes = MAX_EPISODES } = {}) {
+  constructor({
+    indexedDB = globalThis.indexedDB,
+    maximumEpisodes = MAX_EPISODES,
+    maximumEvidencePacks = MAX_EVIDENCE_PACKS,
+  } = {}) {
     this.indexedDB = indexedDB;
     this.maximumEpisodes = maximumEpisodes;
+    this.maximumEvidencePacks = maximumEvidencePacks;
     this.database = null;
     this.mode = "initializing";
     this.memoryEpisodes = new Map();
     this.memoryReviews = new Map();
+    this.memoryEvidence = new Map();
   }
 
   async initialize() {
@@ -113,6 +137,12 @@ export class SignalLabV3Store {
           reviews.createIndex("updatedAt", "updatedAt", { unique: false });
           reviews.createIndex("verdict", "verdict", { unique: false });
         }
+        if (!database.objectStoreNames.contains(EVIDENCE)) {
+          const evidence = database.createObjectStore(EVIDENCE, { keyPath: "episodeId" });
+          evidence.createIndex("updatedAt", "updatedAt", { unique: false });
+          evidence.createIndex("firstSeenAt", "firstSeenAt", { unique: false });
+          evidence.createIndex("symbol", "symbol", { unique: false });
+        }
       };
       this.database = await requestResult(request);
       this.database.onversionchange = () => this.database?.close();
@@ -130,20 +160,28 @@ export class SignalLabV3Store {
       database: SIGNAL_LAB_V3_DATABASE,
       mode: this.mode,
       available: this.mode === "indexeddb" || this.mode === "memory",
+      maximumEpisodes: this.maximumEpisodes,
+      maximumEvidencePacks: this.maximumEvidencePacks,
     });
   }
 
   async upsertEpisodes(rows, now = Date.now()) {
-    const episodes = (Array.isArray(rows) ? rows : []).map((row) => normalizeEpisode(row, now));
+    const source = Array.isArray(rows) ? rows : [];
+    const episodes = source.map((row) => normalizeEpisode(row, now));
+    const evidenceRows = source.map((row) => normalizeEvidence(row, now)).filter(Boolean);
     if (!episodes.length) return 0;
     if (this.mode !== "indexeddb" || !this.database) {
       for (const episode of episodes) this.memoryEpisodes.set(episode.id, episode);
+      for (const evidence of evidenceRows) this.memoryEvidence.set(evidence.episodeId, evidence);
       this.#pruneMemory();
       return episodes.length;
     }
-    const transaction = this.database.transaction(EPISODES, "readwrite");
-    const store = transaction.objectStore(EPISODES);
-    for (const episode of episodes) store.put(episode);
+    const stores = evidenceRows.length ? [EPISODES, EVIDENCE] : [EPISODES];
+    const transaction = this.database.transaction(stores, "readwrite");
+    const episodeStore = transaction.objectStore(EPISODES);
+    const evidenceStore = evidenceRows.length ? transaction.objectStore(EVIDENCE) : null;
+    for (const episode of episodes) episodeStore.put(episode);
+    for (const evidence of evidenceRows) evidenceStore.put(evidence);
     await transactionDone(transaction);
     await this.#pruneIndexedDb();
     return episodes.length;
@@ -189,14 +227,18 @@ export class SignalLabV3Store {
 
     let episodes;
     let reviews;
+    let evidence;
     if (this.mode !== "indexeddb" || !this.database) {
       episodes = [...this.memoryEpisodes.values()];
       reviews = new Map(this.memoryReviews);
+      evidence = new Map(this.memoryEvidence);
     } else {
-      const transaction = this.database.transaction([EPISODES, REVIEWS], "readonly");
+      const transaction = this.database.transaction([EPISODES, REVIEWS, EVIDENCE], "readonly");
       episodes = await requestResult(transaction.objectStore(EPISODES).getAll());
       const reviewRows = await requestResult(transaction.objectStore(REVIEWS).getAll());
+      const evidenceRows = await requestResult(transaction.objectStore(EVIDENCE).getAll());
       reviews = new Map(reviewRows.map((review) => [review.episodeId, review]));
+      evidence = new Map(evidenceRows.map((row) => [row.episodeId, row]));
       await transactionDone(transaction);
     }
 
@@ -207,10 +249,14 @@ export class SignalLabV3Store {
       .filter((episode) => !normalizedReview || episode.reviewState === normalizedReview)
       .sort((left, right) => right.firstSeenAt - left.firstSeenAt)
       .slice(0, maximum)
-      .map((episode) => Object.freeze({
-        ...clone(episode),
-        review: reviews.get(episode.id) ? clone(reviews.get(episode.id)) : null,
-      }));
+      .map((episode) => {
+        const evidenceRow = evidence.get(episode.id);
+        return Object.freeze({
+          ...clone(episode),
+          evidencePack: evidenceRow?.pack ? clone(evidenceRow.pack) : null,
+          review: reviews.get(episode.id) ? clone(reviews.get(episode.id)) : null,
+        });
+      });
   }
 
   async summary(options = {}) {
@@ -253,6 +299,10 @@ export class SignalLabV3Store {
         : "",
       formulaVersion: row.latest?.formulaVersion ?? "",
       dataState: row.latest?.quality?.state ?? "unknown",
+      evidenceAvailable: row.evidencePack ? "yes" : "no",
+      bookSnapshots: row.evidencePack?.coverage?.bookSnapshots ?? 0,
+      pricePoints: row.evidencePack?.coverage?.pricePoints ?? 0,
+      explanation: row.evidencePack?.traderExplanation?.headline ?? "",
       limitations: Array.isArray(row.latest?.quality?.limitations)
         ? row.latest.quality.limitations.join(" | ")
         : "",
@@ -260,45 +310,80 @@ export class SignalLabV3Store {
   }
 
   #pruneMemory() {
-    if (this.memoryEpisodes.size <= this.maximumEpisodes) return;
-    const oldest = [...this.memoryEpisodes.values()]
-      .sort((left, right) => left.firstSeenAt - right.firstSeenAt)
-      .slice(0, this.memoryEpisodes.size - this.maximumEpisodes);
-    for (const episode of oldest) {
-      this.memoryEpisodes.delete(episode.id);
-      this.memoryReviews.delete(episode.id);
+    if (this.memoryEpisodes.size > this.maximumEpisodes) {
+      const oldest = [...this.memoryEpisodes.values()]
+        .sort((left, right) => left.firstSeenAt - right.firstSeenAt)
+        .slice(0, this.memoryEpisodes.size - this.maximumEpisodes);
+      for (const episode of oldest) {
+        this.memoryEpisodes.delete(episode.id);
+        this.memoryReviews.delete(episode.id);
+        this.memoryEvidence.delete(episode.id);
+      }
+    }
+    if (this.memoryEvidence.size > this.maximumEvidencePacks) {
+      const oldestEvidence = [...this.memoryEvidence.values()]
+        .sort((left, right) => left.updatedAt - right.updatedAt)
+        .slice(0, this.memoryEvidence.size - this.maximumEvidencePacks);
+      for (const row of oldestEvidence) this.memoryEvidence.delete(row.episodeId);
     }
   }
 
   async #pruneIndexedDb() {
     if (!this.database) return;
-    const countTransaction = this.database.transaction(EPISODES, "readonly");
-    const count = await requestResult(countTransaction.objectStore(EPISODES).count());
+    const countTransaction = this.database.transaction([EPISODES, EVIDENCE], "readonly");
+    const episodeCount = await requestResult(countTransaction.objectStore(EPISODES).count());
+    const evidenceCount = await requestResult(countTransaction.objectStore(EVIDENCE).count());
     await transactionDone(countTransaction);
-    const excess = count - this.maximumEpisodes;
-    if (excess <= 0) return;
 
-    const transaction = this.database.transaction([EPISODES, REVIEWS], "readwrite");
-    const episodeStore = transaction.objectStore(EPISODES);
-    const reviewStore = transaction.objectStore(REVIEWS);
-    const index = episodeStore.index("firstSeenAt");
-    let removed = 0;
-    await new Promise((resolve, reject) => {
-      const request = index.openCursor();
-      request.onerror = () => reject(request.error ?? new Error("Cursor failed"));
-      request.onsuccess = () => {
-        const cursor = request.result;
-        if (!cursor || removed >= excess) {
-          resolve();
-          return;
-        }
-        reviewStore.delete(cursor.primaryKey);
-        cursor.delete();
-        removed += 1;
-        cursor.continue();
-      };
-    });
-    await transactionDone(transaction);
+    const episodeExcess = episodeCount - this.maximumEpisodes;
+    if (episodeExcess > 0) {
+      const transaction = this.database.transaction([EPISODES, REVIEWS, EVIDENCE], "readwrite");
+      const episodeStore = transaction.objectStore(EPISODES);
+      const reviewStore = transaction.objectStore(REVIEWS);
+      const evidenceStore = transaction.objectStore(EVIDENCE);
+      const index = episodeStore.index("firstSeenAt");
+      let removed = 0;
+      await new Promise((resolve, reject) => {
+        const request = index.openCursor();
+        request.onerror = () => reject(request.error ?? new Error("Cursor failed"));
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor || removed >= episodeExcess) {
+            resolve();
+            return;
+          }
+          reviewStore.delete(cursor.primaryKey);
+          evidenceStore.delete(cursor.primaryKey);
+          cursor.delete();
+          removed += 1;
+          cursor.continue();
+        };
+      });
+      await transactionDone(transaction);
+    }
+
+    const evidenceExcess = evidenceCount - this.maximumEvidencePacks;
+    if (evidenceExcess > 0) {
+      const transaction = this.database.transaction(EVIDENCE, "readwrite");
+      const evidenceStore = transaction.objectStore(EVIDENCE);
+      const index = evidenceStore.index("updatedAt");
+      let removed = 0;
+      await new Promise((resolve, reject) => {
+        const request = index.openCursor();
+        request.onerror = () => reject(request.error ?? new Error("Evidence cursor failed"));
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor || removed >= evidenceExcess) {
+            resolve();
+            return;
+          }
+          cursor.delete();
+          removed += 1;
+          cursor.continue();
+        };
+      });
+      await transactionDone(transaction);
+    }
   }
 }
 
