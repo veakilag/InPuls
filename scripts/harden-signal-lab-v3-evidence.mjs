@@ -9,19 +9,8 @@ async function replaceOnce(path, search, replacement, label) {
 
 await replaceOnce(
   "signal-lab-v3-evidence.js",
-  `    const socket = new WebSocket(\`${DEPTH_STREAM_BASE}?streams=\${streams.join("/")}\`);
-    this.socket = socket;
-    this.#publish({ connection: "connecting", trackedSymbols: this.symbols.length, lastError: null });
-
-    this.watchdogTimer = setTimeout(() => {
-      if (generation !== this.generation || this.state.lastMessageAt) return;`,
-  `    const packetsAtConnect = this.state.packets;
-    const socket = new WebSocket(\`${DEPTH_STREAM_BASE}?streams=\${streams.join("/")}\`);
-    this.socket = socket;
-    this.#publish({ connection: "connecting", trackedSymbols: this.symbols.length, lastError: null });
-
-    this.watchdogTimer = setTimeout(() => {
-      if (generation !== this.generation || this.state.packets > packetsAtConnect) return;`,
+  '    const socket = new WebSocket(`${DEPTH_STREAM_BASE}?streams=${streams.join("/")}`);\n    this.socket = socket;\n    this.#publish({ connection: "connecting", trackedSymbols: this.symbols.length, lastError: null });\n\n    this.watchdogTimer = setTimeout(() => {\n      if (generation !== this.generation || this.state.lastMessageAt) return;',
+  '    const packetsAtConnect = this.state.packets;\n    const socket = new WebSocket(`${DEPTH_STREAM_BASE}?streams=${streams.join("/")}`);\n    this.socket = socket;\n    this.#publish({ connection: "connecting", trackedSymbols: this.symbols.length, lastError: null });\n\n    this.watchdogTimer = setTimeout(() => {\n      if (generation !== this.generation || this.state.packets > packetsAtConnect) return;',
   "depth watchdog generation baseline",
 );
 
@@ -83,7 +72,7 @@ test("evidence store keeps metadata and bounded packs in separate stores", async
   assert.match(source, /SIGNAL_LAB_V3_STORE_VERSION = 2/);
   assert.match(source, /const EVIDENCE = "evidence"/);
   assert.match(source, /MAX_EVIDENCE_PACKS = 500/);
-  assert.match(source, /delete normalized\.evidencePack/);
+  assert.match(source, /delete normalized\\.evidencePack/);
   assert.match(source, /evidenceAvailable/);
 });
 
@@ -96,7 +85,7 @@ test("depth watchlist is stable and watchdog belongs to the current connection",
 
 test("owner UI bounds simultaneous replay canvases", async () => {
   const source = await readFile(new URL("../owner-signal-lab-v3.js", import.meta.url), "utf8");
-  assert.match(source, /merged\.slice\(0, 60\)/);
+  assert.match(source, /merged\\.slice\\(0, 60\\)/);
 });
 `;
 if (!testSource.includes('test("evidence store keeps metadata')) {
