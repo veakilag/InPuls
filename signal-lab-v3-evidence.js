@@ -2,7 +2,7 @@ import { buildTraderExplanation } from "./signal-lab-v3-explainer.js";
 
 export const SIGNAL_LAB_V3_EVIDENCE_VERSION = "signal-lab-v3-evidence-replay-2026-08";
 
-const DEPTH_STREAM_BASE = "wss://fstream.binance.com/market/stream";
+const DEPTH_STREAM_BASE = "wss://fstream.binance.com/public/stream";
 const DEFAULT_PRE_EVENT_MS = 3 * 60_000;
 const DEFAULT_POST_EVENT_MS = 5 * 60_000;
 const DEFAULT_DEPTH_SAMPLE_MS = 1_000;
@@ -102,7 +102,9 @@ export class SignalLabV3DepthPool {
     clearTimeout(this.watchdogTimer);
     this.socket?.close();
     this.socket = null;
-    this.#publish({ connection: "stopped" });
+    this.symbols = [];
+    this.signature = "";
+    this.#publish({ connection: "stopped", trackedSymbols: 0 });
   }
 
   snapshots(symbol, since = 0) {
