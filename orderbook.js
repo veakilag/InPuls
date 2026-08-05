@@ -819,15 +819,27 @@ function tradeStreamCandidates(symbol) {
   return [`${name}@aggTrade`];
 }
 
-function tradeTransports(stream) {
+function tradeTransports(stream, market = "futures") {
+  if (market === "spot") {
+    return [
+      { name: "spot-combined", url: `wss://stream.binance.com:9443/stream?streams=${stream}`, subscribe: false },
+      { name: "spot-raw", url: `wss://stream.binance.com:9443/ws/${stream}`, subscribe: false },
+    ];
+  }
   return [
     { name: "combined-market", url: `wss://fstream.binance.com/market/stream?streams=${stream}`, subscribe: false },
     { name: "raw-market", url: `wss://fstream.binance.com/market/ws/${stream}`, subscribe: false },
   ];
 }
 
-function marketTransports(streams) {
+function marketTransports(streams, market = "futures") {
   const joined = streams.join("/");
+  if (market === "spot") {
+    return [
+      { name: "spot-combined", url: `wss://stream.binance.com:9443/stream?streams=${joined}`, subscribe: false },
+      { name: "spot-raw", url: `wss://stream.binance.com:9443/ws/${joined}`, subscribe: false },
+    ];
+  }
   return [
     {
       name: "combined-public",
@@ -876,11 +888,12 @@ async function fetchJsonWithTimeout(
 }
 
 class LegacyOrderBookFeed {
-  constructor({ onData, onStatus, WebSocketImpl = globalThis.WebSocket, fetchImpl = globalThis.fetch } = {}) {
+  constructor({ onData, onStatus, market = "futures", WebSocketImpl = globalThis.WebSocket, fetchImpl = globalThis.fetch } = {}) {
     this.onData = onData ?? (() => {});
     this.onStatus = onStatus ?? (() => {});
     this.WebSocketImpl = WebSocketImpl;
     this.fetchImpl = fetchImpl;
+    this.market = market === "spot" ? "spot" : "futures";
 
     this.socket = null;
     this.tradeSocket = null;
@@ -986,7 +999,7 @@ class LegacyOrderBookFeed {
   #dispatchTapeData(payload) {
     if (typeof globalThis.dispatchEvent !== "function" || typeof globalThis.CustomEvent !== "function") return;
     globalThis.dispatchEvent(new CustomEvent("inpuls:tape-data", {
-      detail: { symbol: this.symbol, ...payload },
+      detail: { symbol: `${this.market}:${this.symbol}`, market: this.market, ...payload },
     }));
   }
 
@@ -1179,7 +1192,10 @@ class LegacyOrderBookFeed {
     ) return;
 
     this.snapshotLoading = true;
-    const hosts = ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"];
+    const spot = this.market === "spot";
+    const hosts = spot
+      ? ["api.binance.com", "api1.binance.com", "api2.binance.com"]
+      : ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"];
     this.#diagnose("legacy.depth.snapshot", {
       state: "scheduled",
       hosts: hosts.length,
@@ -1192,7 +1208,7 @@ class LegacyOrderBookFeed {
         async (host, { signal }) => {
           const candidate = await fetchJsonWithTimeout(
             this.fetchImpl,
-            `https://${host}/fapi/v1/depth?symbol=${encodeURIComponent(this.symbol)}&limit=1000`,
+            `https://${host}/${spot ? "api/v3" : "fapi/v1"}/depth?symbol=${encodeURIComponent(this.symbol)}&limit=1000`,
             SNAPSHOT_TIMEOUT_MS,
             signal,
           );
@@ -1262,7 +1278,7 @@ class LegacyOrderBookFeed {
     clearTimeout(this.firstDepthTimer);
 
     const streams = marketStreams(this.symbol, this.mode);
-    const transports = marketTransports(streams.all);
+    const transports = marketTransports(streams.all, this.market);
     const transport = transports[this.transportIndex % transports.length];
 
     let socket;
@@ -1371,7 +1387,7 @@ class LegacyOrderBookFeed {
     const candidates = tradeStreamCandidates(this.symbol);
     const streamIndex = Math.floor(this.tradeTransportIndex / 3) % candidates.length;
     const stream = candidates[streamIndex];
-    const transports = tradeTransports(stream);
+    const transports = tradeTransports(stream, this.market);
     const transport = transports[this.tradeTransportIndex % transports.length];
 
     let socket;
@@ -1475,8 +1491,8 @@ class OrderBookWorkerManager {
   }
 
   #promoteSymbol(symbol) {
-    const value = String(symbol ?? "").toUpperCase();
-    if (!value.endsWith("USDT")) return;
+    const value = String(symbol ?? "");
+    if (!value.toUpperCase().endsWith("USDT")) return;
     this.prioritySymbols = [
       value,
       ...this.prioritySymbols.filter((item) => item !== value),
@@ -1637,38 +1653,41 @@ class OrderBookWorkerManager {
     return id;
   }
 
-  unregister(id, symbol) {
+  unregister(id, symbol, market = "futures") {
     this.clients.delete(id);
     if (!symbol) return;
-    const group = this.clientsBySymbol.get(symbol);
+    const key = `${market}:${symbol}`;
+    const group = this.clientsBySymbol.get(key);
     group?.delete(id);
     if (group?.size) return;
-    this.clientsBySymbol.delete(symbol);
-    this.prioritySymbols = this.prioritySymbols.filter((item) => item !== symbol);
-    this.lastDataBySymbol.delete(symbol);
-    this.lastStatusBySymbol.delete(symbol);
-    if (this.available()) this.worker.postMessage({ type: "unsubscribe", symbol });
+    this.clientsBySymbol.delete(key);
+    this.prioritySymbols = this.prioritySymbols.filter((item) => item !== key);
+    this.lastDataBySymbol.delete(key);
+    this.lastStatusBySymbol.delete(key);
+    if (this.available()) this.worker.postMessage({ type: "unsubscribe", symbol, market });
   }
 
-  select(id, previousSymbol, symbol) {
-    this.#promoteSymbol(symbol);
+  select(id, previousSymbol, symbol, market = "futures") {
+    const key = `${market}:${symbol}`;
+    const previousKey = previousSymbol ? `${market}:${previousSymbol}` : null;
+    this.#promoteSymbol(key);
     if (!this.available()) return false;
-    if (previousSymbol && previousSymbol !== symbol) {
-      const previous = this.clientsBySymbol.get(previousSymbol);
+    if (previousKey && previousKey !== key) {
+      const previous = this.clientsBySymbol.get(previousKey);
       previous?.delete(id);
       if (previous && previous.size === 0) {
-        this.clientsBySymbol.delete(previousSymbol);
-        this.lastDataBySymbol.delete(previousSymbol);
-        this.lastStatusBySymbol.delete(previousSymbol);
-        this.worker.postMessage({ type: "unsubscribe", symbol: previousSymbol });
+        this.clientsBySymbol.delete(previousKey);
+        this.lastDataBySymbol.delete(previousKey);
+        this.lastStatusBySymbol.delete(previousKey);
+        this.worker.postMessage({ type: "unsubscribe", symbol: previousSymbol, market });
       }
     }
 
-    let group = this.clientsBySymbol.get(symbol);
+    let group = this.clientsBySymbol.get(key);
     const first = !group;
     if (!group) {
       group = new Set();
-      this.clientsBySymbol.set(symbol, group);
+      this.clientsBySymbol.set(key, group);
     }
     group.add(id);
     this.worker.postMessage({
@@ -1677,11 +1696,11 @@ class OrderBookWorkerManager {
     });
 
     const client = this.clients.get(id);
-    const status = this.lastStatusBySymbol.get(symbol);
-    const data = this.lastDataBySymbol.get(symbol);
+    const status = this.lastStatusBySymbol.get(key);
+    const data = this.lastDataBySymbol.get(key);
     if (status) queueMicrotask(() => client?._receiveStatus(status));
     if (data) queueMicrotask(() => client?._receiveData(data));
-    this.worker.postMessage({ type: first ? "subscribe" : "refresh", symbol });
+    this.worker.postMessage({ type: first ? "subscribe" : "refresh", symbol, market });
     return true;
   }
 
@@ -1708,10 +1727,13 @@ class OrderBookWorkerManager {
         const epoch = ++this.resubscribeEpoch;
         const symbols = this.#orderedSymbols();
         this.needsResubscribe = false;
-        symbols.forEach((symbol, index) => {
+        symbols.forEach((key, index) => {
           setTimeout(() => {
             if (this.failed || !this.workerReady || this.worker !== worker || epoch !== this.resubscribeEpoch) return;
-            worker?.postMessage({ type: "subscribe", symbol });
+            const separator = key.indexOf(":");
+            const market = separator >= 0 ? key.slice(0, separator) : "futures";
+            const symbol = separator >= 0 ? key.slice(separator + 1) : key;
+            worker?.postMessage({ type: "subscribe", symbol, market });
           }, index * ORDERBOOK_RESUBSCRIBE_STAGGER_MS);
         });
       } else {
@@ -1725,18 +1747,20 @@ class OrderBookWorkerManager {
       return;
     }
     const symbol = String(message.symbol ?? "").toUpperCase();
+    const market = message.market === "spot" ? "spot" : "futures";
+    const key = `${market}:${symbol}`;
     if (!symbol.endsWith("USDT")) return;
 
     if (message.type === "status") {
       const status = { state: message.state, text: message.text };
-      this.lastStatusBySymbol.set(symbol, status);
+      this.lastStatusBySymbol.set(key, status);
       if (typeof globalThis.dispatchEvent === "function"
         && typeof globalThis.CustomEvent === "function") {
         globalThis.dispatchEvent(new CustomEvent(ORDERBOOK_WORKER_STATUS_EVENT, {
           detail: { symbol, status },
         }));
       }
-      for (const id of this.clientsBySymbol.get(symbol) ?? []) {
+      for (const id of this.clientsBySymbol.get(key) ?? []) {
         this.clients.get(id)?._receiveStatus(status);
       }
       return;
@@ -1745,8 +1769,8 @@ class OrderBookWorkerManager {
     if (message.type === "data") {
       const data = message.data;
       if (!data) return;
-      this.lastDataBySymbol.set(symbol, data);
-      for (const id of this.clientsBySymbol.get(symbol) ?? []) {
+      this.lastDataBySymbol.set(key, data);
+      for (const id of this.clientsBySymbol.get(key) ?? []) {
         this.clients.get(id)?._receiveData(data);
       }
       return;
@@ -1757,7 +1781,8 @@ class OrderBookWorkerManager {
       && typeof globalThis.CustomEvent === "function") {
       globalThis.dispatchEvent(new CustomEvent(ORDERBOOK_WORKER_TAPE_EVENT, {
         detail: {
-          symbol,
+          symbol: `${market}:${symbol}`,
+          market,
           replace: Boolean(message.replace),
           resume: Boolean(message.resume),
           live: Boolean(message.live),
@@ -1812,6 +1837,7 @@ export class OrderBookFeed {
     this.onData = options.onData ?? (() => {});
     this.onStatus = options.onStatus ?? (() => {});
     this.symbol = null;
+    this.market = options.market === "spot" ? "spot" : "futures";
     this.destroyed = false;
     this.fallback = null;
     this.clientId = orderBookWorkerManager.register(this);
@@ -1826,7 +1852,7 @@ export class OrderBookFeed {
       this.fallback.select(symbol);
       return;
     }
-    if (!orderBookWorkerManager.select(this.clientId, previous, symbol)) {
+    if (!orderBookWorkerManager.select(this.clientId, previous, symbol, this.market)) {
       this._activateFallback();
     }
   }
@@ -1836,7 +1862,7 @@ export class OrderBookFeed {
     if (typeof globalThis.dispatchEvent === "function"
       && typeof globalThis.CustomEvent === "function") {
       globalThis.dispatchEvent(new CustomEvent("inpuls:book-data", {
-        detail: { symbol: this.symbol, data },
+        detail: { symbol: `${this.market}:${this.symbol}`, market: this.market, data },
       }));
     }
     this.onData(data);
@@ -1856,7 +1882,7 @@ export class OrderBookFeed {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
-    orderBookWorkerManager.unregister(this.clientId, this.symbol);
+    orderBookWorkerManager.unregister(this.clientId, this.symbol, this.market);
     this.fallback?.destroy();
     this.fallback = null;
   }
@@ -2011,7 +2037,8 @@ function formatTapeUsd(value) {
 function cardSymbol(card) {
   const title = String(card.querySelector("[data-book-ticker]")?.textContent ?? card.querySelector("h2")?.textContent ?? "");
   const pair = title.split("·")[0].trim().replace("/", "").toUpperCase();
-  return pair.endsWith("USDT") ? pair : null;
+  const market = card?.dataset?.market === "spot" ? "spot" : "futures";
+  return pair.endsWith("USDT") ? `${market}:${pair}` : null;
 }
 
 function installOrderBookStyles() {

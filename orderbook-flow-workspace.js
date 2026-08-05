@@ -631,7 +631,8 @@ function cardSymbol(card) {
       ?? "",
   );
   const pair = text.split("·")[0].replace("/", "").trim().toUpperCase();
-  return pair.endsWith("USDT") ? pair : null;
+  const market = card?.dataset?.market === "spot" ? "spot" : "futures";
+  return pair.endsWith("USDT") ? `${market}:${pair}` : null;
 }
 
 function parseNumber(text) {

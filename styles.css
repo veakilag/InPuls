@@ -261,6 +261,9 @@ body {
 .chart-heading button, .chart-heading input, .chart-heading select,
 .top-columns button, .top-columns input, .toolbar button, .toolbar input,
 .orderbook-heading button { cursor: pointer; }
+.book-spot-toggle { min-width: 42px; height: 21px; padding: 0 6px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); background: transparent; font-size: calc(7 * var(--font-scale)); font-weight: 800; }
+.book-spot-toggle:not(:disabled):hover, .book-spot-toggle.is-active { color: var(--green); border-color: color-mix(in srgb, var(--green) 55%, var(--line)); background: color-mix(in srgb, var(--green) 10%, transparent); }
+.book-spot-toggle:disabled { cursor: not-allowed; opacity: .52; }
 .panel-close { width: 20px; height: 20px; flex: 0 0 20px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 4px; color: var(--muted); background: transparent; font: 15px/1 Arial, sans-serif; }
 .panel-close:hover { color: #fff; background: #b43d4b; }
 .radar-core-close { position: absolute; z-index: 12; top: 2px; right: 2px; }
