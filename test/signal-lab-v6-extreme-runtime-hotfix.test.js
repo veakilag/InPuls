@@ -95,7 +95,6 @@ test("owner UI no longer rebuilds all episode cards every five seconds", () => {
   assert.match(owner, /activeExtremes \?\? 0/);
 });
 
-
 test("minute history produces only fully closed higher-timeframe candles", () => {
   const rows = Array.from({ length: 65 }, (_, index) => ({
     time: index * minute,
@@ -140,4 +139,11 @@ test("warmed symbols retain enough minute history for a complete 1d candle", () 
   const daily = latestCompleteTimeframeCandle(rows, "1d", 1_440 * minute);
   assert.equal(daily.time, 0);
   assert.equal(daily.closeTime, 1_440 * minute - 1);
+});
+
+test("warmed minute history remains bounded while supporting daily aggregation", () => {
+  const source = fs.readFileSync(new URL("../engine.js", import.meta.url), "utf8");
+  assert.match(source, /Math\.min\(1_500, candles\.length \|\| 0\)/);
+  assert.match(source, /slice\(-this\.minuteCandleLimit\)/);
+  assert.match(source, /minuteCandles: this\.minuteCandles\.slice\(-100\)/);
 });
