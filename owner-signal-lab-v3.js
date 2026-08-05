@@ -1,15 +1,15 @@
 import {
   CANDIDATE_LABELS,
   SIGNAL_LAB_V3_FORMULA_VERSION,
-} from "./signal-lab-v3-candidates.js?v=signal-lab-v4-stage3";
-import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v4-performance-1";
-import { mountEvidenceReplay } from "./signal-lab-v3-replay-ui.js?v=signal-lab-v4-stage1";
+} from "./signal-lab-v3-candidates.js?v=signal-lab-v5-patterns-1";
+import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v5-rebuild-1";
+import { mountEvidenceReplay } from "./signal-lab-v3-replay-ui.js?v=signal-lab-v5-rebuild-1";
 import {
   disposeEpisodeFullCharts,
   isEpisodeFullChartOpen,
   mountEpisodeFullChart,
   resetEpisodeFullChartState,
-} from "./signal-lab-v3-full-chart.js?v=signal-lab-v4-stage3";
+} from "./signal-lab-v3-full-chart.js?v=signal-lab-v5-candles-1";
 import {
   buildCascadeCalibrationSample,
   CASCADE_CALIBRATION_CHECKS,

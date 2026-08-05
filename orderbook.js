@@ -2041,7 +2041,7 @@ function cardSymbol(card) {
   return pair.endsWith("USDT") ? `${market}:${pair}` : null;
 }
 
-function installOrderBookStyles() {
+export function installOrderBookStyles() {
   if (typeof document === "undefined" || document.getElementById(ORDERBOOK_RUNTIME_STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = ORDERBOOK_RUNTIME_STYLE_ID;

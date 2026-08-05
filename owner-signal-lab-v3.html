@@ -5,17 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow,noarchive" />
     <meta name="description" content="Локальная лаборатория кандидатов рыночных паттернов InPuls" />
-    <title>InPuls — Owner Signal Lab V4</title>
+    <title>InPuls — Owner Signal Lab V5</title>
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css?v=signal-lab-v5-shared-orderbook" />
     <link rel="stylesheet" href="./owner-signal-lab-v3.css?v=signal-lab-v4-stage1" />
     <link rel="stylesheet" href="./owner-signal-lab-v3-evidence.css?v=signal-lab-v4-stage4" />
     <link rel="stylesheet" href="./owner-signal-lab-v4-calibration.css?v=signal-lab-v4-stage4" />
+    <link rel="stylesheet" href="./signal-lab-v5-orderbook.css?v=signal-lab-v5-shared-orderbook" />
   </head>
   <body>
     <header class="topbar">
-      <div class="brand" aria-label="InPuls Owner Signal Lab V4">
+      <div class="brand" aria-label="InPuls Owner Signal Lab V5">
         <strong>INPULS</strong>
-        <span>OWNER SIGNAL LAB V4</span>
+        <span>OWNER SIGNAL LAB V5</span>
       </div>
       <div class="collector-line">
         <span id="collector-dot" class="status-dot" aria-hidden="true"></span>
@@ -29,13 +31,13 @@
 
     <main>
       <section class="hero">
-        <p class="eyebrow">V4 · АКТИВНЫЕ ЭКСТРЕМУМЫ · 30 ДНЕЙ · ORDER FLOW REPLAY</p>
+        <p class="eyebrow">V5 · ВЫНОС >1% · ПОЛНЫЕ 30 ДНЕЙ · ОСНОВНОЙ СТАКАН INPULS</p>
         <h1>Сначала собрать эпизод — потом доказать паттерн</h1>
         <p>
           Legacy-кандидаты продолжают использовать фильтр оборота выше $100 млн и NATR5 выше 1%, чтобы не потерять существующую выборку.
           Каскад V4 собирается отдельным детерминированным контуром от $25 млн оборота и не дальше 3% до первой ступени.
           Основа — активные high/low и зоны ×N; перед каскадом отдельно проверяются проход, принятие, ретест и прокол с возвратом.
-          Система заранее фиксирует SETUP, затем отдельно TRIGGERED, CONFIRMED, EXTENDED, PARTIAL и FAILED.
+          Система заранее фиксирует SETUP, затем отдельно TRIGGERED, CONFIRMED, EXTENDED, PARTIAL и FAILED. Нож и заточка существуют только после предшествующего выноса строго больше 1%.
           Стопы за экстремумами остаются гипотезой микроструктуры: интерфейс показывает только уровни, проходы, качество данных и фактический результат.
         </p>
       </section>
@@ -209,6 +211,7 @@
                 <button type="button" data-chart-action="undo">Отменить</button>
                 <button type="button" data-chart-action="clear">Очистить рисунки</button>
                 <button type="button" data-chart-action="reset">К эпизоду</button>
+                <button type="button" data-chart-action="fit">Весь диапазон 30д</button>
                 <label><input data-field="chart-annotations-toggle" type="checkbox" checked /> Авторазметка</label>
                 <label><input data-field="chart-volume-toggle" type="checkbox" checked /> Объём</label>
                 <label><input data-field="chart-sessions-toggle" type="checkbox" checked /> Сессии</label>
@@ -242,34 +245,7 @@
               </div>
               <strong data-field="flow-quality" class="flow-quality">SYNCING</strong>
             </header>
-            <div class="orderflow-toolbar">
-              <div class="timeframe-switch" role="group" aria-label="Таймфрейм кластера">
-                <button type="button" data-flow-timeframe="1s">1с</button>
-                <button type="button" data-flow-timeframe="5s" class="is-active">5с</button>
-                <button type="button" data-flow-timeframe="15s">15с</button>
-                <button type="button" data-flow-timeframe="1m">1м</button>
-              </div>
-              <div class="timeframe-switch" role="group" aria-label="Шаг цены кластера">
-                <button type="button" data-flow-step="1" class="is-active">×1</button>
-                <button type="button" data-flow-step="10">×10</button>
-                <button type="button" data-flow-step="100">×100</button>
-                <button type="button" data-flow-step="1000">×1000</button>
-              </div>
-            </div>
-            <div class="orderflow-replay-grid">
-              <section class="orderflow-pane cluster-pane">
-                <h4>КЛАСТЕР</h4>
-                <canvas data-field="flow-cluster" class="flow-cluster"></canvas>
-              </section>
-              <section class="orderflow-pane tape-pane">
-                <h4>СДЕЛКИ · AGG</h4>
-                <div data-field="flow-tape" class="replay-tape"></div>
-              </section>
-              <section class="orderflow-pane book-pane">
-                <h4>СТАКАН · РУЧНОЙ СКРОЛЛ</h4>
-                <div data-field="book" class="replay-book virtual-book"></div>
-              </section>
-            </div>
+            <div data-field="orderbook-workspace" class="signal-lab-orderbook-workspace"></div>
             <p class="book-warning">
               Полная локальная книга доступна только при непрерывной записи до события. GAP/RECOVERED показываются явно; состав стопов и намерение участника не утверждаются.
             </p>
@@ -453,6 +429,6 @@
       </article>
     </template>
 
-    <script type="module" src="./owner-signal-lab-v3.js?v=signal-lab-v4-performance-1"></script>
+    <script type="module" src="./owner-signal-lab-v3.js?v=signal-lab-v5-rebuild-1"></script>
   </body>
 </html>

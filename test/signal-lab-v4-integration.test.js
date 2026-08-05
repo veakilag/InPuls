@@ -6,6 +6,7 @@ const collector = await readFile(new URL("../signal-lab-v3-collector.js", import
 const evidence = await readFile(new URL("../signal-lab-v3-evidence.js", import.meta.url), "utf8");
 const chart = await readFile(new URL("../signal-lab-v3-full-chart.js", import.meta.url), "utf8");
 const replay = await readFile(new URL("../signal-lab-v3-replay-ui.js", import.meta.url), "utf8");
+const orderFlowReplay = await readFile(new URL("../signal-lab-v4-orderflow-replay.js", import.meta.url), "utf8");
 const html = await readFile(new URL("../owner-signal-lab-v3.html", import.meta.url), "utf8");
 const runtime = await readFile(new URL("../owner-signal-lab-v3.js", import.meta.url), "utf8");
 const store = await readFile(new URL("../signal-lab-v3-store.js", import.meta.url), "utf8");
@@ -31,7 +32,9 @@ test("episode chart supports native 4h 1d and paginated 30 day history", () => {
   assert.match(chart, /"4h": 14_400_000/);
   assert.match(chart, /"1d": 86_400_000/);
   assert.match(chart, /"30d": 30 \* 24/);
-  assert.match(chart, /candles\.length < 50_000/);
+  assert.match(chart, /candles\.length < 50_500/);
+  assert.match(chart, /buildCandleCoverage/);
+  assert.match(chart, /PARTIAL_BINANCE_COVERAGE/);
   assert.match(chart, /addExtremeMapAnnotations/);
   assert.match(html, /data-chart-range="30d"/);
   assert.match(html, /data-chart-timeframe="1d"/);
@@ -39,9 +42,10 @@ test("episode chart supports native 4h 1d and paginated 30 day history", () => {
 
 test("owner replay exposes cluster tape scrollable local book and explicit data states", () => {
   assert.match(replay, /mountSignalLabV4OrderFlowPanel/);
-  assert.match(html, /data-field="flow-cluster"/);
-  assert.match(html, /data-field="flow-tape"/);
-  assert.match(html, /СТАКАН · РУЧНОЙ СКРОЛЛ/);
+  assert.match(html, /data-field="orderbook-workspace"/);
+  assert.match(html, /styles\.css\?v=signal-lab-v5-shared-orderbook/);
+  assert.match(orderFlowReplay, /orderbook-card signal-lab-replay-card/);
+  assert.match(orderFlowReplay, /Ctrl \+ колесо — шаг ×1…×1000/);
   assert.match(html, /snapshot \+ diff/);
   assert.match(runtime, /order flow/);
 });

@@ -1,4 +1,4 @@
-import { mountSignalLabV4OrderFlowPanel } from "./signal-lab-v4-orderflow-replay.js?v=signal-lab-v4-stage1";
+import { mountSignalLabV4OrderFlowPanel } from "./signal-lab-v4-orderflow-replay.js?v=signal-lab-v5-shared-orderbook";
 
 const TIMEFRAMES = Object.freeze({
   "1s": 1_000,
@@ -293,18 +293,20 @@ function renderOutcomes(target, pack) {
 export function mountEvidenceReplay(card, episode) {
   const pack = episode?.evidencePack;
   const book = card.querySelector('[data-field="book"]');
+  const workspace = card.querySelector('[data-field="orderbook-workspace"]');
   const slider = card.querySelector('[data-field="replay-slider"]');
   const replayTime = card.querySelector('[data-field="replay-time"]');
   const play = card.querySelector('[data-field="replay-play"]');
   const coverage = card.querySelector('[data-field="coverage"]');
   const outcomes = card.querySelector('[data-field="outcomes"]');
-  if (!book || !slider || !replayTime || !play) return;
+  if ((!book && !workspace) || !slider || !replayTime || !play) return;
   if (!pack) {
-    book.replaceChildren();
+    const emptyTarget = workspace ?? book;
+    emptyTarget.replaceChildren();
     const empty = document.createElement("div");
     empty.className = "book-empty";
     empty.textContent = "Эпизод создан до включения записи depth20. Стакан задним числом восстановить нельзя.";
-    book.append(empty);
+    emptyTarget.append(empty);
     coverage.textContent = "Исторический Evidence Pack отсутствует. Полный график может загрузить минутные свечи Binance, но секундный контекст и старый стакан не восстанавливаются.";
     replayTime.textContent = "—";
     play.disabled = true;
@@ -317,9 +319,16 @@ export function mountEvidenceReplay(card, episode) {
   }
 
   let timer = null;
-  const orderFlowPanel = pack?.orderFlowReplay
-    ? mountSignalLabV4OrderFlowPanel(card, pack.orderFlowReplay)
-    : null;
+  let orderFlowPanel = null;
+  const ensureOrderFlowPanel = () => {
+    if (!orderFlowPanel && pack?.orderFlowReplay) {
+      orderFlowPanel = mountSignalLabV4OrderFlowPanel(card, pack.orderFlowReplay);
+    }
+    return orderFlowPanel;
+  };
+  if (workspace) {
+    workspace.innerHTML = '<div class="signal-lab-orderbook-placeholder">Полный стакан InPuls загрузится после нажатия «Replay стакана». Это сохраняет отзывчивость списка.</div>';
+  }
   const startAt = finite(pack?.orderFlowReplay?.requestedFrom)
     ?? finite(pack?.window?.startAt)
     ?? Date.now() - 120_000;
@@ -335,20 +344,22 @@ export function mountEvidenceReplay(card, episode) {
   slider.step = "1";
   slider.value = String(Math.max(0, Math.min(durationSeconds, Math.round(((finite(pack?.window?.eventAt) ?? latestAt) - startAt) / 1_000))));
 
-  const render = () => {
+  const render = ({ mountOrderFlow = false } = {}) => {
     const selectedAt = startAt + Number(slider.value) * 1_000;
-    if (orderFlowPanel) orderFlowPanel.render(selectedAt);
-    else renderBook(book, pack, selectedAt);
+    const panel = mountOrderFlow ? ensureOrderFlowPanel() : orderFlowPanel;
+    if (panel) panel.render(selectedAt);
+    else if (book) renderBook(book, pack, selectedAt);
     renderExplanation(card, pack);
     renderOutcomes(outcomes, pack);
     replayTime.textContent = formatClock(selectedAt);
-    coverage.textContent = orderFlowPanel
-      ? `Свечи: контекст до 30 дней · order flow: ${pack.coverage?.orderFlowPreSeconds ?? 0}с до · ${pack.coverage?.orderFlowState ?? "not-recorded"} · ${pack.coverage?.depthDiffs ?? 0} diff · ${pack.coverage?.rawTrades ?? 0} aggTrade`
+    coverage.textContent = pack?.orderFlowReplay
+      ? `Свечи: проверяемое покрытие 30 дней · order flow: ${pack.coverage?.orderFlowPreSeconds ?? 0}с до · ${pack.coverage?.orderFlowPreComplete ? "PRE COMPLETE" : "PRE PARTIAL"} · ${pack.coverage?.orderFlowState ?? "not-recorded"} · ${pack.coverage?.depthDiffs ?? 0} diff · ${pack.coverage?.aggTrades ?? 0} AGG · ${pack.coverage?.rawTrades ?? 0} RAW`
       : `Цена: ${pack.coverage?.prePriceSeconds ?? 0}с до · стакан: ${pack.coverage?.preBookSeconds ?? 0}с до / ${pack.coverage?.bookState ?? "not-recorded"} · режим ${pack.bookMode}`;
   };
 
-  slider.addEventListener("input", render);
+  slider.addEventListener("input", () => render({ mountOrderFlow: true }));
   play.addEventListener("click", () => {
+    ensureOrderFlowPanel();
     if (timer) {
       clearInterval(timer);
       timer = null;
@@ -365,7 +376,7 @@ export function mountEvidenceReplay(card, episode) {
         return;
       }
       slider.value = String(next);
-      render();
+      render({ mountOrderFlow: true });
     }, 350);
   });
 

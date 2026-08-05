@@ -29,7 +29,7 @@ test("owner status exposes setup, triggered and confirmed cascade counts", () =>
   assert.match(owner, /cascadeSetups/);
   assert.match(owner, /cascadeTriggered/);
   assert.match(owner, /cascadeConfirmed/);
-  assert.match(owner, /signal-lab-v4-stage3/);
+  assert.match(owner, /signal-lab-v5-patterns-1/);
 });
 
 test("V4 setup becomes a reviewable candidate before first break", () => {

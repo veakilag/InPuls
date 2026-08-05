@@ -1,4 +1,4 @@
-export const SIGNAL_LAB_V3_FORMULA_VERSION = "signal-lab-v3-four-patterns-v1-2026-08";
+export const SIGNAL_LAB_V3_FORMULA_VERSION = "signal-lab-v5-patterns-v1-2026-08";
 
 export const CANDIDATE_TYPES = Object.freeze({
   KNIFE: "down_reversal_attempt",
@@ -41,6 +41,7 @@ export const DEFAULT_CANDIDATE_SETTINGS = Object.freeze({
   reversalLookbackMs: 75_000,
   reversalMaximumAgeMs: 25_000,
   reversalMinimumRecoveryPercent: 0.12,
+  reversalMinimumImpulsePercent: 1,
   levelLookbackCandles: 40,
   levelMinimumTouches: 2,
   levelMinimumTolerancePercent: 0.08,
@@ -166,6 +167,7 @@ function reversalEvidence(metrics, now, side, thresholds, settings) {
   const minimumRecovery = Math.max(settings.reversalMinimumRecoveryPercent, impulse * 0.18);
   if (
     !recovered
+    || impulse <= settings.reversalMinimumImpulsePercent
     || impulse < thresholds.strongMove
     || recovery < minimumRecovery
     || now - extremeAt > settings.reversalMaximumAgeMs
@@ -174,6 +176,8 @@ function reversalEvidence(metrics, now, side, thresholds, settings) {
   return {
     impulseSide: side,
     impulsePercent: impulse,
+    requiredImpulsePercent: settings.reversalMinimumImpulsePercent,
+    impulseThresholdMode: "STRICT_GREATER_THAN",
     recoveryPercent: recovery,
     originPrice: origin,
     extremePrice: extreme,
@@ -563,7 +567,7 @@ export function detectExpertCandidates(metrics, now = Date.now(), options = {}) 
         originCascade: origin.cascade,
       },
       facts: [
-        `вынос вниз ${formatPercent(-downReversal.impulsePercent)}`,
+        `вынос вниз ${formatPercent(-downReversal.impulsePercent)} · порог строго >${downReversal.requiredImpulsePercent.toFixed(2)}%`,
         `выкуп от экстремума ${formatPercent(downReversal.recoveryPercent)}`,
         `реакция за ${(downReversal.recoveryDurationMs / 1_000).toFixed(1)}с`,
         `источник: ${origin.origins.map(originLabel).join(" + ")}`,
@@ -596,7 +600,7 @@ export function detectExpertCandidates(metrics, now = Date.now(), options = {}) 
         originCascade: origin.cascade,
       },
       facts: [
-        `вынос вверх ${formatPercent(upReversal.impulsePercent)}`,
+        `вынос вверх ${formatPercent(upReversal.impulsePercent)} · порог строго >${upReversal.requiredImpulsePercent.toFixed(2)}%`,
         `слив от экстремума ${formatPercent(-upReversal.recoveryPercent)}`,
         `реакция за ${(upReversal.recoveryDurationMs / 1_000).toFixed(1)}с`,
         `источник: ${origin.origins.map(originLabel).join(" + ")}`,

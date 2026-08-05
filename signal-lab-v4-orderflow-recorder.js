@@ -1,10 +1,10 @@
-export const SIGNAL_LAB_V4_ORDERFLOW_VERSION = "signal-lab-v4-orderflow-replay-v1-2026-08";
+export const SIGNAL_LAB_V4_ORDERFLOW_VERSION = "signal-lab-v5-orderflow-replay-v2-2026-08";
 
 const DEPTH_STREAM_BASE = "wss://fstream.binance.com/public/stream";
 const DEPTH_SNAPSHOT_ENDPOINT = "https://fapi.binance.com/fapi/v1/depth";
 const DEFAULT_PRE_EVENT_MS = 2 * 60_000;
 const DEFAULT_RETAIN_MS = 3 * 60_000;
-const DEFAULT_CHECKPOINT_MS = 5_000;
+const DEFAULT_CHECKPOINT_MS = 15_000;
 const DEFAULT_MAX_SYMBOLS = 6;
 const DEFAULT_DEPTH_LIMIT = 1_000;
 
@@ -72,6 +72,29 @@ export function normalizeAggTrade(payload, receivedAt = Date.now()) {
   });
 }
 
+
+export function normalizeRawTrade(payload, receivedAt = Date.now()) {
+  const data = payload?.data ?? payload;
+  const symbol = normalizeSymbol(data?.s);
+  const price = finite(data?.p);
+  const quantity = finite(data?.q);
+  const eventTime = finite(data?.E) ?? receivedAt;
+  const tradeTime = finite(data?.T) ?? eventTime;
+  if (data?.e !== "trade" || !symbol || !(price > 0) || !(quantity > 0)) return null;
+  return Object.freeze({
+    id: String(data?.t ?? `${tradeTime}:${price}:${quantity}`),
+    symbol,
+    eventTime,
+    tradeTime,
+    receivedAt,
+    price,
+    quantity,
+    quote: price * quantity,
+    side: data?.m ? "sell" : "buy",
+    source: "RAW_SHADOW",
+  });
+}
+
 function createSymbolState(symbol) {
   return {
     symbol,
@@ -85,6 +108,9 @@ function createSymbolState(symbol) {
     buffered: [],
     events: [],
     trades: [],
+    rawTrades: [],
+    aggTradeIds: new Set(),
+    rawTradeIds: new Set(),
     checkpoints: [],
     qualityEvents: [],
     lastCheckpointAt: 0,
@@ -183,6 +209,7 @@ export class SignalLabV4OrderFlowRecorder {
       packets: 0,
       diffs: 0,
       trades: 0,
+      rawTrades: 0,
       checkpoints: 0,
       gaps: 0,
       recoveries: 0,
@@ -227,6 +254,7 @@ export class SignalLabV4OrderFlowRecorder {
     this.#publish({
       diffs: 0,
       trades: 0,
+      rawTrades: 0,
       checkpoints: 0,
       gaps: 0,
       recoveries: 0,
@@ -238,6 +266,8 @@ export class SignalLabV4OrderFlowRecorder {
     if (!trade) return null;
     const state = this.states.get(trade.symbol);
     if (!state || !this.symbols.includes(trade.symbol)) return trade;
+    if (state.aggTradeIds.has(trade.id)) return trade;
+    state.aggTradeIds.add(trade.id);
     state.trades.push(trade);
     state.firstObservedAt = state.firstObservedAt === null
       ? trade.tradeTime
@@ -245,6 +275,23 @@ export class SignalLabV4OrderFlowRecorder {
     state.lastObservedAt = Math.max(state.lastObservedAt ?? 0, trade.tradeTime);
     this.#trim(state, receivedAt);
     this.#publish({ trades: this.statusState.trades + 1 });
+    return trade;
+  }
+
+
+  ingestRawTrade(payload, receivedAt = Date.now()) {
+    const trade = normalizeRawTrade(payload, receivedAt);
+    if (!trade) return null;
+    const state = this.states.get(trade.symbol);
+    if (!state || !this.symbols.includes(trade.symbol) || state.rawTradeIds.has(trade.id)) return trade;
+    state.rawTradeIds.add(trade.id);
+    state.rawTrades.push(trade);
+    state.firstObservedAt = state.firstObservedAt === null
+      ? trade.tradeTime
+      : Math.min(state.firstObservedAt, trade.tradeTime);
+    state.lastObservedAt = Math.max(state.lastObservedAt ?? 0, trade.tradeTime);
+    this.#trim(state, receivedAt);
+    this.#publish({ rawTrades: this.statusState.rawTrades + 1 });
     return trade;
   }
 
@@ -261,6 +308,7 @@ export class SignalLabV4OrderFlowRecorder {
     if (!initial) return null;
     const events = state.events.filter((row) => row.at > initial.at && row.at <= requestedTo);
     const trades = state.trades.filter((row) => row.tradeTime >= requestedFrom && row.tradeTime <= requestedTo);
+    const rawTrades = state.rawTrades.filter((row) => row.tradeTime >= requestedFrom && row.tradeTime <= requestedTo);
     const qualityEvents = state.qualityEvents.filter((row) => row.at >= initial.at && row.at <= requestedTo);
     const earliest = Math.min(
       initial.at,
@@ -278,6 +326,7 @@ export class SignalLabV4OrderFlowRecorder {
       checkpoints: clone(checkpoints.filter((row) => row.at >= initial.at)),
       events: clone(events),
       trades: clone(trades),
+      rawTrades: clone(rawTrades),
       qualityEvents: clone(qualityEvents),
       coverage: Object.freeze({
         requestedPreSeconds: Math.max(0, Math.round((requestedTo - requestedFrom) / 1_000)),
@@ -288,6 +337,12 @@ export class SignalLabV4OrderFlowRecorder {
         state: state.state,
         gaps: state.gapCount,
         recoveries: state.recoveredCount,
+        depthContinuous: !qualityEvents.some((row) => ["GAP", "ERROR", "STALE"].includes(row.state)),
+        preEventComplete: Number.isFinite(earliest) && earliest <= requestedFrom
+          && !qualityEvents.some((row) => ["GAP", "ERROR", "STALE"].includes(row.state)),
+        aggTrades: trades.length,
+        rawTrades: rawTrades.length,
+        rawMode: rawTrades.length ? "SHADOW_RECORDED" : "NOT_RECORDED",
       }),
     });
   }
@@ -305,7 +360,10 @@ export class SignalLabV4OrderFlowRecorder {
       return;
     }
 
-    const streams = this.symbols.map((symbol) => `${symbol.toLowerCase()}@depth@100ms`);
+    const streams = this.symbols.flatMap((symbol) => [
+      `${symbol.toLowerCase()}@depth@100ms`,
+      `${symbol.toLowerCase()}@trade`,
+    ]);
     const socket = new this.WebSocketImpl(`${DEPTH_STREAM_BASE}?streams=${streams.join("/")}`);
     this.socket = socket;
     const packetsAtConnect = this.statusState.packets;
@@ -332,9 +390,25 @@ export class SignalLabV4OrderFlowRecorder {
         return;
       }
       const receivedAt = Date.now();
+      const data = payload?.data ?? payload;
+      clearTimeout(this.watchdogTimer);
+      this.watchdogTimer = setTimeout(() => {
+        if (generation !== this.generation || this.manualClose) return;
+        this.#publish({ connection: "stale", lastError: "order flow не обновлялся 15 секунд" });
+        socket.close();
+      }, 15_000);
+      if (data?.e === "trade") {
+        this.ingestRawTrade(payload, receivedAt);
+        this.#publish({
+          connection: "live",
+          packets: this.statusState.packets + 1,
+          lastMessageAt: receivedAt,
+          lastError: null,
+        });
+        return;
+      }
       const diff = normalizeDepthDiff(payload, receivedAt);
       if (!diff) return;
-      clearTimeout(this.watchdogTimer);
       this.#ingestDiff(diff, generation);
       this.#publish({
         connection: "live",
@@ -346,7 +420,8 @@ export class SignalLabV4OrderFlowRecorder {
     socket.addEventListener("close", () => {
       if (generation !== this.generation || this.manualClose || !this.symbols.length) return;
       this.reconnectAttempt += 1;
-      const delay = Math.min(30_000, 1_000 * 2 ** Math.min(this.reconnectAttempt, 5));
+      const baseDelay = Math.min(30_000, 1_000 * 2 ** Math.min(this.reconnectAttempt, 5));
+      const delay = Math.round(baseDelay * (0.8 + Math.random() * 0.4));
       this.#publish({ connection: "reconnecting" });
       this.reconnectTimer = setTimeout(() => {
         if (generation === this.generation) this.#connect();
@@ -460,6 +535,9 @@ export class SignalLabV4OrderFlowRecorder {
     const cutoff = now - this.retainMs;
     trimRows(state.events, cutoff, "at");
     trimRows(state.trades, cutoff, "tradeTime");
+    trimRows(state.rawTrades, cutoff, "tradeTime");
+    state.aggTradeIds = new Set(state.trades.map((row) => row.id));
+    state.rawTradeIds = new Set(state.rawTrades.map((row) => row.id));
     trimRows(state.qualityEvents, cutoff, "at");
     trimRows(state.checkpoints, cutoff, "at");
   }
