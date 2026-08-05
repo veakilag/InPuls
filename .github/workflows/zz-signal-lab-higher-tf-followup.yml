@@ -43,6 +43,22 @@ jobs:
         if: steps.patch.outcome == 'failure'
         run: exit 1
 
+      - name: Align collector regression assertion
+        if: steps.patch.outcome == 'success'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('test/signal-lab-v6-extreme-runtime-hotfix.test.js')
+          text = path.read_text(encoding='utf-8')
+          old = '  assert.match(collector, /hydrate\\(metrics\\.symbol, "1m", \\[latestClosedMinute\\]/);'
+          new = '''  assert.match(collector, /SIGNAL_LAB_V4_TIMEFRAMES/);
+            assert.match(collector, /latestCompleteTimeframeCandle\\(state\\.minuteCandles, timeframe, now\\)/);
+            assert.match(collector, /hydrate\\(metrics\\.symbol, timeframe, \\[candle\\]/);'''
+          if text.count(old) != 1:
+              raise SystemExit('unexpected collector assertion state')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+
       - name: Run complete test suite
         id: tests
         if: steps.patch.outcome == 'success'
