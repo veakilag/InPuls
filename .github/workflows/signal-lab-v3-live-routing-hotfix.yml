@@ -118,7 +118,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/signal-lab-v3-live-routing-hotfix.yml scripts/patch-signal-lab-v3-live-routing.mjs
+          git rm -f .github/workflows/signal-lab-v3-live-routing-hotfix.yml scripts/patch-signal-lab-v3-live-routing.mjs
           git rm -f HOTFIX_TEST_FAILURE.txt || true
           git add signal-lab-v3-collector.js owner-signal-lab-v3.js owner-signal-lab-v3.html test/signal-lab-v3-collector.test.js
           git commit -m "Fix Signal Lab V3 live market routing [signal-lab-v3-hotfix-applied]"
