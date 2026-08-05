@@ -1,0 +1,23 @@
+{
+  "checkedAt": "2026-08-05T22:39:35Z",
+  "productionCommit": "6ec8cd5a7ea17a7867d94259d6ef66f53cc126c5",
+  "workflowRunId": 31053563560,
+  "workflowJobId": 92466042397,
+  "targetUrl": "https://veakilag.github.io/InPuls/owner-signal-lab-v3.html?extremes=6ec8cd5a",
+  "result": "PASS",
+  "readyAfterMs": 4516,
+  "state": {
+    "connection": "LIVE",
+    "checks": 3,
+    "activeExtremes": 135,
+    "symbolsWithActiveExtremes": 1,
+    "historyMode": "SPOT_PROXY",
+    "warmedSymbols": 1,
+    "spotProxySymbols": 1,
+    "unavailableSymbolsDuringEarlyWarmup": 4,
+    "zones": 1,
+    "cascadeSetups": 5
+  },
+  "exceptions": [],
+  "note": "This is a production browser proof of raw active extrema, not a count of validated breakout or cascade setups. Warmup was still continuing when the pass condition was reached."
+}
