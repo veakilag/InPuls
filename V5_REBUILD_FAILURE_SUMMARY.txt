@@ -1,10 +1,5 @@
-2475:not ok 412 - owner Signal Lab V3 exposes full chart, book replay and explanation controls
-3183:not ok 421 - owner page exposes lazy full chart, markup controls and destructive clear
-3999:not ok 448 - owner status exposes setup, triggered and confirmed cascade counts
-5020:not ok 473 - episode chart supports native 4h 1d and paginated 30 day history
-6120:not ok 474 - owner replay exposes cluster tape scrollable local book and explicit data states
-6964:not ok 505 - knife and sharpening accept impulse strictly above 1 percent
-6995:not ok 507 - candle coverage reports complete only when both ends are present
-7179:# tests 533
-7181:# pass 526
-7182:# fail 7
+2847:not ok 474 - owner replay exposes cluster tape scrollable local book and explicit data states
+3703:not ok 505 - knife and sharpening accept impulse strictly above 1 percent
+3896:# tests 533
+3898:# pass 531
+3899:# fail 2
