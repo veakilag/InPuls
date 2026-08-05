@@ -39,6 +39,8 @@ test("collector exposes futures-first fallback and explicit history source", () 
   const source = fs.readFileSync(new URL("../signal-lab-v3-collector.js", import.meta.url), "utf8");
   assert.match(source, /BINANCE_SPOT_KLINES_ENDPOINT/);
   assert.match(source, /this\.futuresRestAvailable/);
+  assert.match(source, /#ensureSpotExchangeInfo\(\)/);
+  assert.match(source, /await this\.#ensureSpotExchangeInfo\(\);/);
   assert.match(source, /historySource = proxy\.source/);
   assert.match(source, /dataSource: historySource/);
   assert.match(source, /historyMode: "SPOT_PROXY"/);

@@ -308,6 +308,7 @@ export class SignalLabV3Collector {
     this.cascades = new SignalLabV4CascadeRegistry();
     this.tickSizes = new Map();
     this.spotTickSizes = new Map();
+    this.spotExchangeInfoPromise = null;
     this.futuresRestAvailable = null;
     this.historySourceBySymbol = new Map();
     this.historyUnavailable = new Set();
@@ -874,6 +875,33 @@ export class SignalLabV3Collector {
     for (const symbol of pending) this.#warmupSymbol(symbol);
   }
 
+  async #ensureSpotExchangeInfo() {
+    if (this.spotTickSizes.size) return this.spotTickSizes;
+    if (this.spotExchangeInfoPromise) return this.spotExchangeInfoPromise;
+    this.spotExchangeInfoPromise = (async () => {
+      const response = await fetch(BINANCE_SPOT_EXCHANGE_INFO_ENDPOINT, { cache: "no-store" });
+      if (!response.ok) throw new Error(`Spot market-data exchangeInfo HTTP ${response.status}`);
+      const payload = await response.json();
+      for (const row of Array.isArray(payload?.symbols) ? payload.symbols : []) {
+        if (row?.quoteAsset !== "USDT" || row?.status !== "TRADING") continue;
+        const symbol = String(row?.symbol ?? "").toUpperCase();
+        const priceFilter = (Array.isArray(row?.filters) ? row.filters : [])
+          .find((filter) => filter?.filterType === "PRICE_FILTER");
+        const tickSize = finite(priceFilter?.tickSize);
+        if (!/^[A-Z0-9]{1,20}USDT$/.test(symbol) || !(tickSize > 0)) continue;
+        this.spotTickSizes.set(symbol, tickSize);
+      }
+      if (!this.spotTickSizes.size) throw new Error("Spot market-data exchangeInfo не содержит USDT-символов");
+      return this.spotTickSizes;
+    })();
+    try {
+      return await this.spotExchangeInfoPromise;
+    } catch (error) {
+      this.spotExchangeInfoPromise = null;
+      throw error;
+    }
+  }
+
   async #loadExchangeInfo() {
     let futuresError = null;
     try {
@@ -903,18 +931,7 @@ export class SignalLabV3Collector {
     }
 
     try {
-      const response = await fetch(BINANCE_SPOT_EXCHANGE_INFO_ENDPOINT, { cache: "no-store" });
-      if (!response.ok) throw new Error(`Spot market-data exchangeInfo HTTP ${response.status}`);
-      const payload = await response.json();
-      for (const row of Array.isArray(payload?.symbols) ? payload.symbols : []) {
-        if (row?.quoteAsset !== "USDT" || row?.status !== "TRADING") continue;
-        const symbol = String(row?.symbol ?? "").toUpperCase();
-        const priceFilter = (Array.isArray(row?.filters) ? row.filters : [])
-          .find((filter) => filter?.filterType === "PRICE_FILTER");
-        const tickSize = finite(priceFilter?.tickSize);
-        if (!/^[A-Z0-9]{1,20}USDT$/.test(symbol) || !(tickSize > 0)) continue;
-        this.spotTickSizes.set(symbol, tickSize);
-      }
+      await this.#ensureSpotExchangeInfo();
       this.#publish({
         historyMode: "SPOT_PROXY",
         lastError: null,
@@ -979,6 +996,7 @@ export class SignalLabV3Collector {
       }
 
       if (!byTimeframe) {
+        await this.#ensureSpotExchangeInfo();
         const proxy = resolveSpotHistoryProxy(symbol, this.spotTickSizes);
         if (!proxy) throw new Error(`нет SPOT PROXY для ${symbol}`);
         tickSize = proxy.tickSize;
