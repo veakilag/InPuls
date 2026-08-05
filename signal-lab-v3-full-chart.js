@@ -414,28 +414,89 @@ export function patternAnnotationSummary(annotations) {
   return rows.slice(0, 12);
 }
 
-function episodeHistoryBounds(eventAt, intervalMs, contextMs) {
-  if (contextMs >= EPISODE_CONTEXT_RANGES["30d"]) {
+export function episodeHistoryBounds(eventAt, intervalMs, contextMs) {
+  const event = finite(eventAt);
+  const interval = finite(intervalMs);
+  const context = finite(contextMs);
+  if (event === null || interval === null || context === null) {
+    throw new TypeError("Некорректные границы свечного контекста");
+  }
+  if (context >= EPISODE_CONTEXT_RANGES["30d"]) {
     return {
-      startTime: Math.max(0, eventAt - EPISODE_CONTEXT_RANGES["30d"]),
-      endTime: Math.min(Date.now(), eventAt + Math.max(6 * 60 * 60_000, intervalMs * 120)),
+      startTime: Math.max(0, event - EPISODE_CONTEXT_RANGES["30d"]),
+      endTime: Math.min(Date.now(), event + interval),
+      coverageEndTime: event,
+      mode: "THIRTY_DAYS_BEFORE_EVENT",
     };
   }
   return {
-    startTime: Math.max(0, eventAt - contextMs),
-    endTime: Math.min(Date.now(), eventAt + contextMs),
+    startTime: Math.max(0, event - context),
+    endTime: Math.min(Date.now(), event + context),
+    coverageEndTime: Math.min(Date.now(), event + context),
+    mode: "SYMMETRIC_CONTEXT",
   };
+}
+
+export function buildCandleCoverage(candles, {
+  startTime,
+  endTime,
+  coverageEndTime = endTime,
+  intervalMs,
+  source = "BINANCE_FUTURES_KLINES",
+  pages = 0,
+} = {}) {
+  const rows = Array.isArray(candles) ? candles : [];
+  const requestedFrom = finite(startTime);
+  const requestedTo = finite(coverageEndTime);
+  const interval = finite(intervalMs);
+  const actualFrom = finite(rows[0]?.time);
+  const actualTo = finite(rows.at(-1)?.time);
+  if (requestedFrom === null || requestedTo === null || interval === null || interval <= 0) {
+    return Object.freeze({ source, complete: false, ratio: 0, reason: "INVALID_BOUNDS", pages, candles: rows.length });
+  }
+  const expectedFirstOpen = Math.ceil(requestedFrom / interval) * interval;
+  const expectedLastOpen = Math.floor(requestedTo / interval) * interval;
+  const requestedSpan = Math.max(interval, expectedLastOpen - expectedFirstOpen + interval);
+  const coveredFrom = actualFrom === null ? requestedTo : Math.max(expectedFirstOpen, actualFrom);
+  const coveredTo = actualTo === null ? requestedFrom : Math.min(expectedLastOpen, actualTo);
+  const coveredSpan = Math.max(0, coveredTo - coveredFrom + interval);
+  const ratio = Math.max(0, Math.min(1, coveredSpan / requestedSpan));
+  const complete = actualFrom !== null
+    && actualTo !== null
+    && actualFrom <= expectedFirstOpen + interval
+    && actualTo >= expectedLastOpen - interval;
+  return Object.freeze({
+    source,
+    requestedFrom,
+    requestedTo,
+    requestedEndTime: finite(endTime),
+    actualFrom,
+    actualTo,
+    expectedFirstOpen,
+    expectedLastOpen,
+    intervalMs: interval,
+    requestedDays: (requestedTo - requestedFrom) / 86_400_000,
+    actualDays: actualFrom === null || actualTo === null ? 0 : Math.max(0, (actualTo - actualFrom + interval) / 86_400_000),
+    ratio,
+    complete,
+    reason: complete ? null : rows.length ? "PARTIAL_BINANCE_COVERAGE" : "NO_CANDLES",
+    pages,
+    candles: rows.length,
+  });
 }
 
 async function fetchRestCandles(symbol, interval, eventAt, contextMs, signal) {
   const intervalMs = EPISODE_CHART_INTERVALS[interval];
-  const { startTime, endTime } = episodeHistoryBounds(eventAt, intervalMs, contextMs);
-  const key = `${symbol}:${interval}:${startTime}:${endTime}`;
+  const bounds = episodeHistoryBounds(eventAt, intervalMs, contextMs);
+  const { startTime, endTime } = bounds;
+  const key = `${symbol}:${interval}:${startTime}:${endTime}:${bounds.coverageEndTime}`;
   if (candleCache.has(key)) return clone(candleCache.get(key));
   const candles = [];
   let cursor = startTime;
   let requests = 0;
-  while (cursor <= endTime && candles.length < 50_000 && requests < 40) {
+  const expectedCandles = Math.ceil((endTime - startTime) / intervalMs) + 2;
+  const maximumRequests = Math.min(64, Math.max(2, Math.ceil(expectedCandles / 1_500) + 2));
+  while (cursor <= endTime && candles.length < 50_500 && requests < maximumRequests) {
     const query = new URLSearchParams({
       symbol,
       interval,
@@ -447,38 +508,66 @@ async function fetchRestCandles(symbol, interval, eventAt, contextMs, signal) {
     if (!response.ok) throw new Error(`Binance klines HTTP ${response.status}`);
     const payload = await response.json();
     const page = (Array.isArray(payload) ? payload : []).map(parseKline).filter(Boolean);
+    requests += 1;
     if (!page.length) break;
     for (const row of page) {
+      if (row.time < startTime || row.time > endTime) continue;
       if (!candles.length || row.time > candles.at(-1).time) candles.push(row);
     }
     const next = page.at(-1).time + intervalMs;
     if (!(next > cursor)) break;
     cursor = next;
-    requests += 1;
-    if (page.length < 1500) break;
+    if (page.length < 1_500 && cursor > bounds.coverageEndTime) break;
   }
-  if (!candles.length) throw new Error("Binance не вернул свечи вокруг эпизода");
-  candleCache.set(key, candles);
-  if (candleCache.size > 40) candleCache.delete(candleCache.keys().next().value);
-  return clone(candles);
+  if (!candles.length) throw new Error("Binance не вернул свечи за выбранный период");
+  const result = Object.freeze({
+    candles: Object.freeze(candles),
+    coverage: buildCandleCoverage(candles, {
+      ...bounds,
+      intervalMs,
+      pages: requests,
+    }),
+  });
+  candleCache.set(key, result);
+  while (candleCache.size > 8) candleCache.delete(candleCache.keys().next().value);
+  return clone(result);
 }
 
-export async function loadEpisodeCandles(episode, interval = "1m", contextRange = "1h", { signal } = {}) {
+export async function loadEpisodeCandles(episode, interval = "1h", contextRange = "30d", { signal } = {}) {
   const symbol = validSymbol(episode?.symbol);
   const eventAt = finite(episode?.evidencePack?.window?.eventAt) ?? finite(episode?.firstSeenAt);
   const intervalMs = EPISODE_CHART_INTERVALS[interval];
   const contextMs = EPISODE_CONTEXT_RANGES[contextRange];
   if (!symbol || eventAt === null || !intervalMs || !contextMs) throw new Error("Некорректные параметры графика эпизода");
+  const bounds = episodeHistoryBounds(eventAt, intervalMs, contextMs);
   if (interval.endsWith("s")) {
-    const rows = aggregateEpisodePricePoints(episode?.evidencePack?.pricePoints, intervalMs);
-    if (!rows.length) throw new Error("Секундная история отсутствует: она доступна только из Evidence Pack");
-    return rows;
+    const candles = aggregateEpisodePricePoints(episode?.evidencePack?.pricePoints, intervalMs);
+    if (!candles.length) throw new Error("Секундная история отсутствует: она доступна только из Evidence Pack");
+    return {
+      candles,
+      coverage: buildCandleCoverage(candles, {
+        ...bounds,
+        intervalMs,
+        source: "EVIDENCE_PACK",
+        pages: 0,
+      }),
+    };
   }
   try {
     return await fetchRestCandles(symbol, interval, eventAt, contextMs, signal);
   } catch (error) {
     const fallback = aggregateMinuteCandles(episode?.evidencePack?.minuteCandles, intervalMs);
-    if (fallback.length) return fallback;
+    if (fallback.length) {
+      return {
+        candles: fallback,
+        coverage: buildCandleCoverage(fallback, {
+          ...bounds,
+          intervalMs,
+          source: "EVIDENCE_PACK_FALLBACK",
+          pages: 0,
+        }),
+      };
+    }
     throw error;
   }
 }
@@ -510,10 +599,8 @@ class EpisodeFullChartController {
     this.timeframeButtons = [...card.querySelectorAll("[data-chart-timeframe]")];
     this.rangeButtons = [...card.querySelectorAll("[data-chart-range]")];
     this.toolButtons = [...card.querySelectorAll("[data-chart-tool]")];
-    const structural = String(episode?.candidateType ?? "").includes("cascade")
-      || String(episode?.candidateType ?? "").includes("level_break");
-    this.interval = structural ? "1h" : "1m";
-    this.contextRange = structural ? "30d" : "15m";
+    this.interval = "1h";
+    this.contextRange = "30d";
     this.timeframeButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.chartTimeframe === this.interval));
     this.rangeButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.chartRange === this.contextRange));
     this.chart = null;
@@ -543,6 +630,9 @@ class EpisodeFullChartController {
     this.card.querySelector('[data-chart-action="clear"]')?.addEventListener("click", () => this.chart?.clearDrawings());
     this.card.querySelector('[data-chart-action="reset"]')?.addEventListener("click", () => {
       this.#focusEvent();
+    });
+    this.card.querySelector('[data-chart-action="fit"]')?.addEventListener("click", () => {
+      this.#fitRange();
     });
     this.annotationToggle?.addEventListener("change", () => {
       this.chart?.setAnnotations(this.annotationToggle.checked ? this.annotations : []);
@@ -598,9 +688,11 @@ class EpisodeFullChartController {
     this.abortController = new AbortController();
     this.status.textContent = `Загружаю ${this.episode.symbol} · ${this.interval} · окно ${this.contextRange}…`;
     try {
-      const candles = await loadEpisodeCandles(this.episode, this.interval, this.contextRange, {
+      const loaded = await loadEpisodeCandles(this.episode, this.interval, this.contextRange, {
         signal: this.abortController.signal,
       });
+      const candles = loaded.candles;
+      const coverage = loaded.coverage;
       if (!this.opened || generation !== this.generation || !this.chart) return;
       this.chart.setData(candles, {
         symbol: this.episode.symbol,
@@ -609,13 +701,30 @@ class EpisodeFullChartController {
         targetCandles: candles.length,
       });
       this.chart.setAnnotations(this.annotationToggle?.checked === false ? [] : this.annotations);
-      this.#focusEvent(candles);
-      const source = this.interval.endsWith("s") ? "Evidence Pack" : "Binance Futures klines";
-      this.status.textContent = `${source} · ${candles.length} свечей · колесо: масштаб · drag: перемещение · двойной клик: сброс`;
+      if (this.contextRange === "30d" && candles.length <= 2_000) this.#fitRange(candles);
+      else this.#focusEvent(candles);
+      const percent = Math.round((coverage?.ratio ?? 0) * 100);
+      const requestedDays = coverage?.requestedDays ?? 0;
+      const actualDays = coverage?.actualDays ?? 0;
+      this.status.dataset.coverage = coverage?.complete ? "complete" : "partial";
+      this.status.textContent = `${coverage?.source ?? "UNKNOWN"} · ${candles.length} свечей · покрытие ${actualDays.toFixed(1)}/${requestedDays.toFixed(1)}д (${percent}%) · ${coverage?.complete ? "COMPLETE" : "PARTIAL"} · страниц ${coverage?.pages ?? 0}`;
     } catch (error) {
       if (error?.name === "AbortError") return;
       this.status.textContent = `График недоступен: ${String(error?.message ?? error)}`;
     }
+  }
+
+  #fitRange(candles = this.chart?.candles ?? []) {
+    if (!this.chart || !candles.length) return;
+    const maximumVisible = this.interval === "1m" ? Math.min(candles.length, 2_000) : candles.length;
+    this.chart.visibleCount = Math.max(20, maximumVisible);
+    this.chart.followLatest = false;
+    this.chart.centerLatest = false;
+    this.chart.priceScale = 1;
+    this.chart.pricePan = 0;
+    this.chart.fixedPriceDomain = null;
+    this.chart.viewStart = Math.max(0, candles.length - maximumVisible);
+    this.chart.render();
   }
 
   #focusEvent(candles = this.chart?.candles ?? []) {

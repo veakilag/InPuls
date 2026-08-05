@@ -154,14 +154,14 @@ test("replay chart aggregates price points into OHLC candles", () => {
   assert.equal(rows[1].open, 11);
 });
 
-test("owner Signal Lab V3 exposes full chart, book replay and explanation controls", async () => {
+test("owner Signal Lab V5 exposes full chart, shared orderbook replay and explanation controls", async () => {
   const html = await readFile(new URL("../owner-signal-lab-v3.html", import.meta.url), "utf8");
   assert.match(html, /data-field="full-chart"/);
   assert.match(html, /data-field="chart-toggle"/);
   assert.match(html, /data-chart-timeframe="1s"/);
   assert.match(html, /data-chart-timeframe="1h"/);
   assert.match(html, /data-field="chart-annotations-toggle"/);
-  assert.match(html, /data-field="book"/);
+  assert.match(html, /data-field="orderbook-workspace"/);
   assert.match(html, /data-field="replay-slider"/);
   assert.match(html, /Почему я выбрал гипотезу/);
   assert.match(html, /snapshot \+ diff/i);

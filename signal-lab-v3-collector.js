@@ -10,8 +10,8 @@ import {
   candidateWatchScore,
   DEFAULT_CANDIDATE_SETTINGS,
   SIGNAL_LAB_V3_FORMULA_VERSION,
-} from "./signal-lab-v3-candidates.js?v=signal-lab-v3-four-patterns-v1";
-import { SignalLabV3EvidenceRecorder } from "./signal-lab-v3-evidence.js?v=signal-lab-v4-stage2";
+} from "./signal-lab-v3-candidates.js?v=signal-lab-v5-patterns-1";
+import { SignalLabV3EvidenceRecorder } from "./signal-lab-v3-evidence.js?v=signal-lab-v5-orderflow-1";
 import {
   SIGNAL_LAB_V4_TIMEFRAMES,
   SignalLabV4ExtremeRegistry,
@@ -19,7 +19,7 @@ import {
 } from "./signal-lab-v4-extremes.js?v=signal-lab-v4-performance-1";
 import { SignalLabV4LevelBreakoutRegistry } from "./signal-lab-v4-levels-breakouts.js?v=signal-lab-v4-stage2";
 import { SignalLabV4CascadeRegistry } from "./signal-lab-v4-cascades.js?v=signal-lab-v4-stage3";
-import { SignalLabV4OrderFlowRecorder } from "./signal-lab-v4-orderflow-recorder.js?v=signal-lab-v4-stage1";
+import { SignalLabV4OrderFlowRecorder } from "./signal-lab-v4-orderflow-recorder.js?v=signal-lab-v5-orderflow-v2";
 
 const BINANCE_MARKET_STREAM_ENDPOINT = "wss://fstream.binance.com/market/ws";
 const BINANCE_PUBLIC_STREAM_ENDPOINT = "wss://fstream.binance.com/public/ws";

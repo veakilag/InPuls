@@ -1,6 +1,6 @@
 import { buildTraderExplanation } from "./signal-lab-v3-explainer.js";
 
-export const SIGNAL_LAB_V3_EVIDENCE_VERSION = "signal-lab-v4-cascade-stage3-2026-08";
+export const SIGNAL_LAB_V3_EVIDENCE_VERSION = "signal-lab-v5-orderflow-candles-2026-08";
 
 const DEPTH_STREAM_BASE = "wss://fstream.binance.com/public/stream";
 const DEFAULT_PRE_EVENT_MS = 2 * 60_000;
@@ -207,6 +207,68 @@ export class SignalLabV3DepthPool {
   }
 }
 
+
+function mergeReplayRows(left, right, key) {
+  const rows = [...(Array.isArray(left) ? left : []), ...(Array.isArray(right) ? right : [])];
+  const seen = new Map();
+  for (const row of rows) {
+    const value = key(row);
+    if (value === null || value === undefined) continue;
+    seen.set(String(value), row);
+  }
+  return [...seen.values()].sort((a, b) => (
+    (finite(a?.at ?? a?.tradeTime) ?? 0) - (finite(b?.at ?? b?.tradeTime) ?? 0)
+  ));
+}
+
+export function mergeOrderFlowReplay(previous, incoming, tickSize = null) {
+  if (!previous) return incoming ? { ...clone(incoming), tickSize: finite(tickSize) } : null;
+  if (!incoming) return previous;
+  const initial = finite(previous?.initialCheckpoint?.at) <= finite(incoming?.initialCheckpoint?.at)
+    ? previous.initialCheckpoint
+    : incoming.initialCheckpoint;
+  const events = mergeReplayRows(previous.events, incoming.events, (row) => `${row.U}:${row.u}:${row.at}`);
+  const trades = mergeReplayRows(previous.trades, incoming.trades, (row) => row.id);
+  const rawTrades = mergeReplayRows(previous.rawTrades, incoming.rawTrades, (row) => row.id);
+  const checkpoints = mergeReplayRows(previous.checkpoints, incoming.checkpoints, (row) => `${row.at}:${row.lastUpdateId}`);
+  const qualityEvents = mergeReplayRows(previous.qualityEvents, incoming.qualityEvents, (row) => `${row.at}:${row.state}:${row.reason ?? ""}`);
+  const requestedFrom = Math.min(finite(previous.requestedFrom) ?? Infinity, finite(incoming.requestedFrom) ?? Infinity);
+  const requestedTo = Math.max(finite(previous.requestedTo) ?? 0, finite(incoming.requestedTo) ?? 0);
+  const badQuality = qualityEvents.some((row) => ["GAP", "ERROR", "STALE"].includes(row.state));
+  const availableFrom = Math.min(
+    finite(initial?.at) ?? Infinity,
+    finite(events[0]?.at) ?? Infinity,
+    finite(trades[0]?.tradeTime) ?? Infinity,
+    finite(rawTrades[0]?.tradeTime) ?? Infinity,
+  );
+  return {
+    ...clone(previous),
+    ...clone(incoming),
+    requestedFrom,
+    requestedTo,
+    initialCheckpoint: clone(initial),
+    checkpoints,
+    events,
+    trades,
+    rawTrades,
+    qualityEvents,
+    tickSize: finite(tickSize) ?? finite(incoming.tickSize) ?? finite(previous.tickSize),
+    coverage: {
+      ...clone(previous.coverage ?? {}),
+      ...clone(incoming.coverage ?? {}),
+      availableFrom: Number.isFinite(availableFrom) ? availableFrom : null,
+      preSeconds: Number.isFinite(availableFrom)
+        ? Math.max(0, Math.round((Math.min(requestedTo, finite(previous?.coverage?.eventAt) ?? requestedTo) - Math.max(requestedFrom, availableFrom)) / 1_000))
+        : 0,
+      depthContinuous: !badQuality,
+      preEventComplete: Number.isFinite(availableFrom) && availableFrom <= requestedFrom && !badQuality,
+      aggTrades: trades.length,
+      rawTrades: rawTrades.length,
+      rawMode: rawTrades.length ? "SHADOW_RECORDED" : "NOT_RECORDED",
+    },
+  };
+}
+
 function normalizePricePoints(metrics, from, to) {
   return (Array.isArray(metrics?.priceHistory) ? metrics.priceHistory : [])
     .map((point) => ({
@@ -407,7 +469,7 @@ export class SignalLabV3EvidenceRecorder {
       minuteCandles: normalizeMinuteCandles(metrics),
       flowSamples: [],
       bookSnapshots,
-      bookMode: orderFlowReplay ? "snapshot+diff@100ms+aggTrade" : "sampled-depth20-top8@1s",
+      bookMode: orderFlowReplay ? "shared-main-widget:snapshot+diff@100ms+aggTrade+raw-shadow" : "sampled-depth20-top8@1s",
       orderFlowReplay,
       extremeMap: metrics?.extremeMap ? clone(metrics.extremeMap) : null,
       extremeMapLatest: metrics?.extremeMap ? clone(metrics.extremeMap) : null,
@@ -457,12 +519,17 @@ export class SignalLabV3EvidenceRecorder {
       }
     }
     if (this.orderFlowRecorder) {
-      pack.orderFlowReplay = this.orderFlowRecorder.capture(
+      const incomingReplay = this.orderFlowRecorder.capture(
         session.episode.symbol,
         pack.window.eventAt - this.preEventMs,
         now,
       );
-      if (pack.orderFlowReplay) pack.bookMode = "snapshot+diff@100ms+aggTrade";
+      pack.orderFlowReplay = mergeOrderFlowReplay(
+        pack.orderFlowReplay,
+        incomingReplay,
+        metrics?.tickSize,
+      );
+      if (pack.orderFlowReplay) pack.bookMode = "shared-main-widget:snapshot+diff@100ms+aggTrade+raw-shadow";
     }
     if (metrics?.extremeMap) pack.extremeMapLatest = clone(metrics.extremeMap);
     if (metrics?.levelMap) pack.levelMapLatest = clone(metrics.levelMap);
@@ -499,7 +566,10 @@ export class SignalLabV3EvidenceRecorder {
       depthStatus: this.orderFlowRecorder?.status()?.connection ?? this.depthPool?.status()?.connection ?? "idle",
       orderFlowPreSeconds: pack.orderFlowReplay?.coverage?.preSeconds ?? 0,
       orderFlowState: pack.orderFlowReplay?.coverage?.state ?? "not-recorded",
-      rawTrades: pack.orderFlowReplay?.trades?.length ?? 0,
+      aggTrades: pack.orderFlowReplay?.trades?.length ?? 0,
+      rawTrades: pack.orderFlowReplay?.rawTrades?.length ?? 0,
+      orderFlowPreComplete: Boolean(pack.orderFlowReplay?.coverage?.preEventComplete),
+      orderFlowContinuous: Boolean(pack.orderFlowReplay?.coverage?.depthContinuous),
       depthDiffs: pack.orderFlowReplay?.events?.length ?? 0,
       activeLevelZones: pack.levelMapLatest?.activeZones?.length ?? 0,
       activeBreakoutEvents: pack.levelMapLatest?.activeEvents?.length ?? 0,

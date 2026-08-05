@@ -127,11 +127,11 @@ function drawTape(canvas, trades, selectedAt, windowMs, minimumQuote) {
     return;
   }
   const { context, width, height } = resizeCanvas(canvas);
-  const path = aggregateTradePath(visible, 220);
   const prices = visible.map((trade) => trade.price);
   const low = Math.min(...prices);
   const high = Math.max(...prices);
   const range = Math.max(high - low, high * 0.0001, Number.EPSILON);
+  const path = aggregateTradePath(visible, minimumQuote, Math.max(Number.EPSILON, range / 120), 220, 250);
   const padding = { left: 8, right: 58, top: 10, bottom: 24 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
