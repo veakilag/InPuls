@@ -1,18 +1,11 @@
 const HYPOTHESIS_LABELS = Object.freeze({
   knife_reclaim: "Нож",
   sharpening_rejection: "Заточка",
+  level_breakout: "Пробой",
+  cascade_breakout: "Каскад",
   continuation_breakout: "Продолжение вверх",
   continuation_breakdown: "Продолжение вниз",
-  level_breakout: "Пробой уровня",
   false_breakout: "Ложный пробой",
-  liquidity_sweep: "Снятие ликвидности",
-  cascade_breakout: "Пробой каскада",
-  liquidity_hold: "Удержание сайза",
-  liquidity_rearrangement: "Переставляш / алгоритм",
-  participant_activity: "Направленный поток",
-  directional_impulse: "Направленный импульс",
-  liquidation_cascade: "Каскад ликвидаций",
-  exhaustion_reversal: "Истощение движения",
 });
 
 const finite = (value) => {
@@ -26,104 +19,78 @@ const percent = (value) => {
   return `${number > 0 ? "+" : ""}${number.toFixed(2)}%`;
 };
 
+function originText(origins = []) {
+  const labels = origins.map((origin) => {
+    if (origin === "level_breakout") return "пробоя уровня";
+    if (origin === "cascade_breakout") return "пробоя каскада";
+    return "сильного импульса";
+  });
+  return labels.length ? labels.join(" и ") : "сильного импульса";
+}
+
 function choosePrimary(candidate) {
   const type = String(candidate?.candidateType ?? "");
-  const evidence = candidate?.evidence ?? {};
   if (type === "down_reversal_attempt") return "knife_reclaim";
   if (type === "up_reversal_attempt") return "sharpening_rejection";
   if (type === "level_break_attempt_up" || type === "level_break_attempt_down") return "level_breakout";
-  if (type === "level_pressure_up" || type === "level_pressure_down") return "liquidity_sweep";
   if (type === "cascade_structure_up" || type === "cascade_structure_down") return "cascade_breakout";
-  if (type === "flow_acceleration_up" || type === "flow_acceleration_down") return "participant_activity";
-  if (type === "liquidity_event_bid" || type === "liquidity_event_ask") {
-    return evidence.moved === true ? "liquidity_rearrangement" : "liquidity_hold";
-  }
-  if (type === "liquidation_burst_up" || type === "liquidation_burst_down") return "liquidation_cascade";
-  if (type === "up_displacement") return "continuation_breakout";
-  if (type === "down_displacement") return "continuation_breakdown";
-  return candidate?.patternHypotheses?.[0] ?? "directional_impulse";
+  return candidate?.patternHypotheses?.[0] ?? "level_breakout";
 }
 
 function explanationFor(candidate, primary) {
   const evidence = candidate?.evidence ?? {};
   const type = String(candidate?.candidateType ?? "");
-  const direction = candidate?.direction === "down" ? "down" : candidate?.direction === "up" ? "up" : "neutral";
   const reasoning = [];
   const confirmation = [];
   const invalidation = [];
   let headline = "Это предварительная гипотеза, а не готовый торговый сигнал.";
   let alternative = null;
 
-  if (type === "up_displacement" || type === "down_displacement") {
-    const move = percent(evidence.move15sPercent);
-    const range = percent(evidence.range60sPercent);
-    headline = direction === "up"
-      ? "Я поставил продолжение вверх основной гипотезой, потому что пока вижу импульс, но ещё не вижу подтверждённого разворота от края."
-      : "Я поставил продолжение вниз основной гипотезой, потому что пока вижу импульс, но ещё не вижу подтверждённого выкупа от экстремума.";
-    if (move) reasoning.push(`за 15 секунд цена прошла ${move}`);
-    if (range) reasoning.push(`минутный диапазон расширился до ${range}`);
-    if (finite(evidence.volumeBoost) !== null) reasoning.push(`объём ускорился примерно в ${finite(evidence.volumeBoost).toFixed(1)} раза`);
-    confirmation.push("удержание цены за зоной импульса или качественный ретест");
-    confirmation.push("направленный поток сделок без быстрого встречного поглощения");
-    invalidation.push("быстрый возврат внутрь исходного диапазона");
-    invalidation.push("отсутствие продолжения после всплеска активности");
-    alternative = direction === "up" ? "Заточка" : "Нож";
-  } else if (type === "down_reversal_attempt" || type === "up_reversal_attempt") {
+  if (type === "down_reversal_attempt" || type === "up_reversal_attempt") {
     const knife = type === "down_reversal_attempt";
+    const source = originText(Array.isArray(evidence.originPatterns) ? evidence.originPatterns : []);
     headline = knife
-      ? "Я выбрал гипотезу «Нож», потому что после быстрого выноса вниз появился измеримый возврат от свежего экстремума."
-      : "Я выбрал гипотезу «Заточка», потому что после быстрого выноса вверх цена начала терять продолжение и возвращаться от свежего экстремума.";
+      ? `Я выбрал гипотезу «Нож», потому что после ${source} появился быстрый измеримый выкуп от свежего минимума.`
+      : `Я выбрал гипотезу «Заточка», потому что после ${source} цена потеряла продолжение и резко вернулась от свежего максимума.`;
     const impulse = percent((knife ? -1 : 1) * (finite(evidence.impulsePercent) ?? 0));
     const recovery = percent((knife ? 1 : -1) * (finite(evidence.recoveryPercent) ?? 0));
-    if (impulse) reasoning.push(`размер выноса составил ${impulse}`);
-    if (recovery) reasoning.push(`реакция от экстремума составила ${recovery}`);
-    if (finite(evidence.recoveryDurationMs) !== null) reasoning.push(`реакция появилась за ${(finite(evidence.recoveryDurationMs) / 1_000).toFixed(1)} секунды`);
-    confirmation.push(knife ? "выкуп в ленте и удержание экстремума" : "продавец в ленте и неспособность обновить максимум");
+    if (impulse) reasoning.push(`размер исходного импульса ${impulse}`);
+    if (recovery) reasoning.push(`обратная реакция от экстремума ${recovery}`);
+    if (finite(evidence.recoveryDurationMs) !== null) {
+      reasoning.push(`реакция появилась за ${(finite(evidence.recoveryDurationMs) / 1_000).toFixed(1)} секунды`);
+    }
+    if (finite(evidence.natr5m) !== null) reasoning.push(`NATR5 ${finite(evidence.natr5m).toFixed(2)}%`);
+    confirmation.push(knife ? "выкуп в ленте и удержание минимума" : "продавец в ленте и неспособность обновить максимум");
     confirmation.push("стаканная реакция у зоны, а не одиночный случайный тик");
     invalidation.push(knife ? "повторный пролив ниже экстремума без быстрого возврата" : "закрепление выше экстремума и продолжение выноса");
-    alternative = "Ложный пробой";
-  } else if (type.includes("level_")) {
+    alternative = evidence.originPatterns?.includes("cascade_breakout") ? "Продолжение пробоя каскада" : "Продолжение исходного пробоя";
+  } else if (type === "level_break_attempt_up" || type === "level_break_attempt_down") {
+    const upward = type.endsWith("_up");
     headline = evidence.broken
-      ? "Я выбрал гипотезу пробоя, потому что цена вышла за повторно тестируемый уровень."
-      : "Я отметил подход к уровню как кандидата, потому что цена вернулась к зоне нескольких касаний, но самого пробоя ещё нет.";
+      ? "Я выбрал гипотезу «Пробой», потому что цена вышла за повторно тестируемый уровень. Это ещё кандидат: нужно доказать принятие цены за уровнем."
+      : "Я выбрал кандидата «Пробой», потому что цена подошла к повторно тестируемому уровню. Самого пробоя и продолжения пока нет.";
     if (finite(evidence.touchCount) !== null) reasoning.push(`у уровня найдено ${Math.round(finite(evidence.touchCount))} касания`);
-    if (finite(evidence.distancePercent) !== null) reasoning.push(`текущее расстояние до уровня ${percent(evidence.distancePercent)}`);
-    confirmation.push("принятие цены за уровнем и продолжение после выхода");
-    confirmation.push("либо ретест уровня с реакцией в сторону пробоя");
+    if (finite(evidence.distancePercent) !== null) reasoning.push(`расстояние относительно уровня ${percent(evidence.distancePercent)}`);
+    if (finite(evidence.natr5m) !== null) reasoning.push(`NATR5 ${finite(evidence.natr5m).toFixed(2)}%`);
+    if (finite(evidence.quoteVolume24h) !== null) reasoning.push(`24-часовой оборот выше обязательного порога $100 млн`);
+    confirmation.push("принятие цены за уровнем и follow-through");
+    confirmation.push("либо качественный ретест с реакцией в сторону пробоя");
     invalidation.push("быстрый возврат обратно без продолжения");
-    alternative = "Ложный пробой";
-  } else if (type.includes("cascade_structure")) {
-    headline = "Я выбрал гипотезу каскада, потому что вижу направленную цепочку последовательных экстремумов, а не один случайный уровень.";
+    alternative = upward
+      ? "После сильного выхода может сформироваться заточка"
+      : "После сильного выхода может сформироваться нож";
+  } else if (type === "cascade_structure_up" || type === "cascade_structure_down") {
+    const upward = type.endsWith("_up");
+    headline = "Я выбрал кандидата «Каскад», потому что вижу направленную цепочку минимум из трёх экстремумов, а не один случайный уровень.";
     if (finite(evidence.extremaCount) !== null) reasoning.push(`в цепочке ${Math.round(finite(evidence.extremaCount))} экстремума`);
     if (finite(evidence.zoneWidthPercent) !== null) reasoning.push(`ширина конструкции ${percent(evidence.zoneWidthPercent)}`);
+    if (finite(evidence.natr5m) !== null) reasoning.push(`NATR5 ${finite(evidence.natr5m).toFixed(2)}%`);
     confirmation.push("ускорение при прохождении ближайшей ступени");
-    confirmation.push("быстрое прохождение всей цепочки и follow-through");
+    confirmation.push("быстрое прохождение цепочки и follow-through");
     invalidation.push("возврат внутрь конструкции после попытки пробоя");
-    alternative = "Ложный пробой каскада";
-  } else if (type.includes("flow_acceleration")) {
-    headline = "Я выбрал гипотезу направленного потока, потому что одновременно выросли скорость сделок, объём и доля одной стороны.";
-    if (finite(evidence.tps) !== null) reasoning.push(`${finite(evidence.tps).toFixed(1)} сделок в секунду`);
-    if (finite(evidence.buyShare) !== null) reasoning.push(`доля агрессивных покупок ${finite(evidence.buyShare).toFixed(0)}%`);
-    if (finite(evidence.volumeBoost) !== null) reasoning.push(`объём ускорился в ${finite(evidence.volumeBoost).toFixed(1)} раза`);
-    confirmation.push("цена должна отвечать на агрессию и удерживать направление");
-    invalidation.push("высокая агрессия без движения цены — возможное поглощение");
-    alternative = "Истощение движения";
-  } else if (type.includes("liquidity_event")) {
-    headline = evidence.moved === true
-      ? "Я выбрал гипотезу переставляша, потому что крупная отображаемая ликвидность повторилась на другой цене с близким размером."
-      : "Я выбрал гипотезу удержания сайза, потому что лучшая котировка заметно крупнее своей локальной нормы и повторяется.";
-    if (finite(evidence.quoteUsd) !== null) reasoning.push(`видимый объём около $${Math.round(finite(evidence.quoteUsd)).toLocaleString("ru-RU")}`);
-    if (finite(evidence.sizeMultiple) !== null) reasoning.push(`${finite(evidence.sizeMultiple).toFixed(1)}× к локальной медиане`);
-    if (finite(evidence.touchCount) !== null) reasoning.push(`${Math.round(finite(evidence.touchCount))} повторения`);
-    confirmation.push("реакция цены и ленты на присутствие ликвидности");
-    invalidation.push("сайз снят или проеден без реакции цены");
-    alternative = "Обычная крупная заявка без намерения";
-  } else if (type.includes("liquidation_burst")) {
-    headline = "Я выбрал гипотезу каскада ликвидаций, потому что объём принудительных закрытий стал аномальным относительно текущего оборота.";
-    if (finite(evidence.totalQuoteUsd) !== null) reasoning.push(`общий объём ликвидаций около $${Math.round(finite(evidence.totalQuoteUsd)).toLocaleString("ru-RU")}`);
-    confirmation.push("цена продолжает движение вслед за ликвидациями");
-    invalidation.push("ликвидации закончились, а цена сразу вернулась");
-    alternative = "Истощение движения";
+    alternative = upward
+      ? "После импульсного пробоя каскада может сформироваться заточка"
+      : "После импульсного пробоя каскада может сформироваться нож";
   }
 
   return { primary, headline, reasoning, confirmation, invalidation, alternative };
@@ -140,7 +107,7 @@ export function buildTraderExplanation(candidate, evidencePack = {}, now = Date.
   if (!candidate?.evidence?.tps && !candidate?.evidence?.buyShare) missing.push("нет достаточного подтверждения потоком сделок");
 
   return Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
     entity: "SignalLabTraderExplanation",
     generatedAt: now,
     primaryHypothesis: primary,

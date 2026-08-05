@@ -1,8 +1,8 @@
 import {
   CANDIDATE_LABELS,
   SIGNAL_LAB_V3_FORMULA_VERSION,
-} from "./signal-lab-v3-candidates.js";
-import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v3-evidence-replay-v1";
+} from "./signal-lab-v3-candidates.js?v=signal-lab-v3-four-patterns-v1";
+import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v3-four-patterns-v1";
 import { mountEvidenceReplay } from "./signal-lab-v3-replay-ui.js?v=signal-lab-v3-evidence-replay-v1";
 import { rowsToCsv, SignalLabV3Store } from "./signal-lab-v3-store.js";
 

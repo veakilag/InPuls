@@ -5,16 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow,noarchive" />
     <meta name="description" content="Локальная лаборатория кандидатов рыночных паттернов InPuls" />
-    <title>InPuls — Owner Signal Lab V3.1</title>
+    <title>InPuls — Owner Signal Lab V3.2</title>
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./owner-signal-lab-v3.css?v=signal-lab-v3-evidence-replay-v1" />
-    <link rel="stylesheet" href="./owner-signal-lab-v3-evidence.css?v=signal-lab-v3-evidence-replay-v1" />
+    <link rel="stylesheet" href="./owner-signal-lab-v3.css?v=signal-lab-v3-four-patterns-v1" />
+    <link rel="stylesheet" href="./owner-signal-lab-v3-evidence.css?v=signal-lab-v3-four-patterns-v1" />
   </head>
   <body>
     <header class="topbar">
-      <div class="brand" aria-label="InPuls Owner Signal Lab V3.1">
+      <div class="brand" aria-label="InPuls Owner Signal Lab V3.2">
         <strong>INPULS</strong>
-        <span>OWNER SIGNAL LAB V3.1</span>
+        <span>OWNER SIGNAL LAB V3.2</span>
       </div>
       <div class="collector-line">
         <span id="collector-dot" class="status-dot" aria-hidden="true"></span>
@@ -31,9 +31,9 @@
         <p class="eyebrow">КАНДИДАТЫ · ГРАФИК · СТАКАН · ОБЪЯСНЕНИЕ</p>
         <h1>Сначала собрать эпизод — потом доказать паттерн</h1>
         <p>
-          Для каждого нового кандидата лаборатория сохраняет контекст цены до и после события,
-          sampled depth20 по выбранным монетам, поток и формальное объяснение гипотезы.
-          Это материал для обучения и ручной разметки, а не команда на сделку.
+          Новые эпизоды создаются только для монет с 24-часовым оборотом выше $100 млн и NATR5 выше 1%.
+          Лаборатория собирает только четыре паттерна: каскад, пробой, нож и заточку.
+          Нож и заточка могут стать обратной реакцией после пробоя, каскада или сильного импульса.
         </p>
       </section>
 
@@ -106,8 +106,8 @@
           </div>
         </header>
         <div id="empty-state" class="empty-state">
-          Сборщик прогревает историю. Быстрые кандидаты появляются раньше,
-          а уровни, каскады и предыстория стакана требуют времени на прогрев.
+          Сборщик прогревает 1-минутную историю для расчёта NATR5. Эпизод появится только после прохождения
+          фильтров: объём 24ч > $100 млн, NATR5 > 1% и наличие каскада, пробоя, ножа или заточки.
         </div>
         <div id="candidate-list" class="candidate-list" aria-live="polite"></div>
       </section>
@@ -213,13 +213,8 @@
                 <option value="">Пока не определено</option>
                 <option value="knife_reclaim">Нож</option>
                 <option value="sharpening_rejection">Заточка</option>
-                <option value="level_breakout">Пробой уровня</option>
-                <option value="cascade_breakout">Пробой каскада</option>
-                <option value="false_breakout">Ложный пробой</option>
-                <option value="liquidity_hold">Участник / удержание сайза</option>
-                <option value="liquidity_rearrangement">Переставляш / алгоритм</option>
-                <option value="participant_activity">Направленный поток</option>
-                <option value="liquidation_cascade">Каскад ликвидаций</option>
+                <option value="level_breakout">Пробой</option>
+                <option value="cascade_breakout">Каскад</option>
                 <option value="other">Другое</option>
               </select>
             </label>
@@ -237,6 +232,6 @@
       </article>
     </template>
 
-    <script type="module" src="./owner-signal-lab-v3.js?v=signal-lab-v3-evidence-replay-v1"></script>
+    <script type="module" src="./owner-signal-lab-v3.js?v=signal-lab-v3-four-patterns-v1"></script>
   </body>
 </html>

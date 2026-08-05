@@ -10,7 +10,7 @@ import {
   candidateWatchScore,
   DEFAULT_CANDIDATE_SETTINGS,
   SIGNAL_LAB_V3_FORMULA_VERSION,
-} from "./signal-lab-v3-candidates.js";
+} from "./signal-lab-v3-candidates.js?v=signal-lab-v3-four-patterns-v1";
 import { SignalLabV3EvidenceRecorder } from "./signal-lab-v3-evidence.js";
 
 const BINANCE_MARKET_STREAM_ENDPOINT = "wss://fstream.binance.com/market/ws";
@@ -504,8 +504,11 @@ export class SignalLabV3Collector {
     this.lastSubscriptionRefreshAt = now;
     const activeSymbols = new Set([...this.episodes.active.values()].map((episode) => episode.symbol));
     const ranked = metrics
-      .filter((row) => (finite(row.quoteVolume24h) ?? 0) >= this.settings.minimumQuoteVolume24h)
-      .sort((left, right) => candidateWatchScore(right) - candidateWatchScore(left));
+      .filter((row) => (
+        (finite(row.quoteVolume24h) ?? 0) > this.settings.minimumQuoteVolume24h
+        && (finite(row.natr5m) ?? 0) > this.settings.minimumNatr5Percent
+      ))
+      .sort((left, right) => candidateWatchScore(right, this.settings) - candidateWatchScore(left, this.settings));
     const next = new Set([
       ...activeSymbols,
       ...ranked.slice(0, this.maximumTrackedTrades).map((row) => row.symbol),
@@ -528,7 +531,7 @@ export class SignalLabV3Collector {
 
   #queueWarmup(metrics) {
     const ranked = metrics
-      .filter((row) => (finite(row.quoteVolume24h) ?? 0) >= this.settings.minimumQuoteVolume24h)
+      .filter((row) => (finite(row.quoteVolume24h) ?? 0) > this.settings.minimumQuoteVolume24h)
       .sort((left, right) => (finite(right.quoteVolume24h) ?? 0) - (finite(left.quoteVolume24h) ?? 0))
       .slice(0, this.maximumWarmupSymbols);
     const availableSlots = Math.max(0, 3 - this.historyLoading.size);

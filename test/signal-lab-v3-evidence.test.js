@@ -28,29 +28,33 @@ function fakeDepthPool(rows = []) {
 
 function episode(now) {
   return {
-    id: `BICOUSDT:up_displacement:${now}:1`,
+    id: `BICOUSDT:level_break_attempt_up:${now}:1`,
     symbol: "BICOUSDT",
-    candidateType: "up_displacement",
-    label: "Резкий вынос вверх",
+    candidateType: "level_break_attempt_up",
+    label: "Кандидат пробоя вверх",
     direction: "up",
-    stage: "observed",
+    stage: "triggered",
     firstSeenAt: now,
     lastSeenAt: now,
     observations: 1,
     peakEvidenceScore: 48,
     reviewState: "unreviewed",
     latest: {
-      candidateType: "up_displacement",
+      candidateType: "level_break_attempt_up",
       direction: "up",
       observedAt: now,
       price: 0.241,
       evidence: {
-        move15sPercent: 0.55,
-        range60sPercent: 0.81,
+        level: 0.24,
+        touchCount: 3,
+        distancePercent: 0.42,
+        broken: true,
+        natr5m: 1.2,
+        quoteVolume24h: 150_000_000,
         volumeBoost: 1.9,
       },
-      facts: ["движение за 15с +0.55%", "ускорение объёма ×1.9"],
-      patternHypotheses: ["sharpening_rejection", "continuation_breakout"],
+      facts: ["3 касания уровня", "уровень пробит +0.42%"],
+      patternHypotheses: ["level_breakout"],
     },
   };
 }
@@ -115,7 +119,7 @@ test("evidence recorder attaches chart, book, outcomes and trader explanation", 
   assert.equal(first.created[0].schemaVersion, 2);
   assert.ok(first.created[0].evidencePack.pricePoints.length >= 3);
   assert.equal(first.created[0].evidencePack.bookSnapshots.length, 1);
-  assert.equal(first.created[0].evidencePack.traderExplanation.primaryHypothesis, "continuation_breakout");
+  assert.equal(first.created[0].evidencePack.traderExplanation.primaryHypothesis, "level_breakout");
 
   const laterEpisode = { ...sourceEpisode, lastSeenAt: now + 16_000, observations: 2 };
   const later = recorder.ingest({
@@ -131,7 +135,7 @@ test("trader explanation separates hypothesis, confirmation and invalidation", (
   const explanation = buildTraderExplanation(episode(1000).latest, {
     coverage: { pricePoints: 30, bookSnapshots: 4 },
   }, 1000);
-  assert.equal(explanation.primaryLabel, "Продолжение вверх");
+  assert.equal(explanation.primaryLabel, "Пробой");
   assert.ok(explanation.reasoning.length > 0);
   assert.ok(explanation.confirmation.length > 0);
   assert.ok(explanation.invalidation.length > 0);
