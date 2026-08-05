@@ -33,5 +33,5 @@ test("full chart explains zones, strict crossing, acceptance and reclaim", () =>
 test("owner page describes calibrated levels before cascade", () => {
   assert.match(page, /зоны ×N/);
   assert.match(page, /проход, принятие, ретест/);
-  assert.match(page, /signal-lab-v4-stage2/);
+  assert.match(page, /signal-lab-v4-stage3/);
 });
