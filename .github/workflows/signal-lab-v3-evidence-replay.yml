@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   integrate:
-    if: ${{ !contains(github.event.head_commit.message, '[signal-lab-v3-evidence-applied]') }}
+    if: ${{ contains(github.event.head_commit.message, '[run-evidence-ci]') && !contains(github.event.head_commit.message, '[signal-lab-v3-evidence-applied]') }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out evidence branch
@@ -39,6 +39,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/signal-lab-v3-evidence-replay.yml scripts/patch-signal-lab-v3-evidence-replay.mjs
-          git add signal-lab-v3-collector.js signal-lab-v3-evidence.js signal-lab-v3-explainer.js signal-lab-v3-replay-ui.js owner-signal-lab-v3.js owner-signal-lab-v3.html owner-signal-lab-v3-evidence.css sw.js test/signal-lab-v3-evidence.test.js
+          git add signal-lab-v3-collector.js signal-lab-v3-evidence.js signal-lab-v3-explainer.js signal-lab-v3-replay-ui.js owner-signal-lab-v3.js owner-signal-lab-v3.html owner-signal-lab-v3-evidence.css sw.js test/signal-lab-v3-evidence.test.js test/signal-lab-v3-collector.test.js
           git commit -m "Add Signal Lab V3 evidence replay and trader explanation [signal-lab-v3-evidence-applied]"
           git push origin HEAD:agent/signal-lab-v3-evidence-replay
