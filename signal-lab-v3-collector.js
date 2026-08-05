@@ -34,6 +34,9 @@ const EXTREME_WARMUP = Object.freeze({
   "1d": 365,
 });
 const CONNECTION_TIMEOUT_MS = 10_000;
+const STATUS_NOTIFY_INTERVAL_MS = 350;
+const CHECK_INTERVAL_MS = 1_000;
+const STRUCTURE_TRADE_INTERVAL_MS = 200;
 
 const finite = (value) => {
   const number = Number(value);
@@ -217,6 +220,12 @@ export class SignalLabV3Collector {
     this.historyLoaded = new Set();
     this.historyLoading = new Set();
     this.lastSubscriptionRefreshAt = 0;
+    this.lastCheckAt = 0;
+    this.checkTimer = null;
+    this.pendingCheckAt = null;
+    this.structureTradeAt = new Map();
+    this.statusNotifyTimer = null;
+    this.lastStatusNotifiedAt = 0;
     this.statusState = {
       formulaVersion: SIGNAL_LAB_V3_FORMULA_VERSION,
       connection: "idle",
@@ -444,6 +453,11 @@ export class SignalLabV3Collector {
     clearTimeout(this.connectionTimer);
     clearTimeout(this.corePacketTimer);
     clearTimeout(this.bookConnectionTimer);
+    clearTimeout(this.checkTimer);
+    clearTimeout(this.statusNotifyTimer);
+    this.checkTimer = null;
+    this.statusNotifyTimer = null;
+    this.pendingCheckAt = null;
     this.socket?.close();
     this.bookSocket?.close();
     this.socket = null;
@@ -485,7 +499,7 @@ export class SignalLabV3Collector {
         this.#symbol(row.s, finite(row.E) ?? Date.now())?.updateTicker(row);
         hasMiniTicker = true;
       }
-      if (hasMiniTicker) this.#check(Date.now());
+      if (hasMiniTicker) this.#scheduleCheck(Date.now());
       return;
     }
     if (!data || typeof data !== "object") return;
@@ -502,6 +516,10 @@ export class SignalLabV3Collector {
       const dataQuality = receivedAt - (finite(data.E) ?? receivedAt) <= 5_000 ? "LIVE" : "STALE";
       const tickSize = this.tickSizes.get(data.s) ?? null;
       this.#symbol(data.s)?.updateTrade(data);
+      this.orderFlow.ingestTrade(data, receivedAt);
+      const previousStructureAt = this.structureTradeAt.get(data.s) ?? 0;
+      if (receivedAt - previousStructureAt < STRUCTURE_TRADE_INTERVAL_MS) return;
+      this.structureTradeAt.set(data.s, receivedAt);
       if (tickSize) {
         const levelMap = this.levels.ingestPrice(data.s, finite(data.p), eventAt, {
           tickSize,
@@ -514,8 +532,10 @@ export class SignalLabV3Collector {
           dataQuality,
         });
       }
-      this.extremes.ingestTrade(data.s, finite(data.p), eventAt, { dataQuality });
-      this.orderFlow.ingestTrade(data, receivedAt);
+      this.extremes.ingestTrade(data.s, finite(data.p), eventAt, {
+        dataQuality,
+        emitSnapshot: false,
+      });
       return;
     }
     if (data.e === "forceOrder") {
@@ -533,22 +553,26 @@ export class SignalLabV3Collector {
         const closedMinuteCandles = Array.isArray(metrics.minuteCandles)
           ? metrics.minuteCandles.slice(0, -1)
           : [];
-        if (tickSize && closedMinuteCandles.length) {
+        const structureReady = Boolean(
+          tickSize
+          && (this.historyLoaded.has(metrics.symbol) || this.trackedAggTrades.has(metrics.symbol))
+        );
+        if (structureReady && closedMinuteCandles.length) {
           this.extremes.hydrate(metrics.symbol, "1m", closedMinuteCandles, {
             tickSize,
             dataQuality,
           });
         }
-        const extremeMap = this.extremes.snapshot(metrics.symbol);
-        const atr1m = atrFromClosedCandles(closedMinuteCandles);
-        if (tickSize && closedMinuteCandles.length) {
+        const extremeMap = structureReady ? this.extremes.snapshot(metrics.symbol) : null;
+        const atr1m = structureReady ? atrFromClosedCandles(closedMinuteCandles) : null;
+        if (structureReady && closedMinuteCandles.length) {
           this.levels.ingestCandle(metrics.symbol, closedMinuteCandles.at(-1), {
             tickSize,
             atr: atr1m,
             dataQuality,
           });
         }
-        const levelMap = tickSize
+        const levelMap = structureReady
           ? this.levels.sync(metrics.symbol, extremeMap, {
             tickSize,
             atr: atr1m,
@@ -580,6 +604,24 @@ export class SignalLabV3Collector {
           bookCandidate: this.bookTracker.candidateFor(metrics.symbol, now),
         };
       });
+  }
+
+  #scheduleCheck(now) {
+    const elapsed = now - this.lastCheckAt;
+    if (elapsed >= CHECK_INTERVAL_MS && !this.checkTimer) {
+      this.lastCheckAt = now;
+      this.#check(now);
+      return;
+    }
+    this.pendingCheckAt = now;
+    if (this.checkTimer) return;
+    this.checkTimer = setTimeout(() => {
+      this.checkTimer = null;
+      const scheduledAt = this.pendingCheckAt ?? Date.now();
+      this.pendingCheckAt = null;
+      this.lastCheckAt = scheduledAt;
+      this.#check(scheduledAt);
+    }, Math.max(0, CHECK_INTERVAL_MS - elapsed));
   }
 
   #check(now) {
@@ -722,10 +764,27 @@ export class SignalLabV3Collector {
 
   #publish(patch = {}) {
     Object.assign(this.statusState, patch);
-    try {
-      this.onStatus(Object.freeze({ ...this.statusState }));
-    } catch {
-      // UI callbacks must not interrupt the collector.
+    const now = Date.now();
+    const urgent = Object.prototype.hasOwnProperty.call(patch, "connection")
+      || (Object.prototype.hasOwnProperty.call(patch, "lastError") && patch.lastError);
+    const notify = () => {
+      clearTimeout(this.statusNotifyTimer);
+      this.statusNotifyTimer = null;
+      this.lastStatusNotifiedAt = Date.now();
+      try {
+        this.onStatus(Object.freeze({ ...this.statusState }));
+      } catch {
+        // UI callbacks must not interrupt the collector.
+      }
+    };
+    if (urgent || now - this.lastStatusNotifiedAt >= STATUS_NOTIFY_INTERVAL_MS) {
+      notify();
+      return;
     }
+    if (this.statusNotifyTimer) return;
+    this.statusNotifyTimer = setTimeout(
+      notify,
+      STATUS_NOTIFY_INTERVAL_MS - (now - this.lastStatusNotifiedAt),
+    );
   }
 }

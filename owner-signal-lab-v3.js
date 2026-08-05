@@ -95,11 +95,11 @@ function filters() {
     candidateType: elements.candidateFilter.value,
     reviewState: elements.reviewFilter.value,
     calibrationClass: elements.calibrationFilter.value,
-    limit: 1_000,
+    limit: 250,
   };
 }
 
-function scheduleRender(delay = 180) {
+function scheduleRender(delay = 900) {
   if (isEpisodeFullChartOpen()) {
     state.pendingRender = true;
     return;
@@ -405,14 +405,14 @@ async function render() {
     elements.visibleCount.textContent = `${merged.length} эпизодов`;
     elements.emptyState.hidden = merged.length > 0;
     elements.candidateList.hidden = merged.length === 0;
-    const visible = merged.slice(0, 60);
+    const visible = merged.slice(0, 12);
     const cards = visible.map(renderCard);
     disposeEpisodeFullCharts({ preserveActive: true });
     elements.candidateList.replaceChildren(...cards);
     requestAnimationFrame(() => {
       cards.forEach((card, index) => {
         mountEvidenceReplay(card, visible[index]);
-        mountEpisodeFullChart(card, visible[index], { autoOpen: index === 0 });
+        mountEpisodeFullChart(card, visible[index], { autoOpen: false });
       });
     });
   } catch (error) {
@@ -507,7 +507,7 @@ function createCollector() {
       await store.upsertEpisodes(durableRows);
       durableRows.forEach((episode) => persistedAt.set(episode.id, now));
     }
-    scheduleRender(created.length || expired.length ? 0 : 450);
+    scheduleRender(created.length || expired.length ? 250 : 1_200);
   },
   onStatus: (status) => {
     state.collectorStatus = status;

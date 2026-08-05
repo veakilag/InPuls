@@ -185,7 +185,7 @@ test("depth watchlist is stable and watchdog belongs to the current connection",
 
 test("owner UI bounds simultaneous replay canvases", async () => {
   const source = await readFile(new URL("../owner-signal-lab-v3.js", import.meta.url), "utf8");
-  assert.match(source, /merged\.slice\(0, 60\)/);
+  assert.match(source, /merged\.slice\(0, 12\)/);
 });
 
 test("legacy episodes show an explicit no-evidence state", async () => {

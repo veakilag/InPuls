@@ -199,15 +199,19 @@ export class TimeframeExtremeEngine {
       .sort((left, right) => left.time - right.time);
     for (const row of normalized) {
       if (this.lastCandleTime !== null && row.time <= this.lastCandleTime) continue;
-      this.ingestCandle(row, { dataQuality });
+      this.ingestCandle(row, { dataQuality, emitSnapshot: false });
     }
     return this.snapshot();
   }
 
-  ingestCandle(raw, { dataQuality = this.dataQuality, availableAt = null } = {}) {
+  ingestCandle(raw, {
+    dataQuality = this.dataQuality,
+    availableAt = null,
+    emitSnapshot = true,
+  } = {}) {
     const candle = normalizeCandle(raw, this.intervalMs);
-    if (!candle?.closed) return this.snapshot();
-    if (this.lastCandleTime !== null && candle.time <= this.lastCandleTime) return this.snapshot();
+    if (!candle?.closed) return emitSnapshot ? this.snapshot() : null;
+    if (this.lastCandleTime !== null && candle.time <= this.lastCandleTime) return emitSnapshot ? this.snapshot() : null;
     this.dataQuality = normalizeQuality(dataQuality);
     this.barIndex += 1;
     this.lastCandleTime = candle.time;
@@ -217,13 +221,16 @@ export class TimeframeExtremeEngine {
 
     this.#observeActiveRange(candle.low, candle.high, knownAt, this.barIndex);
     this.#advanceCandidates(candle, knownAt);
-    return this.snapshot();
+    return emitSnapshot ? this.snapshot() : null;
   }
 
-  ingestTrade(price, at = Date.now(), { dataQuality = this.dataQuality } = {}) {
+  ingestTrade(price, at = Date.now(), {
+    dataQuality = this.dataQuality,
+    emitSnapshot = true,
+  } = {}) {
     const value = finite(price);
     const timestamp = finite(at);
-    if (value === null || value <= 0 || timestamp === null) return this.snapshot();
+    if (value === null || value <= 0 || timestamp === null) return emitSnapshot ? this.snapshot() : null;
     this.dataQuality = normalizeQuality(dataQuality);
     const ticks = priceToTicks(value, this.tickSize);
     this.#observeActiveTicks(ticks, ticks, timestamp, this.barIndex);
@@ -248,7 +255,7 @@ export class TimeframeExtremeEngine {
         this.#confirm("LOW", this.lowCandidate, timestamp, this.barIndex);
       }
     }
-    return this.snapshot();
+    return emitSnapshot ? this.snapshot() : null;
   }
 
   #advanceCandidates(candle, knownAt) {
@@ -471,10 +478,14 @@ export class SignalLabV4ExtremeRegistry {
   ingestTrade(symbol, price, at, options = {}) {
     const normalized = normalizeSymbol(symbol);
     if (!normalized) return null;
+    const emitSnapshot = options.emitSnapshot !== false;
     for (const timeframe of SIGNAL_LAB_V4_TIMEFRAMES) {
-      this.engine(normalized, timeframe)?.ingestTrade(price, at, options);
+      this.engine(normalized, timeframe)?.ingestTrade(price, at, {
+        ...options,
+        emitSnapshot: false,
+      });
     }
-    return this.snapshot(normalized);
+    return emitSnapshot ? this.snapshot(normalized) : null;
   }
 
   snapshot(symbol) {
