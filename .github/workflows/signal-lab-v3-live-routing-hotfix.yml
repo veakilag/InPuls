@@ -40,6 +40,56 @@ jobs:
       - name: Apply routing patch
         run: node scripts/patch-signal-lab-v3-live-routing.mjs
 
+      - name: Write stable hotfix contracts
+        run: |
+          cat > test/signal-lab-v3-collector.test.js <<'EOF'
+          import test from "node:test";
+          import assert from "node:assert/strict";
+          import { readFile } from "node:fs/promises";
+
+          const collectorSource = await readFile(
+            new URL("../signal-lab-v3-collector.js", import.meta.url),
+            "utf8",
+          );
+          const ownerHtml = await readFile(
+            new URL("../owner-signal-lab-v3.html", import.meta.url),
+            "utf8",
+          );
+          const ownerRuntime = await readFile(
+            new URL("../owner-signal-lab-v3.js", import.meta.url),
+            "utf8",
+          );
+
+          test("Signal Lab V3 separates Binance market and public routes", () => {
+            assert.equal(collectorSource.includes("wss://fstream.binance.com/market/ws"), true);
+            assert.equal(collectorSource.includes("wss://fstream.binance.com/public/ws"), true);
+            assert.equal(collectorSource.includes('const BINANCE_STREAM_ENDPOINT = "wss://fstream.binance.com/ws"'), false);
+            assert.equal(collectorSource.includes('params: ["!bookTicker"]'), true);
+            assert.equal(collectorSource.includes('"!miniTicker@arr"'), true);
+          });
+
+          test("Signal Lab V3 reports LIVE only after a real miniTicker packet", () => {
+            assert.equal(collectorSource.includes('connection: "syncing"'), true);
+            assert.equal(collectorSource.includes('row?.e === "24hrMiniTicker"'), true);
+            assert.equal(collectorSource.includes('patch.connection = "live"'), true);
+            assert.equal(collectorSource.includes("обязательный miniTicker"), true);
+            assert.equal(collectorSource.includes("subscriptionErrors"), true);
+            assert.equal(collectorSource.includes("miniTickerPackets"), true);
+            assert.equal(collectorSource.includes("bookPackets"), true);
+            assert.equal(collectorSource.includes("aggTradePackets"), true);
+          });
+
+          test("Signal Lab V3 owner page exposes truthful live diagnostics", () => {
+            assert.equal(ownerHtml.includes('name="robots" content="noindex,nofollow,noarchive"'), true);
+            assert.equal(ownerHtml.includes("signal-lab-v3-live-routing-v1"), true);
+            assert.equal(ownerRuntime.includes('syncing: "синхронизация"'), true);
+            assert.equal(ownerRuntime.includes("miniTicker"), true);
+            assert.equal(ownerRuntime.includes("aggTradePackets"), true);
+            assert.equal(ownerRuntime.includes("bookPackets"), true);
+            assert.equal(/api[_-]?key|secret|private[_-]?key/i.test(ownerHtml), false);
+          });
+          EOF
+
       - name: Check JavaScript syntax
         run: find . -type f -name '*.js' -not -path './.git/*' -print0 | xargs -0 -n1 node --check
 
@@ -69,6 +119,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/signal-lab-v3-live-routing-hotfix.yml scripts/patch-signal-lab-v3-live-routing.mjs
+          git rm -f HOTFIX_TEST_FAILURE.txt || true
           git add signal-lab-v3-collector.js owner-signal-lab-v3.js owner-signal-lab-v3.html test/signal-lab-v3-collector.test.js
           git commit -m "Fix Signal Lab V3 live market routing [signal-lab-v3-hotfix-applied]"
           git push origin HEAD:fix/signal-lab-v3-live-routing
