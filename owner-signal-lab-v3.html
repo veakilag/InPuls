@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <meta name="description" content="Локальная лаборатория кандидатов рыночных паттернов InPuls" />
+    <title>InPuls — Owner Signal Lab V3</title>
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./owner-signal-lab-v3.css?v=signal-lab-v3-expert-candidates" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand" aria-label="InPuls Owner Signal Lab V3">
+        <strong>INPULS</strong>
+        <span>OWNER SIGNAL LAB V3</span>
+      </div>
+      <div class="collector-line">
+        <span id="collector-dot" class="status-dot" aria-hidden="true"></span>
+        <span id="collector-status">Подготовка локального сборщика…</span>
+      </div>
+      <div class="topbar-actions">
+        <button id="collector-toggle" class="button secondary" type="button">Остановить сбор</button>
+        <a class="button secondary" href="./" target="_blank" rel="noopener">Открыть InPuls</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <p class="eyebrow">КАНДИДАТЫ РЫНОЧНЫХ ЭПИЗОДОВ</p>
+        <h1>Сначала собрать — потом доказать паттерн</h1>
+        <p>
+          Лаборатория сохраняет широкие кандидаты по данным Binance: выносы, возвраты,
+          подходы к уровням, каскадные структуры, ускорение потока, ликвидации и
+          аномальную ликвидность. Это материал для ручной разметки, а не команда на сделку.
+        </p>
+      </section>
+
+      <section class="panel controls-panel" aria-label="Фильтры лаборатории">
+        <div class="range-switch" role="group" aria-label="Период">
+          <button type="button" data-days="1">1 день</button>
+          <button type="button" data-days="3">3 дня</button>
+          <button type="button" data-days="7" class="is-active">7 дней</button>
+          <button type="button" data-days="30">30 дней</button>
+        </div>
+        <label>
+          <span>Монета</span>
+          <input id="symbol-filter" type="search" inputmode="latin" autocomplete="off" placeholder="Например, BTC" />
+        </label>
+        <label>
+          <span>Кандидат</span>
+          <select id="candidate-filter">
+            <option value="">Все</option>
+          </select>
+        </label>
+        <label>
+          <span>Разметка</span>
+          <select id="review-filter">
+            <option value="">Все</option>
+            <option value="unreviewed">Не размечено</option>
+            <option value="valid">Годный</option>
+            <option value="weak">Слабый</option>
+            <option value="false_positive">Мусор</option>
+            <option value="duplicate_episode">Дубль</option>
+            <option value="wrong_pattern">Другой паттерн</option>
+            <option value="insufficient_data">Мало данных</option>
+          </select>
+        </label>
+        <button id="refresh" class="button primary" type="button">Обновить</button>
+      </section>
+
+      <section class="stats" aria-label="Статистика">
+        <article class="stat-card">
+          <span>Проверок рынка</span>
+          <strong id="checks-count">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>Эпизодов</span>
+          <strong id="episodes-count">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>Активных сейчас</span>
+          <strong id="active-count">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>Размечено</span>
+          <strong id="reviewed-count">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>История 1м</span>
+          <strong id="warmup-count">0</strong>
+        </article>
+      </section>
+
+      <section class="panel candidates-panel">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">ОЧЕРЕДЬ НА ПРОВЕРКУ</p>
+            <h2>Кандидаты и их наблюдаемые факты</h2>
+          </div>
+          <div class="section-actions">
+            <span id="visible-count">0 эпизодов</span>
+            <button id="export-json" class="button secondary" type="button">Экспорт JSON</button>
+            <button id="export-csv" class="button secondary" type="button">Экспорт CSV</button>
+          </div>
+        </header>
+        <div id="empty-state" class="empty-state">
+          Сборщик прогревает историю. Первые быстрые кандидаты обычно появляются раньше,
+          а уровни и каскады требуют минутных свечей.
+        </div>
+        <div id="candidate-list" class="candidate-list" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <template id="candidate-template">
+      <article class="candidate-card">
+        <header class="candidate-head">
+          <div>
+            <div class="candidate-title-line">
+              <strong data-field="symbol"></strong>
+              <span data-field="label"></span>
+              <span data-field="stage" class="badge"></span>
+            </div>
+            <small data-field="time"></small>
+          </div>
+          <div class="score-box">
+            <span>Доказательства</span>
+            <strong data-field="score"></strong>
+          </div>
+        </header>
+        <div class="candidate-grid">
+          <section>
+            <h3>Наблюдаемые факты</h3>
+            <ul data-field="facts" class="facts-list"></ul>
+          </section>
+          <section>
+            <h3>Гипотезы паттерна</h3>
+            <div data-field="hypotheses" class="chips"></div>
+            <p data-field="quality" class="quality-line"></p>
+            <details>
+              <summary>Ограничения данных</summary>
+              <ul data-field="limitations" class="limitations"></ul>
+            </details>
+          </section>
+          <section class="review-box">
+            <h3>Ручная разметка</h3>
+            <label>
+              <span>Что это было</span>
+              <select data-field="pattern">
+                <option value="">Пока не определено</option>
+                <option value="knife_reclaim">Нож</option>
+                <option value="sharpening_rejection">Заточка</option>
+                <option value="level_breakout">Пробой уровня</option>
+                <option value="cascade_breakout">Пробой каскада</option>
+                <option value="false_breakout">Ложный пробой</option>
+                <option value="liquidity_hold">Участник / удержание сайза</option>
+                <option value="liquidity_rearrangement">Переставляш / алгоритм</option>
+                <option value="participant_activity">Направленный поток</option>
+                <option value="liquidation_cascade">Каскад ликвидаций</option>
+                <option value="other">Другое</option>
+              </select>
+            </label>
+            <textarea data-field="comment" rows="2" placeholder="Почему годный или почему мусор"></textarea>
+            <div class="verdicts" data-field="verdicts">
+              <button type="button" data-verdict="valid">Годный</button>
+              <button type="button" data-verdict="weak">Слабый</button>
+              <button type="button" data-verdict="false_positive">Мусор</button>
+              <button type="button" data-verdict="duplicate_episode">Дубль</button>
+              <button type="button" data-verdict="wrong_pattern">Другой</button>
+              <button type="button" data-verdict="insufficient_data">Мало данных</button>
+            </div>
+          </section>
+        </div>
+      </article>
+    </template>
+
+    <script type="module" src="./owner-signal-lab-v3.js?v=signal-lab-v3-expert-candidates"></script>
+  </body>
+</html>
