@@ -1,0 +1,230 @@
+3003:not ok 500 - collector throttles status, checks and structure trade processing
+3008:  failureType: 'testCodeFailure'
+3009:  error: |-
+3312:  code: 'ERR_ASSERTION'
+3314:  expected:
+3315:  actual: |-
+4143:  operator: 'match'
+4421:# fail 1
+4426:exit_code=1
+--- tail ---
+# Subtest: owner page mounts one shared main-site orderbook lazily
+ok 510 - owner page mounts one shared main-site orderbook lazily
+  ---
+  duration_ms: 0.934619
+  type: 'test'
+  ...
+# Subtest: Signal Lab overrides the fixed main-workspace scroll lock
+ok 511 - Signal Lab overrides the fixed main-workspace scroll lock
+  ---
+  duration_ms: 1.222956
+  type: 'test'
+  ...
+# Subtest: internal replay workspace remains clipped independently from page scroll
+ok 512 - internal replay workspace remains clipped independently from page scroll
+  ---
+  duration_ms: 0.250851
+  type: 'test'
+  ...
+# Subtest: one physical multi-timeframe swing creates one canonical zone and one touch
+ok 513 - one physical multi-timeframe swing creates one canonical zone and one touch
+  ---
+  duration_ms: 11.652781
+  type: 'test'
+  ...
+# Subtest: only a real return after rearm increments canonical touch count
+ok 514 - only a real return after rearm increments canonical touch count
+  ---
+  duration_ms: 1.041227
+  type: 'test'
+  ...
+# Subtest: normal chart hides raw timeframe duplicates when canonical zones exist
+ok 515 - normal chart hides raw timeframe duplicates when canonical zones exist
+  ---
+  duration_ms: 1.031433
+  type: 'test'
+  ...
+# Subtest: chart limits canonical levels and cascade overlays instead of drawing the whole map
+ok 516 - chart limits canonical levels and cascade overlays instead of drawing the whole map
+  ---
+  duration_ms: 0.611513
+  type: 'test'
+  ...
+# Subtest: trade observation invalidates confirmed levels without manufacturing candle extrema
+ok 517 - trade observation invalidates confirmed levels without manufacturing candle extrema
+  ---
+  duration_ms: 4.332615
+  type: 'test'
+  ...
+# Subtest: lean live snapshot preserves active extrema and omits heavy history
+ok 518 - lean live snapshot preserves active extrema and omits heavy history
+  ---
+  duration_ms: 0.939297
+  type: 'test'
+  ...
+# Subtest: registry observes only already hydrated timeframe engines
+ok 519 - registry observes only already hydrated timeframe engines
+  ---
+  duration_ms: 1.05737
+  type: 'test'
+  ...
+# Subtest: collector live path is candle-driven and uses lean extreme maps
+ok 520 - collector live path is candle-driven and uses lean extreme maps
+  ---
+  duration_ms: 0.814683
+  type: 'test'
+  ...
+# Subtest: owner UI no longer rebuilds all episode cards every five seconds
+ok 521 - owner UI no longer rebuilds all episode cards every five seconds
+  ---
+  duration_ms: 0.419148
+  type: 'test'
+  ...
+# Subtest: Signal Lab publishes the intended 1d, 3d, 7d and 30d windows
+ok 522 - Signal Lab publishes the intended 1d, 3d, 7d and 30d windows
+  ---
+  duration_ms: 2.569273
+  type: 'test'
+  ...
+# Subtest: event review rows keep unique IDs, real chart evidence and manual verdicts
+ok 523 - event review rows keep unique IDs, real chart evidence and manual verdicts
+  ---
+  duration_ms: 2.049936
+  type: 'test'
+  ...
+# Subtest: impulses stay in raw memory but are excluded from the current Pattern Lab
+ok 524 - impulses stay in raw memory but are excluded from the current Pattern Lab
+  ---
+  duration_ms: 0.703778
+  type: 'test'
+  ...
+# Subtest: primary statistics use only complete live observations and expose every exclusion
+ok 525 - primary statistics use only complete live observations and expose every exclusion
+  ---
+  duration_ms: 1.367729
+  type: 'test'
+  ...
+# Subtest: formula versions and settings never share one statistical group
+ok 526 - formula versions and settings never share one statistical group
+  ---
+  duration_ms: 9.403942
+  type: 'test'
+  ...
+# Subtest: market groups combine symbols while symbol groups keep coin histories separate
+ok 527 - market groups combine symbols while symbol groups keep coin histories separate
+  ---
+  duration_ms: 0.464286
+  type: 'test'
+  ...
+# Subtest: lookback windows use signal time and do not leak older events into 1d
+ok 528 - lookback windows use signal time and do not leak older events into 1d
+  ---
+  duration_ms: 0.656769
+  type: 'test'
+  ...
+# Subtest: large density size is not promoted into importance or outcome statistics
+ok 529 - large density size is not promoted into importance or outcome statistics
+  ---
+  duration_ms: 0.479798
+  type: 'test'
+  ...
+# Subtest: duplicate entity IDs are de-duplicated before aggregation
+ok 530 - duplicate entity IDs are de-duplicated before aggregation
+  ---
+  duration_ms: 0.630311
+  type: 'test'
+  ...
+# Subtest: Signal Lab degrades safely when IndexedDB is unavailable
+ok 531 - Signal Lab degrades safely when IndexedDB is unavailable
+  ---
+  duration_ms: 1.610858
+  type: 'test'
+  ...
+# Subtest: browser runtime wires persistent Signal Lab without adding destructive controls
+ok 532 - browser runtime wires persistent Signal Lab without adding destructive controls
+  ---
+  duration_ms: 11.798696
+  type: 'test'
+  ...
+# Subtest: Signal Lab review UI exposes comments and enriched JSON/CSV export
+ok 533 - Signal Lab review UI exposes comments and enriched JSON/CSV export
+  ---
+  duration_ms: 1.795179
+  type: 'test'
+  ...
+# Subtest: browser entry points keep user version v23 and identify the current release build
+ok 534 - browser entry points keep user version v23 and identify the current release build
+  ---
+  duration_ms: 8.960607
+  type: 'test'
+  ...
+# Subtest: v23 DOM exposes fixed price steps, live Tape and footprint controls
+ok 535 - v23 DOM exposes fixed price steps, live Tape and footprint controls
+  ---
+  duration_ms: 3.630259
+  type: 'test'
+  ...
+# Subtest: INPLAY exposes and applies the NATR 5 filter
+ok 536 - INPLAY exposes and applies the NATR 5 filter
+  ---
+  duration_ms: 1.708292
+  type: 'test'
+  ...
+# Subtest: market symbols are validated before subscriptions and detail rendering avoids dynamic HTML
+ok 537 - market symbols are validated before subscriptions and detail rendering avoids dynamic HTML
+  ---
+  duration_ms: 2.461894
+  type: 'test'
+  ...
+# Subtest: browser entry points carry a restrictive CSP and reset scripts stay external
+ok 538 - browser entry points carry a restrictive CSP and reset scripts stay external
+  ---
+  duration_ms: 2.257552
+  type: 'test'
+  ...
+# Subtest: Service Worker removes retired app-shell caches and stays network-only
+ok 539 - Service Worker removes retired app-shell caches and stays network-only
+  ---
+  duration_ms: 0.716137
+  type: 'test'
+  ...
+# Subtest: chart pointer work is coalesced through animation frames and first-anchor snapping is available
+ok 540 - chart pointer work is coalesced through animation frames and first-anchor snapping is available
+  ---
+  duration_ms: 1.056079
+  type: 'test'
+  ...
+# Subtest: small panels keep compact menus and smaller resize corners
+ok 541 - small panels keep compact menus and smaller resize corners
+  ---
+  duration_ms: 1.86317
+  type: 'test'
+  ...
+# Subtest: brightness control keeps fixed accents and morphs from sun to moon
+ok 542 - brightness control keeps fixed accents and morphs from sun to moon
+  ---
+  duration_ms: 2.324622
+  type: 'test'
+  ...
+# Subtest: orderbook price text is separated from the size boundary
+ok 543 - orderbook price text is separated from the size boundary
+  ---
+  duration_ms: 3.215856
+  type: 'test'
+  ...
+# Subtest: event radar beta is isolated from the three existing discovery blocks
+ok 544 - event radar beta is isolated from the three existing discovery blocks
+  ---
+  duration_ms: 3.663578
+  type: 'test'
+  ...
+1..544
+# tests 544
+# suites 0
+# pass 543
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2623.547204
+exit_code=1
