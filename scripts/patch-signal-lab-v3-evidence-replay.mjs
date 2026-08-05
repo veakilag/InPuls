@@ -118,6 +118,13 @@ await replaceOnce(
 
 await replaceOnce(
   "signal-lab-v3-evidence.js",
+  `const DEPTH_STREAM_BASE = "wss://fstream.binance.com/market/stream";`,
+  `const DEPTH_STREAM_BASE = "wss://fstream.binance.com/public/stream";`,
+  "depth public routing",
+);
+
+await replaceOnce(
+  "signal-lab-v3-evidence.js",
   `    this.socket?.close();
     this.socket = null;
     this.#publish({ connection: "stopped" });`,
@@ -135,13 +142,6 @@ await replaceOnce(
   `    <link rel="stylesheet" href="./owner-signal-lab-v3.css?v=signal-lab-v3-evidence-replay-v1" />
     <link rel="stylesheet" href="./owner-signal-lab-v3-evidence.css?v=signal-lab-v3-evidence-replay-v1" />`,
   "owner evidence stylesheet",
-);
-
-await replaceOnce(
-  "sw.js",
-  `const BUILD = "26-95-stable-network-only-sw-v1";`,
-  `const BUILD = "26-96-signal-lab-v3-evidence-replay-v1";`,
-  "service worker build",
 );
 
 await replaceOnce(
