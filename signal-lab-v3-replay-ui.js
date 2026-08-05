@@ -298,7 +298,26 @@ export function mountEvidenceReplay(card, episode) {
   const coverage = card.querySelector('[data-field="coverage"]');
   const outcomes = card.querySelector('[data-field="outcomes"]');
   const timeframeButtons = [...card.querySelectorAll("[data-timeframe]")];
-  if (!pack || !canvas || !book || !slider) return;
+  if (!canvas || !book || !slider) return;
+  if (!pack) {
+    const { context, width, height } = resizeCanvas(canvas);
+    drawEmpty(context, width, height, "Эпизод собран до V3.1 — исторического графика Replay нет");
+    book.replaceChildren();
+    const empty = document.createElement("div");
+    empty.className = "book-empty";
+    empty.textContent = "Эпизод создан до включения записи depth20. Стакан задним числом восстановить нельзя.";
+    book.append(empty);
+    coverage.textContent = "Исторический evidence-пакет отсутствует. Новые эпизоды сохраняются с графиком и стаканом.";
+    replayTime.textContent = "—";
+    play.disabled = true;
+    slider.disabled = true;
+    timeframeButtons.forEach((button) => { button.disabled = true; });
+    renderExplanation(card, null);
+    card.querySelector('[data-field="explanation-headline"]').textContent = "Этот эпизод был собран старой версией лаборатории. Моё объяснение появится у новых эпизодов после записи полного контекста.";
+    card.querySelector('[data-field="explanation-missing"]').textContent = "Не хватает исторических price points, flow samples и depth20; они не восстанавливаются задним числом.";
+    renderOutcomes(outcomes, null);
+    return;
+  }
 
   let intervalMs = TIMEFRAMES["5s"];
   let timer = null;

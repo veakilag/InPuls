@@ -180,3 +180,9 @@ test("owner UI bounds simultaneous replay canvases", async () => {
   assert.match(source, /merged\.slice\(0, 60\)/);
 });
 
+test("legacy episodes show an explicit no-evidence state", async () => {
+  const source = await readFile(new URL("../signal-lab-v3-replay-ui.js", import.meta.url), "utf8");
+  assert.match(source, /Эпизод собран до V3\.1/);
+  assert.match(source, /Стакан задним числом восстановить нельзя/);
+  assert.match(source, /historical price points|исторических price points/i);
+});
