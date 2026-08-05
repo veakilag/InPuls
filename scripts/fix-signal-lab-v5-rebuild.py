@@ -16,11 +16,16 @@ replace_once(
     "  const expectedFirstOpen = Math.ceil(requestedFrom / interval) * interval;",
 )
 
-# The >1% detector test must be sufficiently warmed to pass the independent history gate.
+# The >1% detector test must also satisfy the independent warmup and NATR gates.
 replace_once(
     "test/signal-lab-v5-rebuild.test.js",
     "      warmupSeconds: 60,",
     "      warmupSeconds: 300,",
+)
+replace_once(
+    "test/signal-lab-v5-rebuild.test.js",
+    "      natr5m: 1,",
+    "      natr5m: 1.1,",
 )
 replace_once(
     "test/signal-lab-v5-rebuild.test.js",
@@ -51,6 +56,11 @@ replace_once(
 )
 replace_once(
     "test/signal-lab-v4-integration.test.js",
+    'const replay = await readFile(new URL("../signal-lab-v3-replay-ui.js", import.meta.url), "utf8");',
+    'const replay = await readFile(new URL("../signal-lab-v3-replay-ui.js", import.meta.url), "utf8");\nconst orderFlowReplay = await readFile(new URL("../signal-lab-v4-orderflow-replay.js", import.meta.url), "utf8");',
+)
+replace_once(
+    "test/signal-lab-v4-integration.test.js",
     "  assert.match(chart, /candles\\.length < 50_000/);",
     "  assert.match(chart, /candles\\.length < 50_500/);\n  assert.match(chart, /buildCandleCoverage/);\n  assert.match(chart, /PARTIAL_BINANCE_COVERAGE/);",
 )
@@ -61,6 +71,6 @@ replace_once(
   assert.match(html, /СТАКАН · РУЧНОЙ СКРОЛЛ/);''',
     '''  assert.match(html, /data-field="orderbook-workspace"/);
   assert.match(html, /styles\.css\?v=signal-lab-v5-shared-orderbook/);
-  assert.match(replay, /orderbook-card signal-lab-replay-card/);
-  assert.match(replay, /Ctrl \+ колесо — шаг ×1…×1000/);''',
+  assert.match(orderFlowReplay, /orderbook-card signal-lab-replay-card/);
+  assert.match(orderFlowReplay, /Ctrl \+ колесо — шаг ×1…×1000/);''',
 )
