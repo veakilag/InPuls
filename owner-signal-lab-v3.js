@@ -226,7 +226,7 @@ async function render() {
     elements.visibleCount.textContent = `${merged.length} эпизодов`;
     elements.emptyState.hidden = merged.length > 0;
     elements.candidateList.hidden = merged.length === 0;
-    const visible = merged.slice(0, 250);
+    const visible = merged.slice(0, 60);
     const cards = visible.map(renderCard);
     elements.candidateList.replaceChildren(...cards);
     requestAnimationFrame(() => {

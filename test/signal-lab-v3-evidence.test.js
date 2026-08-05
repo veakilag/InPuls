@@ -158,3 +158,25 @@ test("owner Signal Lab V3 exposes chart, book, replay and explanation controls",
   assert.match(html, /Почему я выбрал гипотезу/);
   assert.match(html, /sampled depth20/i);
 });
+
+test("evidence store keeps metadata and bounded packs in separate stores", async () => {
+  const source = await readFile(new URL("../signal-lab-v3-store.js", import.meta.url), "utf8");
+  assert.match(source, /SIGNAL_LAB_V3_STORE_VERSION = 2/);
+  assert.match(source, /const EVIDENCE = "evidence"/);
+  assert.match(source, /MAX_EVIDENCE_PACKS = 500/);
+  assert.match(source, /delete normalized\.evidencePack/);
+  assert.match(source, /evidenceAvailable/);
+});
+
+test("depth watchlist is stable and watchdog belongs to the current connection", async () => {
+  const source = await readFile(new URL("../signal-lab-v3-evidence.js", import.meta.url), "utf8");
+  assert.match(source, /packetsAtConnect/);
+  assert.match(source, /baseWatchRefreshMs = 30_000/);
+  assert.match(source, /missingPinned/);
+});
+
+test("owner UI bounds simultaneous replay canvases", async () => {
+  const source = await readFile(new URL("../owner-signal-lab-v3.js", import.meta.url), "utf8");
+  assert.match(source, /merged\.slice\(0, 60\)/);
+});
+

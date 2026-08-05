@@ -131,12 +131,13 @@ export class SignalLabV3DepthPool {
     }
 
     const streams = this.symbols.map((symbol) => `${symbol.toLowerCase()}@depth20@100ms`);
+    const packetsAtConnect = this.state.packets;
     const socket = new WebSocket(`${DEPTH_STREAM_BASE}?streams=${streams.join("/")}`);
     this.socket = socket;
     this.#publish({ connection: "connecting", trackedSymbols: this.symbols.length, lastError: null });
 
     this.watchdogTimer = setTimeout(() => {
-      if (generation !== this.generation || this.state.lastMessageAt) return;
+      if (generation !== this.generation || this.state.packets > packetsAtConnect) return;
       this.#publish({ connection: "error", lastError: "depth20 не прислал первый пакет" });
       socket.close();
     }, 8_000);
@@ -291,6 +292,9 @@ export class SignalLabV3EvidenceRecorder {
     this.sessions = new Map();
     this.baseWatchSymbols = [];
     this.pinnedUntil = new Map();
+    this.currentWatchSymbols = [];
+    this.nextBaseWatchRefreshAt = 0;
+    this.baseWatchRefreshMs = 30_000;
   }
 
   status() {
@@ -485,8 +489,23 @@ export class SignalLabV3EvidenceRecorder {
       if (until < now) this.pinnedUntil.delete(symbol);
     }
     const pinned = [...this.pinnedUntil.keys()];
-    const next = [...new Set([...pinned, ...this.baseWatchSymbols])]
-      .slice(0, this.maximumDepthSymbols);
+    const current = this.currentWatchSymbols.filter((symbol) => (
+      pinned.includes(symbol) || this.baseWatchSymbols.includes(symbol)
+    ));
+    const missingPinned = pinned.filter((symbol) => !current.includes(symbol));
+    let next = null;
+    if (!current.length || now >= this.nextBaseWatchRefreshAt) {
+      next = [...new Set([...pinned, ...this.baseWatchSymbols])]
+        .slice(0, this.maximumDepthSymbols);
+      this.nextBaseWatchRefreshAt = now + this.baseWatchRefreshMs;
+    } else if (missingPinned.length) {
+      next = [...new Set([...pinned, ...current, ...this.baseWatchSymbols])]
+        .slice(0, this.maximumDepthSymbols);
+    }
+    if (!next) return;
+    const signature = next.join(",");
+    if (signature === this.currentWatchSymbols.join(",")) return;
+    this.currentWatchSymbols = next;
     this.depthPool.setSymbols(next);
   }
 }
