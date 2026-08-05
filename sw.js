@@ -1,21 +1,21 @@
 const CACHE = "inpuls-26-91-runtime-boot-cache-feed-v1"; // Retired cache name kept only for migration cleanup.
-const BUILD = "26-95-stable-network-only-sw-v1";
+const BUILD = "26-116-spot-tape-routing-v2";
 const SIGNAL_LAB_COLLECTOR_STATUS_MESSAGE = "inpuls:signal-lab-collector-status";
 
 // Release inventory only. These files are intentionally never written to CacheStorage.
 const RELEASE_ASSETS = Object.freeze([
   "./",
   "./index.html",
-  "./styles.css?v=26-115-series-visible-fallback-v1",
-  "./app.js?v=26-115-series-visible-fallback-v1",
+  "./styles.css?v=26-116-spot-tape-routing-v2",
+  "./app.js?v=26-116-spot-tape-routing-v2",
   "./binance-clock-core.js?v=26-101-binance-clock-sync-v1",
   "./binance-clock.js?v=26-102-tape-live-edge-minute-boundary-v1",
-  "./canvas-comfort-preview.js?v=26-115-series-visible-fallback-v1",
+  "./canvas-comfort-preview.js?v=26-116-spot-tape-routing-v2",
   "./event-radar-beta.js?v=event-radar-beta-v1",
   "./event-radar-beta.css?v=event-radar-beta-v1",
   "./chart.js?v=26-102-tape-live-edge-minute-boundary-v1",
   "./engine.js?v=26-65-structured-signal-collection-v1",
-  "./orderbook.js?v=26-115-series-visible-fallback-v1",
+  "./orderbook.js?v=26-116-spot-tape-routing-v2",
   "./orderbook-events.js?v=orderbook-events-core-v1",
   "./orderbook-density.js?v=density-trades-correlation-v1",
   "./market-memory.js?v=26-65-structured-signal-collection-v1",
@@ -43,14 +43,14 @@ const RELEASE_ASSETS = Object.freeze([
   "./signal-lab-v3-replay-ui.js?v=signal-lab-v3-evidence-replay-v1",
   "./owner-navigation.js?v=owner-signal-lab-v1",
   "./render-scheduler.js?v=render-scheduler-v1",
-  "./orderbook-worker.js?v=26-115-series-visible-fallback-v1",
+  "./orderbook-worker.js?v=26-116-spot-tape-routing-v2",
   "./orderbook-worker-buffers.js?v=worker-bp-v1",
   "./orderbook-depth-projection.js?v=deep-book-v1",
   "./orderbook-tape-guard.js?v=worker-bp-v1",
   "./orderbook-network.js?v=obs-pr1-1",
   "./orderbook-tape-layout.js?v=stable-tape-v4",
   "./orderbook-tape-latency.js?v=worker-bp-v1",
-  "./orderbook-flow-workspace.js?v=26-115-series-visible-fallback-v1",
+  "./orderbook-flow-workspace.js?v=26-116-spot-tape-routing-v2",
   "./observability.js?v=render-scheduler-v1",
   "./pwa-reset.js",
   "./refresh.html",

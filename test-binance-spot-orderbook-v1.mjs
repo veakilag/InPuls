@@ -17,6 +17,19 @@ test("Binance Spot uses independent market-qualified Worker feeds", () => {
   assert.match(runtime, /detail: \{ symbol: key, market, status \}/);
 });
 
+test("Spot tape hotfix invalidates the full browser runtime chain", () => {
+  const build = "26-116-spot-tape-routing-v2";
+  const index = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const serviceWorker = readFileSync(new URL("./sw.js", import.meta.url), "utf8");
+  assert.match(index, new RegExp(`app\\.js\\?v=${build}`));
+  assert.match(runtime, new RegExp(`orderbook-worker\\.js\\?v=${build}`));
+  assert.match(readFileSync(new URL("./app.js", import.meta.url), "utf8"), new RegExp(`orderbook\\.js\\?v=${build}`));
+  assert.match(serviceWorker, new RegExp(`const BUILD = "${build}"`));
+  for (const asset of ["app.js", "orderbook.js", "orderbook-worker.js"]) {
+    assert.match(serviceWorker, new RegExp(`${asset.replace(".", "\\.")}\\?v=${build}`));
+  }
+});
+
 test("Spot depth and trades use official Spot endpoints", () => {
   assert.match(worker, /stream\.binance\.com:9443\/stream/);
   assert.match(worker, /api\/v3.*fapi\/v1/);
