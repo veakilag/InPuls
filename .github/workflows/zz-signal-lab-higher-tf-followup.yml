@@ -21,13 +21,64 @@ jobs:
           fetch-depth: 0
 
       - name: Apply higher timeframe follow-up
-        run: python3 scripts/apply-signal-lab-higher-tf-followup.py
+        id: patch
+        continue-on-error: true
+        run: |
+          set +e
+          python3 scripts/apply-signal-lab-higher-tf-followup.py > higher-tf-patch.txt 2>&1
+          code=$?
+          echo "exit_code=$code" >> higher-tf-patch.txt
+          exit $code
+
+      - name: Preserve patch failure
+        if: steps.patch.outcome == 'failure'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add higher-tf-patch.txt
+          git commit -m "Capture higher timeframe patch failure"
+          git push origin HEAD:fix/signal-lab-extreme-collection-performance
+
+      - name: Stop after patch failure
+        if: steps.patch.outcome == 'failure'
+        run: exit 1
 
       - name: Run complete test suite
-        run: npm test
+        id: tests
+        if: steps.patch.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set +e
+          npm test > higher-tf-tests.txt 2>&1
+          code=$?
+          echo "exit_code=$code" >> higher-tf-tests.txt
+          exit $code
+
+      - name: Preserve test failure
+        if: steps.tests.outcome == 'failure'
+        run: |
+          line=$(grep -n -m1 '^not ok' higher-tf-tests.txt | cut -d: -f1)
+          if [ -n "$line" ]; then
+            start=$((line > 30 ? line - 30 : 1))
+            end=$((line + 500))
+            sed -n "${start},${end}p" higher-tf-tests.txt > higher-tf-test-failure.txt
+          else
+            tail -n 600 higher-tf-tests.txt > higher-tf-test-failure.txt
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add higher-tf-test-failure.txt
+          git commit -m "Capture higher timeframe test failure"
+          git push origin HEAD:fix/signal-lab-extreme-collection-performance
+
+      - name: Stop after test failure
+        if: steps.tests.outcome == 'failure'
+        run: exit 1
 
       - name: Commit verified follow-up
+        if: steps.tests.outcome == 'success'
         run: |
+          rm -f higher-tf-patch.txt higher-tf-tests.txt higher-tf-test-failure.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
