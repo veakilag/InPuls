@@ -1,0 +1,81 @@
+name: Apply Signal Lab extreme history fallback
+
+on:
+  push:
+    branches:
+      - fix/signal-lab-extreme-warmup-451-fallback
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out fallback branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/signal-lab-extreme-warmup-451-fallback
+          fetch-depth: 0
+
+      - name: Apply deterministic fallback
+        run: python3 scripts/apply-signal-lab-extreme-451-fallback.py
+
+      - name: Run complete test suite
+        run: npm test
+
+      - name: Run real market-data fallback proof
+        run: |
+          node --input-type=module <<'NODE'
+          import { SignalLabV4ExtremeRegistry } from './signal-lab-v4-extremes.js';
+          import { resolveSpotHistoryProxy, scaleProxyCandle } from './signal-lab-v3-collector.js';
+
+          const getJson = async (url) => {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`${response.status} ${url}`);
+            return response.json();
+          };
+          const exchange = await getJson('https://data-api.binance.vision/api/v3/exchangeInfo');
+          const spotTicks = new Map(exchange.symbols
+            .filter((row) => row.quoteAsset === 'USDT' && row.status === 'TRADING')
+            .map((row) => [row.symbol, Number(row.filters.find((filter) => filter.filterType === 'PRICE_FILTER')?.tickSize)]));
+          const proxy = resolveSpotHistoryProxy('BTCUSDT', spotTicks);
+          if (!proxy) throw new Error('BTCUSDT Spot proxy missing');
+          const registry = new SignalLabV4ExtremeRegistry();
+          registry.setTickSize('BTCUSDT', proxy.tickSize);
+          for (const timeframe of ['1m', '5m', '15m', '1h', '4h', '1d']) {
+            const url = new URL('https://data-api.binance.vision/api/v3/klines');
+            url.searchParams.set('symbol', proxy.spotSymbol);
+            url.searchParams.set('interval', timeframe);
+            url.searchParams.set('limit', timeframe === '1d' ? '365' : '1000');
+            const rows = await getJson(url);
+            const candles = rows.map((row) => scaleProxyCandle({
+              time: Number(row[0]), open: Number(row[1]), high: Number(row[2]), low: Number(row[3]), close: Number(row[4]),
+              volume: Number(row[5]), closeTime: Number(row[6]), closed: Number(row[6]) < Date.now(),
+            }, proxy.priceScale)).filter((row) => row?.closed);
+            registry.hydrate('BTCUSDT', timeframe, candles, {
+              tickSize: proxy.tickSize,
+              dataQuality: 'RECOVERED',
+              dataSource: proxy.source,
+              emitSnapshot: false,
+            });
+          }
+          const snapshot = registry.snapshot('BTCUSDT');
+          const active = Object.values(snapshot.timeframes).reduce((sum, map) => sum + map.active.length, 0);
+          const history = Object.values(snapshot.timeframes).reduce((sum, map) => sum + map.history.length, 0);
+          console.log(JSON.stringify({ active, history, dataSources: [...new Set(Object.values(snapshot.timeframes).map((map) => map.dataSource))] }));
+          if (!(active > 0) || !(history > 0)) throw new Error(`fallback produced no extrema: active=${active} history=${history}`);
+          if (!Object.values(snapshot.timeframes).every((map) => map.dataSource === 'BINANCE_SPOT_PROXY')) {
+            throw new Error('fallback source is not explicit');
+          }
+          NODE
+
+      - name: Commit verified fallback
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Restore extreme warmup when Futures REST is restricted"
+          git push origin HEAD:fix/signal-lab-extreme-warmup-451-fallback
