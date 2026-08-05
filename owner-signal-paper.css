@@ -1,0 +1,96 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0b0d10;
+  color: #f3f5f7;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, #171b21 0, #0b0d10 42%); }
+button, a { font: inherit; }
+a { color: inherit; text-decoration: none; }
+
+.paper-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 64px;
+  padding: 12px 24px;
+  border-bottom: 1px solid #242a32;
+  background: rgba(11, 13, 16, 0.92);
+  backdrop-filter: blur(18px);
+}
+
+.paper-brand { display: flex; align-items: baseline; gap: 12px; }
+.paper-brand strong { font-size: 20px; letter-spacing: .12em; }
+.paper-brand span, .eyebrow { color: #9aa5b1; font-size: 11px; letter-spacing: .14em; }
+.paper-top-actions { display: flex; align-items: center; gap: 14px; font-size: 13px; }
+.paper-top-actions a, .paper-controls button {
+  border: 1px solid #343c47;
+  border-radius: 10px;
+  padding: 9px 12px;
+  background: #171b21;
+  color: #f5f7fa;
+  cursor: pointer;
+}
+#paper-status[data-state="available"] { color: #79d99b; }
+#paper-status[data-state="error"] { color: #ff8b8b; }
+
+main { width: min(1500px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 56px; }
+.paper-intro { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 22px; }
+.paper-intro h1 { margin: 6px 0 8px; font-size: clamp(28px, 4vw, 48px); }
+.paper-intro p { max-width: 850px; margin: 0; color: #aab3bd; line-height: 1.55; }
+.paper-controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.paper-controls .paper-danger { border-color: #6b343a; color: #ffb2b9; }
+
+.paper-summary {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.paper-summary article, .paper-diagnostics, .paper-card, .paper-note {
+  border: 1px solid #242a32;
+  background: rgba(19, 23, 28, .92);
+  border-radius: 14px;
+}
+.paper-summary article { padding: 14px; min-height: 86px; }
+.paper-summary span { display: block; color: #8994a0; font-size: 12px; }
+.paper-summary strong { display: block; margin-top: 12px; font-size: 20px; }
+
+.paper-diagnostics { padding: 12px 15px; margin-bottom: 14px; }
+.paper-diagnostics span { color: #8994a0; font-size: 12px; }
+.paper-diagnostics p { margin: 7px 0 0; color: #c5ccd4; font-size: 13px; }
+
+.paper-card { overflow: hidden; margin-top: 14px; }
+.paper-card > header { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; padding: 16px 18px; border-bottom: 1px solid #242a32; }
+.paper-card h2 { margin: 4px 0 0; font-size: 18px; }
+.paper-card small { color: #8e98a4; }
+.paper-table-wrap { overflow: auto; }
+table { width: 100%; border-collapse: collapse; min-width: 880px; }
+th, td { padding: 11px 13px; border-bottom: 1px solid #20262d; text-align: left; white-space: nowrap; font-size: 13px; }
+th { position: sticky; top: 0; background: #15191e; color: #8f9aa6; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+tbody tr:hover { background: #181d23; }
+.paper-positive { color: #72d998; }
+.paper-negative { color: #ff8e97; }
+.paper-empty { color: #8f99a5; text-align: center; padding: 24px; }
+
+.paper-note { margin-top: 14px; padding: 16px 18px; }
+.paper-note strong { display: block; margin-bottom: 6px; }
+.paper-note p { margin: 0; color: #9ea8b3; line-height: 1.5; }
+
+@media (max-width: 1280px) {
+  .paper-summary { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .paper-topbar, .paper-intro, .paper-card > header { align-items: flex-start; flex-direction: column; }
+  .paper-top-actions, .paper-controls { width: 100%; justify-content: flex-start; }
+  main { width: min(100% - 20px, 1500px); padding-top: 18px; }
+  .paper-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .paper-summary article { min-height: 78px; }
+}
