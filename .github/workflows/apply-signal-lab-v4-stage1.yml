@@ -34,6 +34,10 @@ jobs:
           echo "PATCH_EXIT=$code" >> "$GITHUB_ENV"
           exit 0
 
+      - name: Apply regression fixes
+        if: env.PATCH_EXIT == '0'
+        run: python scripts/fix-signal-lab-v4-stage1-tests.py
+
       - name: Publish patch failure for diagnosis
         if: env.PATCH_EXIT != '0'
         run: |
@@ -75,7 +79,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -f .github/workflows/apply-signal-lab-v4-stage1.yml scripts/patch-signal-lab-v4-stage1.py V4_PATCH_FAILURE.txt V4_TEST_FAILURE.txt
-          git add signal-lab-v3-collector.js signal-lab-v3-evidence.js signal-lab-v3-full-chart.js signal-lab-v3-replay-ui.js signal-lab-v3-store.js owner-signal-lab-v3.html owner-signal-lab-v3.js owner-signal-lab-v3-evidence.css signal-lab-v4-extremes.js signal-lab-v4-orderflow-recorder.js signal-lab-v4-orderflow-replay.js test/signal-lab-v4-extremes.test.js test/signal-lab-v4-orderflow-recorder.test.js test/signal-lab-v4-integration.test.js docs/signal-lab-v4-extremes-orderflow-stage1.md
+          git rm -f .github/workflows/apply-signal-lab-v4-stage1.yml scripts/patch-signal-lab-v4-stage1.py scripts/fix-signal-lab-v4-stage1-tests.py V4_PATCH_FAILURE.txt V4_TEST_FAILURE.txt
+          git add signal-lab-v3-collector.js signal-lab-v3-evidence.js signal-lab-v3-full-chart.js signal-lab-v3-replay-ui.js signal-lab-v3-store.js owner-signal-lab-v3.html owner-signal-lab-v3.js owner-signal-lab-v3-evidence.css signal-lab-v4-extremes.js signal-lab-v4-orderflow-recorder.js signal-lab-v4-orderflow-replay.js test/signal-lab-v3-collector.test.js test/signal-lab-v3-evidence.test.js test/signal-lab-v3-full-chart.test.js test/signal-lab-v4-extremes.test.js test/signal-lab-v4-orderflow-recorder.test.js test/signal-lab-v4-integration.test.js docs/signal-lab-v4-extremes-orderflow-stage1.md
           git commit -m "Add Signal Lab V4 extrema and order-flow replay [signal-lab-v4-stage1-applied]"
           git push origin HEAD:agent/signal-lab-v4-extremes-orderflow-replay
