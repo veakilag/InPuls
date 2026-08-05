@@ -11,6 +11,7 @@ import {
   DEFAULT_CANDIDATE_SETTINGS,
   SIGNAL_LAB_V3_FORMULA_VERSION,
 } from "./signal-lab-v3-candidates.js";
+import { SignalLabV3EvidenceRecorder } from "./signal-lab-v3-evidence.js";
 
 const BINANCE_MARKET_STREAM_ENDPOINT = "wss://fstream.binance.com/market/ws";
 const BINANCE_PUBLIC_STREAM_ENDPOINT = "wss://fstream.binance.com/public/ws";
@@ -181,6 +182,7 @@ export class SignalLabV3Collector {
     this.symbols = new Map();
     this.bookTracker = new ExpertBookCandidateTracker(this.settings);
     this.episodes = new CandidateEpisodeTracker(this.settings);
+    this.evidence = new SignalLabV3EvidenceRecorder({ maximumDepthSymbols: 10 });
     this.trackedAggTrades = new Set();
     this.historyLoaded = new Set();
     this.historyLoading = new Set();
@@ -205,6 +207,9 @@ export class SignalLabV3Collector {
       trackedTrades: 0,
       warmupLoaded: 0,
       warmupLoading: 0,
+      evidencePacks: 0,
+      depthTracked: 0,
+      depthState: "idle",
       lastError: null,
     };
   }
@@ -405,7 +410,8 @@ export class SignalLabV3Collector {
     this.bookSocket?.close();
     this.socket = null;
     this.bookSocket = null;
-    this.#publish({ connection: "stopped" });
+    this.evidence.disconnect();
+    this.#publish({ connection: "stopped", depthState: "stopped", depthTracked: 0 });
   }
 
   status() {
@@ -475,7 +481,10 @@ export class SignalLabV3Collector {
   #check(now) {
     const metrics = this.#metrics(now);
     const result = this.episodes.ingest(metrics, now);
-    this.onEpisodes(result, metrics);
+    const evidenceResult = this.evidence.ingest({ metricsRows: metrics, result, now });
+    this.onEpisodes(evidenceResult, metrics);
+    this.#refreshTrackedTrades(metrics, now);
+    const evidenceStatus = this.evidence.status();
     this.#publish({
       lastCheckAt: now,
       checks: this.statusState.checks + 1,
@@ -483,8 +492,10 @@ export class SignalLabV3Collector {
       updatedEpisodes: this.statusState.updatedEpisodes + result.updated.length,
       expiredEpisodes: this.statusState.expiredEpisodes + result.expired.length,
       symbols: metrics.length,
+      evidencePacks: evidenceStatus.evidencePacks,
+      depthTracked: evidenceStatus.depth.trackedSymbols ?? 0,
+      depthState: evidenceStatus.depth.connection ?? "idle",
     });
-    this.#refreshTrackedTrades(metrics, now);
     this.#queueWarmup(metrics);
   }
 
@@ -502,6 +513,10 @@ export class SignalLabV3Collector {
     const subscribe = [...next].filter((symbol) => !this.trackedAggTrades.has(symbol));
     const unsubscribe = [...this.trackedAggTrades].filter((symbol) => !next.has(symbol));
     this.trackedAggTrades = next;
+    this.evidence.setWatchSymbols([
+      ...activeSymbols,
+      ...ranked.slice(0, 10).map((row) => row.symbol),
+    ], now);
     if (unsubscribe.length) {
       this.#send("UNSUBSCRIBE", unsubscribe.map((symbol) => `${symbol.toLowerCase()}@aggTrade`));
     }

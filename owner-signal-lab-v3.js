@@ -2,7 +2,8 @@ import {
   CANDIDATE_LABELS,
   SIGNAL_LAB_V3_FORMULA_VERSION,
 } from "./signal-lab-v3-candidates.js";
-import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v3-live-routing-v1";
+import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v3-evidence-replay-v1";
+import { mountEvidenceReplay } from "./signal-lab-v3-replay-ui.js?v=signal-lab-v3-evidence-replay-v1";
 import { rowsToCsv, SignalLabV3Store } from "./signal-lab-v3-store.js";
 
 const elements = {
@@ -30,6 +31,7 @@ const elements = {
 const store = new SignalLabV3Store();
 const liveEpisodes = new Map();
 const reviewStates = new Map();
+const persistedAt = new Map();
 const state = {
   days: 7,
   running: true,
@@ -60,17 +62,6 @@ const stageLabels = Object.freeze({
   forming: "формируется",
   triggered: "триггер",
   completed: "завершён",
-});
-
-const verdictLabels = Object.freeze({
-  unreviewed: "не размечено",
-  valid: "годный",
-  weak: "слабый",
-  false_positive: "мусор",
-  duplicate_episode: "дубль",
-  wrong_pattern: "другой паттерн",
-  insufficient_data: "мало данных",
-  missed_pattern: "пропущенный паттерн",
 });
 
 function filters() {
@@ -105,7 +96,10 @@ function statusText(status) {
     ? Math.max(0, Math.round((Date.now() - status.lastMessageAt) / 1_000))
     : null;
   const age = ageSeconds === null ? "нет данных" : `${ageSeconds}с назад`;
-  return `${connection} · проверки ${status.checks} · эпизоды ${status.createdEpisodes} · miniTicker ${status.miniTickerPackets ?? 0} · aggTrade ${status.aggTradePackets ?? 0}/${status.trackedTrades} · book ${status.bookPackets ?? 0} · история ${status.warmupLoaded} · пакет ${age}`;
+  const depth = status.depthState
+    ? `depth ${status.depthState}/${status.depthTracked ?? 0}`
+    : `depth ${status.depthTracked ?? 0}`;
+  return `${connection} · проверки ${status.checks} · эпизоды ${status.createdEpisodes} · miniTicker ${status.miniTickerPackets ?? 0} · aggTrade ${status.aggTradePackets ?? 0}/${status.trackedTrades} · book ${status.bookPackets ?? 0} · ${depth} · пакеты ${status.evidencePacks ?? 0} · история ${status.warmupLoaded} · пакет ${age}`;
 }
 
 function renderCollectorStatus() {
@@ -191,6 +185,7 @@ function renderCard(episode) {
   const fragment = elements.template.content.cloneNode(true);
   const card = fragment.querySelector(".candidate-card");
   card.dataset.direction = episode.direction;
+  card.dataset.episodeId = episode.id;
   const latest = episode.latest ?? {};
   card.querySelector('[data-field="symbol"]').textContent = episode.symbol;
   card.querySelector('[data-field="label"]').textContent = episode.label;
@@ -211,7 +206,7 @@ function renderCard(episode) {
     button.classList.toggle("is-selected", button.dataset.verdict === episode.reviewState);
     button.addEventListener("click", () => saveReview(episode, card, button.dataset.verdict));
   });
-  return fragment;
+  return card;
 }
 
 async function render() {
@@ -231,7 +226,12 @@ async function render() {
     elements.visibleCount.textContent = `${merged.length} эпизодов`;
     elements.emptyState.hidden = merged.length > 0;
     elements.candidateList.hidden = merged.length === 0;
-    elements.candidateList.replaceChildren(...merged.slice(0, 250).map(renderCard));
+    const visible = merged.slice(0, 60);
+    const cards = visible.map(renderCard);
+    elements.candidateList.replaceChildren(...cards);
+    requestAnimationFrame(() => {
+      cards.forEach((card, index) => mountEvidenceReplay(card, visible[index]));
+    });
   } catch (error) {
     elements.emptyState.hidden = false;
     elements.emptyState.textContent = `Не удалось прочитать локальную историю: ${String(error?.message ?? error)}`;
@@ -251,16 +251,16 @@ function download(name, type, content) {
 }
 
 async function exportJson() {
-  const rows = await store.exportRows(filters());
+  const episodes = await store.list({ ...filters(), limit: 5_000 });
   download(
-    `inpuls-signal-lab-v3-${new Date().toISOString().slice(0, 10)}.json`,
+    `inpuls-signal-lab-v3-evidence-${new Date().toISOString().slice(0, 10)}.json`,
     "application/json;charset=utf-8",
     JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       formulaVersion: SIGNAL_LAB_V3_FORMULA_VERSION,
       exportedAt: Date.now(),
       filters: filters(),
-      rows,
+      episodes,
     }, null, 2),
   );
 }
@@ -274,18 +274,37 @@ async function exportCsv() {
   );
 }
 
+function shouldPersist(episode, force = false, now = Date.now()) {
+  if (force) return true;
+  const previous = persistedAt.get(episode.id) ?? 0;
+  return now - previous >= 5_000;
+}
+
 const collector = new SignalLabV3Collector({
-  onEpisodes: async ({ created, updated, expired }) => {
-    for (const episode of [...created, ...updated, ...expired]) {
+  onEpisodes: async ({ created = [], updated = [], expired = [], evidenceUpdated = [] }) => {
+    const all = [...created, ...updated, ...expired, ...evidenceUpdated];
+    for (const episode of all) {
       const reviewState = reviewStates.get(episode.id) ?? episode.reviewState;
       liveEpisodes.set(episode.id, { ...episode, reviewState });
     }
-    const durableRows = [...created, ...expired].map((episode) => ({
+
+    const now = Date.now();
+    const durable = new Map();
+    for (const episode of [...created, ...expired, ...evidenceUpdated]) {
+      durable.set(episode.id, episode);
+    }
+    for (const episode of updated) {
+      if (shouldPersist(episode, false, now)) durable.set(episode.id, episode);
+    }
+    const durableRows = [...durable.values()].map((episode) => ({
       ...episode,
       reviewState: reviewStates.get(episode.id) ?? episode.reviewState,
     }));
-    if (durableRows.length) await store.upsertEpisodes(durableRows);
-    scheduleRender(created.length || expired.length ? 0 : 350);
+    if (durableRows.length) {
+      await store.upsertEpisodes(durableRows);
+      durableRows.forEach((episode) => persistedAt.set(episode.id, now));
+    }
+    scheduleRender(created.length || expired.length ? 0 : 450);
   },
   onStatus: (status) => {
     state.collectorStatus = status;

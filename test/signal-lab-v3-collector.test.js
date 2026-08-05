@@ -34,12 +34,15 @@ test("Signal Lab V3 reports LIVE only after a real miniTicker packet", () => {
   assert.equal(collectorSource.includes("aggTradePackets"), true);
 });
 
-test("Signal Lab V3 owner page exposes truthful live diagnostics", () => {
+test("Signal Lab V3 owner page exposes truthful live diagnostics and evidence replay", () => {
   assert.equal(ownerHtml.includes('name="robots" content="noindex,nofollow,noarchive"'), true);
-  assert.equal(ownerHtml.includes("signal-lab-v3-live-routing-v1"), true);
+  assert.equal(ownerHtml.includes("signal-lab-v3-evidence-replay-v1"), true);
   assert.equal(ownerRuntime.includes('syncing: "синхронизация"'), true);
   assert.equal(ownerRuntime.includes("miniTicker"), true);
   assert.equal(ownerRuntime.includes("aggTradePackets"), true);
   assert.equal(ownerRuntime.includes("bookPackets"), true);
+  assert.equal(ownerRuntime.includes("depthState"), true);
+  assert.equal(ownerHtml.includes('data-field="replay-slider"'), true);
+  assert.equal(ownerHtml.includes("Почему я выбрал гипотезу"), true);
   assert.equal(/api[_-]?key|secret|private[_-]?key/i.test(ownerHtml), false);
 });

@@ -5,15 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex,nofollow,noarchive" />
     <meta name="description" content="Локальная лаборатория кандидатов рыночных паттернов InPuls" />
-    <title>InPuls — Owner Signal Lab V3</title>
+    <title>InPuls — Owner Signal Lab V3.1</title>
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./owner-signal-lab-v3.css?v=signal-lab-v3-live-routing-v1" />
+    <link rel="stylesheet" href="./owner-signal-lab-v3.css?v=signal-lab-v3-evidence-replay-v1" />
+    <link rel="stylesheet" href="./owner-signal-lab-v3-evidence.css?v=signal-lab-v3-evidence-replay-v1" />
   </head>
   <body>
     <header class="topbar">
-      <div class="brand" aria-label="InPuls Owner Signal Lab V3">
+      <div class="brand" aria-label="InPuls Owner Signal Lab V3.1">
         <strong>INPULS</strong>
-        <span>OWNER SIGNAL LAB V3</span>
+        <span>OWNER SIGNAL LAB V3.1</span>
       </div>
       <div class="collector-line">
         <span id="collector-dot" class="status-dot" aria-hidden="true"></span>
@@ -27,12 +28,12 @@
 
     <main>
       <section class="hero">
-        <p class="eyebrow">КАНДИДАТЫ РЫНОЧНЫХ ЭПИЗОДОВ</p>
-        <h1>Сначала собрать — потом доказать паттерн</h1>
+        <p class="eyebrow">КАНДИДАТЫ · ГРАФИК · СТАКАН · ОБЪЯСНЕНИЕ</p>
+        <h1>Сначала собрать эпизод — потом доказать паттерн</h1>
         <p>
-          Лаборатория сохраняет широкие кандидаты по данным Binance: выносы, возвраты,
-          подходы к уровням, каскадные структуры, ускорение потока, ликвидации и
-          аномальную ликвидность. Это материал для ручной разметки, а не команда на сделку.
+          Для каждого нового кандидата лаборатория сохраняет контекст цены до и после события,
+          sampled depth20 по выбранным монетам, поток и формальное объяснение гипотезы.
+          Это материал для обучения и ручной разметки, а не команда на сделку.
         </p>
       </section>
 
@@ -96,7 +97,7 @@
         <header class="section-header">
           <div>
             <p class="eyebrow">ОЧЕРЕДЬ НА ПРОВЕРКУ</p>
-            <h2>Кандидаты и их наблюдаемые факты</h2>
+            <h2>Рыночные эпизоды и пакет доказательств</h2>
           </div>
           <div class="section-actions">
             <span id="visible-count">0 эпизодов</span>
@@ -105,8 +106,8 @@
           </div>
         </header>
         <div id="empty-state" class="empty-state">
-          Сборщик прогревает историю. Первые быстрые кандидаты обычно появляются раньше,
-          а уровни и каскады требуют минутных свечей.
+          Сборщик прогревает историю. Быстрые кандидаты появляются раньше,
+          а уровни, каскады и предыстория стакана требуют времени на прогрев.
         </div>
         <div id="candidate-list" class="candidate-list" aria-live="polite"></div>
       </section>
@@ -124,10 +125,72 @@
             <small data-field="time"></small>
           </div>
           <div class="score-box">
-            <span>Доказательства</span>
+            <span>Наблюдаемые доказательства</span>
             <strong data-field="score"></strong>
           </div>
         </header>
+
+        <section class="evidence-workspace">
+          <div class="chart-panel">
+            <header class="evidence-panel-head">
+              <div>
+                <h3>График эпизода</h3>
+                <p data-field="coverage">Контекст собирается…</p>
+              </div>
+              <div class="timeframe-switch" role="group" aria-label="Таймфрейм графика">
+                <button type="button" data-timeframe="1s">1с</button>
+                <button type="button" data-timeframe="5s" class="is-active">5с</button>
+                <button type="button" data-timeframe="15s">15с</button>
+                <button type="button" data-timeframe="1m">1м</button>
+              </div>
+            </header>
+            <canvas data-field="chart" class="evidence-chart" aria-label="График цены до и после кандидата"></canvas>
+            <div class="replay-controls">
+              <button type="button" class="button secondary compact" data-field="replay-play">▶ Replay</button>
+              <input data-field="replay-slider" type="range" min="0" max="1" step="1" value="0" aria-label="Время Replay" />
+              <strong data-field="replay-time">—</strong>
+            </div>
+            <div data-field="outcomes" class="outcomes"></div>
+          </div>
+
+          <div class="book-panel">
+            <header class="evidence-panel-head">
+              <div>
+                <h3>Стакан в Replay</h3>
+                <p>Top 8 из depth20, снимок раз в секунду</p>
+              </div>
+            </header>
+            <div data-field="book" class="replay-book"></div>
+            <p class="book-warning">
+              Это sampled depth20 для обучения. Он не является полной локальной книгой и не доказывает намерение участника.
+            </p>
+          </div>
+
+          <div class="explanation-panel">
+            <header class="evidence-panel-head">
+              <div>
+                <h3>Почему я выбрал гипотезу</h3>
+                <strong data-field="explanation-pattern" class="explanation-pattern">Гипотеза уточняется</strong>
+              </div>
+            </header>
+            <p data-field="explanation-headline" class="explanation-headline"></p>
+            <div class="explanation-block">
+              <span>Что вижу</span>
+              <ul data-field="explanation-reasons"></ul>
+            </div>
+            <div class="explanation-block">
+              <span>Что подтвердит</span>
+              <ul data-field="explanation-confirmation"></ul>
+            </div>
+            <div class="explanation-block is-danger">
+              <span>Что отменит</span>
+              <ul data-field="explanation-invalidation"></ul>
+            </div>
+            <p data-field="explanation-missing" class="explanation-note"></p>
+            <p data-field="explanation-alternative" class="explanation-note"></p>
+          </div>
+        </section>
+
         <div class="candidate-grid">
           <section>
             <h3>Наблюдаемые факты</h3>
@@ -174,6 +237,6 @@
       </article>
     </template>
 
-    <script type="module" src="./owner-signal-lab-v3.js?v=signal-lab-v3-live-routing-v1"></script>
+    <script type="module" src="./owner-signal-lab-v3.js?v=signal-lab-v3-evidence-replay-v1"></script>
   </body>
 </html>
