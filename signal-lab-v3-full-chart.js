@@ -424,7 +424,12 @@ class EpisodeFullChartController {
     this.chart = null;
     this.shell.hidden = true;
     this.toggle.textContent = "Открыть полноценный график";
-    if (!preserveActive && activeEpisodeId === this.id) activeEpisodeId = null;
+    if (!preserveActive && activeEpisodeId === this.id) {
+      activeEpisodeId = null;
+      globalThis.dispatchEvent?.(new CustomEvent("inpuls:signal-lab-chart-closed", {
+        detail: { episodeId: this.id },
+      }));
+    }
   }
 
   async #load() {
@@ -490,6 +495,10 @@ export function mountEpisodeFullChart(card, episode, { autoOpen = false } = {}) 
     queueMicrotask(() => controller.open());
   }
   return controller;
+}
+
+export function isEpisodeFullChartOpen() {
+  return activeEpisodeId !== null;
 }
 
 export function disposeEpisodeFullCharts({ preserveActive = true } = {}) {

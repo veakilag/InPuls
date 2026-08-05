@@ -6,6 +6,7 @@ import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-
 import { mountEvidenceReplay } from "./signal-lab-v3-replay-ui.js?v=signal-lab-v3-full-chart-review-v1";
 import {
   disposeEpisodeFullCharts,
+  isEpisodeFullChartOpen,
   mountEpisodeFullChart,
   resetEpisodeFullChartState,
 } from "./signal-lab-v3-full-chart.js?v=signal-lab-v3-full-chart-review-v1";
@@ -44,6 +45,7 @@ const state = {
   collectorStatus: null,
   renderTimer: null,
   rendering: false,
+  pendingRender: false,
 };
 
 const hypothesisLabels = Object.freeze({
@@ -83,6 +85,10 @@ function filters() {
 }
 
 function scheduleRender(delay = 180) {
+  if (isEpisodeFullChartOpen()) {
+    state.pendingRender = true;
+    return;
+  }
   clearTimeout(state.renderTimer);
   state.renderTimer = setTimeout(() => render(), delay);
 }
@@ -216,7 +222,12 @@ function renderCard(episode) {
 }
 
 async function render() {
+  if (isEpisodeFullChartOpen()) {
+    state.pendingRender = true;
+    return;
+  }
   if (state.rendering) return;
+  state.pendingRender = false;
   state.rendering = true;
   try {
     renderCollectorStatus();
@@ -336,6 +347,8 @@ async function clearRecords() {
   const previousLabel = elements.clearRecords.textContent;
   try {
     const shouldRestart = state.running;
+    state.pendingRender = false;
+    clearTimeout(state.renderTimer);
     collector.disconnect();
     resetEpisodeFullChartState();
     await store.clearAll();
@@ -389,6 +402,11 @@ elements.collectorToggle.addEventListener("click", () => {
   renderCollectorStatus();
 });
 
+window.addEventListener("inpuls:signal-lab-chart-closed", () => {
+  if (!state.pendingRender) return;
+  state.pendingRender = false;
+  scheduleRender(0);
+});
 window.addEventListener("beforeunload", () => {
   disposeEpisodeFullCharts({ preserveActive: false });
   collector.disconnect();

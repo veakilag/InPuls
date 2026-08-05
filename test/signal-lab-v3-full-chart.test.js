@@ -132,3 +132,14 @@ test("shared InPuls chart engine owns passive pattern annotations", async () => 
   assert.match(source, /annotation\.type === "zone"/);
   assert.match(source, /annotation\.type === "point"/);
 });
+
+
+test("open full chart locks card rerenders until the reviewer closes it", async () => {
+  const chartRuntime = await readFile(new URL("../signal-lab-v3-full-chart.js", import.meta.url), "utf8");
+  const ownerRuntime = await readFile(new URL("../owner-signal-lab-v3.js", import.meta.url), "utf8");
+  assert.match(chartRuntime, /export function isEpisodeFullChartOpen/);
+  assert.match(chartRuntime, /inpuls:signal-lab-chart-closed/);
+  assert.match(ownerRuntime, /if \(isEpisodeFullChartOpen\(\)\) \{/);
+  assert.match(ownerRuntime, /state\.pendingRender = true/);
+  assert.match(ownerRuntime, /window\.addEventListener\("inpuls:signal-lab-chart-closed"/);
+});
