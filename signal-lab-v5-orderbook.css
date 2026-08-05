@@ -1,3 +1,31 @@
+/*
+ * Signal Lab is a document page, while the main InPuls stylesheet is a fixed
+ * single-screen workspace. Restore normal document scrolling after importing
+ * the shared orderbook styles. Internal chart/orderbook panes keep their own
+ * explicit overflow rules below.
+ */
+html {
+  height: auto !important;
+  min-height: 100%;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  scrollbar-gutter: stable;
+}
+
+body {
+  height: auto !important;
+  min-height: 100vh;
+  overflow-x: hidden !important;
+  overflow-y: visible !important;
+  overscroll-behavior-y: auto !important;
+}
+
+body > main {
+  height: auto !important;
+  min-height: calc(100vh - 46px);
+  overflow: visible !important;
+}
+
 .signal-lab-orderbook-workspace {
   min-width: 0;
   min-height: 520px;
