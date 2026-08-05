@@ -2,7 +2,7 @@ import {
   CANDIDATE_LABELS,
   SIGNAL_LAB_V3_FORMULA_VERSION,
 } from "./signal-lab-v3-candidates.js?v=signal-lab-v5-patterns-1";
-import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v6-extreme-runtime";
+import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v6-extreme-history-fallback";
 import { mountEvidenceReplay } from "./signal-lab-v3-replay-ui.js?v=signal-lab-v5-rebuild-1";
 import {
   disposeEpisodeFullCharts,
@@ -127,7 +127,8 @@ function statusText(status) {
     ? `order flow ${status.depthState}/${status.depthTracked ?? 0}`
     : `order flow ${status.depthTracked ?? 0}`;
   const error = status.lastError ? ` · ошибка: ${status.lastError}` : "";
-  return `${connection} · проверки ${status.checks} · эпизоды ${status.createdEpisodes} · экстремумы ${status.activeExtremes ?? 0} активных / ${status.extremeMaps ?? 0} монет · зоны ${status.levelMaps ?? 0}/${status.breakoutEvents ?? 0} · каскады ${status.cascadeSetups ?? 0}/${status.cascadeTriggered ?? 0}/${status.cascadeConfirmed ?? 0} · miniTicker ${status.miniTickerPackets ?? 0} · aggTrade ${status.aggTradePackets ?? 0}/${status.trackedTrades} · book ${status.bookPackets ?? 0} · ${depth} · пакеты ${status.evidencePacks ?? 0} · история ${status.warmupLoaded} · пакет ${age}${error}`;
+  const history = `${status.historyMode ?? "PENDING"} ${status.warmupLoaded ?? 0} (F ${status.warmupFutures ?? 0} / SPOT PROXY ${status.warmupSpotProxy ?? 0} / нет ${status.warmupUnavailable ?? 0})`;
+  return `${connection} · проверки ${status.checks} · эпизоды ${status.createdEpisodes} · экстремумы ${status.activeExtremes ?? 0} активных / ${status.extremeMaps ?? 0} монет · зоны ${status.levelMaps ?? 0}/${status.breakoutEvents ?? 0} · каскады ${status.cascadeSetups ?? 0}/${status.cascadeTriggered ?? 0}/${status.cascadeConfirmed ?? 0} · miniTicker ${status.miniTickerPackets ?? 0} · aggTrade ${status.aggTradePackets ?? 0}/${status.trackedTrades} · book ${status.bookPackets ?? 0} · ${depth} · пакеты ${status.evidencePacks ?? 0} · история ${history} · пакет ${age}${error}`;
 }
 
 function renderCollectorStatus() {

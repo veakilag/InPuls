@@ -191,22 +191,28 @@ export class TimeframeExtremeEngine {
     this.activeExtremeIds = new Set();
     this.eventLog = [];
     this.dataQuality = EXTREME_DATA_QUALITY.LIVE;
+    this.dataSource = "BINANCE_FUTURES_REST";
   }
 
-  ingestCandles(rows, { dataQuality = this.dataQuality, emitSnapshot = true } = {}) {
+  ingestCandles(rows, {
+    dataQuality = this.dataQuality,
+    dataSource = this.dataSource,
+    emitSnapshot = true,
+  } = {}) {
     const normalized = (Array.isArray(rows) ? rows : [])
       .map((row) => normalizeCandle(row, this.intervalMs))
       .filter((row) => row?.closed)
       .sort((left, right) => left.time - right.time);
     for (const row of normalized) {
       if (this.lastCandleTime !== null && row.time <= this.lastCandleTime) continue;
-      this.ingestCandle(row, { dataQuality, emitSnapshot: false });
+      this.ingestCandle(row, { dataQuality, dataSource, emitSnapshot: false });
     }
     return emitSnapshot ? this.snapshot() : null;
   }
 
   ingestCandle(raw, {
     dataQuality = this.dataQuality,
+    dataSource = this.dataSource,
     availableAt = null,
     emitSnapshot = true,
   } = {}) {
@@ -214,6 +220,7 @@ export class TimeframeExtremeEngine {
     if (!candle?.closed) return emitSnapshot ? this.snapshot() : null;
     if (this.lastCandleTime !== null && candle.time <= this.lastCandleTime) return emitSnapshot ? this.snapshot() : null;
     this.dataQuality = normalizeQuality(dataQuality);
+    this.dataSource = String(dataSource || this.dataSource);
     this.barIndex += 1;
     this.lastCandleTime = candle.time;
     this.candles.push(candle);
@@ -346,6 +353,7 @@ export class TimeframeExtremeEngine {
       acceptedAt: null,
       invalidatedAt: null,
       dataQuality: this.dataQuality,
+      dataSource: this.dataSource,
       formulaVersion: SIGNAL_LAB_V4_EXTREME_FORMULA_VERSION,
       active: true,
       lastTestedAt: source.extremeTime,
@@ -448,6 +456,7 @@ export class TimeframeExtremeEngine {
       timeframe: this.timeframe,
       tickSize: this.tickSize,
       dataQuality: this.dataQuality,
+      dataSource: this.dataSource,
       mode: this.mode,
       lastCandleTime: this.lastCandleTime,
       candidates: Object.freeze({

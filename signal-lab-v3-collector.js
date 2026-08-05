@@ -25,6 +25,8 @@ const BINANCE_MARKET_STREAM_ENDPOINT = "wss://fstream.binance.com/market/ws";
 const BINANCE_PUBLIC_STREAM_ENDPOINT = "wss://fstream.binance.com/public/ws";
 const BINANCE_KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
 const BINANCE_EXCHANGE_INFO_ENDPOINT = "https://fapi.binance.com/fapi/v1/exchangeInfo";
+const BINANCE_SPOT_KLINES_ENDPOINT = "https://data-api.binance.vision/api/v3/klines";
+const BINANCE_SPOT_EXCHANGE_INFO_ENDPOINT = "https://data-api.binance.vision/api/v3/exchangeInfo";
 const EXTREME_WARMUP = Object.freeze({
   "1m": 1_500,
   "5m": 1_500,
@@ -185,6 +187,49 @@ function normalizeKline(row) {
     : null;
 }
 
+export function resolveSpotHistoryProxy(symbol, spotTickSizes) {
+  const normalized = normalizeUsdtPerpetualSymbol(symbol);
+  if (!normalized || !(spotTickSizes instanceof Map)) return null;
+  const directTickSize = finite(spotTickSizes.get(normalized));
+  if (directTickSize > 0) {
+    return Object.freeze({
+      futuresSymbol: normalized,
+      spotSymbol: normalized,
+      priceScale: 1,
+      tickSize: directTickSize,
+      source: "BINANCE_SPOT_PROXY",
+    });
+  }
+  const multiplierMatch = normalized.match(/^(\d+)([A-Z][A-Z0-9]*USDT)$/);
+  if (!multiplierMatch) return null;
+  const priceScale = finite(multiplierMatch[1]);
+  const spotSymbol = multiplierMatch[2];
+  const spotTickSize = finite(spotTickSizes.get(spotSymbol));
+  if (!(priceScale > 0) || !(spotTickSize > 0)) return null;
+  return Object.freeze({
+    futuresSymbol: normalized,
+    spotSymbol,
+    priceScale,
+    tickSize: spotTickSize * priceScale,
+    source: "BINANCE_SPOT_PROXY",
+  });
+}
+
+export function scaleProxyCandle(candle, priceScale = 1) {
+  const scale = finite(priceScale);
+  if (!candle || !(scale > 0)) return null;
+  const scaled = {
+    ...candle,
+    open: finite(candle.open) * scale,
+    high: finite(candle.high) * scale,
+    low: finite(candle.low) * scale,
+    close: finite(candle.close) * scale,
+  };
+  return [scaled.open, scaled.high, scaled.low, scaled.close].every((value) => value > 0)
+    ? Object.freeze(scaled)
+    : null;
+}
+
 export function latestCompleteTimeframeCandle(minuteCandles, timeframe, now = Date.now()) {
   const size = TIMEFRAME_MINUTES[timeframe];
   if (!size || !Array.isArray(minuteCandles)) return null;
@@ -262,6 +307,11 @@ export class SignalLabV3Collector {
     this.levels = new SignalLabV4LevelBreakoutRegistry();
     this.cascades = new SignalLabV4CascadeRegistry();
     this.tickSizes = new Map();
+    this.spotTickSizes = new Map();
+    this.spotExchangeInfoPromise = null;
+    this.futuresRestAvailable = null;
+    this.historySourceBySymbol = new Map();
+    this.historyUnavailable = new Set();
     this.exchangeInfoPromise = null;
     this.orderFlow = new SignalLabV4OrderFlowRecorder({ maximumSymbols: 6 });
     this.evidence = new SignalLabV3EvidenceRecorder({
@@ -302,6 +352,10 @@ export class SignalLabV3Collector {
       trackedTrades: 0,
       warmupLoaded: 0,
       warmupLoading: 0,
+      warmupFutures: 0,
+      warmupSpotProxy: 0,
+      warmupUnavailable: 0,
+      historyMode: "PENDING",
       evidencePacks: 0,
       depthTracked: 0,
       depthState: "idle",
@@ -647,6 +701,7 @@ export class SignalLabV3Collector {
           this.extremes.hydrate(metrics.symbol, timeframe, [candle], {
             tickSize,
             dataQuality,
+            dataSource: this.historySourceBySymbol.get(metrics.symbol) ?? "BINANCE_FUTURES_LIVE",
             emitSnapshot: false,
           });
           this.lastClosedCandleAt.set(key, candle.time);
@@ -820,10 +875,38 @@ export class SignalLabV3Collector {
     for (const symbol of pending) this.#warmupSymbol(symbol);
   }
 
+  async #ensureSpotExchangeInfo() {
+    if (this.spotTickSizes.size) return this.spotTickSizes;
+    if (this.spotExchangeInfoPromise) return this.spotExchangeInfoPromise;
+    this.spotExchangeInfoPromise = (async () => {
+      const response = await fetch(BINANCE_SPOT_EXCHANGE_INFO_ENDPOINT, { cache: "no-store" });
+      if (!response.ok) throw new Error(`Spot market-data exchangeInfo HTTP ${response.status}`);
+      const payload = await response.json();
+      for (const row of Array.isArray(payload?.symbols) ? payload.symbols : []) {
+        if (row?.quoteAsset !== "USDT" || row?.status !== "TRADING") continue;
+        const symbol = String(row?.symbol ?? "").toUpperCase();
+        const priceFilter = (Array.isArray(row?.filters) ? row.filters : [])
+          .find((filter) => filter?.filterType === "PRICE_FILTER");
+        const tickSize = finite(priceFilter?.tickSize);
+        if (!/^[A-Z0-9]{1,20}USDT$/.test(symbol) || !(tickSize > 0)) continue;
+        this.spotTickSizes.set(symbol, tickSize);
+      }
+      if (!this.spotTickSizes.size) throw new Error("Spot market-data exchangeInfo не содержит USDT-символов");
+      return this.spotTickSizes;
+    })();
+    try {
+      return await this.spotExchangeInfoPromise;
+    } catch (error) {
+      this.spotExchangeInfoPromise = null;
+      throw error;
+    }
+  }
+
   async #loadExchangeInfo() {
+    let futuresError = null;
     try {
       const response = await fetch(BINANCE_EXCHANGE_INFO_ENDPOINT, { cache: "no-store" });
-      if (!response.ok) throw new Error(`Exchange info HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`Futures exchangeInfo HTTP ${response.status}`);
       const payload = await response.json();
       for (const row of Array.isArray(payload?.symbols) ? payload.symbols : []) {
         const symbol = normalizeUsdtPerpetualSymbol(row?.symbol);
@@ -835,10 +918,64 @@ export class SignalLabV3Collector {
         this.extremes.setTickSize(symbol, tickSize);
         this.levels.setTickSize(symbol, tickSize);
       }
-      this.#publish({ tickSizes: this.tickSizes.size, lastError: null });
+      this.futuresRestAvailable = true;
+      this.#publish({
+        tickSizes: this.tickSizes.size,
+        historyMode: "FUTURES",
+        lastError: null,
+      });
+      return;
     } catch (error) {
-      this.#publish({ lastError: `tickSize: ${String(error?.message ?? error).slice(0, 160)}` });
+      this.futuresRestAvailable = false;
+      futuresError = String(error?.message ?? error).slice(0, 140);
     }
+
+    try {
+      await this.#ensureSpotExchangeInfo();
+      this.#publish({
+        historyMode: "SPOT_PROXY",
+        lastError: null,
+      });
+    } catch (spotError) {
+      this.#publish({
+        historyMode: "UNAVAILABLE",
+        lastError: `история недоступна: futures ${futuresError}; spot ${String(spotError?.message ?? spotError).slice(0, 120)}`,
+      });
+    }
+  }
+
+  async #fetchWarmupSet(endpoint, sourceSymbol, priceScale = 1, maximumLimit = 1_500) {
+    const byTimeframe = new Map();
+    for (const timeframe of SIGNAL_LAB_V4_TIMEFRAMES) {
+      const url = new URL(endpoint);
+      url.searchParams.set("symbol", sourceSymbol);
+      url.searchParams.set("interval", timeframe);
+      url.searchParams.set("limit", String(Math.min(maximumLimit, EXTREME_WARMUP[timeframe] ?? 500)));
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) throw new Error(`${timeframe} klines HTTP ${response.status}`);
+      const rows = await response.json();
+      const candles = (Array.isArray(rows) ? rows : [])
+        .map(normalizeKline)
+        .filter(Boolean)
+        .map((candle) => scaleProxyCandle(candle, priceScale))
+        .filter(Boolean);
+      if (!candles.length) throw new Error(`${timeframe} klines пусты`);
+      byTimeframe.set(timeframe, candles);
+    }
+    return byTimeframe;
+  }
+
+  #historyCounts() {
+    const sources = [...this.historySourceBySymbol.values()];
+    return {
+      warmupLoaded: this.historyLoaded.size,
+      warmupFutures: sources.filter((source) => source === "BINANCE_FUTURES_REST").length,
+      warmupSpotProxy: sources.filter((source) => source === "BINANCE_SPOT_PROXY").length,
+      warmupUnavailable: this.historyUnavailable.size,
+      historyMode: sources.includes("BINANCE_SPOT_PROXY")
+        ? (sources.includes("BINANCE_FUTURES_REST") ? "MIXED" : "SPOT_PROXY")
+        : (sources.includes("BINANCE_FUTURES_REST") ? "FUTURES" : this.statusState.historyMode),
+    };
   }
 
   async #warmupSymbol(symbol) {
@@ -846,20 +983,41 @@ export class SignalLabV3Collector {
     this.#publish({ warmupLoading: this.historyLoading.size });
     try {
       await this.exchangeInfoPromise;
-      const tickSize = this.tickSizes.get(symbol);
-      if (!(tickSize > 0)) throw new Error(`tickSize отсутствует для ${symbol}`);
+      let tickSize = this.tickSizes.get(symbol) ?? null;
+      let historySource = "BINANCE_FUTURES_REST";
+      let byTimeframe = null;
+
+      if (this.futuresRestAvailable && tickSize > 0) {
+        try {
+          byTimeframe = await this.#fetchWarmupSet(BINANCE_KLINES_ENDPOINT, symbol, 1, 1_500);
+        } catch {
+          byTimeframe = null;
+        }
+      }
+
+      if (!byTimeframe) {
+        await this.#ensureSpotExchangeInfo();
+        const proxy = resolveSpotHistoryProxy(symbol, this.spotTickSizes);
+        if (!proxy) throw new Error(`нет SPOT PROXY для ${symbol}`);
+        tickSize = proxy.tickSize;
+        historySource = proxy.source;
+        byTimeframe = await this.#fetchWarmupSet(
+          BINANCE_SPOT_KLINES_ENDPOINT,
+          proxy.spotSymbol,
+          proxy.priceScale,
+          1_000,
+        );
+      }
+
+      this.tickSizes.set(symbol, tickSize);
+      this.extremes.setTickSize(symbol, tickSize);
+      this.levels.setTickSize(symbol, tickSize);
       for (const timeframe of SIGNAL_LAB_V4_TIMEFRAMES) {
-        const url = new URL(BINANCE_KLINES_ENDPOINT);
-        url.searchParams.set("symbol", symbol);
-        url.searchParams.set("interval", timeframe);
-        url.searchParams.set("limit", String(EXTREME_WARMUP[timeframe] ?? 500));
-        const response = await fetch(url, { cache: "no-store" });
-        if (!response.ok) throw new Error(`${timeframe} klines HTTP ${response.status}`);
-        const rows = await response.json();
-        const candles = (Array.isArray(rows) ? rows : []).map(normalizeKline).filter(Boolean);
+        const candles = byTimeframe.get(timeframe) ?? [];
         this.extremes.hydrate(symbol, timeframe, candles, {
           tickSize,
           dataQuality: "RECOVERED",
+          dataSource: historySource,
           emitSnapshot: false,
         });
         const lastClosed = [...candles].reverse().find((candle) => candle.closed);
@@ -869,16 +1027,29 @@ export class SignalLabV3Collector {
           if (lastClosed) this.lastTimeframeAggregationAt.set(symbol, lastClosed.time);
         }
       }
+      const futuresPrice = finite(this.symbols.get(symbol)?.price);
+      if (futuresPrice > 0) {
+        this.extremes.observePrice(symbol, futuresPrice, Date.now(), {
+          dataQuality: "LIVE",
+          emitSnapshot: false,
+        });
+      }
       this.historyLoaded.add(symbol);
+      this.historyUnavailable.delete(symbol);
+      this.historySourceBySymbol.set(symbol, historySource);
       this.historyRetryAt.delete(symbol);
       this.#publish({
-        warmupLoaded: this.historyLoaded.size,
+        ...this.#historyCounts(),
+        tickSizes: this.tickSizes.size,
         lastError: null,
       });
     } catch (error) {
-      // Do not hammer Binance every second after 429/CORS/network failure.
+      this.historyUnavailable.add(symbol);
       this.historyRetryAt.set(symbol, Date.now() + 60_000);
-      this.#publish({ lastError: String(error?.message ?? error).slice(0, 180) });
+      this.#publish({
+        ...this.#historyCounts(),
+        lastError: String(error?.message ?? error).slice(0, 180),
+      });
     } finally {
       this.historyLoading.delete(symbol);
       this.#publish({ warmupLoading: this.historyLoading.size });
