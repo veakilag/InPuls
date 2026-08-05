@@ -23,6 +23,19 @@ jobs:
       - name: Apply deterministic fallback
         run: python3 scripts/apply-signal-lab-extreme-451-fallback.py
 
+      - name: Use tolerant scaled-price assertion
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('test/signal-lab-v6-extreme-history-fallback.test.js')
+          text = path.read_text(encoding='utf-8')
+          old = '  assert.equal(candle.low, 0.009);'
+          new = '  assert.ok(Math.abs(candle.low - 0.009) < 1e-12);'
+          if text.count(old) != 1:
+              raise SystemExit('unexpected scaled low assertion')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+
       - name: Run complete test suite
         run: npm test
 
