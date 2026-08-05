@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self';base-uri 'none';object-src 'none';form-action 'self';frame-src 'self';script-src 'none';style-src 'unsafe-inline';img-src 'self' data:;font-src 'self';connect-src 'none'" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <meta name="inpuls-build" content="owner-signal-bot-one-tab-v1" />
+    <title>InPuls — Owner Signal Bot</title>
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #0b0d10; }
+      .paper-frame { width: 100%; height: 100%; border: 0; display: block; background: #0b0d10; }
+      .collector-frame { position: fixed; left: -10000px; top: -10000px; width: 2px; height: 2px; border: 0; opacity: 0; pointer-events: none; }
+      noscript { color: #fff; font: 16px system-ui, sans-serif; padding: 24px; display: block; }
+    </style>
+  </head>
+  <body>
+    <iframe class="collector-frame" src="./?owner-paper-collector=1" title="Фоновый сборщик InPuls" aria-hidden="true" tabindex="-1"></iframe>
+    <iframe class="paper-frame" src="./owner-signal-paper.html" title="Signal Lab Forward Paper"></iframe>
+    <noscript>Для работы Signal Lab Forward Paper нужно разрешить JavaScript.</noscript>
+  </body>
+</html>
