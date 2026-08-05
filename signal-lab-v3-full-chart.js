@@ -255,6 +255,53 @@ function addExtremeMapAnnotations(target, extremeMap, eventAt, eventPrice) {
   }
 }
 
+function addLevelMapAnnotations(target, levelMap, eventAt, eventPrice) {
+  const zones = (Array.isArray(levelMap?.activeZones) ? levelMap.activeZones : [])
+    .map((zone) => {
+      const lower = finite(zone?.lowerPrice);
+      const upper = finite(zone?.upperPrice);
+      const boundary = zone?.side === "HIGH" ? upper : lower;
+      const distance = eventPrice > 0 && boundary > 0 ? Math.abs(boundary - eventPrice) / eventPrice * 100 : 0;
+      return { ...zone, lower, upper, boundary, distance };
+    })
+    .filter((zone) => zone.lower > 0 && zone.upper > 0 && zone.distance <= 8)
+    .sort((left, right) => left.distance - right.distance);
+  for (const zone of zones.slice(0, 20)) {
+    const high = zone.side === "HIGH";
+    const timeframes = (Array.isArray(zone.timeframes) ? zone.timeframes : []).join("/");
+    const compression = zone?.setupFeatures?.compressionType;
+    const label = `${high ? "H" : "L"} зона ×${zone.touchCount ?? 1}${timeframes ? ` · ${timeframes}` : ""}`;
+    target.push({
+      type: "zone",
+      startAt: finite(zone.firstFormedAt) ?? eventAt - 60_000,
+      endAt: eventAt + 60_000,
+      low: zone.lower,
+      high: zone.upper,
+      label: compression && compression !== "NO_COMPRESSION" ? `${label} · ${compression}` : label,
+      tone: high ? "danger" : "success",
+    });
+  }
+  for (const event of Array.isArray(levelMap?.eventHistory) ? levelMap.eventHistory.slice(-20) : []) {
+    const triggeredAt = finite(event?.triggeredAt);
+    if (triggeredAt === null) continue;
+    target.push({
+      type: "event",
+      time: triggeredAt,
+      label: `ПРОХОД ${event.direction === "UP" ? "ВВЕРХ" : "ВНИЗ"}`,
+      tone: "warning",
+    });
+    if (finite(event?.acceptedAt) !== null) {
+      target.push({ type: "event", time: event.acceptedAt, label: "ПРИНЯТИЕ", tone: "success" });
+    }
+    if (finite(event?.reclaimedAt) !== null) {
+      target.push({ type: "event", time: event.reclaimedAt, label: "ПРОКОЛ И ВОЗВРАТ", tone: "danger" });
+    }
+    if (finite(event?.retestedAt) !== null) {
+      target.push({ type: "event", time: event.retestedAt, label: "РЕТЕСТ", tone: "blue" });
+    }
+  }
+}
+
 export function buildPatternAnnotations(episode) {
   const latest = episode?.latest ?? {};
   const evidence = latest?.evidence ?? {};
@@ -277,6 +324,7 @@ export function buildPatternAnnotations(episode) {
   }
 
   addExtremeMapAnnotations(annotations, pack?.extremeMap, eventAt, eventPrice);
+  addLevelMapAnnotations(annotations, pack?.levelMapLatest ?? pack?.levelMap, eventAt, eventPrice);
 
   if (episode?.candidateType === "down_reversal_attempt" || episode?.candidateType === "up_reversal_attempt") {
     const extremeAt = finite(evidence?.extremeAt);

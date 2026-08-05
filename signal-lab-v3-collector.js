@@ -11,11 +11,13 @@ import {
   DEFAULT_CANDIDATE_SETTINGS,
   SIGNAL_LAB_V3_FORMULA_VERSION,
 } from "./signal-lab-v3-candidates.js?v=signal-lab-v3-four-patterns-v1";
-import { SignalLabV3EvidenceRecorder } from "./signal-lab-v3-evidence.js?v=signal-lab-v4-stage1";
+import { SignalLabV3EvidenceRecorder } from "./signal-lab-v3-evidence.js?v=signal-lab-v4-stage2";
 import {
   SIGNAL_LAB_V4_TIMEFRAMES,
   SignalLabV4ExtremeRegistry,
+  atrFromClosedCandles,
 } from "./signal-lab-v4-extremes.js?v=signal-lab-v4-stage1";
+import { SignalLabV4LevelBreakoutRegistry } from "./signal-lab-v4-levels-breakouts.js?v=signal-lab-v4-stage2";
 import { SignalLabV4OrderFlowRecorder } from "./signal-lab-v4-orderflow-recorder.js?v=signal-lab-v4-stage1";
 
 const BINANCE_MARKET_STREAM_ENDPOINT = "wss://fstream.binance.com/market/ws";
@@ -200,6 +202,7 @@ export class SignalLabV3Collector {
     this.bookTracker = new ExpertBookCandidateTracker(this.settings);
     this.episodes = new CandidateEpisodeTracker(this.settings);
     this.extremes = new SignalLabV4ExtremeRegistry();
+    this.levels = new SignalLabV4LevelBreakoutRegistry();
     this.tickSizes = new Map();
     this.exchangeInfoPromise = null;
     this.orderFlow = new SignalLabV4OrderFlowRecorder({ maximumSymbols: 6 });
@@ -236,6 +239,8 @@ export class SignalLabV3Collector {
       depthTracked: 0,
       depthState: "idle",
       extremeMaps: 0,
+      levelMaps: 0,
+      breakoutEvents: 0,
       tickSizes: 0,
       lastError: null,
     };
@@ -488,10 +493,18 @@ export class SignalLabV3Collector {
     }
     if (data.e === "aggTrade" && filterUsdtPerpetualTicker(data)) {
       const receivedAt = Date.now();
+      const eventAt = finite(data.T) ?? finite(data.E) ?? receivedAt;
+      const dataQuality = receivedAt - (finite(data.E) ?? receivedAt) <= 5_000 ? "LIVE" : "STALE";
+      const tickSize = this.tickSizes.get(data.s) ?? null;
       this.#symbol(data.s)?.updateTrade(data);
-      this.extremes.ingestTrade(data.s, finite(data.p), finite(data.T) ?? finite(data.E) ?? receivedAt, {
-        dataQuality: receivedAt - (finite(data.E) ?? receivedAt) <= 5_000 ? "LIVE" : "STALE",
-      });
+      if (tickSize) {
+        this.levels.ingestPrice(data.s, finite(data.p), eventAt, {
+          tickSize,
+          dataQuality,
+          source: "AGG_TRADE",
+        });
+      }
+      this.extremes.ingestTrade(data.s, finite(data.p), eventAt, { dataQuality });
       this.orderFlow.ingestTrade(data, receivedAt);
       return;
     }
@@ -506,16 +519,39 @@ export class SignalLabV3Collector {
       .map((state) => {
         const metrics = state.metrics(DEFAULT_SETTINGS, now);
         const tickSize = this.tickSizes.get(metrics.symbol) ?? null;
-        if (tickSize && Array.isArray(metrics.minuteCandles) && metrics.minuteCandles.length > 1) {
-          this.extremes.hydrate(metrics.symbol, "1m", metrics.minuteCandles.slice(0, -1), {
+        const dataQuality = now - (finite(metrics.updatedAt) ?? 0) <= 5_000 ? "LIVE" : "STALE";
+        const closedMinuteCandles = Array.isArray(metrics.minuteCandles)
+          ? metrics.minuteCandles.slice(0, -1)
+          : [];
+        if (tickSize && closedMinuteCandles.length) {
+          this.extremes.hydrate(metrics.symbol, "1m", closedMinuteCandles, {
             tickSize,
-            dataQuality: now - (finite(metrics.updatedAt) ?? 0) <= 5_000 ? "LIVE" : "STALE",
+            dataQuality,
           });
         }
+        const extremeMap = this.extremes.snapshot(metrics.symbol);
+        const atr1m = atrFromClosedCandles(closedMinuteCandles);
+        if (tickSize && closedMinuteCandles.length) {
+          this.levels.ingestCandle(metrics.symbol, closedMinuteCandles.at(-1), {
+            tickSize,
+            atr: atr1m,
+            dataQuality,
+          });
+        }
+        const levelMap = tickSize
+          ? this.levels.sync(metrics.symbol, extremeMap, {
+            tickSize,
+            atr: atr1m,
+            currentPrice: metrics.price,
+            at: now,
+            dataQuality,
+          })
+          : null;
         return {
           ...metrics,
           tickSize,
-          extremeMap: this.extremes.snapshot(metrics.symbol),
+          extremeMap,
+          levelMap,
           bookCandidate: this.bookTracker.candidateFor(metrics.symbol, now),
         };
       });
@@ -539,6 +575,8 @@ export class SignalLabV3Collector {
       depthTracked: evidenceStatus.depth.trackedSymbols ?? 0,
       depthState: evidenceStatus.depth.connection ?? "idle",
       extremeMaps: metrics.filter((row) => row.extremeMap && Object.keys(row.extremeMap.timeframes ?? {}).length).length,
+      levelMaps: metrics.filter((row) => (row.levelMap?.activeZones?.length ?? 0) > 0).length,
+      breakoutEvents: metrics.reduce((sum, row) => sum + (row.levelMap?.activeEvents?.length ?? 0), 0),
       tickSizes: this.tickSizes.size,
     });
     this.#queueWarmup(metrics);
@@ -562,7 +600,9 @@ export class SignalLabV3Collector {
     const unsubscribe = [...this.trackedAggTrades].filter((symbol) => !next.has(symbol));
     this.trackedAggTrades = next;
     const setupRanked = [...ranked].sort((left, right) => (
-      this.extremes.watchScore(right.symbol, right.price)
+      this.levels.watchScore(right.symbol, right.price)
+      - this.levels.watchScore(left.symbol, left.price)
+      || this.extremes.watchScore(right.symbol, right.price)
       - this.extremes.watchScore(left.symbol, left.price)
       || candidateWatchScore(right, this.settings) - candidateWatchScore(left, this.settings)
     ));
@@ -607,6 +647,7 @@ export class SignalLabV3Collector {
         if (!symbol || !(tickSize > 0)) continue;
         this.tickSizes.set(symbol, tickSize);
         this.extremes.setTickSize(symbol, tickSize);
+        this.levels.setTickSize(symbol, tickSize);
       }
       this.#publish({ tickSizes: this.tickSizes.size, lastError: null });
     } catch (error) {

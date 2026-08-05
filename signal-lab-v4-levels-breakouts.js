@@ -159,6 +159,7 @@ export class LevelZoneEngine {
     this.lastPriceTicks = null;
     this.lastAt = null;
     this.barIndex = -1;
+    this.lastCandleAt = null;
     this.dataQuality = "LIVE";
     this.atr = null;
   }
@@ -331,6 +332,8 @@ export class LevelZoneEngine {
     if (![high, low, close, time].every((value) => value !== null) || !(high > 0) || !(low > 0) || !(close > 0)) {
       return this.snapshot();
     }
+    if (this.lastCandleAt !== null && time <= this.lastCandleAt) return this.snapshot();
+    this.lastCandleAt = time;
     this.barIndex += 1;
     this.atr = finite(atr) ?? this.atr;
     this.dataQuality = normalizeQuality(dataQuality);
