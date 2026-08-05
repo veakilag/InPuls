@@ -61,7 +61,8 @@ test("close high extremes merge into one zone and preserve source points", () =>
   assert.equal(zone.upperPrice, 100.03);
   assert.deepEqual(zone.extremeIds, ["h1", "h2"]);
   assert.deepEqual([...zone.timeframes].sort(), ["1m", "5m"]);
-  assert.equal(zone.touchCount, 2);
+  assert.equal(zone.touchCount, 1);
+  assert.equal(zone.setupFeatures.multiTimeframeCount, 2);
 });
 
 test("adjacent contacts count as one attack until real rearm", () => {

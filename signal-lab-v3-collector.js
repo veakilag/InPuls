@@ -17,7 +17,7 @@ import {
   SignalLabV4ExtremeRegistry,
   atrFromClosedCandles,
 } from "./signal-lab-v4-extremes.js?v=signal-lab-v4-performance-1";
-import { SignalLabV4LevelBreakoutRegistry } from "./signal-lab-v4-levels-breakouts.js?v=signal-lab-v4-stage2";
+import { SignalLabV4LevelBreakoutRegistry } from "./signal-lab-v4-levels-breakouts.js?v=signal-lab-v6-canonical-levels";
 import { SignalLabV4CascadeRegistry } from "./signal-lab-v4-cascades.js?v=signal-lab-v4-stage3";
 import { SignalLabV4OrderFlowRecorder } from "./signal-lab-v4-orderflow-recorder.js?v=signal-lab-v5-orderflow-v2";
 

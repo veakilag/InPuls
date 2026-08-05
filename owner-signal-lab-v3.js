@@ -9,7 +9,7 @@ import {
   isEpisodeFullChartOpen,
   mountEpisodeFullChart,
   resetEpisodeFullChartState,
-} from "./signal-lab-v3-full-chart.js?v=signal-lab-v5-candles-1";
+} from "./signal-lab-v3-full-chart.js?v=signal-lab-v6-canonical-annotations";
 import {
   buildCascadeCalibrationSample,
   CASCADE_CALIBRATION_CHECKS,

@@ -1,4 +1,4 @@
-export const SIGNAL_LAB_V4_LEVEL_FORMULA_VERSION = "signal-lab-v4-levels-breakouts-v1-2026-08";
+export const SIGNAL_LAB_V4_LEVEL_FORMULA_VERSION = "signal-lab-v6-canonical-levels-v2-2026-08";
 
 export const LEVEL_ZONE_STATES = Object.freeze({
   ACTIVE: "ACTIVE",
@@ -285,9 +285,18 @@ export class LevelZoneEngine {
     zone.lowerTicks = zone.sourcePoints.reduce((best, row) => row.priceTicks < best ? row.priceTicks : best, zone.sourcePoints[0].priceTicks);
     zone.upperTicks = zone.sourcePoints.reduce((best, row) => row.priceTicks > best ? row.priceTicks : best, zone.sourcePoints[0].priceTicks);
     zone.referenceTicks = side === "HIGH" ? zone.upperTicks : zone.lowerTicks;
-    const sourceTouches = Math.max(zone.sourcePoints.length, ...zone.sourcePoints.map((row) => row.touchCount ?? 1));
+    // Different timeframes may confirm the same physical swing. They strengthen the zone,
+    // but must never be counted as independent price attacks. The finest available
+    // timeframe owns the source timestamp; real subsequent attacks are added only
+    // by #observeContactAndRearm after the level has rearmed.
+    const sourceTouches = Math.max(1, ...zone.sourcePoints.map((row) => row.touchCount ?? 1));
     zone.touchCount = Math.max(zone.touchCount, sourceTouches);
-    const sourceAttackTimes = zone.sourcePoints.map((row) => row.extremeTime).filter(Number.isFinite);
+    const timeframeRank = { "1m": 1, "5m": 2, "15m": 3, "1h": 4, "4h": 5, "1d": 6 };
+    const finestRank = Math.min(...zone.sourcePoints.map((row) => timeframeRank[row.timeframe] ?? 99));
+    const sourceAttackTimes = zone.sourcePoints
+      .filter((row) => (timeframeRank[row.timeframe] ?? 99) === finestRank)
+      .map((row) => row.extremeTime)
+      .filter(Number.isFinite);
     zone.attackTimes = [...new Set([...zone.attackTimes, ...sourceAttackTimes])].sort((a, b) => a - b);
     zone.lastTestedAt = Math.max(zone.lastTestedAt ?? 0, ...sourceAttackTimes, 0);
     zone.active = true;
@@ -558,7 +567,9 @@ export class LevelZoneEngine {
     zone.setupFeatures = {
       touchCount: zone.touchCount,
       sourceExtremeCount: zone.extremeIds.length,
+      physicalAttackCount: zone.touchCount,
       multiTimeframeCount: zone.timeframes.length,
+      timeframeConfirmationStrength: Math.max(1, zone.timeframes.length),
       nearLevelShare,
       timeNearLevelMs,
       observations: observations.length,

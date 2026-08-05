@@ -266,7 +266,7 @@ function addLevelMapAnnotations(target, levelMap, eventAt, eventPrice) {
     })
     .filter((zone) => zone.lower > 0 && zone.upper > 0 && zone.distance <= 8)
     .sort((left, right) => left.distance - right.distance);
-  for (const zone of zones.slice(0, 20)) {
+  for (const zone of zones.slice(0, 8)) {
     const high = zone.side === "HIGH";
     const timeframes = (Array.isArray(zone.timeframes) ? zone.timeframes : []).join("/");
     const compression = zone?.setupFeatures?.compressionType;
@@ -281,7 +281,7 @@ function addLevelMapAnnotations(target, levelMap, eventAt, eventPrice) {
       tone: high ? "danger" : "success",
     });
   }
-  for (const event of Array.isArray(levelMap?.eventHistory) ? levelMap.eventHistory.slice(-20) : []) {
+  for (const event of Array.isArray(levelMap?.eventHistory) ? levelMap.eventHistory.slice(-8) : []) {
     const triggeredAt = finite(event?.triggeredAt);
     if (triggeredAt === null) continue;
     target.push({
@@ -314,7 +314,7 @@ function addCascadeMapAnnotations(target, cascadeMap, eventAt, eventPrice) {
     }))
     .filter((event) => event.distance <= 8)
     .sort((left, right) => right.setupDetectedAt - left.setupDetectedAt || left.distance - right.distance)
-    .slice(0, 4);
+    .slice(0, 1);
   for (const event of ranked) {
     const endAt = finite(event.completedAt) ?? finite(event.failedAt) ?? eventAt + 60_000;
     event.levelPrices.forEach((price, index) => {
@@ -361,8 +361,14 @@ export function buildPatternAnnotations(episode) {
     addCascadeAnnotations(annotations, evidence, eventAt);
   }
 
-  addExtremeMapAnnotations(annotations, pack?.extremeMap, eventAt, eventPrice);
-  addLevelMapAnnotations(annotations, pack?.levelMapLatest ?? pack?.levelMap, eventAt, eventPrice);
+  const canonicalLevelMap = pack?.levelMapLatest ?? pack?.levelMap;
+  // Raw per-timeframe extrema remain in Evidence Pack for diagnostics. On the normal
+  // chart they are hidden once canonical zones are available, otherwise every physical
+  // swing is drawn several times (1m/5m/15m/...).
+  if (!(canonicalLevelMap?.activeZones?.length > 0)) {
+    addExtremeMapAnnotations(annotations, pack?.extremeMap, eventAt, eventPrice);
+  }
+  addLevelMapAnnotations(annotations, canonicalLevelMap, eventAt, eventPrice);
   addCascadeMapAnnotations(annotations, pack?.cascadeMapLatest ?? pack?.cascadeMap, eventAt, eventPrice);
 
   if (episode?.candidateType === "down_reversal_attempt" || episode?.candidateType === "up_reversal_attempt") {
