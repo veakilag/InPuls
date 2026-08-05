@@ -296,8 +296,22 @@ async function syncServerClock(force = false) {
   return serverClockSyncPromise;
 }
 
-function depthTransports(symbol, mode) {
+function normalizeMarket(market) {
+  return market === "spot" ? "spot" : "futures";
+}
+
+function feedKey(market, symbol) {
+  return `${normalizeMarket(market)}:${String(symbol).toUpperCase()}`;
+}
+
+function depthTransports(symbol, mode, market = "futures") {
   const stream = `${symbol.toLowerCase()}@${mode === "partial" ? "depth20" : "depth"}@100ms`;
+  if (normalizeMarket(market) === "spot") {
+    return [
+      { name: "spot · combined", url: `wss://stream.binance.com:9443/stream?streams=${stream}`, subscribe: false, stream },
+      { name: "spot · raw", url: `wss://stream.binance.com:9443/ws/${stream}`, subscribe: false, stream },
+    ];
+  }
   return [
     { name: "public · combined", url: `wss://fstream.binance.com/public/stream?streams=${stream}`, subscribe: false, stream },
     { name: "public · raw", url: `wss://fstream.binance.com/public/ws/${stream}`, subscribe: false, stream },
@@ -311,8 +325,14 @@ function tradeStreams(symbol) {
   return [`${name}@aggTrade`, `${name}@trade`];
 }
 
-function tradeTransports(streams) {
+function tradeTransports(streams, market = "futures") {
   const joined = streams.join("/");
+  if (normalizeMarket(market) === "spot") {
+    return [
+      { name: "spot · combined", url: `wss://stream.binance.com:9443/stream?streams=${joined}`, subscribe: false, streams },
+      { name: "spot · raw", url: `wss://stream.binance.com:9443/ws/${joined}`, subscribe: false, streams },
+    ];
+  }
   return [
     { name: "market · combined", url: `wss://fstream.binance.com/market/stream?streams=${joined}`, subscribe: false, streams },
     { name: "market · raw", url: `wss://fstream.binance.com/market/ws/${joined}`, subscribe: false, streams },
@@ -326,8 +346,10 @@ function trimSide(levels, side, limit) {
 }
 
 class SymbolFeed {
-  constructor(symbol) {
+  constructor(symbol, market = "futures") {
     this.symbol = symbol;
+    this.market = normalizeMarket(market);
+    this.key = feedKey(this.market, symbol);
     this.subscribers = 0;
     this.closeTimer = 0;
     this.socket = null;
@@ -524,7 +546,7 @@ class SymbolFeed {
       this.closeTimer = 0;
       if (this.subscribers === 0) {
         this.stop();
-        feeds.delete(this.symbol);
+        feeds.delete(this.key);
       }
     }, IDLE_CLOSE_MS);
   }
@@ -558,6 +580,7 @@ class SymbolFeed {
       subscribers: this.subscribers,
     });
     post("tape", this.symbol, {
+      market: this.market,
       replace: true,
       liveOnly: true,
       trades: [],
@@ -624,7 +647,7 @@ class SymbolFeed {
     const key = `${state}:${text}`;
     if (key === this.statusKey) return;
     this.statusKey = key;
-    post("status", this.symbol, { state, text });
+    post("status", this.symbol, { market: this.market, state, text });
   }
 
   latencyText() {
@@ -707,6 +730,7 @@ class SymbolFeed {
 
       if (!this.backgroundPaused && socketOpen && depthFresh) {
         post("tape", this.symbol, {
+          market: this.market,
           replace: true,
           liveOnly: true,
           trades: [],
@@ -756,6 +780,7 @@ class SymbolFeed {
     );
     const generation = this.generation;
     post("tape", this.symbol, {
+      market: this.market,
       replace: true,
       liveOnly: true,
       trades: [],
@@ -953,6 +978,7 @@ class SymbolFeed {
       now,
     });
     post("data", this.symbol, {
+      market: this.market,
       data: {
         symbol: this.symbol,
         bids: view.bids,
@@ -1108,7 +1134,10 @@ class SymbolFeed {
   async loadSnapshot(generation) {
     if (generation !== this.generation || this.mode !== "deep" || this.snapshotLoading) return;
     this.snapshotLoading = true;
-    const hosts = ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"];
+    const spot = this.market === "spot";
+    const hosts = spot
+      ? ["api.binance.com", "api1.binance.com", "api2.binance.com"]
+      : ["fapi.binance.com", "fapi1.binance.com", "fapi2.binance.com"];
     let snapshot = null;
     let winner = null;
     diagnose(this.symbol, "depth.snapshot", {
@@ -1121,7 +1150,7 @@ class SymbolFeed {
         hosts,
         async (host, { signal }) => {
           const data = await fetchJson(
-            `https://${host}/fapi/v1/depth?symbol=${encodeURIComponent(this.symbol)}&limit=1000`,
+            `https://${host}/${spot ? "api/v3" : "fapi/v1"}/depth?symbol=${encodeURIComponent(this.symbol)}&limit=1000`,
             SNAPSHOT_TIMEOUT_MS,
             signal,
           );
@@ -1223,7 +1252,7 @@ class SymbolFeed {
     if (generation !== this.generation || this.subscribers <= 0) return;
     clearTimeout(this.reconnectTimer);
     clearTimeout(this.firstDepthTimer);
-    const transports = depthTransports(this.symbol, this.mode);
+    const transports = depthTransports(this.symbol, this.mode, this.market);
     const transport = transports[this.transportIndex % transports.length];
     const transportIndex = this.transportIndex % transports.length;
     diagnose(this.symbol, "depth.ws.create", {
@@ -1406,7 +1435,7 @@ class SymbolFeed {
     this.tradeFirstMessageTimer = 0;
 
     const streams = tradeStreams(this.symbol);
-    const transports = tradeTransports(streams);
+    const transports = tradeTransports(streams, this.market);
     const transport = transports[this.tradeTransportIndex % transports.length];
     const transportIndex = this.tradeTransportIndex % transports.length;
     diagnose(this.symbol, "tape.ws.create", {
@@ -1749,11 +1778,12 @@ function scheduleWatchdog() {
   }, WORKER_HEARTBEAT_MS);
 }
 
-function getFeed(symbol) {
-  let feed = feeds.get(symbol);
+function getFeed(symbol, market = "futures") {
+  const key = feedKey(market, symbol);
+  let feed = feeds.get(key);
   if (!feed) {
-    feed = new SymbolFeed(symbol);
-    feeds.set(symbol, feed);
+    feed = new SymbolFeed(symbol, market);
+    feeds.set(key, feed);
   }
   return feed;
 }
@@ -1800,7 +1830,7 @@ self.addEventListener("message", (event) => {
     syncServerClock(true).catch(() => {});
 
     const resumePrioritySymbols = Array.isArray(message.prioritySymbols)
-      ? message.prioritySymbols.map((symbol) => String(symbol).toUpperCase())
+      ? message.prioritySymbols.map((symbol) => String(symbol))
       : [];
     prioritySymbols = resumePrioritySymbols;
     const priorityRank = new Map(
@@ -1809,8 +1839,8 @@ self.addEventListener("message", (event) => {
     const active = [...feeds.values()]
       .filter((feed) => feed.subscribers > 0)
       .sort((left, right) => (
-        (priorityRank.get(left.symbol) ?? Number.MAX_SAFE_INTEGER)
-        - (priorityRank.get(right.symbol) ?? Number.MAX_SAFE_INTEGER)
+        (priorityRank.get(left.key) ?? Number.MAX_SAFE_INTEGER)
+        - (priorityRank.get(right.key) ?? Number.MAX_SAFE_INTEGER)
       ));
     active.forEach((feed, index) => feed.resume(index * RESUME_STAGGER_MS, epoch));
     return;
@@ -1818,23 +1848,25 @@ self.addEventListener("message", (event) => {
 
   if (message.type === "priority") {
     prioritySymbols = Array.isArray(message.prioritySymbols)
-      ? message.prioritySymbols.map((symbol) => String(symbol).toUpperCase())
+      ? message.prioritySymbols.map((symbol) => String(symbol))
       : [];
     return;
   }
 
   const symbol = String(message.symbol ?? "").toUpperCase();
+  const market = normalizeMarket(message.market);
+  const key = feedKey(market, symbol);
   if (!symbol.endsWith("USDT")) return;
   if (message.type === "subscribe") {
-    getFeed(symbol).addSubscriber();
+    getFeed(symbol, market).addSubscriber();
     return;
   }
   if (message.type === "unsubscribe") {
-    feeds.get(symbol)?.removeSubscriber();
+    feeds.get(key)?.removeSubscriber();
     return;
   }
   if (message.type === "refresh") {
-    feeds.get(symbol)?.refresh();
+    feeds.get(key)?.refresh();
   }
 });
 

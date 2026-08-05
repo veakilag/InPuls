@@ -499,6 +499,25 @@ const radarHistoryLoading = new Set();
 const extraCharts = new Map();
 const orderBookPanels = new Map();
 const orderBookAutoThresholds = new Map();
+let binanceSpotSymbolsPromise = null;
+
+async function binanceSpotSymbols() {
+  if (!binanceSpotSymbolsPromise) {
+    binanceSpotSymbolsPromise = fetch("https://api.binance.com/api/v3/exchangeInfo")
+      .then((response) => {
+        if (!response.ok) throw new Error(`Binance Spot exchangeInfo: ${response.status}`);
+        return response.json();
+      })
+      .then((payload) => new Set((payload?.symbols ?? [])
+        .filter((item) => item?.status === "TRADING" && item?.quoteAsset === "USDT" && item?.isSpotTradingAllowed !== false)
+        .map((item) => String(item.symbol).toUpperCase())))
+      .catch((error) => {
+        binanceSpotSymbolsPromise = null;
+        throw error;
+      });
+  }
+  return binanceSpotSymbolsPromise;
+}
 const signalMemory = new SignalMemoryTracker();
 const signalLab = new SignalLabLocalStore();
 const SIGNAL_LAB_COLLECTOR_HEALTH_KEY = "inpuls-signal-lab-collector-health-v1";
@@ -1439,7 +1458,7 @@ function normalizeWorkspace() {
     const symbol = normalizeUsdtPerpetualSymbol(source?.symbol);
     if (!source?.id || !symbol) continue;
     const type = source.type === "orderbook" ? "orderbook" : "chart";
-    const fallback = { id: String(source.id), type, symbol, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, bookScaleIndex: source.bookScaleIndex ?? 3, bookCentered: source.bookCentered !== false, tapePercent: source.tapePercent ?? 48, tradeMinQuote: source.tradeMinQuote ?? 0, tradeWindowMs: source.tradeWindowMs ?? 60_000, clustersVisible: Boolean(source.clustersVisible), highlightMode: source.highlightMode === "manual" ? "manual" : "auto", highlightMinQuote: source.highlightMinQuote ?? 100000, x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
+    const fallback = { id: String(source.id), type, symbol, market: source.market === "spot" ? "spot" : "futures", spotOf: source.spotOf || null, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, bookScaleIndex: source.bookScaleIndex ?? 3, bookCentered: source.bookCentered !== false, tapePercent: source.tapePercent ?? 48, tradeMinQuote: source.tradeMinQuote ?? 0, tradeWindowMs: source.tradeWindowMs ?? 60_000, clustersVisible: Boolean(source.clustersVisible), highlightMode: source.highlightMode === "manual" ? "manual" : "auto", highlightMinQuote: source.highlightMinQuote ?? 100000, x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
     const item = clampPanel(source, fallback, { w: 3, h: 2 });
     item.symbol = symbol;
     item.interval = source.interval || state.chartInterval;
@@ -1819,15 +1838,21 @@ function mountExtraChart(model) {
   panel.feed.select(model.symbol, model.interval, intervalRange(model.interval));
 }
 
-function createExtraPanel(symbol, type = "chart") {
+function createExtraPanel(symbol, type = "chart", options = {}) {
   const normalizedSymbol = normalizeUsdtPerpetualSymbol(symbol);
   if (!normalizedSymbol) return false;
-  const slot = findFreeSlot(type === "orderbook" ? 6 : 8, 6) ?? findFreeSlot(4, 3) ?? findFreeSlot(3, 2);
+  const preferred = options.preferredSlot;
+  const preferredCandidate = preferred ? { ...preferred } : null;
+  const slot = preferredCandidate && canPlacePanel(preferredCandidate, state.workspace)
+    ? preferredCandidate
+    : (findFreeSlot(type === "orderbook" ? 6 : 8, 6) ?? findFreeSlot(4, 3) ?? findFreeSlot(3, 2));
   if (!slot) return false;
   const model = {
     id: `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     type,
     symbol: normalizedSymbol,
+    market: options.market === "spot" ? "spot" : "futures",
+    spotOf: options.spotOf || null,
     interval: state.chartInterval,
     volumeVisible: state.volumeVisible,
     sessionsVisible: state.sessionsVisible,
@@ -1890,9 +1915,30 @@ function selectOrderBookPanelSymbol(panel, symbol) {
   article.querySelector(".trade-flow-nodes").innerHTML = '<div class="orderbook-empty">Жду сделки…</div>';
   article.querySelector(".trade-flow-detail").hidden = true;
   article.querySelector(".orderbook-rows").innerHTML = '<div class="orderbook-empty">Загружаю глубину Binance…</div>';
-  article.querySelector("h2").textContent = `${normalizedSymbol.replace("USDT", "")}/USDT · Стакан`;
+  const marketLabel = model.market === "spot" ? "SPOT" : "FUTURES";
+  article.querySelector("h2").textContent = `${normalizedSymbol.replace("USDT", "")}/USDT · ${marketLabel}`;
   persistWorkspace();
   panel.feed.select(normalizedSymbol);
+  if (model.market !== "spot") {
+    const companion = [...orderBookPanels.values()].find((item) => item.model.spotOf === model.id);
+    if (companion) removeOrderBook(companion.model.id);
+    const spotButton = article.querySelector("[data-book-spot]");
+    if (spotButton) {
+      spotButton.disabled = true;
+      spotButton.classList.remove("is-active");
+      spotButton.textContent = "SPOT…";
+      binanceSpotSymbols().then((symbols) => {
+        if (model.symbol !== normalizedSymbol) return;
+        const available = symbols.has(normalizedSymbol);
+        spotButton.disabled = !available;
+        spotButton.textContent = available ? "SPOT" : "СПОТА НЕТ";
+        spotButton.title = available ? "Показать Binance Spot справа" : "Этой пары нет на Binance Spot";
+      }).catch(() => {
+        spotButton.textContent = "SPOT ?";
+        spotButton.title = "Не удалось проверить Binance Spot";
+      });
+    }
+  }
   return true;
 }
 
@@ -1960,11 +2006,14 @@ function mountOrderBook(model) {
   article.className = "orderbook-card";
   article.dataset.panel = "orderbook";
   article.dataset.panelId = model.id;
+  article.dataset.market = model.market === "spot" ? "spot" : "futures";
+  const marketLabel = model.market === "spot" ? "SPOT" : "FUTURES";
   article.innerHTML = `
     <header class="orderbook-heading">
       <span class="panel-grip" title="Переместить стакан">⠿</span>
-      <h2 data-book-ticker title="Нажми, чтобы скопировать тикер">${escapeHtml(model.symbol.replace("USDT", ""))}/USDT · Стакан</h2>
+      <h2 data-book-ticker title="Нажми, чтобы скопировать тикер">${escapeHtml(model.symbol.replace("USDT", ""))}/USDT · ${marketLabel}</h2>
       <span class="book-status">Синхронизация</span>
+      ${model.market === "spot" ? "" : '<button class="book-spot-toggle" data-book-spot type="button" disabled title="Проверяю наличие Binance Spot">SPOT</button>'}
       <div class="book-highlight-controls" aria-label="Подсветка крупных сайзов">
         <button data-book-highlight-manual class="book-highlight-toggle${model.highlightMode === "manual" ? " is-active" : ""}" type="button" aria-pressed="${model.highlightMode === "manual"}" title="Подсвечивать сайзы больше заданной суммы">≥ $</button>
         <button data-book-highlight-auto class="book-highlight-toggle${model.highlightMode !== "manual" ? " is-active" : ""}" type="button" aria-pressed="${model.highlightMode !== "manual"}" title="Автоматически находить аномальные сайзы">AUTO</button>
@@ -1996,6 +2045,7 @@ function mountOrderBook(model) {
   els.marketFocus.insertBefore(article, els.addChartTile);
   const panel = { model, element: article, feed: null, latest: null, centerFrame: null, viewCenter: null, priceStep: null, baseTick: null, autoCentering: false, autoScaleIndex: null, autoScaleUntil: 0, calmSince: 0, priceTrail: [], manualScrollAnchorPrice: null, manualScrollUntil: 0, selectedTradePathKey: null, tradeOffsetMs: 0, tradePriceDomain: null, tradeDomainKey: null, depthFitted: false };
   panel.feed = new OrderBookFeed({
+    market: model.market,
     onData(data) {
       panel.latest = data;
       scheduleOrderBookRender(panel);
@@ -2007,6 +2057,39 @@ function mountOrderBook(model) {
     },
   });
   orderBookPanels.set(model.id, panel);
+  const spotButton = article.querySelector("[data-book-spot]");
+  if (spotButton) {
+    const syncSpotButton = () => {
+      const companion = [...orderBookPanels.values()].find((item) => item.model.spotOf === model.id);
+      spotButton.classList.toggle("is-active", Boolean(companion));
+      spotButton.setAttribute("aria-pressed", String(Boolean(companion)));
+    };
+    binanceSpotSymbols().then((symbols) => {
+      const available = symbols.has(model.symbol);
+      spotButton.disabled = !available;
+      spotButton.textContent = available ? "SPOT" : "СПОТА НЕТ";
+      spotButton.title = available ? "Показать Binance Spot справа" : "Этой пары нет на Binance Spot";
+    }).catch(() => {
+      spotButton.disabled = true;
+      spotButton.textContent = "SPOT ?";
+      spotButton.title = "Не удалось проверить Binance Spot";
+    });
+    spotButton.addEventListener("click", () => {
+      const companion = [...orderBookPanels.values()].find((item) => item.model.spotOf === model.id);
+      if (companion) {
+        removeOrderBook(companion.model.id);
+        syncSpotButton();
+        return;
+      }
+      const preferredSlot = { x: model.x + model.w, y: model.y, w: model.w, h: model.h };
+      if (preferredSlot.x + preferredSlot.w > WORKSPACE_COLS) {
+        showToast("Справа недостаточно места для Spot — освободи соседние ячейки");
+        return;
+      }
+      createExtraPanel(model.symbol, "orderbook", { market: "spot", spotOf: model.id, preferredSlot });
+      syncSpotButton();
+    });
+  }
   article.querySelector("[data-book-ticker]").addEventListener("click", (event) => {
     event.stopPropagation();
     copyTicker(model.symbol);
@@ -2591,6 +2674,15 @@ function removeOrderBook(id) {
   if (panel.centerFrame) cancelAnimationFrame(panel.centerFrame);
   panel.element.remove();
   orderBookPanels.delete(id);
+  if (panel.model.spotOf) {
+    const parent = orderBookPanels.get(panel.model.spotOf);
+    const button = parent?.element?.querySelector?.("[data-book-spot]");
+    button?.classList.remove("is-active");
+    button?.setAttribute("aria-pressed", "false");
+  } else {
+    const companion = [...orderBookPanels.values()].find((item) => item.model.spotOf === id);
+    if (companion) removeOrderBook(companion.model.id);
+  }
   state.workspace.extras = state.workspace.extras.filter((item) => item.id !== id);
   persistWorkspace();
   applyWorkspaceLayout();
