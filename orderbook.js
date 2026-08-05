@@ -1757,7 +1757,7 @@ class OrderBookWorkerManager {
       if (typeof globalThis.dispatchEvent === "function"
         && typeof globalThis.CustomEvent === "function") {
         globalThis.dispatchEvent(new CustomEvent(ORDERBOOK_WORKER_STATUS_EVENT, {
-          detail: { symbol, status },
+          detail: { symbol: key, market, status },
         }));
       }
       for (const id of this.clientsBySymbol.get(key) ?? []) {
