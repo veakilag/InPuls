@@ -17,9 +17,13 @@ test("Signal Lab opens one shared chart modal instead of chart instances inside 
   assert.match(modal, /loadEpisodeCandles/);
   assert.match(modal, /data-modal-timeframe/);
   assert.match(modal, /data-modal-maximize/);
+  assert.match(modal, /buttonGroup\(TIMEFRAMES, "data-modal-timeframe", "1h"\)/);
+  assert.match(modal, /buttonGroup\(RANGES, "data-modal-range", "30d"\)/);
+  assert.match(modal, /this\.interval = "1h";[\s\S]*this\.contextRange = "30d";/);
+  assert.match(modal, /Every episode opens with the full pre-event market context/);
   assert.match(css, /resize:\s*both/);
   assert.match(css, /content-visibility:\s*auto/);
-  assert.match(html, /26-117-chart-interaction-performance-v1/);
+  assert.match(html, /26-118-signal-lab-30d-history-v1/);
   assert.match(smoke, /SYNTHETIC_EPISODE/);
   assert.match(smoke, /openEpisodeChartModal/);
   assert.match(smoke, /rayAnnotationReady/);

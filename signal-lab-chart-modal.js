@@ -59,10 +59,10 @@ function modalMarkup() {
 
       <div class="signal-lab-chart-modal__controls">
         <div class="signal-lab-chart-modal__switch" aria-label="Таймфрейм">
-          ${buttonGroup(TIMEFRAMES, "data-modal-timeframe", "1m")}
+          ${buttonGroup(TIMEFRAMES, "data-modal-timeframe", "1h")}
         </div>
         <div class="signal-lab-chart-modal__switch signal-lab-chart-modal__ranges" aria-label="Контекст">
-          ${buttonGroup(RANGES, "data-modal-range", "1h")}
+          ${buttonGroup(RANGES, "data-modal-range", "30d")}
         </div>
       </div>
 
@@ -139,8 +139,8 @@ class SignalLabChartModal {
     this.episode = null;
     this.chart = null;
     this.annotations = [];
-    this.interval = "1m";
-    this.contextRange = "1h";
+    this.interval = "1h";
+    this.contextRange = "30d";
     this.abortController = null;
     this.loadTimer = null;
     this.generation = 0;
@@ -226,6 +226,11 @@ class SignalLabChartModal {
     if (!episode?.id) return;
     this.previousFocus = document.activeElement;
     this.episode = episode;
+    // Every episode opens with the full pre-event market context. The user may
+    // switch timeframe or range afterwards, but a fresh open always starts from
+    // 30 days before the event instead of the previous short-window selection.
+    this.interval = "1h";
+    this.contextRange = "30d";
     this.annotations = buildPatternAnnotations(episode);
     this.root.hidden = false;
     this.root.setAttribute("aria-hidden", "false");
