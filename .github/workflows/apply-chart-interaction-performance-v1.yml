@@ -28,7 +28,9 @@ jobs:
           node-version: "22"
 
       - name: Apply chart performance changes
-        run: python3 scripts/apply-chart-interaction-performance.py
+        run: |
+          python3 scripts/apply-chart-interaction-performance.py
+          python3 scripts/finalize-chart-performance-release.py
 
       - name: Validate syntax and patch integrity
         run: |
@@ -66,7 +68,12 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/apply-chart-interaction-performance-v1.yml
           git rm scripts/apply-chart-interaction-performance.py
-          rm -f action-test-output.txt
-          git add chart.js app.js index.html sw.js signal-lab-chart-modal.js owner-signal-lab-v3.js owner-signal-lab-v3.html test/chart-interaction-performance.test.js
+          git rm scripts/finalize-chart-performance-release.py
+          if git ls-files --error-unmatch action-test-output.txt >/dev/null 2>&1; then
+            git rm action-test-output.txt
+          else
+            rm -f action-test-output.txt
+          fi
+          git add -A
           git commit -m "Make chart navigation smooth with dense extreme rays"
           git push origin HEAD:agent/chart-interaction-performance-v1
