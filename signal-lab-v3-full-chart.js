@@ -1,4 +1,4 @@
-import { CandlestickChart } from "./chart.js?v=26-117-chart-interaction-performance-v1";
+import { CandlestickChart } from "./chart.js?v=26-119-signal-lab-navigable-30d-v2";
 
 const KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
 
@@ -448,6 +448,16 @@ export function patternAnnotationSummary(annotations) {
   return rows.slice(0, 12);
 }
 
+export function episodeViewCandleCount(interval, viewRange, totalCandles) {
+  const intervalMs = EPISODE_CHART_INTERVALS[interval];
+  const contextMs = EPISODE_CONTEXT_RANGES[viewRange];
+  const total = Math.max(0, Math.floor(Number(totalCandles) || 0));
+  if (!intervalMs || !contextMs || !total) return 0;
+  if (viewRange === "30d") return Math.min(total, 1_500);
+  const symmetricSpan = contextMs * 2;
+  return clamp(Math.ceil(symmetricSpan / intervalMs) + 3, Math.min(20, total), total);
+}
+
 export function episodeHistoryBounds(eventAt, intervalMs, contextMs) {
   const event = finite(eventAt);
   const interval = finite(intervalMs);
@@ -655,7 +665,7 @@ class EpisodeFullChartController {
     this.rangeButtons.forEach((button) => button.addEventListener("click", () => {
       this.contextRange = button.dataset.chartRange;
       this.rangeButtons.forEach((item) => item.classList.toggle("is-active", item === button));
-      this.#load();
+      this.#applyViewPreset();
     }));
     this.toolButtons.forEach((button) => button.addEventListener("click", () => {
       this.chart?.setTool(button.dataset.chartTool);
@@ -720,9 +730,9 @@ class EpisodeFullChartController {
     const generation = this.generation;
     this.abortController?.abort();
     this.abortController = new AbortController();
-    this.status.textContent = `Загружаю ${this.episode.symbol} · ${this.interval} · окно ${this.contextRange}…`;
+    this.status.textContent = `Загружаю ${this.episode.symbol} · ${this.interval} · все 30 дней до события…`;
     try {
-      const loaded = await loadEpisodeCandles(this.episode, this.interval, this.contextRange, {
+      const loaded = await loadEpisodeCandles(this.episode, this.interval, "30d", {
         signal: this.abortController.signal,
       });
       const candles = loaded.candles;
@@ -731,26 +741,31 @@ class EpisodeFullChartController {
       this.chart.setData(candles, {
         symbol: this.episode.symbol,
         interval: this.interval,
-        range: `episode-${this.contextRange}`,
+        range: "episode-loaded-30d",
         targetCandles: candles.length,
       });
       this.chart.setAnnotations(this.annotationToggle?.checked === false ? [] : this.annotations);
-      if (this.contextRange === "30d" && candles.length <= 2_000) this.#fitRange(candles);
-      else this.#focusEvent(candles);
+      this.#applyViewPreset(candles);
       const percent = Math.round((coverage?.ratio ?? 0) * 100);
       const requestedDays = coverage?.requestedDays ?? 0;
       const actualDays = coverage?.actualDays ?? 0;
       this.status.dataset.coverage = coverage?.complete ? "complete" : "partial";
-      this.status.textContent = `${coverage?.source ?? "UNKNOWN"} · ${candles.length} свечей · покрытие ${actualDays.toFixed(1)}/${requestedDays.toFixed(1)}д (${percent}%) · ${coverage?.complete ? "COMPLETE" : "PARTIAL"} · страниц ${coverage?.pages ?? 0}`;
+      this.status.textContent = `${coverage?.source ?? "UNKNOWN"} · загружено ${candles.length} свечей за ${actualDays.toFixed(1)}/${requestedDays.toFixed(1)}д (${percent}%) · ${coverage?.complete ? "COMPLETE" : "PARTIAL"} · можно перемещаться по всему диапазону · страниц ${coverage?.pages ?? 0}`;
     } catch (error) {
       if (error?.name === "AbortError") return;
       this.status.textContent = `График недоступен: ${String(error?.message ?? error)}`;
     }
   }
 
+  #applyViewPreset(candles = this.chart?.candles ?? []) {
+    if (!this.chart || !candles.length) return;
+    if (this.contextRange === "30d") this.#fitRange(candles);
+    else this.#focusEvent(candles, this.contextRange);
+  }
+
   #fitRange(candles = this.chart?.candles ?? []) {
     if (!this.chart || !candles.length) return;
-    const maximumVisible = this.interval === "1m" ? Math.min(candles.length, 2_000) : candles.length;
+    const maximumVisible = episodeViewCandleCount(this.interval, "30d", candles.length);
     this.chart.visibleCount = Math.max(20, maximumVisible);
     this.chart.followLatest = false;
     this.chart.centerLatest = false;
@@ -761,7 +776,7 @@ class EpisodeFullChartController {
     this.chart.render();
   }
 
-  #focusEvent(candles = this.chart?.candles ?? []) {
+  #focusEvent(candles = this.chart?.candles ?? [], viewRange = this.contextRange) {
     if (!this.chart || !candles.length) return;
     const eventAt = finite(this.episode?.evidencePack?.window?.eventAt) ?? finite(this.episode?.firstSeenAt);
     let eventIndex = candles.length - 1;
@@ -770,8 +785,8 @@ class EpisodeFullChartController {
         Math.abs(candle.time - eventAt) < Math.abs(candles[bestIndex].time - eventAt) ? index : bestIndex
       ), 0);
     }
-    const preferred = this.interval.endsWith("s") ? 100 : this.interval === "1m" ? 80 : 60;
-    this.chart.visibleCount = clamp(Math.min(candles.length, preferred), Math.min(20, candles.length), Math.max(20, candles.length));
+    const preferred = episodeViewCandleCount(this.interval, viewRange, candles.length);
+    this.chart.visibleCount = clamp(preferred, Math.min(20, candles.length), Math.max(20, candles.length));
     this.chart.followLatest = false;
     this.chart.centerLatest = false;
     this.chart.priceScale = 1;
