@@ -27,13 +27,14 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Harden temporary patch against whitespace drift
+      - name: Harden temporary patch against source drift
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
           path = Path("scripts/apply-chart-pan-performance.py")
           text = path.read_text(encoding="utf-8")
+
           marker = "chart = replace_once(\n    chart,\n    '    const displayCandles = visible;"
           start = text.index(marker)
           end = text.index("\n\nchart = replace_once(", start)
@@ -41,7 +42,18 @@ jobs:
           if duplicate_volume not in chart:
               raise SystemExit("remove duplicate max volume: source line not found")
           chart = chart.replace(duplicate_volume, "", 1)'''
-          path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+          text = text[:start] + replacement + text[end:]
+
+          label_index = text.index('"skip drawing labels during interaction"')
+          start = text.rfind("chart = replace_once(", 0, label_index)
+          end = text.index("\n\nchart = replace_once(", label_index)
+          replacement = '''alert_marker = '    for (const alert of items.filter((item) => item.type === "alert")) {\\n'
+          if alert_marker not in chart:
+              raise SystemExit("skip drawing labels during interaction: alert loop not found")
+          chart = chart.replace(alert_marker, "    if (fastInteraction) return;\\n\\n" + alert_marker, 1)'''
+          text = text[:start] + replacement + text[end:]
+
+          path.write_text(text, encoding="utf-8")
           PY
 
       - name: Apply chart interaction performance changes
