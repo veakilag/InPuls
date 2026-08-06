@@ -7,6 +7,7 @@ const levels = fs.readFileSync(new URL("../signal-lab-v4-levels-breakouts.js", i
 const cascades = fs.readFileSync(new URL("../signal-lab-v4-cascades.js", import.meta.url), "utf8");
 const review = fs.readFileSync(new URL("../owner-signal-lab-structural-extremes-review.js", import.meta.url), "utf8");
 const html = fs.readFileSync(new URL("../owner-signal-lab-structural-extremes-review.html", import.meta.url), "utf8");
+const css = fs.readFileSync(new URL("../owner-signal-lab-structural-extremes-review.css", import.meta.url), "utf8");
 
 test("stage 1 structural detector remains isolated from current production signals", () => {
   assert.doesNotMatch(collector, /signal-lab-v7-structural-extremes/);
@@ -27,4 +28,39 @@ test("visual review page loads the isolated detector and all six independent tim
   assert.match(html, /История снятых/);
   assert.match(html, /Candidate/);
   assert.match(html, /data-timeframe="1h" class="is-active"/);
+});
+
+test("trader can mark, persist and export detector corrections directly on the chart", () => {
+  for (const tool of [
+    "navigate",
+    "add-high",
+    "add-low",
+    "remove",
+    "move",
+    "confirm",
+    "cross",
+    "attacks",
+    "line",
+    "freehand",
+  ]) {
+    assert.match(review, new RegExp(`data-review-tool=\\"${tool}\\"`));
+  }
+  for (const correctionType of [
+    "ADD_EXTREME",
+    "REMOVE_EXTREME",
+    "MOVE_EXTREME",
+    "CONFIRM_AT",
+    "CROSS_AT",
+    "ATTACK_COUNT",
+  ]) {
+    assert.match(review, new RegExp(correctionType));
+  }
+  assert.match(review, /localStorage\.setItem/);
+  assert.match(review, /InPulsStructuralExtremesTraderReview/);
+  assert.match(review, /navigator\.clipboard\.writeText/);
+  assert.match(review, /anchor\.download = `inpuls-extremes-review-/);
+  assert.match(review, /elements\.canvas\.addEventListener\("pointerdown", handleStructuredReviewClick, true\)/);
+  assert.match(css, /\.review-tools/);
+  assert.match(css, /\.review-feedback/);
+  assert.match(css, /canvas\[data-review-tool\]/);
 });
