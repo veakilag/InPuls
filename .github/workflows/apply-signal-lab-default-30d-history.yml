@@ -53,3 +53,5 @@ jobs:
           git add -A
           git commit -m "Open Signal Lab episodes with 30 days of candle history"
           git push origin HEAD:agent/signal-lab-default-30d-history
+
+# rerun: stale modal default assertion aligned
