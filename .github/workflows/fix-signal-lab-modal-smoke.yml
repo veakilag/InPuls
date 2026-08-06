@@ -1,0 +1,49 @@
+name: Fix Signal Lab modal smoke
+
+on:
+  push:
+    branches:
+      - agent/signal-lab-smooth-modal-chart
+    paths:
+      - .github/workflows/fix-signal-lab-modal-smoke.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: agent/signal-lab-smooth-modal-chart
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Apply deterministic modal smoke fix
+        run: python3 scripts/fix-signal-lab-modal-smoke.py
+
+      - name: Remove temporary apply files
+        run: |
+          rm -f scripts/fix-signal-lab-modal-smoke.py
+          rm -f .github/workflows/fix-signal-lab-modal-smoke.yml
+
+      - name: Validate syntax and tests
+        run: |
+          node --check scripts/signal-lab-runtime-smoke.mjs
+          npm test
+
+      - name: Commit smoke fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Make Signal Lab modal smoke deterministic"
+          git push origin HEAD:agent/signal-lab-smooth-modal-chart
