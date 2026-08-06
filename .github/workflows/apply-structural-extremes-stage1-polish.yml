@@ -54,3 +54,5 @@ jobs:
           git add -A
           git commit -m "Polish structural candidate and crossing semantics"
           git push origin HEAD:agent/signal-lab-structural-extremes-stage1
+
+# rerun: verify crossed high independently from the newly confirmed opposite low
