@@ -39,14 +39,34 @@ jobs:
           git diff --check
 
       - name: Run complete test suite
-        run: npm test
+        id: tests
+        shell: bash
+        run: |
+          set +e
+          npm test > action-test-output.txt 2>&1
+          status=$?
+          cat action-test-output.txt
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Commit test diagnostics when failing
+        if: steps.tests.outputs.status != '0'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add action-test-output.txt
+          git commit -m "Capture chart performance test failure"
+          git push origin HEAD:agent/chart-interaction-performance-v1
+          exit 1
 
       - name: Commit verified performance fix
+        if: steps.tests.outputs.status == '0'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/apply-chart-interaction-performance-v1.yml
           git rm scripts/apply-chart-interaction-performance.py
+          rm -f action-test-output.txt
           git add chart.js app.js index.html sw.js signal-lab-chart-modal.js owner-signal-lab-v3.js owner-signal-lab-v3.html test/chart-interaction-performance.test.js
           git commit -m "Make chart navigation smooth with dense extreme rays"
           git push origin HEAD:agent/chart-interaction-performance-v1
