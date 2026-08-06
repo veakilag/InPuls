@@ -236,11 +236,12 @@ async function probeChartModal(socket) {
       timeframe?.click();
       await wait(120);
       const timeframeActive = timeframe?.classList.contains('is-active') === true;
+      const resized = Math.abs(after.width - before.width) > 20 || Math.abs(after.height - before.height) > 20;
+      const canvasRect = canvas.getBoundingClientRect();
+      const canvasReady = canvasRect.width > 100 && canvasRect.height > 100;
       root.querySelector('[data-modal-close]')?.click();
       await wait(50);
       const closed = root.hidden && root.getAttribute('aria-hidden') === 'true';
-      const resized = Math.abs(after.width - before.width) > 20 || Math.abs(after.height - before.height) > 20;
-      const canvasReady = canvas.getBoundingClientRect().width > 100 && canvas.getBoundingClientRect().height > 100;
       return {
         ok: Boolean(timeframeActive && resized && canvasReady && closed),
         source,
@@ -250,6 +251,7 @@ async function probeChartModal(socket) {
         closed,
         before: { width: Math.round(before.width), height: Math.round(before.height) },
         after: { width: Math.round(after.width), height: Math.round(after.height) },
+        canvas: { width: Math.round(canvasRect.width), height: Math.round(canvasRect.height) },
       };
     })()`,
     awaitPromise: true,
