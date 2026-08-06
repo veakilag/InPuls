@@ -1,0 +1,56 @@
+name: Apply chart pan performance fix
+
+on:
+  push:
+    branches:
+      - agent/signal-lab-chart-pan-performance
+    paths:
+      - .github/workflows/apply-chart-pan-performance.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: agent/signal-lab-chart-pan-performance
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Apply chart interaction performance changes
+        run: python3 scripts/apply-chart-pan-performance.py
+
+      - name: Remove temporary apply files
+        run: |
+          rm -f scripts/apply-chart-pan-performance.py
+          rm -f .github/workflows/apply-chart-pan-performance.yml
+
+      - name: Validate syntax and diff
+        run: |
+          node --check chart.js
+          node --check signal-lab-v3-full-chart.js
+          node --check signal-lab-chart-modal.js
+          node --check owner-signal-lab-v3.js
+          node --check test/chart-interaction-performance.test.js
+          git diff --check
+
+      - name: Run full test suite
+        run: npm test
+
+      - name: Commit generated changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Optimize Signal Lab chart navigation"
+          git push origin HEAD:agent/signal-lab-chart-pan-performance
