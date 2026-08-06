@@ -1,17 +1,18 @@
-import { CandlestickChart } from "./chart.js?v=26-117-chart-interaction-performance-v1";
+import { CandlestickChart } from "./chart.js?v=26-119-signal-lab-navigable-30d-v2";
 import {
   buildPatternAnnotations,
   loadEpisodeCandles,
+  episodeViewCandleCount,
   patternAnnotationSummary,
-} from "./signal-lab-v3-full-chart.js?v=26-117-chart-interaction-performance-v1";
+} from "./signal-lab-v3-full-chart.js?v=26-119-signal-lab-navigable-30d-v2";
 
 const TIMEFRAMES = Object.freeze([
   ["1s", "1с"], ["5s", "5с"], ["15s", "15с"], ["1m", "1м"], ["3m", "3м"],
   ["5m", "5м"], ["15m", "15м"], ["1h", "1ч"], ["4h", "4ч"], ["1d", "1д"],
 ]);
 const RANGES = Object.freeze([
-  ["15m", "±15м"], ["1h", "±1ч"], ["4h", "±4ч"], ["24h", "±24ч"],
-  ["7d", "±7д"], ["30d", "30д до события"],
+  ["15m", "15м"], ["1h", "1ч"], ["4h", "4ч"], ["24h", "24ч"],
+  ["7d", "7д"], ["30d", "30д"],
 ]);
 const STORAGE_KEY = "inpuls-signal-lab-modal-chart-v1";
 const GEOMETRY_KEY = "inpuls-signal-lab-modal-geometry-v1";
@@ -61,7 +62,7 @@ function modalMarkup() {
         <div class="signal-lab-chart-modal__switch" aria-label="Таймфрейм">
           ${buttonGroup(TIMEFRAMES, "data-modal-timeframe", "1h")}
         </div>
-        <div class="signal-lab-chart-modal__switch signal-lab-chart-modal__ranges" aria-label="Контекст">
+        <div class="signal-lab-chart-modal__switch signal-lab-chart-modal__ranges" aria-label="Масштаб вокруг события">
           ${buttonGroup(RANGES, "data-modal-range", "30d")}
         </div>
       </div>
@@ -171,7 +172,7 @@ class SignalLabChartModal {
       if (button.dataset.modalRange === this.contextRange) return;
       this.contextRange = button.dataset.modalRange;
       this.#syncActiveButtons();
-      this.#scheduleLoad();
+      this.#applyViewPreset();
     }));
     this.toolButtons.forEach((button) => button.addEventListener("click", () => {
       this.chart?.setTool(button.dataset.modalTool);
@@ -289,9 +290,9 @@ class SignalLabChartModal {
     this.abortController?.abort();
     this.abortController = new AbortController();
     this.status.dataset.state = "loading";
-    this.status.textContent = `Загружаю ${this.episode.symbol} · ${this.interval} · ${this.contextRange}…`;
+    this.status.textContent = `Загружаю ${this.episode.symbol} · ${this.interval} · все 30 дней до события…`;
     try {
-      const loaded = await loadEpisodeCandles(this.episode, this.interval, this.contextRange, {
+      const loaded = await loadEpisodeCandles(this.episode, this.interval, "30d", {
         signal: this.abortController.signal,
       });
       if (generation !== this.generation || !this.chart || !this.isOpen()) return;
@@ -300,15 +301,14 @@ class SignalLabChartModal {
       this.chart.setData(candles, {
         symbol: this.episode.symbol,
         interval: this.interval,
-        range: `signal-lab-modal-${this.contextRange}`,
+        range: "signal-lab-modal-loaded-30d",
         targetCandles: candles.length,
       });
       this.chart.setAnnotations(this.annotationToggle.checked ? this.annotations : []);
-      if (this.contextRange === "30d" && candles.length <= 2_000) this.#fitRange(candles);
-      else this.#focusEvent(candles);
+      this.#applyViewPreset(candles);
       const percent = Math.round((coverage?.ratio ?? 0) * 100);
       this.status.dataset.state = coverage?.complete ? "complete" : "partial";
-      this.status.textContent = `${this.episode.symbol} · ${this.interval} · ${candles.length} свечей · ${coverage?.source ?? "UNKNOWN"} · покрытие ${percent}% · ${coverage?.complete ? "COMPLETE" : "PARTIAL"}`;
+      this.status.textContent = `${this.episode.symbol} · ${this.interval} · загружено ${candles.length} свечей за 30 дней · ${coverage?.source ?? "UNKNOWN"} · покрытие ${percent}% · ${coverage?.complete ? "COMPLETE" : "PARTIAL"} · весь диапазон доступен для перемещения`;
     } catch (error) {
       if (error?.name === "AbortError") return;
       this.status.dataset.state = "error";
@@ -316,9 +316,15 @@ class SignalLabChartModal {
     }
   }
 
+  #applyViewPreset(candles = this.chart?.candles ?? []) {
+    if (!this.chart || !candles.length) return;
+    if (this.contextRange === "30d") this.#fitRange(candles);
+    else this.#focusEvent(candles, this.contextRange);
+  }
+
   #fitRange(candles = this.chart?.candles ?? []) {
     if (!this.chart || !candles.length) return;
-    const maximumVisible = this.interval === "1m" ? Math.min(candles.length, 2_000) : candles.length;
+    const maximumVisible = episodeViewCandleCount(this.interval, "30d", candles.length);
     this.chart.visibleCount = Math.max(20, maximumVisible);
     this.chart.followLatest = false;
     this.chart.centerLatest = false;
@@ -329,7 +335,7 @@ class SignalLabChartModal {
     this.chart.render();
   }
 
-  #focusEvent(candles = this.chart?.candles ?? []) {
+  #focusEvent(candles = this.chart?.candles ?? [], viewRange = this.contextRange) {
     if (!this.chart || !candles.length || !this.episode) return;
     const eventAt = finite(this.episode?.evidencePack?.window?.eventAt) ?? finite(this.episode?.firstSeenAt);
     let eventIndex = candles.length - 1;
@@ -338,8 +344,8 @@ class SignalLabChartModal {
         Math.abs(candle.time - eventAt) < Math.abs(candles[bestIndex].time - eventAt) ? index : bestIndex
       ), 0);
     }
-    const preferred = this.interval.endsWith("s") ? 120 : this.interval === "1m" ? 100 : 70;
-    this.chart.visibleCount = clamp(Math.min(candles.length, preferred), Math.min(20, candles.length), Math.max(20, candles.length));
+    const preferred = episodeViewCandleCount(this.interval, viewRange, candles.length);
+    this.chart.visibleCount = clamp(preferred, Math.min(20, candles.length), Math.max(20, candles.length));
     this.chart.followLatest = false;
     this.chart.centerLatest = false;
     this.chart.priceScale = 1;

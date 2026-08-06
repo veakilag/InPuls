@@ -21,9 +21,12 @@ test("Signal Lab opens one shared chart modal instead of chart instances inside 
   assert.match(modal, /buttonGroup\(RANGES, "data-modal-range", "30d"\)/);
   assert.match(modal, /this\.interval = "1h";[\s\S]*this\.contextRange = "30d";/);
   assert.match(modal, /Every episode opens with the full pre-event market context/);
+  assert.match(modal, /loadEpisodeCandles\(this\.episode, this\.interval, "30d"/);
+  assert.match(modal, /this\.#applyViewPreset\(\);/);
+  assert.doesNotMatch(modal, /button\.dataset\.modalRange[\s\S]{0,260}#scheduleLoad\(\)/);
   assert.match(css, /resize:\s*both/);
   assert.match(css, /content-visibility:\s*auto/);
-  assert.match(html, /26-118-signal-lab-30d-history-v1/);
+  assert.match(html, /26-119-signal-lab-navigable-30d-v2/);
   assert.match(smoke, /SYNTHETIC_EPISODE/);
   assert.match(smoke, /openEpisodeChartModal/);
   assert.match(smoke, /rayAnnotationReady/);
