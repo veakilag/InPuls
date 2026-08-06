@@ -72,7 +72,7 @@ jobs:
           git rm scripts/apply-chart-interaction-performance.py
           git rm scripts/finalize-chart-performance-release.py
           if git ls-files --error-unmatch action-test-output.txt >/dev/null 2>&1; then
-            git rm action-test-output.txt
+            git rm -f action-test-output.txt
           else
             rm -f action-test-output.txt
           fi
