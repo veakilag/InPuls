@@ -6,6 +6,8 @@ on:
       - agent/chart-interaction-performance-v1
     paths:
       - .github/workflows/apply-chart-interaction-performance-v1.yml
+      - scripts/apply-chart-interaction-performance.py
+      - scripts/finalize-chart-performance-release.py
 
 permissions:
   contents: write
