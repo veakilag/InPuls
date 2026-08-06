@@ -1,0 +1,41 @@
+name: Validate structural review annotation tools
+
+on:
+  push:
+    branches:
+      - agent/signal-lab-structural-extremes-stage1
+    paths:
+      - .github/workflows/validate-structural-review-tools.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out draft branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: agent/signal-lab-structural-extremes-stage1
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Validate review runtime syntax
+        run: |
+          node --check owner-signal-lab-structural-extremes-review.js
+          node --check signal-lab-v7-structural-extremes.js
+          git diff --check origin/main...HEAD
+
+      - name: Run focused review and detector tests
+        run: node --test test/signal-lab-v7-structural-extremes-isolation.test.js test/signal-lab-v7-structural-extremes.test.js
+
+      - name: Run complete regression suite
+        run: npm test
