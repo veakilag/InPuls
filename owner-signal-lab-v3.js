@@ -7,7 +7,7 @@ import { mountEvidenceReplay } from "./signal-lab-v3-replay-ui.js?v=signal-lab-v
 import {
   openEpisodeChartModal,
   resetEpisodeChartModal,
-} from "./signal-lab-chart-modal.js?v=26-117-chart-interaction-performance-v1";
+} from "./signal-lab-chart-modal.js?v=26-118-signal-lab-30d-history-v1";
 import {
   buildCascadeCalibrationSample,
   CASCADE_CALIBRATION_CHECKS,
