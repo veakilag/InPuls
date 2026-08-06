@@ -67,3 +67,5 @@ jobs:
           git add -A
           git commit -m "Fix candle timeframe slots, 1m loading and review eraser"
           git push origin HEAD:agent/signal-lab-structural-extremes-stage1
+
+# trigger: 2026-08-06 candle-slot-eraser-v1
