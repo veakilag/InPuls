@@ -1,4 +1,4 @@
-export const STRUCTURAL_EXTREME_ALGORITHM_VERSION = "signal-lab-structural-extremes-stage1-v2-trader-calibrated-2026-08";
+export const STRUCTURAL_EXTREME_ALGORITHM_VERSION = "signal-lab-structural-extremes-stage1-v3-opposite-candidate-2026-08";
 
 export const STRUCTURAL_DIRECTIONS = Object.freeze({
   UNDEFINED: "UNDEFINED",
@@ -32,7 +32,9 @@ export const DEFAULT_STRUCTURAL_EXTREME_CONFIG = Object.freeze({
   minimumBarsAfterCandidate: 2,
   tickSizeBufferTicks: 3,
   crossingToleranceTicks: 1,
-  touchZoneTicks: 1,
+  touchZoneTicks: 2,
+  touchZoneFactor: 0.15,
+  maximumTouchZonePercent: 0.25,
   rearmDistanceFactor: 0.7,
   acceptanceBars: 2,
   rejectionBars: 3,
@@ -103,7 +105,9 @@ function mergeConfig(timeframe, config = {}) {
     )),
     tickSizeBufferTicks: Math.max(1, Math.round(finite(config.tickSizeBufferTicks) ?? DEFAULT_STRUCTURAL_EXTREME_CONFIG.tickSizeBufferTicks)),
     crossingToleranceTicks: Math.max(0, Math.round(finite(config.crossingToleranceTicks) ?? DEFAULT_STRUCTURAL_EXTREME_CONFIG.crossingToleranceTicks)),
-    touchZoneTicks: Math.max(0, Math.round(finite(config.touchZoneTicks) ?? DEFAULT_STRUCTURAL_EXTREME_CONFIG.touchZoneTicks)),
+    touchZoneTicks: Math.max(1, Math.round(finite(config.touchZoneTicks) ?? DEFAULT_STRUCTURAL_EXTREME_CONFIG.touchZoneTicks)),
+    touchZoneFactor: Math.max(0.01, finite(config.touchZoneFactor) ?? DEFAULT_STRUCTURAL_EXTREME_CONFIG.touchZoneFactor),
+    maximumTouchZonePercent: Math.max(0.01, finite(config.maximumTouchZonePercent) ?? DEFAULT_STRUCTURAL_EXTREME_CONFIG.maximumTouchZonePercent),
     rearmDistanceFactor: Math.max(0.1, finite(config.rearmDistanceFactor) ?? DEFAULT_STRUCTURAL_EXTREME_CONFIG.rearmDistanceFactor),
     acceptanceBars: Math.max(1, Math.round(finite(config.acceptanceBars) ?? DEFAULT_STRUCTURAL_EXTREME_CONFIG.acceptanceBars)),
     rejectionBars: Math.max(1, Math.round(finite(config.rejectionBars) ?? DEFAULT_STRUCTURAL_EXTREME_CONFIG.rejectionBars)),
@@ -151,9 +155,14 @@ function trueRange(candle, previousClose) {
 }
 
 function robustMean(values, trimFraction = 0.2) {
-  const clean = (Array.isArray(values) ? values : []).filter(Number.isFinite).sort((a, b) => a - b);
+  const clean = (Array.isArray(values) ? values : [])
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
   if (!clean.length) return null;
-  const trim = Math.min(Math.floor(clean.length * trimFraction), Math.max(0, Math.floor((clean.length - 1) / 2)));
+  const trim = Math.min(
+    Math.floor(clean.length * trimFraction),
+    Math.max(0, Math.floor((clean.length - 1) / 2)),
+  );
   const window = clean.slice(trim, clean.length - trim || clean.length);
   return window.reduce((sum, value) => sum + value, 0) / window.length;
 }
@@ -230,6 +239,7 @@ export class StructuralExtremeEngine {
     this.timeframeStrength = STRUCTURAL_TIMEFRAME_STRENGTH[this.timeframe];
     this.direction = STRUCTURAL_DIRECTIONS.UNDEFINED;
     this.candidate = null;
+    this.oppositeCandidate = null;
     this.bootstrap = null;
     this.movementStart = null;
     this.candles = [];
@@ -262,13 +272,11 @@ export class StructuralExtremeEngine {
     const candle = normalizeCandle(raw, this.intervalMs);
     if (!candle?.closed) return emitSnapshot ? this.snapshot() : null;
     if (this.lastCandleTime !== null && candle.time <= this.lastCandleTime) return emitSnapshot ? this.snapshot() : null;
-
     this.barIndex += 1;
     this.lastCandleTime = candle.time;
     this.candles.push(candle);
     const candleLimit = Math.max(this.config.atrPeriod + 8, 96);
     if (this.candles.length > candleLimit) this.candles.shift();
-
     this.#observeLifecycle(candle);
     if (this.direction === STRUCTURAL_DIRECTIONS.UNDEFINED) this.#bootstrapDirection(candle);
     else if (this.direction === STRUCTURAL_DIRECTIONS.TRACKING_UP) this.#advanceUp(candle);
@@ -278,12 +286,39 @@ export class StructuralExtremeEngine {
 
   #bootstrapDirection(candle) {
     if (!this.bootstrap) {
-      this.bootstrap = { anchorPrice: candle.close, anchorAt: candle.time, high: candle.high, highAt: candle.time, low: candle.low, lowAt: candle.time };
-      this.lastDiagnostic = this.#diagnostic({ candle, reason: "BOOTSTRAP_ANCHOR_CREATED", swingAmplitudePct: 0, reversalPct: 0, thresholdPct: this.#reversalThresholdPct(candle.close).thresholdPct });
+      this.bootstrap = {
+        anchorPrice: candle.close,
+        anchorAt: candle.time,
+        high: candle.high,
+        highAt: candle.time,
+        highCloseTime: candle.closeTime,
+        highBarIndex: this.barIndex,
+        low: candle.low,
+        lowAt: candle.time,
+        lowCloseTime: candle.closeTime,
+        lowBarIndex: this.barIndex,
+      };
+      this.lastDiagnostic = this.#diagnostic({
+        candle,
+        reason: "BOOTSTRAP_ANCHOR_CREATED",
+        swingAmplitudePct: 0,
+        reversalPct: 0,
+        thresholdPct: this.#reversalThresholdPct(candle.close).thresholdPct,
+      });
       return;
     }
-    if (candle.high > this.bootstrap.high) { this.bootstrap.high = candle.high; this.bootstrap.highAt = candle.time; }
-    if (candle.low < this.bootstrap.low) { this.bootstrap.low = candle.low; this.bootstrap.lowAt = candle.time; }
+    if (candle.high > this.bootstrap.high) {
+      this.bootstrap.high = candle.high;
+      this.bootstrap.highAt = candle.time;
+      this.bootstrap.highCloseTime = candle.closeTime;
+      this.bootstrap.highBarIndex = this.barIndex;
+    }
+    if (candle.low < this.bootstrap.low) {
+      this.bootstrap.low = candle.low;
+      this.bootstrap.lowAt = candle.time;
+      this.bootstrap.lowCloseTime = candle.closeTime;
+      this.bootstrap.lowBarIndex = this.barIndex;
+    }
     const upAmplitude = percentDistance(this.bootstrap.low, this.bootstrap.high);
     const downAmplitude = percentDistance(this.bootstrap.high, this.bootstrap.low);
     const upOrdered = this.bootstrap.highAt >= this.bootstrap.lowAt;
@@ -291,38 +326,90 @@ export class StructuralExtremeEngine {
     if (upOrdered && upAmplitude >= this.config.minimumSwingPercent) {
       this.direction = STRUCTURAL_DIRECTIONS.TRACKING_UP;
       this.movementStart = { side: "LOW", price: this.bootstrap.low, at: this.bootstrap.lowAt, extremeId: null };
-      this.candidate = makeCandidate("HIGH", this.bootstrap.high, toTicks(this.bootstrap.high, this.tickSize), { ...candle, time: this.bootstrap.highAt }, this.barIndex);
+      this.candidate = makeCandidate(
+        "HIGH",
+        this.bootstrap.high,
+        toTicks(this.bootstrap.high, this.tickSize),
+        { time: this.bootstrap.highAt, closeTime: this.bootstrap.highCloseTime },
+        this.bootstrap.highBarIndex,
+      );
+      this.oppositeCandidate = null;
       this.eventLog.push(eventRecord("DIRECTION_DEFINED", candle.closeTime, { direction: this.direction, candidatePrice: this.candidate.price }));
-      this.lastDiagnostic = this.#diagnostic({ candle, reason: "DIRECTION_DEFINED_UP", swingAmplitudePct: upAmplitude, reversalPct: percentDistance(this.candidate.price, candle.close), thresholdPct: this.#reversalThresholdPct(this.candidate.price).thresholdPct });
+      this.lastDiagnostic = this.#diagnostic({
+        candle,
+        reason: "DIRECTION_DEFINED_UP",
+        swingAmplitudePct: upAmplitude,
+        reversalPct: percentDistance(this.candidate.price, candle.close),
+        thresholdPct: this.#reversalThresholdPct(this.candidate.price).thresholdPct,
+      });
       this.bootstrap = null;
       return;
     }
     if (downOrdered && downAmplitude >= this.config.minimumSwingPercent) {
       this.direction = STRUCTURAL_DIRECTIONS.TRACKING_DOWN;
       this.movementStart = { side: "HIGH", price: this.bootstrap.high, at: this.bootstrap.highAt, extremeId: null };
-      this.candidate = makeCandidate("LOW", this.bootstrap.low, toTicks(this.bootstrap.low, this.tickSize), { ...candle, time: this.bootstrap.lowAt }, this.barIndex);
+      this.candidate = makeCandidate(
+        "LOW",
+        this.bootstrap.low,
+        toTicks(this.bootstrap.low, this.tickSize),
+        { time: this.bootstrap.lowAt, closeTime: this.bootstrap.lowCloseTime },
+        this.bootstrap.lowBarIndex,
+      );
+      this.oppositeCandidate = null;
       this.eventLog.push(eventRecord("DIRECTION_DEFINED", candle.closeTime, { direction: this.direction, candidatePrice: this.candidate.price }));
-      this.lastDiagnostic = this.#diagnostic({ candle, reason: "DIRECTION_DEFINED_DOWN", swingAmplitudePct: downAmplitude, reversalPct: percentDistance(this.candidate.price, candle.close), thresholdPct: this.#reversalThresholdPct(this.candidate.price).thresholdPct });
+      this.lastDiagnostic = this.#diagnostic({
+        candle,
+        reason: "DIRECTION_DEFINED_DOWN",
+        swingAmplitudePct: downAmplitude,
+        reversalPct: percentDistance(this.candidate.price, candle.close),
+        thresholdPct: this.#reversalThresholdPct(this.candidate.price).thresholdPct,
+      });
       this.bootstrap = null;
       return;
     }
-    this.lastDiagnostic = this.#diagnostic({ candle, reason: "WAITING_SIGNIFICANT_BOOTSTRAP_MOVE", swingAmplitudePct: Math.max(upAmplitude, downAmplitude), reversalPct: 0, thresholdPct: this.config.minimumSwingPercent });
+    this.lastDiagnostic = this.#diagnostic({
+      candle,
+      reason: "WAITING_SIGNIFICANT_BOOTSTRAP_MOVE",
+      swingAmplitudePct: Math.max(upAmplitude, downAmplitude),
+      reversalPct: 0,
+      thresholdPct: this.config.minimumSwingPercent,
+    });
   }
 
   #advanceUp(candle) {
     const highTicks = toTicks(candle.high, this.tickSize);
     if (!this.candidate) {
       this.candidate = makeCandidate("HIGH", candle.high, highTicks, candle, this.barIndex);
-      this.lastDiagnostic = this.#diagnostic({ candle, reason: "HIGH_CANDIDATE_CREATED", swingAmplitudePct: this.#swingAmplitudePct(this.candidate.price), reversalPct: 0, thresholdPct: this.#reversalThresholdPct(this.candidate.price).thresholdPct });
+      this.oppositeCandidate = null;
+      this.lastDiagnostic = this.#diagnostic({
+        candle,
+        reason: "HIGH_CANDIDATE_CREATED",
+        swingAmplitudePct: this.#swingAmplitudePct(this.candidate.price),
+        reversalPct: 0,
+        thresholdPct: this.#reversalThresholdPct(this.candidate.price).thresholdPct,
+      });
       return;
     }
     if (highTicks > this.candidate.priceTicks) {
       const previousPrice = this.candidate.price;
       this.candidate = { ...makeCandidate("HIGH", candle.high, highTicks, candle, this.barIndex), movedCount: this.candidate.movedCount + 1 };
-      this.eventLog.push(eventRecord("CANDIDATE_MOVED", candle.closeTime, { side: "HIGH", fromPrice: previousPrice, toPrice: this.candidate.price, extremeAt: this.candidate.extremeAt }));
-      this.lastDiagnostic = this.#diagnostic({ candle, reason: "HIGH_CANDIDATE_MOVED", swingAmplitudePct: this.#swingAmplitudePct(this.candidate.price), reversalPct: percentDistance(this.candidate.price, candle.close), thresholdPct: this.#reversalThresholdPct(this.candidate.price).thresholdPct });
+      this.oppositeCandidate = null;
+      this.eventLog.push(eventRecord("CANDIDATE_MOVED", candle.closeTime, {
+        side: "HIGH",
+        fromPrice: previousPrice,
+        toPrice: this.candidate.price,
+        extremeAt: this.candidate.extremeAt,
+      }));
+      this.lastDiagnostic = this.#diagnostic({
+        candle,
+        reason: "HIGH_CANDIDATE_MOVED",
+        swingAmplitudePct: this.#swingAmplitudePct(this.candidate.price),
+        reversalPct: percentDistance(this.candidate.price, candle.close),
+        thresholdPct: this.#reversalThresholdPct(this.candidate.price).thresholdPct,
+      });
       return;
     }
+    this.#updateOppositeCandidate("LOW", candle);
     const threshold = this.#reversalThresholdPct(this.candidate.price);
     const confirmationPrice = this.config.confirmationSource === "wick" ? candle.low : candle.close;
     const reversalPct = Math.max(0, (this.candidate.price - confirmationPrice) / this.candidate.price * 100);
@@ -333,20 +420,57 @@ export class StructuralExtremeEngine {
     const lowTicks = toTicks(candle.low, this.tickSize);
     if (!this.candidate) {
       this.candidate = makeCandidate("LOW", candle.low, lowTicks, candle, this.barIndex);
-      this.lastDiagnostic = this.#diagnostic({ candle, reason: "LOW_CANDIDATE_CREATED", swingAmplitudePct: this.#swingAmplitudePct(this.candidate.price), reversalPct: 0, thresholdPct: this.#reversalThresholdPct(this.candidate.price).thresholdPct });
+      this.oppositeCandidate = null;
+      this.lastDiagnostic = this.#diagnostic({
+        candle,
+        reason: "LOW_CANDIDATE_CREATED",
+        swingAmplitudePct: this.#swingAmplitudePct(this.candidate.price),
+        reversalPct: 0,
+        thresholdPct: this.#reversalThresholdPct(this.candidate.price).thresholdPct,
+      });
       return;
     }
     if (lowTicks < this.candidate.priceTicks) {
       const previousPrice = this.candidate.price;
       this.candidate = { ...makeCandidate("LOW", candle.low, lowTicks, candle, this.barIndex), movedCount: this.candidate.movedCount + 1 };
-      this.eventLog.push(eventRecord("CANDIDATE_MOVED", candle.closeTime, { side: "LOW", fromPrice: previousPrice, toPrice: this.candidate.price, extremeAt: this.candidate.extremeAt }));
-      this.lastDiagnostic = this.#diagnostic({ candle, reason: "LOW_CANDIDATE_MOVED", swingAmplitudePct: this.#swingAmplitudePct(this.candidate.price), reversalPct: percentDistance(this.candidate.price, candle.close), thresholdPct: this.#reversalThresholdPct(this.candidate.price).thresholdPct });
+      this.oppositeCandidate = null;
+      this.eventLog.push(eventRecord("CANDIDATE_MOVED", candle.closeTime, {
+        side: "LOW",
+        fromPrice: previousPrice,
+        toPrice: this.candidate.price,
+        extremeAt: this.candidate.extremeAt,
+      }));
+      this.lastDiagnostic = this.#diagnostic({
+        candle,
+        reason: "LOW_CANDIDATE_MOVED",
+        swingAmplitudePct: this.#swingAmplitudePct(this.candidate.price),
+        reversalPct: percentDistance(this.candidate.price, candle.close),
+        thresholdPct: this.#reversalThresholdPct(this.candidate.price).thresholdPct,
+      });
       return;
     }
+    this.#updateOppositeCandidate("HIGH", candle);
     const threshold = this.#reversalThresholdPct(this.candidate.price);
     const confirmationPrice = this.config.confirmationSource === "wick" ? candle.high : candle.close;
     const reversalPct = Math.max(0, (confirmationPrice - this.candidate.price) / this.candidate.price * 100);
     this.#tryConfirm("LOW", candle, reversalPct, threshold);
+  }
+
+  #updateOppositeCandidate(side, candle) {
+    if (!this.candidate || this.barIndex <= this.candidate.barIndex) return;
+    const price = side === "LOW" ? candle.low : candle.high;
+    const priceTicks = toTicks(price, this.tickSize);
+    const shouldReplace = !this.oppositeCandidate
+      || (side === "LOW" && priceTicks < this.oppositeCandidate.priceTicks)
+      || (side === "HIGH" && priceTicks > this.oppositeCandidate.priceTicks);
+    if (!shouldReplace) return;
+    const previousPrice = this.oppositeCandidate?.price ?? null;
+    this.oppositeCandidate = makeCandidate(side, price, priceTicks, candle, this.barIndex);
+    this.eventLog.push(eventRecord(
+      previousPrice === null ? "OPPOSITE_CANDIDATE_CREATED" : "OPPOSITE_CANDIDATE_MOVED",
+      candle.closeTime,
+      { side, fromPrice: previousPrice, toPrice: price, extremeAt: candle.time },
+    ));
   }
 
   #tryConfirm(side, candle, reversalPct, threshold) {
@@ -404,6 +528,7 @@ export class StructuralExtremeEngine {
         candidateMovedCount: source.movedCount,
         barsAfterCandidate: this.barIndex - source.barIndex,
         confirmationSource: this.config.confirmationSource,
+        oppositeCandidatePreserved: Boolean(this.oppositeCandidate),
       },
       attackState: "AWAY",
       rearmed: false,
@@ -413,22 +538,45 @@ export class StructuralExtremeEngine {
     this.extremes.push(row);
     if (this.extremes.length > this.config.historyLimit) {
       const removed = this.extremes.shift();
-      if (removed) { this.extremeById.delete(removed.id); this.activeExtremeIds.delete(removed.id); }
+      if (removed) {
+        this.extremeById.delete(removed.id);
+        this.activeExtremeIds.delete(removed.id);
+      }
     }
     this.extremeById.set(id, row);
     this.activeExtremeIds.add(id);
-    if (side === "HIGH") this.lastConfirmedHighId = id; else this.lastConfirmedLowId = id;
-    this.eventLog.push(eventRecord("EXTREME_CONFIRMED", confirmationCandle.closeTime, { extremeId: id, side, price: row.price, extremeAt: row.extremeAt, confirmedAt: row.confirmedAt }));
-    this.lastDiagnostic = this.#diagnostic({ candle: confirmationCandle, reason: row.diagnostic.reason, swingAmplitudePct: row.swingAmplitudePct, reversalPct: row.confirmingReversalPct, thresholdPct: row.reversalThresholdPct, confirmedExtremeId: row.id });
+    if (side === "HIGH") this.lastConfirmedHighId = id;
+    else this.lastConfirmedLowId = id;
+    this.eventLog.push(eventRecord("EXTREME_CONFIRMED", confirmationCandle.closeTime, {
+      extremeId: id,
+      side,
+      price: row.price,
+      extremeAt: row.extremeAt,
+      confirmedAt: row.confirmedAt,
+    }));
+    this.lastDiagnostic = this.#diagnostic({
+      candle: confirmationCandle,
+      reason: row.diagnostic.reason,
+      swingAmplitudePct: row.swingAmplitudePct,
+      reversalPct: row.confirmingReversalPct,
+      thresholdPct: row.reversalThresholdPct,
+      confirmedExtremeId: row.id,
+    });
+    const preservedOpposite = this.oppositeCandidate;
     if (side === "HIGH") {
       this.direction = STRUCTURAL_DIRECTIONS.TRACKING_DOWN;
       this.movementStart = { side: "HIGH", price: row.price, at: row.extremeAt, extremeId: row.id };
-      this.candidate = makeCandidate("LOW", confirmationCandle.low, toTicks(confirmationCandle.low, this.tickSize), confirmationCandle, this.barIndex);
+      this.candidate = preservedOpposite?.side === "LOW"
+        ? { ...preservedOpposite }
+        : makeCandidate("LOW", confirmationCandle.low, toTicks(confirmationCandle.low, this.tickSize), confirmationCandle, this.barIndex);
     } else {
       this.direction = STRUCTURAL_DIRECTIONS.TRACKING_UP;
       this.movementStart = { side: "LOW", price: row.price, at: row.extremeAt, extremeId: row.id };
-      this.candidate = makeCandidate("HIGH", confirmationCandle.high, toTicks(confirmationCandle.high, this.tickSize), confirmationCandle, this.barIndex);
+      this.candidate = preservedOpposite?.side === "HIGH"
+        ? { ...preservedOpposite }
+        : makeCandidate("HIGH", confirmationCandle.high, toTicks(confirmationCandle.high, this.tickSize), confirmationCandle, this.barIndex);
     }
+    this.oppositeCandidate = null;
     return row;
   }
 
@@ -437,11 +585,14 @@ export class StructuralExtremeEngine {
     const highTicks = toTicks(candle.high, this.tickSize);
     const closeTicks = toTicks(candle.close, this.tickSize);
     const tolerance = this.config.crossingToleranceTicks;
-    const touchZone = Math.max(tolerance, this.config.touchZoneTicks);
     for (const row of this.extremes) {
       if (row.status === STRUCTURAL_EXTREME_STATUSES.CROSSED) {
-        const beyond = row.side === "HIGH" ? closeTicks > row.normalizedPrice + tolerance : closeTicks < row.normalizedPrice - tolerance;
-        const returned = row.side === "HIGH" ? closeTicks <= row.normalizedPrice - tolerance : closeTicks >= row.normalizedPrice + tolerance;
+        const beyond = row.side === "HIGH"
+          ? closeTicks > row.normalizedPrice + tolerance
+          : closeTicks < row.normalizedPrice - tolerance;
+        const returned = row.side === "HIGH"
+          ? closeTicks <= row.normalizedPrice - tolerance
+          : closeTicks >= row.normalizedPrice + tolerance;
         row.acceptanceCount = beyond ? row.acceptanceCount + 1 : 0;
         if (row.acceptanceCount >= this.config.acceptanceBars) {
           row.status = STRUCTURAL_EXTREME_STATUSES.ACCEPTED;
@@ -455,7 +606,9 @@ export class StructuralExtremeEngine {
         continue;
       }
       if (!row.active) continue;
-      const crossed = row.side === "HIGH" ? highTicks > row.normalizedPrice + tolerance : lowTicks < row.normalizedPrice - tolerance;
+      const crossed = row.side === "HIGH"
+        ? highTicks > row.normalizedPrice + tolerance
+        : lowTicks < row.normalizedPrice - tolerance;
       if (crossed) {
         row.active = false;
         row.status = STRUCTURAL_EXTREME_STATUSES.CROSSED;
@@ -466,7 +619,16 @@ export class StructuralExtremeEngine {
         this.eventLog.push(eventRecord("EXTREME_CROSSED", candle.closeTime, { extremeId: row.id, side: row.side, price: row.price }));
         continue;
       }
-      const touchesZone = row.side === "HIGH" ? highTicks >= row.normalizedPrice - touchZone : lowTicks <= row.normalizedPrice + touchZone;
+      const tickZonePct = this.tickSize * this.config.touchZoneTicks / row.price * 100;
+      const adaptiveZonePct = Math.min(
+        this.config.maximumTouchZonePercent,
+        Math.max(this.config.minimumPercent, row.reversalThresholdPct ?? this.config.minimumPercent) * this.config.touchZoneFactor,
+      );
+      const touchZonePct = Math.max(tickZonePct, adaptiveZonePct);
+      const touchZonePrice = row.price * touchZonePct / 100;
+      const touchesZone = row.side === "HIGH"
+        ? candle.high >= row.price - touchZonePrice
+        : candle.low <= row.price + touchZonePrice;
       if (touchesZone) {
         if (row.attackState !== "IN_ZONE") {
           if (row.rearmed && candle.closeTime > row.confirmedAt) {
@@ -477,13 +639,15 @@ export class StructuralExtremeEngine {
           row.attackState = "IN_ZONE";
           row.rearmed = false;
         }
-      } else {
-        row.attackState = "AWAY";
-        const thresholdPct = Math.max(this.config.minimumPercent, row.reversalThresholdPct ?? this.config.minimumPercent);
-        const rearmPct = thresholdPct * this.config.rearmDistanceFactor;
-        const distancePct = row.side === "HIGH" ? Math.max(0, (row.price - candle.close) / row.price * 100) : Math.max(0, (candle.close - row.price) / row.price * 100);
-        if (distancePct >= rearmPct) row.rearmed = true;
+        continue;
       }
+      row.attackState = "AWAY";
+      const thresholdPct = Math.max(this.config.minimumPercent, row.reversalThresholdPct ?? this.config.minimumPercent);
+      const rearmPct = Math.max(touchZonePct * 2, thresholdPct * this.config.rearmDistanceFactor);
+      const distancePct = row.side === "HIGH"
+        ? Math.max(0, (row.price - candle.close) / row.price * 100)
+        : Math.max(0, (candle.close - row.price) / row.price * 100);
+      if (distancePct >= rearmPct) row.rearmed = true;
     }
   }
 
@@ -492,7 +656,9 @@ export class StructuralExtremeEngine {
     const atrPercent = structuralAtrPercent(this.candles, this.config.atrPeriod, this.config.atrTrimFraction) ?? 0;
     const rawAtrComponent = atrPercent * this.config.atrMultiplier;
     const cappedAtrComponent = Math.min(this.config.maximumPercent, rawAtrComponent);
-    const tickSizeBufferPercent = candidatePrice > 0 ? this.tickSize * this.config.tickSizeBufferTicks / candidatePrice * 100 : 0;
+    const tickSizeBufferPercent = candidatePrice > 0
+      ? this.tickSize * this.config.tickSizeBufferTicks / candidatePrice * 100
+      : 0;
     return {
       thresholdPct: Math.max(this.config.minimumPercent, cappedAtrComponent, tickSizeBufferPercent),
       atr,
@@ -510,13 +676,20 @@ export class StructuralExtremeEngine {
   }
 
   #diagnostic({ candle, reason, swingAmplitudePct, reversalPct, thresholdPct, confirmedExtremeId = null }) {
-    const previousOppositeId = this.direction === STRUCTURAL_DIRECTIONS.TRACKING_UP ? this.lastConfirmedLowId : this.direction === STRUCTURAL_DIRECTIONS.TRACKING_DOWN ? this.lastConfirmedHighId : null;
-    const threshold = this.candidate ? this.#reversalThresholdPct(this.candidate.price) : this.#reversalThresholdPct(candle?.close ?? 1);
+    const previousOppositeId = this.direction === STRUCTURAL_DIRECTIONS.TRACKING_UP
+      ? this.lastConfirmedLowId
+      : this.direction === STRUCTURAL_DIRECTIONS.TRACKING_DOWN
+        ? this.lastConfirmedHighId
+        : null;
+    const threshold = this.candidate
+      ? this.#reversalThresholdPct(this.candidate.price)
+      : this.#reversalThresholdPct(candle?.close ?? 1);
     return Object.freeze({
       at: candle?.closeTime ?? null,
       candleTime: candle?.time ?? null,
       direction: this.direction,
       candidate: candidatePublic(this.candidate),
+      oppositeCandidate: candidatePublic(this.oppositeCandidate),
       previousOppositeExtremeId: previousOppositeId,
       movementStart: this.movementStart ? { ...this.movementStart } : null,
       timeframeStrength: { ...this.timeframeStrength },
@@ -537,6 +710,9 @@ export class StructuralExtremeEngine {
         confirmationSource: this.config.confirmationSource,
         tickSizeBufferTicks: this.config.tickSizeBufferTicks,
         crossingToleranceTicks: this.config.crossingToleranceTicks,
+        touchZoneTicks: this.config.touchZoneTicks,
+        touchZoneFactor: this.config.touchZoneFactor,
+        maximumTouchZonePercent: this.config.maximumTouchZonePercent,
       },
       reason,
       confirmedExtremeId,
@@ -544,12 +720,15 @@ export class StructuralExtremeEngine {
   }
 
   activeExtremes(side = null) {
-    return [...this.activeExtremeIds].map((id) => this.extremeById.get(id)).filter((row) => row?.active && (!side || row.side === side)).map(extremePublic);
+    return [...this.activeExtremeIds]
+      .map((id) => this.extremeById.get(id))
+      .filter((row) => row?.active && (!side || row.side === side))
+      .map(extremePublic);
   }
 
   snapshot({ includeHistory = true, includeEvents = true } = {}) {
     return Object.freeze({
-      schemaVersion: 2,
+      schemaVersion: 3,
       entity: "SignalLabStructuralExtremeMap",
       algorithmVersion: STRUCTURAL_EXTREME_ALGORITHM_VERSION,
       symbol: this.symbol,
@@ -558,7 +737,14 @@ export class StructuralExtremeEngine {
       tickSize: this.tickSize,
       direction: this.direction,
       candidate: candidatePublic(this.candidate),
-      previousConfirmedOpposite: extremePublic(this.extremeById.get(this.direction === STRUCTURAL_DIRECTIONS.TRACKING_UP ? this.lastConfirmedLowId : this.lastConfirmedHighId)),
+      oppositeCandidate: candidatePublic(this.oppositeCandidate),
+      previousConfirmedOpposite: extremePublic(
+        this.extremeById.get(
+          this.direction === STRUCTURAL_DIRECTIONS.TRACKING_UP
+            ? this.lastConfirmedLowId
+            : this.lastConfirmedHighId,
+        ),
+      ),
       active: Object.freeze(this.activeExtremes()),
       history: Object.freeze(includeHistory ? this.extremes.map(extremePublic) : []),
       diagnostics: this.lastDiagnostic,
@@ -577,6 +763,7 @@ export class StructuralExtremeEngine {
       config: this.config,
       direction: this.direction,
       candidate: this.candidate,
+      oppositeCandidate: this.oppositeCandidate,
       bootstrap: this.bootstrap,
       movementStart: this.movementStart,
       candles: this.candles,
@@ -596,6 +783,7 @@ export class StructuralExtremeEngine {
     if (state.symbol !== this.symbol || state.timeframe !== this.timeframe) throw new Error("Restored state belongs to another symbol or timeframe");
     this.direction = state.direction;
     this.candidate = clone(state.candidate);
+    this.oppositeCandidate = clone(state.oppositeCandidate);
     this.bootstrap = clone(state.bootstrap);
     this.movementStart = clone(state.movementStart);
     this.candles = clone(state.candles ?? []);
@@ -611,24 +799,49 @@ export class StructuralExtremeEngine {
   }
 
   static restore(state) {
-    return new StructuralExtremeEngine({ symbol: state?.symbol, timeframe: state?.timeframe, tickSize: state?.tickSize, config: state?.config, restoredState: state });
+    return new StructuralExtremeEngine({
+      symbol: state?.symbol,
+      timeframe: state?.timeframe,
+      tickSize: state?.tickSize,
+      config: state?.config,
+      restoredState: state,
+    });
   }
 }
 
 export class StructuralExtremeRegistry {
-  constructor({ config = {} } = {}) { this.config = config; this.engines = new Map(); }
-  #key(symbol, timeframe) { return `${normalizeSymbol(symbol)}:${timeframe}`; }
+  constructor({ config = {} } = {}) {
+    this.config = config;
+    this.engines = new Map();
+  }
+
+  #key(symbol, timeframe) {
+    return `${normalizeSymbol(symbol)}:${timeframe}`;
+  }
+
   engine(symbol, timeframe, tickSize) {
     const normalizedSymbol = normalizeSymbol(symbol);
     const normalizedTimeframe = normalizeTimeframe(timeframe);
     if (!normalizedSymbol || !normalizedTimeframe || !(finite(tickSize) > 0)) return null;
     const key = this.#key(normalizedSymbol, normalizedTimeframe);
     if (!this.engines.has(key)) {
-      this.engines.set(key, new StructuralExtremeEngine({ symbol: normalizedSymbol, timeframe: normalizedTimeframe, tickSize, config: { ...(this.config.common ?? {}), ...(this.config.timeframes?.[normalizedTimeframe] ?? {}) } }));
+      this.engines.set(key, new StructuralExtremeEngine({
+        symbol: normalizedSymbol,
+        timeframe: normalizedTimeframe,
+        tickSize,
+        config: {
+          ...(this.config.common ?? {}),
+          ...(this.config.timeframes?.[normalizedTimeframe] ?? {}),
+        },
+      }));
     }
     return this.engines.get(key);
   }
-  ingest(symbol, timeframe, tickSize, candles, options = {}) { return this.engine(symbol, timeframe, tickSize)?.ingestCandles(candles, options) ?? null; }
+
+  ingest(symbol, timeframe, tickSize, candles, options = {}) {
+    return this.engine(symbol, timeframe, tickSize)?.ingestCandles(candles, options) ?? null;
+  }
+
   snapshot(symbol) {
     const normalized = normalizeSymbol(symbol);
     if (!normalized) return null;
@@ -637,7 +850,13 @@ export class StructuralExtremeRegistry {
       const engine = this.engines.get(this.#key(normalized, timeframe));
       if (engine) timeframes[timeframe] = engine.snapshot();
     }
-    return Object.freeze({ schemaVersion: 2, entity: "SignalLabMultiTimeframeStructuralExtremeMap", algorithmVersion: STRUCTURAL_EXTREME_ALGORITHM_VERSION, symbol: normalized, timeframes: Object.freeze(timeframes) });
+    return Object.freeze({
+      schemaVersion: 3,
+      entity: "SignalLabMultiTimeframeStructuralExtremeMap",
+      algorithmVersion: STRUCTURAL_EXTREME_ALGORITHM_VERSION,
+      symbol: normalized,
+      timeframes: Object.freeze(timeframes),
+    });
   }
 }
 
@@ -645,5 +864,9 @@ export function replayStructuralExtremes(options, candles) {
   const engine = new StructuralExtremeEngine(options);
   const steps = [];
   for (const candle of Array.isArray(candles) ? candles : []) steps.push(engine.ingestCandle(candle));
-  return Object.freeze({ steps: Object.freeze(steps), final: engine.snapshot(), serializedState: engine.serialize() });
+  return Object.freeze({
+    steps: Object.freeze(steps),
+    final: engine.snapshot(),
+    serializedState: engine.serialize(),
+  });
 }
