@@ -79,10 +79,54 @@ test("cascade annotations label staircase extrema as highs or lows", () => {
     evidencePack: { window: { eventAt: 90_000 }, pricePoints: [] },
   });
   assert.deepEqual(
-    annotations.filter((row) => row.type === "point").map((row) => row.label),
+    annotations.filter((row) => row.type === "ray").map((row) => row.label),
     ["H1", "H2", "H3"],
   );
+  assert.deepEqual(
+    annotations.filter((row) => row.type === "ray").map((row) => row.startAt),
+    [10_000, 40_000, 70_000],
+  );
   assert.equal(annotations.filter((row) => row.type === "segment").length, 2);
+});
+
+test("active extrema remain rays even when canonical zones are present", () => {
+  const annotations = buildPatternAnnotations({
+    id: "RAYS",
+    symbol: "TESTUSDT",
+    candidateType: "cascade_breakout",
+    firstSeenAt: 120_000,
+    latest: { price: 100 },
+    evidencePack: {
+      window: { eventAt: 120_000 },
+      extremeMap: {
+        timeframes: {
+          "1m": { active: [
+            { side: "HIGH", price: 101, extremeTime: 30_000, confirmedAt: 60_000, touchCount: 2 },
+            { side: "LOW", price: 99, extremeTime: 40_000, confirmedAt: 70_000, touchCount: 1 },
+          ] },
+          "5m": { active: [
+            { side: "HIGH", price: 101.00005, extremeTime: 30_000, confirmedAt: 60_000, touchCount: 2 },
+          ] },
+        },
+      },
+      levelMapLatest: {
+        activeZones: [{
+          side: "HIGH",
+          lowerPrice: 100.95,
+          upperPrice: 101.05,
+          firstFormedAt: 30_000,
+          touchCount: 2,
+          timeframes: ["1m", "5m"],
+        }],
+      },
+    },
+  });
+  const rays = annotations.filter((row) => row.type === "ray");
+  assert.equal(rays.length, 2);
+  assert.deepEqual(rays.map((row) => row.startAt).sort((a, b) => a - b), [30_000, 40_000]);
+  assert.ok(rays.some((row) => row.label === "H 1m/5m ×2" && row.price === 101.00005));
+  assert.ok(rays.some((row) => row.label === "L 1m ×1" && row.price === 99));
+  assert.ok(annotations.some((row) => row.type === "zone" && /H зона/.test(row.label)));
 });
 
 test("memory store clear removes episodes, reviews and evidence together", async () => {
@@ -135,6 +179,8 @@ test("shared InPuls chart engine owns passive pattern annotations", async () => 
   assert.match(source, /#drawAnnotations\(ctx\)/);
   assert.match(source, /annotation\.type === "zone"/);
   assert.match(source, /annotation\.type === "point"/);
+  assert.match(source, /annotations\.filter\(\(item\) => item\.type === "ray"\)/);
+  assert.match(source, /ctx\.lineTo\(endX, y\)/);
 });
 
 
