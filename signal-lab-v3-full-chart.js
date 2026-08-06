@@ -1,4 +1,4 @@
-import { CandlestickChart } from "./chart.js?v=signal-lab-v9-extreme-rays";
+import { CandlestickChart } from "./chart.js?v=26-117-chart-interaction-performance-v1";
 
 const KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
 

@@ -19,7 +19,7 @@ test("Signal Lab opens one shared chart modal instead of chart instances inside 
   assert.match(modal, /data-modal-maximize/);
   assert.match(css, /resize:\s*both/);
   assert.match(css, /content-visibility:\s*auto/);
-  assert.match(html, /signal-lab-v9-extreme-rays/);
+  assert.match(html, /26-117-chart-interaction-performance-v1/);
   assert.match(smoke, /SYNTHETIC_EPISODE/);
   assert.match(smoke, /openEpisodeChartModal/);
   assert.match(smoke, /rayAnnotationReady/);

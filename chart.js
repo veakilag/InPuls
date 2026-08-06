@@ -501,6 +501,7 @@ export class CandlestickChart {
     this.activeTool = null;
     this.drawings = [];
     this.annotations = [];
+    this.annotationBuckets = { zone: [], line: [], ray: [], segment: [], event: [], point: [] };
     this.storageKey = storageKey;
     this.drawingStore = this.#loadDrawingStore();
     this.viewportStore = this.#loadViewportStore();
@@ -529,6 +530,9 @@ export class CandlestickChart {
     };
     this.drag = null;
     this.renderFrame = null;
+    this.viewportPersistTimer = null;
+    this.wheelIdleTimer = null;
+    this.wheelActive = false;
     this.resizeObserver = new ResizeObserver(() => this.#requestRender());
     this.resizeObserver.observe(canvas.parentElement);
     canvas.addEventListener("pointermove", (event) => this.#handlePointer(event));
@@ -690,6 +694,14 @@ export class CandlestickChart {
     try { localStorage.setItem(`${this.storageKey}-viewport`, JSON.stringify(Object.fromEntries(this.viewportStore))); } catch {}
   }
 
+  #scheduleViewportPersist(delay = 180) {
+    clearTimeout(this.viewportPersistTimer);
+    this.viewportPersistTimer = setTimeout(() => {
+      this.viewportPersistTimer = null;
+      this.#persistViewport();
+    }, delay);
+  }
+
   #persistDrawings() {
     if (this.drawingSymbol) this.drawingStore.set(this.drawingSymbol, this.drawings.map((item) => structuredClone(item)));
     if (!this.storageKey || typeof localStorage === "undefined") return;
@@ -699,9 +711,14 @@ export class CandlestickChart {
   }
 
   setAnnotations(annotations = []) {
-    this.annotations = (Array.isArray(annotations) ? annotations : [])
-      .filter((item) => item && typeof item === "object")
-      .map((item) => typeof structuredClone === "function" ? structuredClone(item) : JSON.parse(JSON.stringify(item)));
+    const next = (Array.isArray(annotations) ? annotations : [])
+      .filter((item) => item && typeof item === "object");
+    const buckets = { zone: [], line: [], ray: [], segment: [], event: [], point: [] };
+    for (const annotation of next) {
+      if (buckets[annotation.type]) buckets[annotation.type].push(annotation);
+    }
+    this.annotations = next;
+    this.annotationBuckets = buckets;
     this.#requestRender();
   }
 
@@ -715,7 +732,12 @@ export class CandlestickChart {
     this.#persistViewport();
     this.resizeObserver.disconnect();
     if (this.renderFrame !== null) cancelAnimationFrame(this.renderFrame);
+    clearTimeout(this.viewportPersistTimer);
+    clearTimeout(this.wheelIdleTimer);
     this.renderFrame = null;
+    this.viewportPersistTimer = null;
+    this.wheelIdleTimer = null;
+    this.wheelActive = false;
     this.drag = null;
     window.removeEventListener("keydown", this.keyHandler, true);
     window.removeEventListener("keyup", this.keyUpHandler, true);
@@ -820,8 +842,15 @@ export class CandlestickChart {
       return;
     }
 
-    const rawMin = Math.min(...visible.map((item) => item.low));
-    const rawMax = Math.max(...visible.map((item) => item.high));
+    const displayCandles = visible;
+    let rawMin = Infinity;
+    let rawMax = -Infinity;
+    let maxVolume = 1;
+    for (const candle of displayCandles) {
+      if (candle.low < rawMin) rawMin = candle.low;
+      if (candle.high > rawMax) rawMax = candle.high;
+      if (candle.volume > maxVolume) maxVolume = candle.volume;
+    }
     const priceSpan = rawMax - rawMin || rawMax * 0.001 || 1;
     const centeredMarketPrice = this.followLatest && this.centerLatest && Number.isFinite(this.candles.at(-1)?.close)
       ? this.candles.at(-1).close
@@ -835,14 +864,18 @@ export class CandlestickChart {
     // Never merge exchange candles into screen buckets. Bucket boundaries changed
     // after a one-pixel pan and made the same place appear to have different OHLC.
     // The zoom-out limit above guarantees a distinct screen slot for every candle.
-    const displayCandles = visible;
-    const maxVolume = Math.max(...displayCandles.map((item) => item.volume), 1);
     const step = plotWidth / this.visibleCount;
     const y = (price) => margins.top + ((maxPrice - price) / (maxPrice - minPrice)) * plotHeight;
+    const interactionLite = Boolean(
+      this.wheelActive
+      || (this.drag && (this.drag.type === "pan" || this.drag.type === "time" || this.drag.type === "price")),
+    );
 
     this.#drawPriceGrid(ctx, width, margins, minPrice, maxPrice, y, plotHeight);
-    this.#drawTimeGrid(ctx, margins, plotWidth, height);
-    this.#drawSessionMarkers(ctx, margins, height);
+    if (!interactionLite) {
+      this.#drawTimeGrid(ctx, margins, plotWidth, height);
+      this.#drawSessionMarkers(ctx, margins, height);
+    }
 
     ctx.save();
     ctx.beginPath();
@@ -894,7 +927,7 @@ export class CandlestickChart {
     this.layout = { visible, margins, step, plotWidth, plotHeight, priceBottom, width, height, startIndex: this.viewStart, minPrice, maxPrice };
     const current = this.candles.at(-1);
     if (current) this.#drawLastPrice(ctx, width, margins, y(current.close), current.close, current.close >= current.open, margins.top, priceBottom);
-    this.#drawAnnotations(ctx);
+    this.#drawAnnotations(ctx, !interactionLite);
     this.#drawDrawings(ctx);
     if (this.hoverX !== null && this.hoverY !== null) this.#drawCrosshair(ctx);
   }
@@ -1096,9 +1129,9 @@ export class CandlestickChart {
   }
 
 
-  #drawAnnotations(ctx) {
+  #drawAnnotations(ctx, showLabels = true) {
     if (!this.layout || !this.annotations.length) return;
-    const { margins, plotWidth, plotHeight, priceBottom } = this.layout;
+    const { margins, plotWidth, plotHeight, priceBottom, minPrice, maxPrice } = this.layout;
     const tones = {
       accent: "#43e1c2",
       blue: "#64b8ff",
@@ -1107,20 +1140,51 @@ export class CandlestickChart {
       success: "#5fe0a7",
       muted: "#8fa8ba",
     };
+    const viewStartTime = this.#timeAtIndex(this.viewStart - 1);
+    const viewEndTime = this.#timeAtIndex(this.viewStart + this.visibleCount + 1);
     const xForTime = (time) => {
       const index = this.#indexAtTime(Number(time));
       return margins.left + ((candleCenterSlot(index) - this.viewStart) / this.visibleCount) * plotWidth;
     };
     const yForPrice = (price) => margins.top
-      + ((this.layout.maxPrice - Number(price)) / (this.layout.maxPrice - this.layout.minPrice)) * plotHeight;
+      + ((maxPrice - Number(price)) / (maxPrice - minPrice)) * plotHeight;
     const colorFor = (annotation) => tones[annotation?.tone] ?? tones.accent;
+    const inTime = (time) => {
+      const value = Number(time);
+      return Number.isFinite(value) && value >= viewStartTime && value <= viewEndTime;
+    };
+    const spansTime = (startAt, endAt) => {
+      const spanStart = Number(startAt);
+      const spanEnd = Number(endAt);
+      if (!Number.isFinite(spanStart) || !Number.isFinite(spanEnd)) return false;
+      return Math.max(spanStart, spanEnd) >= viewStartTime && Math.min(spanStart, spanEnd) <= viewEndTime;
+    };
+    const inPrice = (price) => {
+      const value = Number(price);
+      return Number.isFinite(value) && value >= minPrice && value <= maxPrice;
+    };
+    const occupiedLabels = [];
+    let labelCount = 0;
     const label = (text, x, y, color) => {
-      if (!text) return;
+      if (!showLabels || !text || labelCount >= 56 || !Number.isFinite(x) || !Number.isFinite(y)) return;
       ctx.save();
       ctx.font = this.#font(8, true);
       const width = Math.min(190, ctx.measureText(String(text)).width + 10);
       const left = Math.max(margins.left, Math.min(margins.left + plotWidth - width, x));
       const top = Math.max(margins.top, Math.min(priceBottom - 17, y - 16));
+      const box = { left, right: left + width, top, bottom: top + 15 };
+      const overlaps = occupiedLabels.some((item) => !(
+        box.right + 3 < item.left
+        || box.left - 3 > item.right
+        || box.bottom + 2 < item.top
+        || box.top - 2 > item.bottom
+      ));
+      if (overlaps) {
+        ctx.restore();
+        return;
+      }
+      occupiedLabels.push(box);
+      labelCount += 1;
       ctx.fillStyle = "rgba(6, 11, 16, .88)";
       ctx.fillRect(left, top, width, 15);
       ctx.strokeStyle = `${color}99`;
@@ -1131,12 +1195,48 @@ export class CandlestickChart {
       ctx.restore();
     };
 
+    const visibleZones = [];
+    for (const annotation of this.annotationBuckets.zone) {
+      const low = Math.min(Number(annotation.low), Number(annotation.high));
+      const high = Math.max(Number(annotation.low), Number(annotation.high));
+      if (spansTime(annotation.startAt, annotation.endAt) && high >= minPrice && low <= maxPrice) visibleZones.push(annotation);
+    }
+    const visibleLines = [];
+    for (const annotation of this.annotationBuckets.line) {
+      if (inPrice(annotation.price) && spansTime(annotation.startAt, annotation.endAt)) visibleLines.push(annotation);
+    }
+    const visibleRays = [];
+    for (const annotation of this.annotationBuckets.ray) {
+      const startAt = Number(annotation.startAt);
+      if (Number.isFinite(startAt) && startAt <= viewEndTime && inPrice(annotation.price)) visibleRays.push(annotation);
+    }
+    const visibleSegments = [];
+    for (const annotation of this.annotationBuckets.segment) {
+      if (!annotation.a || !annotation.b) continue;
+      const a = this.#screenPoint(annotation.a);
+      const b = this.#screenPoint(annotation.b);
+      if (![a.x, a.y, b.x, b.y].every(Number.isFinite)) continue;
+      if (Math.max(a.x, b.x) < margins.left || Math.min(a.x, b.x) > margins.left + plotWidth) continue;
+      if (Math.max(a.y, b.y) < margins.top || Math.min(a.y, b.y) > priceBottom) continue;
+      visibleSegments.push({ annotation, a, b });
+    }
+    const visibleEvents = [];
+    for (const annotation of this.annotationBuckets.event) {
+      if (inTime(annotation.time)) visibleEvents.push(annotation);
+    }
+    const visiblePoints = [];
+    for (const annotation of this.annotationBuckets.point) {
+      if (!inTime(annotation.time) || !inPrice(annotation.price)) continue;
+      const point = this.#screenPoint({ time: annotation.time, price: annotation.price });
+      if ([point.x, point.y].every(Number.isFinite)) visiblePoints.push({ annotation, point });
+    }
+
     ctx.save();
     ctx.beginPath();
     ctx.rect(margins.left, margins.top, plotWidth, plotHeight);
     ctx.clip();
 
-    for (const annotation of this.annotations.filter((item) => item.type === "zone")) {
+    for (const annotation of visibleZones) {
       const x1 = xForTime(annotation.startAt);
       const x2 = xForTime(annotation.endAt);
       const y1 = yForPrice(annotation.high);
@@ -1150,7 +1250,7 @@ export class CandlestickChart {
       ctx.setLineDash([]);
     }
 
-    for (const annotation of this.annotations.filter((item) => item.type === "line")) {
+    for (const annotation of visibleLines) {
       const y = yForPrice(annotation.price);
       const color = colorFor(annotation);
       ctx.strokeStyle = color;
@@ -1162,12 +1262,12 @@ export class CandlestickChart {
       ctx.setLineDash([]);
     }
 
-    for (const annotation of this.annotations.filter((item) => item.type === "ray")) {
+    for (const annotation of visibleRays) {
       const y = yForPrice(annotation.price);
       const originX = xForTime(annotation.startAt);
       const startX = Math.max(margins.left, originX);
       const endX = margins.left + plotWidth;
-      if (startX > endX || y < margins.top || y > priceBottom) continue;
+      if (startX > endX) continue;
       const color = colorFor(annotation);
       ctx.strokeStyle = color;
       ctx.lineWidth = 1.25;
@@ -1190,20 +1290,17 @@ export class CandlestickChart {
       }
     }
 
-    for (const annotation of this.annotations.filter((item) => item.type === "segment")) {
-      if (!annotation.a || !annotation.b) continue;
-      const a = this.#screenPoint(annotation.a);
-      const b = this.#screenPoint(annotation.b);
-      const color = colorFor(annotation);
+    for (const item of visibleSegments) {
+      const color = colorFor(item.annotation);
       ctx.strokeStyle = color;
       ctx.lineWidth = 1.6;
       ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
+      ctx.moveTo(item.a.x, item.a.y);
+      ctx.lineTo(item.b.x, item.b.y);
       ctx.stroke();
     }
 
-    for (const annotation of this.annotations.filter((item) => item.type === "event")) {
+    for (const annotation of visibleEvents) {
       const x = xForTime(annotation.time);
       const color = colorFor(annotation);
       ctx.strokeStyle = color;
@@ -1215,41 +1312,37 @@ export class CandlestickChart {
       ctx.setLineDash([]);
     }
 
-    for (const annotation of this.annotations.filter((item) => item.type === "point")) {
-      const point = this.#screenPoint({ time: annotation.time, price: annotation.price });
-      const color = colorFor(annotation);
+    for (const item of visiblePoints) {
+      const color = colorFor(item.annotation);
       ctx.fillStyle = "#071018";
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(point.x, point.y, 4.5, 0, Math.PI * 2);
+      ctx.arc(item.point.x, item.point.y, 4.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
     }
     ctx.restore();
 
-    for (const annotation of this.annotations) {
-      const color = colorFor(annotation);
-      if (annotation.type === "zone") {
-        label(annotation.label, xForTime(annotation.startAt) + 4, yForPrice(annotation.high), color);
-      } else if (annotation.type === "line") {
-        label(annotation.label, xForTime(annotation.endAt) - 110, yForPrice(annotation.price), color);
-      } else if (annotation.type === "ray") {
-        const originX = xForTime(annotation.startAt);
-        const endX = margins.left + plotWidth;
-        if (originX <= endX) {
-          label(annotation.label, Math.max(margins.left + 4, originX + 6), yForPrice(annotation.price), color);
-        }
-      } else if (annotation.type === "segment" && annotation.label) {
-        const a = this.#screenPoint(annotation.a);
-        const b = this.#screenPoint(annotation.b);
-        label(annotation.label, (a.x + b.x) / 2, (a.y + b.y) / 2, color);
-      } else if (annotation.type === "event") {
-        label(annotation.label, xForTime(annotation.time) + 5, margins.top + 17, color);
-      } else if (annotation.type === "point") {
-        const point = this.#screenPoint({ time: annotation.time, price: annotation.price });
-        label(annotation.label, point.x + 6, point.y, color);
-      }
+    if (!showLabels) return;
+    for (const annotation of visibleZones) {
+      label(annotation.label, xForTime(annotation.startAt) + 4, yForPrice(annotation.high), colorFor(annotation));
+    }
+    for (const annotation of visibleLines) {
+      label(annotation.label, xForTime(annotation.endAt) - 110, yForPrice(annotation.price), colorFor(annotation));
+    }
+    for (const annotation of visibleRays) {
+      const originX = xForTime(annotation.startAt);
+      label(annotation.label, Math.max(margins.left + 4, originX + 6), yForPrice(annotation.price), colorFor(annotation));
+    }
+    for (const item of visibleSegments) {
+      label(item.annotation.label, (item.a.x + item.b.x) / 2, (item.a.y + item.b.y) / 2, colorFor(item.annotation));
+    }
+    for (const annotation of visibleEvents) {
+      label(annotation.label, xForTime(annotation.time) + 5, margins.top + 17, colorFor(annotation));
+    }
+    for (const item of visiblePoints) {
+      label(item.annotation.label, item.point.x + 6, item.point.y, colorFor(item.annotation));
     }
   }
 
@@ -1603,12 +1696,20 @@ export class CandlestickChart {
     this.#persistViewport();
     this.drag = null;
     this.canvas.style.cursor = "crosshair";
+    this.#requestRender();
   }
 
   #handleWheel(event) {
     event.preventDefault();
     if (!this.layout || this.candles.length < 2) return;
     const rect = this.canvas.getBoundingClientRect();
+    this.wheelActive = true;
+    clearTimeout(this.wheelIdleTimer);
+    this.wheelIdleTimer = setTimeout(() => {
+      this.wheelIdleTimer = null;
+      this.wheelActive = false;
+      this.#requestRender();
+    }, 140);
     this.#lockPriceDomain();
     const x = Math.max(this.layout.margins.left, Math.min(event.clientX - rect.left, this.layout.margins.left + this.layout.plotWidth));
     const anchorRatio = (x - this.layout.margins.left) / this.layout.plotWidth;
@@ -1620,7 +1721,7 @@ export class CandlestickChart {
     this.viewStart = Math.max(0, Math.min(this.viewStart, Math.max(0, this.candles.length - 1)));
     this.followLatest = false;
     this.tooltip.hidden = true;
-    this.#persistViewport();
+    this.#scheduleViewportPersist();
     this.#requestRender();
   }
 

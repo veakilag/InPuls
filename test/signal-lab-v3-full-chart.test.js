@@ -176,10 +176,10 @@ test("shared InPuls chart engine owns passive pattern annotations", async () => 
   const source = await readFile(new URL("../chart.js", import.meta.url), "utf8");
   assert.match(source, /export class CandlestickChart/);
   assert.match(source, /setAnnotations\(annotations = \[\]\)/);
-  assert.match(source, /#drawAnnotations\(ctx\)/);
-  assert.match(source, /annotation\.type === "zone"/);
-  assert.match(source, /annotation\.type === "point"/);
-  assert.match(source, /annotations\.filter\(\(item\) => item\.type === "ray"\)/);
+  assert.match(source, /#drawAnnotations\(ctx, showLabels = true\)/);
+  assert.match(source, /this\.annotationBuckets\.zone/);
+  assert.match(source, /this\.annotationBuckets\.point/);
+  assert.match(source, /this\.annotationBuckets\.ray/);
   assert.match(source, /ctx\.lineTo\(endX, y\)/);
 });
 

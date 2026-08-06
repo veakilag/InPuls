@@ -54,6 +54,6 @@ test("book data refreshes density ages only for visible matching cards", () => {
 });
 
 test("isolated Tape build ships through fresh module keys", () => {
-  assert.match(app, /orderbook\.js\?v=26-116-spot-tape-routing-v2/);
-  assert.match(index, /app\.js\?v=26-116-spot-tape-routing-v2/);
+  assert.match(app, /orderbook\.js\?v=26-117-chart-interaction-performance-v1/);
+  assert.match(index, /app\.js\?v=26-117-chart-interaction-performance-v1/);
 });
