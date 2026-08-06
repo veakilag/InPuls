@@ -74,9 +74,17 @@ function cancelDeferredReplayMounts() {
 }
 
 function queueReplayMount(callback) {
-  const job = typeof requestIdleCallback === "function"
-    ? { kind: "idle", id: requestIdleCallback(callback, { timeout: 900 }) }
-    : { kind: "timeout", id: setTimeout(callback, 80) };
+  const job = { kind: "timeout", id: null };
+  const run = () => {
+    replayIdleJobs.delete(job);
+    callback();
+  };
+  if (typeof requestIdleCallback === "function") {
+    job.kind = "idle";
+    job.id = requestIdleCallback(run, { timeout: 900 });
+  } else {
+    job.id = setTimeout(run, 80);
+  }
   replayIdleJobs.add(job);
   return job;
 }

@@ -40,7 +40,7 @@ function buttonGroup(rows, attribute, activeValue) {
 function modalMarkup() {
   return `
     <div class="signal-lab-chart-modal__backdrop" data-modal-close></div>
-    <section class="signal-lab-chart-modal__window" role="dialog" aria-modal="true" aria-labelledby="signal-lab-modal-title">
+    <section class="signal-lab-chart-modal__window" role="dialog" aria-modal="true" aria-labelledby="signal-lab-modal-title" tabindex="-1">
       <header class="signal-lab-chart-modal__header" data-modal-drag>
         <div class="signal-lab-chart-modal__identity">
           <span class="signal-lab-chart-modal__eyebrow">SIGNAL LAB · ПОЛНЫЙ ГРАФИК</span>
