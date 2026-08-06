@@ -70,8 +70,9 @@ replace_once(
   assert.match(runtime, /openEpisodeChartModal/);
   assert.match(runtime, /deferEvidenceReplay/);
   assert.doesNotMatch(runtime, /mountEpisodeFullChart|disposeEpisodeFullCharts/);
-  assert.match(modal, /data-modal-timeframe="1s"/);
-  assert.match(modal, /data-modal-timeframe="1h"/);
+  assert.match(modal, /\["1s", "1с"\]/);
+  assert.match(modal, /\["1h", "1ч"\]/);
+  assert.match(modal, /buttonGroup\(TIMEFRAMES, "data-modal-timeframe", "1m"\)/);
   assert.match(modal, /data-modal-tool="horizontal"/);
   assert.match(modal, /data-modal-annotations/);
   assert.match(modal, /tabindex="-1"/);
