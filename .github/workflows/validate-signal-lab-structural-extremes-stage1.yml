@@ -8,11 +8,13 @@ on:
     paths:
       - signal-lab-v7-structural-extremes.js
       - owner-signal-lab-structural-extremes-review.*
+      - structural-extremes-review-standalone.html
+      - scripts/build-structural-extremes-review-bundle.py
       - test/signal-lab-v7-structural-extremes*.test.js
       - docs/signal-lab-v7-structural-extremes-stage1.md
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: structural-extremes-stage1-${{ github.ref }}
@@ -21,12 +23,12 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Check out current revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          persist-credentials: false
+          persist-credentials: true
           fetch-depth: 0
 
       - name: Use Node.js 22
@@ -38,6 +40,7 @@ jobs:
         run: |
           node --check signal-lab-v7-structural-extremes.js
           node --check owner-signal-lab-structural-extremes-review.js
+          python3 -m py_compile scripts/build-structural-extremes-review-bundle.py
           git diff --check origin/main...HEAD
 
       - name: Run structural unit and replay tests
@@ -46,7 +49,14 @@ jobs:
       - name: Run complete regression suite
         run: npm test
 
-      - name: Verify visual review page is served
+      - name: Build standalone calibration page
+        run: |
+          python3 scripts/build-structural-extremes-review-bundle.py
+          test -s structural-extremes-review-standalone.html
+          grep -q "Разметка для обучения" structural-extremes-review-standalone.html
+          grep -q "InPulsStructuralExtremesTraderReview" structural-extremes-review-standalone.html
+
+      - name: Verify visual review pages are served
         run: |
           python3 -m http.server 4173 > /tmp/inpuls-structural-review.log 2>&1 &
           server_pid=$!
@@ -55,4 +65,27 @@ jobs:
             if curl -fsS http://127.0.0.1:4173/owner-signal-lab-structural-extremes-review.html > /tmp/structural-review.html; then break; fi
             sleep 0.25
           done
+          curl -fsS http://127.0.0.1:4173/structural-extremes-review-standalone.html > /tmp/structural-review-standalone.html
           grep -q "Структурные экстремумы · этап 1" /tmp/structural-review.html
+          grep -q "Разметка для обучения" /tmp/structural-review-standalone.html
+
+      - name: Upload standalone calibration artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: structural-extremes-review-standalone
+          path: structural-extremes-review-standalone.html
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Commit generated standalone page
+        if: github.event_name == 'push'
+        run: |
+          if git diff --quiet -- structural-extremes-review-standalone.html; then
+            echo "Standalone page is already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add structural-extremes-review-standalone.html
+          git commit -m "Build standalone structural extrema review page"
+          git push origin HEAD:agent/signal-lab-structural-extremes-stage1
