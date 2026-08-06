@@ -1,0 +1,57 @@
+name: Validate Signal Lab structural extremes stage 1
+
+on:
+  push:
+    branches:
+      - agent/signal-lab-structural-extremes-stage1
+  pull_request:
+    paths:
+      - signal-lab-v7-structural-extremes.js
+      - owner-signal-lab-structural-extremes-review.*
+      - test/signal-lab-v7-structural-extremes*.test.js
+      - docs/signal-lab-v7-structural-extremes-stage1.md
+
+permissions:
+  contents: read
+
+concurrency:
+  group: structural-extremes-stage1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out current revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Validate syntax and diff
+        run: |
+          node --check signal-lab-v7-structural-extremes.js
+          node --check owner-signal-lab-structural-extremes-review.js
+          git diff --check origin/main...HEAD
+
+      - name: Run structural unit and replay tests
+        run: node --test test/signal-lab-v7-structural-extremes.test.js test/signal-lab-v7-structural-extremes-isolation.test.js
+
+      - name: Run complete regression suite
+        run: npm test
+
+      - name: Verify visual review page is served
+        run: |
+          python3 -m http.server 4173 > /tmp/inpuls-structural-review.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid || true' EXIT
+          for attempt in {1..40}; do
+            if curl -fsS http://127.0.0.1:4173/owner-signal-lab-structural-extremes-review.html > /tmp/structural-review.html; then break; fi
+            sleep 0.25
+          done
+          grep -q "Структурные экстремумы · этап 1" /tmp/structural-review.html
