@@ -34,7 +34,7 @@ jobs:
           node --check signal-lab-chart-modal.js
           node --check owner-signal-lab-v3.js
           node --check scripts/signal-lab-runtime-smoke.mjs
-          git diff --check main...HEAD
+          git diff --check origin/main...HEAD
 
       - name: Run full test suite
         run: npm test
