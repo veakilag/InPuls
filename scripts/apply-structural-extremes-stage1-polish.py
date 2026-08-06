@@ -129,10 +129,13 @@ test("crossing tolerance is independent from the wider reversal tick buffer", ()
   subject.ingestCandles(risingToConfirmedHigh());
   subject.ingestCandle(candle(7, 104.3, 104.5, 103.0, 103.5));
   let snapshot = subject.ingestCandle(candle(8, 103.5, 105.1, 103.4, 105.0));
-  assert.equal(snapshot.active.length, 1);
+  const highId = snapshot.history.find((row) => row.side === "HIGH").id;
+  assert.ok(snapshot.active.some((row) => row.id === highId));
   snapshot = subject.ingestCandle(candle(9, 105.0, 105.2, 104.8, 105.1));
-  assert.equal(snapshot.active.length, 0);
-  assert.equal(snapshot.history[0].status, STRUCTURAL_EXTREME_STATUSES.CROSSED);
+  const crossedHigh = snapshot.history.find((row) => row.id === highId);
+  assert.equal(crossedHigh.active, false);
+  assert.equal(crossedHigh.status, STRUCTURAL_EXTREME_STATUSES.CROSSED);
+  assert.ok(snapshot.active.every((row) => row.id !== highId));
 });
 
 test("small pullback does not confirm an extreme", () => {
