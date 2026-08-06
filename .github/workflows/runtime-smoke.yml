@@ -50,6 +50,11 @@ jobs:
           CHROME_BIN: google-chrome
         run: node scripts/browser-runtime-smoke.mjs "http://127.0.0.1:4173/rescue-26-94.html?smoke=${GITHUB_SHA}"
 
+      - name: Local Signal Lab extreme smoke
+        env:
+          CHROME_BIN: google-chrome
+        run: node scripts/signal-lab-runtime-smoke.mjs "http://127.0.0.1:4173/owner-signal-lab-v3.html?smoke=${GITHUB_SHA}"
+
       - name: Production browser startup smoke
         if: github.event_name != 'pull_request'
         env:
@@ -61,3 +66,9 @@ jobs:
         env:
           CHROME_BIN: google-chrome
         run: node scripts/browser-runtime-smoke.mjs "https://veakilag.github.io/InPuls/rescue-26-94.html?smoke=${GITHUB_SHA}"
+
+      - name: Production Signal Lab extreme smoke
+        if: github.event_name != 'pull_request'
+        env:
+          CHROME_BIN: google-chrome
+        run: node scripts/signal-lab-runtime-smoke.mjs "https://veakilag.github.io/InPuls/owner-signal-lab-v3.html?smoke=${GITHUB_SHA}"
