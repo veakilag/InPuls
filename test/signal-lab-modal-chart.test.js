@@ -6,6 +6,7 @@ const owner = fs.readFileSync(new URL("../owner-signal-lab-v3.js", import.meta.u
 const modal = fs.readFileSync(new URL("../signal-lab-chart-modal.js", import.meta.url), "utf8");
 const css = fs.readFileSync(new URL("../signal-lab-chart-modal.css", import.meta.url), "utf8");
 const html = fs.readFileSync(new URL("../owner-signal-lab-v3.html", import.meta.url), "utf8");
+const smoke = fs.readFileSync(new URL("../scripts/signal-lab-runtime-smoke.mjs", import.meta.url), "utf8");
 
 test("Signal Lab opens one shared chart modal instead of chart instances inside every card", () => {
   assert.match(owner, /openEpisodeChartModal/);
@@ -19,4 +20,6 @@ test("Signal Lab opens one shared chart modal instead of chart instances inside 
   assert.match(css, /resize:\s*both/);
   assert.match(css, /content-visibility:\s*auto/);
   assert.match(html, /signal-lab-v8-smooth-modal-chart/);
+  assert.match(smoke, /SYNTHETIC_EPISODE/);
+  assert.match(smoke, /openEpisodeChartModal/);
 });
