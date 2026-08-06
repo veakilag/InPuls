@@ -1,0 +1,62 @@
+name: Apply Signal Lab setup visibility fix v4
+
+on:
+  push:
+    branches:
+      - agent/signal-lab-live-setup-contract
+    paths:
+      - .github/workflows/apply-signal-lab-setup-visibility-v4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out fix branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: agent/signal-lab-live-setup-contract
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Apply source changes
+        run: |
+          sed -i 's/candidates\[0\]\.stage, "forming"/candidates[0].stage, "setup"/' scripts/apply-signal-lab-setup-visibility.py
+          python3 scripts/apply-signal-lab-setup-visibility.py
+
+      - name: Run complete test suite
+        run: npm test
+
+      - name: Prove visible setup in a real browser
+        env:
+          CHROME_BIN: google-chrome
+        run: |
+          python3 -m http.server 4173 > /tmp/inpuls-http.log 2>&1 &
+          server_pid=$!
+          trap 'kill ${server_pid} 2>/dev/null || true' EXIT
+          for attempt in {1..40}; do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then break; fi
+            sleep 0.25
+          done
+          node scripts/signal-lab-runtime-smoke.mjs "http://127.0.0.1:4173/owner-signal-lab-v3.html?setup-visibility=${GITHUB_SHA}"
+
+      - name: Commit verified fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-signal-lab-setup-visibility.yml
+          git rm .github/workflows/apply-signal-lab-setup-visibility-v2.yml
+          git rm .github/workflows/apply-signal-lab-setup-visibility-v3.yml
+          git rm .github/workflows/apply-signal-lab-setup-visibility-v4.yml
+          git rm scripts/apply-signal-lab-setup-visibility.py
+          git add signal-lab-v3-candidates.js signal-lab-v3-collector.js owner-signal-lab-v3.html owner-signal-lab-v3.js scripts/signal-lab-runtime-smoke.mjs test/signal-lab-v7-setup-visibility.test.js
+          git commit -m "Show live Signal Lab setups without false warmup zero"
+          git push origin HEAD:agent/signal-lab-live-setup-contract

@@ -55,6 +55,16 @@ jobs:
           CHROME_BIN: google-chrome
         run: node scripts/signal-lab-runtime-smoke.mjs "http://127.0.0.1:4173/owner-signal-lab-v3.html?smoke=${GITHUB_SHA}"
 
+      - name: Local Signal Lab level-map probe
+        env:
+          CHROME_BIN: google-chrome
+        run: node scripts/signal-lab-setup-probe.mjs levels "http://127.0.0.1:4173/owner-signal-lab-v3.html?levels=${GITHUB_SHA}"
+
+      - name: Local Signal Lab cascade probe
+        env:
+          CHROME_BIN: google-chrome
+        run: node scripts/signal-lab-setup-probe.mjs cascade "http://127.0.0.1:4173/owner-signal-lab-v3.html?cascade=${GITHUB_SHA}"
+
       - name: Production browser startup smoke
         if: github.event_name != 'pull_request'
         env:
