@@ -5,11 +5,9 @@ import {
 import { SignalLabV3Collector } from "./signal-lab-v3-collector.js?v=signal-lab-v6-extreme-history-fallback";
 import { mountEvidenceReplay } from "./signal-lab-v3-replay-ui.js?v=signal-lab-v5-rebuild-1";
 import {
-  disposeEpisodeFullCharts,
-  isEpisodeFullChartOpen,
-  mountEpisodeFullChart,
-  resetEpisodeFullChartState,
-} from "./signal-lab-v3-full-chart.js?v=signal-lab-v6-canonical-annotations";
+  openEpisodeChartModal,
+  resetEpisodeChartModal,
+} from "./signal-lab-chart-modal.js?v=signal-lab-v8-smooth-modal-chart";
 import {
   buildCascadeCalibrationSample,
   CASCADE_CALIBRATION_CHECKS,
@@ -62,6 +60,55 @@ const state = {
   pendingRender: false,
 };
 
+const replayObservers = new Set();
+const replayIdleJobs = new Set();
+
+function cancelDeferredReplayMounts() {
+  replayObservers.forEach((observer) => observer.disconnect());
+  replayObservers.clear();
+  replayIdleJobs.forEach((job) => {
+    if (job.kind === "idle") cancelIdleCallback(job.id);
+    else clearTimeout(job.id);
+  });
+  replayIdleJobs.clear();
+}
+
+function queueReplayMount(callback) {
+  const job = { kind: "timeout", id: null };
+  const run = () => {
+    replayIdleJobs.delete(job);
+    callback();
+  };
+  if (typeof requestIdleCallback === "function") {
+    job.kind = "idle";
+    job.id = requestIdleCallback(run, { timeout: 900 });
+  } else {
+    job.id = setTimeout(run, 80);
+  }
+  replayIdleJobs.add(job);
+  return job;
+}
+
+function deferEvidenceReplay(card, episode) {
+  const mount = () => {
+    if (!card.isConnected || card.dataset.replayMounted === "true") return;
+    card.dataset.replayMounted = "true";
+    mountEvidenceReplay(card, episode);
+  };
+  if (typeof IntersectionObserver !== "function") {
+    queueReplayMount(mount);
+    return;
+  }
+  const observer = new IntersectionObserver((entries) => {
+    if (!entries.some((entry) => entry.isIntersecting)) return;
+    observer.disconnect();
+    replayObservers.delete(observer);
+    queueReplayMount(mount);
+  }, { rootMargin: "500px 0px" });
+  replayObservers.add(observer);
+  observer.observe(card);
+}
+
 const hypothesisLabels = Object.freeze({
   knife_reclaim: "Нож",
   sharpening_rejection: "Заточка",
@@ -100,10 +147,6 @@ function filters() {
 }
 
 function scheduleRender(delay = 900) {
-  if (isEpisodeFullChartOpen()) {
-    state.pendingRender = true;
-    return;
-  }
   clearTimeout(state.renderTimer);
   state.renderTimer = setTimeout(() => render(), delay);
 }
@@ -376,14 +419,15 @@ function renderCard(episode) {
     button.classList.toggle("is-selected", button.dataset.verdict === episode.reviewState);
     button.addEventListener("click", () => saveReview(episode, card, button.dataset.verdict));
   });
+  const chartButton = card.querySelector('[data-field="chart-toggle"]');
+  if (chartButton) {
+    chartButton.textContent = "Показать график";
+    chartButton.addEventListener("click", () => openEpisodeChartModal(episode));
+  }
   return card;
 }
 
 async function render() {
-  if (isEpisodeFullChartOpen()) {
-    state.pendingRender = true;
-    return;
-  }
   if (state.rendering) return;
   state.pendingRender = false;
   state.rendering = true;
@@ -409,13 +453,10 @@ async function render() {
     elements.candidateList.hidden = merged.length === 0;
     const visible = merged.slice(0, 12);
     const cards = visible.map(renderCard);
-    disposeEpisodeFullCharts({ preserveActive: true });
+    cancelDeferredReplayMounts();
     elements.candidateList.replaceChildren(...cards);
     requestAnimationFrame(() => {
-      cards.forEach((card, index) => {
-        mountEvidenceReplay(card, visible[index]);
-        mountEpisodeFullChart(card, visible[index], { autoOpen: false });
-      });
+      cards.forEach((card, index) => deferEvidenceReplay(card, visible[index]));
     });
   } catch (error) {
     elements.emptyState.hidden = false;
@@ -533,7 +574,8 @@ async function clearRecords() {
     state.pendingRender = false;
     clearTimeout(state.renderTimer);
     collector.disconnect();
-    resetEpisodeFullChartState();
+    resetEpisodeChartModal();
+    cancelDeferredReplayMounts();
     await store.clearAll();
     liveEpisodes.clear();
     reviewStates.clear();
@@ -587,13 +629,9 @@ elements.collectorToggle.addEventListener("click", () => {
   renderCollectorStatus();
 });
 
-window.addEventListener("inpuls:signal-lab-chart-closed", () => {
-  if (!state.pendingRender) return;
-  state.pendingRender = false;
-  scheduleRender(0);
-});
 window.addEventListener("beforeunload", () => {
-  disposeEpisodeFullCharts({ preserveActive: false });
+  resetEpisodeChartModal();
+  cancelDeferredReplayMounts();
   collector.disconnect();
 });
 setInterval(() => scheduleRender(0), 15_000);

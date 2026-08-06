@@ -181,6 +181,85 @@ async function runEndpointProbes(socket) {
   return evaluation.result?.result?.value ?? evaluation.result?.value ?? [];
 }
 
+
+async function probeChartModal(socket) {
+  const evaluation = await send(socket, "Runtime.evaluate", {
+    expression: `(async () => {
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const button = document.querySelector('[data-field="chart-toggle"]');
+      let source = 'CARD_BUTTON';
+      if (button) {
+        button.click();
+      } else {
+        source = 'SYNTHETIC_EPISODE';
+        const modalModule = await import('./signal-lab-chart-modal.js?v=signal-lab-v8-smooth-modal-chart');
+        const now = Date.now();
+        void modalModule.openEpisodeChartModal({
+          id: 'runtime-smoke-modal',
+          symbol: 'BTCUSDT',
+          label: 'Runtime smoke',
+          candidateType: 'cascade_breakout',
+          stage: 'SETUP',
+          direction: 'long',
+          firstSeenAt: now - 60_000,
+          lastSeenAt: now,
+          observations: 1,
+          peakEvidenceScore: 50,
+          evidencePack: {
+            window: {
+              eventAt: now - 30_000,
+              startAt: now - 120_000,
+              endAt: now + 60_000,
+            },
+          },
+        });
+      }
+      let root = null;
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        root = document.querySelector('.signal-lab-chart-modal');
+        if (root && !root.hidden && root.getAttribute('aria-hidden') === 'false') break;
+        await wait(100);
+      }
+      const panel = root?.querySelector('.signal-lab-chart-modal__window');
+      const canvas = root?.querySelector('[data-modal-canvas]');
+      if (!root || !panel || !canvas || root.hidden) return { ok: false, reason: 'MODAL_DID_NOT_OPEN', source };
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const before = panel.getBoundingClientRect();
+      panel.style.width = '70vw';
+      panel.style.height = '70vh';
+      panel.style.transform = 'none';
+      panel.style.left = '40px';
+      panel.style.top = '40px';
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const after = panel.getBoundingClientRect();
+      const timeframe = root.querySelector('[data-modal-timeframe="5m"]');
+      timeframe?.click();
+      await wait(120);
+      const timeframeActive = timeframe?.classList.contains('is-active') === true;
+      const resized = Math.abs(after.width - before.width) > 20 || Math.abs(after.height - before.height) > 20;
+      const canvasRect = canvas.getBoundingClientRect();
+      const canvasReady = canvasRect.width > 100 && canvasRect.height > 100;
+      root.querySelector('[data-modal-close]')?.click();
+      await wait(50);
+      const closed = root.hidden && root.getAttribute('aria-hidden') === 'true';
+      return {
+        ok: Boolean(timeframeActive && resized && canvasReady && closed),
+        source,
+        timeframeActive,
+        resized,
+        canvasReady,
+        closed,
+        before: { width: Math.round(before.width), height: Math.round(before.height) },
+        after: { width: Math.round(after.width), height: Math.round(after.height) },
+        canvas: { width: Math.round(canvasRect.width), height: Math.round(canvasRect.height) },
+      };
+    })()`,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  return evaluation.result?.result?.value ?? evaluation.result?.value ?? { ok: false, reason: "NO_RESULT" };
+}
+
 try {
   await waitForDebugger();
   const page = await fetchJson(`http://127.0.0.1:${port}/json/new?about:blank`, { method: "PUT" });
@@ -247,6 +326,9 @@ try {
 
   const runtime = await waitForRuntime(socket);
   const probes = runtimeReady(runtime.state) ? [] : await runEndpointProbes(socket);
+  const modalProbe = runtimeReady(runtime.state)
+    ? await probeChartModal(socket)
+    : { ok: false, skipped: true, reason: "RUNTIME_NOT_READY" };
 
   console.log(JSON.stringify({
     targetUrl,
@@ -254,6 +336,7 @@ try {
     readyAfterMs: runtime.readyAfterMs,
     finalState: runtime.state,
     samples: runtime.samples,
+    modalProbe,
     probes,
     binanceResponses: binanceResponses.slice(-80),
     failedRequests: failedRequests.slice(-80),
@@ -261,7 +344,7 @@ try {
     consoleMessages: consoleMessages.slice(-80),
   }, null, 2));
 
-  if (!runtimeReady(runtime.state) || exceptions.length) {
+  if (!runtimeReady(runtime.state) || !modalProbe.ok || exceptions.length) {
     process.exitCode = 1;
   }
   socket.close();

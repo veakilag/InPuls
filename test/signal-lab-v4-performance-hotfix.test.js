@@ -21,9 +21,11 @@ test("collector throttles status, checks and structure trade processing", () => 
   assert.match(collector, /emitSnapshot: false/);
 });
 
-test("owner UI renders a bounded collapsed card window", () => {
+test("owner UI renders a bounded card window and defers heavy replay work", () => {
   assert.match(owner, /limit: 250/);
   assert.match(owner, /merged\.slice\(0, 12\)/);
-  assert.match(owner, /autoOpen: false/);
-  assert.doesNotMatch(owner, /merged\.slice\(0, 60\)/);
+  assert.match(owner, /IntersectionObserver/);
+  assert.match(owner, /requestIdleCallback/);
+  assert.match(owner, /deferEvidenceReplay/);
+  assert.doesNotMatch(owner, /mountEpisodeFullChart|merged\.slice\(0, 60\)/);
 });
