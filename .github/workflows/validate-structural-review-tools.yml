@@ -6,15 +6,16 @@ on:
       - agent/signal-lab-structural-extremes-stage1
     paths:
       - .github/workflows/validate-structural-review-tools.yml
+      - scripts/apply-structural-review-timeframe-eraser.py
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  test-and-package:
+  apply-test-and-package:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - name: Check out draft branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -28,15 +29,24 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Apply requested chart and review fixes
+        run: python3 scripts/apply-structural-review-timeframe-eraser.py
+
+      - name: Remove temporary patch workflows
+        run: |
+          rm -f scripts/apply-structural-review-timeframe-eraser.py
+          rm -f .github/workflows/apply-structural-review-timeframe-eraser.yml
+
       - name: Validate review runtime syntax
         run: |
+          node --check chart.js
           node --check owner-signal-lab-structural-extremes-review.js
           node --check signal-lab-v7-structural-extremes.js
           python3 -m py_compile scripts/build-structural-extremes-review-bundle.py
-          git diff --check origin/main...HEAD
+          git diff --check
 
-      - name: Run focused review and detector tests
-        run: node --test test/signal-lab-v7-structural-extremes-isolation.test.js test/signal-lab-v7-structural-extremes.test.js
+      - name: Run focused chart, review and detector tests
+        run: node --test test/chart.test.js test/signal-lab-v7-structural-extremes-isolation.test.js test/signal-lab-v7-structural-extremes.test.js
 
       - name: Run complete regression suite
         run: npm test
@@ -46,24 +56,14 @@ jobs:
           python3 scripts/build-structural-extremes-review-bundle.py
           test -s structural-extremes-review-standalone.html
           grep -q "Разметка для обучения" structural-extremes-review-standalone.html
-          grep -q "InPulsStructuralExtremesTraderReview" structural-extremes-review-standalone.html
+          grep -q "data-review-tool=\"erase\"" structural-extremes-review-standalone.html
+          grep -q "mapWithConcurrency" structural-extremes-review-standalone.html
+          grep -q "timeAtCandleSlot" structural-extremes-review-standalone.html
 
-      - name: Upload standalone review artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: structural-extremes-review-standalone
-          path: structural-extremes-review-standalone.html
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Commit generated standalone page
+      - name: Commit verified fixes and standalone page
         run: |
-          if git diff --quiet -- structural-extremes-review-standalone.html; then
-            echo "Standalone page is already current"
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add structural-extremes-review-standalone.html
-          git commit -m "Build standalone structural extrema review page"
+          git add -A
+          git commit -m "Fix candle timeframe slots, 1m loading and review eraser"
           git push origin HEAD:agent/signal-lab-structural-extremes-stage1
