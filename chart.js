@@ -1162,6 +1162,34 @@ export class CandlestickChart {
       ctx.setLineDash([]);
     }
 
+    for (const annotation of this.annotations.filter((item) => item.type === "ray")) {
+      const y = yForPrice(annotation.price);
+      const originX = xForTime(annotation.startAt);
+      const startX = Math.max(margins.left, originX);
+      const endX = margins.left + plotWidth;
+      if (startX > endX || y < margins.top || y > priceBottom) continue;
+      const color = colorFor(annotation);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.25;
+      ctx.setLineDash(annotation.state === "BROKEN" ? [3, 5] : [7, 4]);
+      ctx.beginPath();
+      ctx.moveTo(startX, y);
+      ctx.lineTo(endX, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineWidth = 1;
+      if (originX >= margins.left && originX <= endX) {
+        ctx.fillStyle = "#071018";
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.arc(originX, y, 3.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
+    }
+
     for (const annotation of this.annotations.filter((item) => item.type === "segment")) {
       if (!annotation.a || !annotation.b) continue;
       const a = this.#screenPoint(annotation.a);
@@ -1206,6 +1234,12 @@ export class CandlestickChart {
         label(annotation.label, xForTime(annotation.startAt) + 4, yForPrice(annotation.high), color);
       } else if (annotation.type === "line") {
         label(annotation.label, xForTime(annotation.endAt) - 110, yForPrice(annotation.price), color);
+      } else if (annotation.type === "ray") {
+        const originX = xForTime(annotation.startAt);
+        const endX = margins.left + plotWidth;
+        if (originX <= endX) {
+          label(annotation.label, Math.max(margins.left + 4, originX + 6), yForPrice(annotation.price), color);
+        }
       } else if (annotation.type === "segment" && annotation.label) {
         const a = this.#screenPoint(annotation.a);
         const b = this.#screenPoint(annotation.b);

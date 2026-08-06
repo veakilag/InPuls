@@ -1,4 +1,4 @@
-import { CandlestickChart } from "./chart.js?v=26-103-signal-lab-full-chart-v1";
+import { CandlestickChart } from "./chart.js?v=signal-lab-v9-extreme-rays";
 
 const KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
 
@@ -185,11 +185,12 @@ function addCascadeAnnotations(target, cascade, eventAt, prefix = "") {
   });
   extrema.forEach((row, index) => {
     target.push({
-      type: "point",
-      time: row.time,
+      type: "ray",
+      startAt: row.time,
       price: row.price,
       label: `${marker}${index + 1}`,
       tone: highSide ? "danger" : "success",
+      state: "ACTIVE",
     });
     if (index > 0) {
       target.push({
@@ -219,39 +220,67 @@ function addExtremeMapAnnotations(target, extremeMap, eventAt, eventPrice) {
   for (const [timeframe, map] of Object.entries(extremeMap?.timeframes ?? {})) {
     for (const extreme of map?.active ?? []) {
       const price = finite(extreme?.price);
-      if (!(price > 0)) continue;
+      const extremeTime = finite(extreme?.extremeTime ?? extreme?.time ?? extreme?.at);
+      if (!(price > 0) || extremeTime === null) continue;
       const distance = eventPrice > 0 ? Math.abs(price - eventPrice) / eventPrice * 100 : 0;
       if (distance > 8) continue;
-      rows.push({ ...extreme, timeframe, distance });
+      rows.push({ ...extreme, timeframe, price, extremeTime, distance });
     }
   }
   rows.sort((left, right) => left.distance - right.distance || right.confirmedAt - left.confirmedAt);
-  for (const extreme of rows.slice(0, 32)) {
+
+  // The same physical swing can be present on several timeframes. Keep one ray at
+  // the actual extremum point and combine its TF labels instead of painting duplicate
+  // lines on top of each other.
+  const groups = [];
+  for (const row of rows.slice(0, 64)) {
+    const side = row.side === "HIGH" ? "HIGH" : "LOW";
+    const match = groups.find((group) => {
+      if (group.side !== side) return false;
+      const priceDistance = Math.abs(group.price - row.price) / Math.max(group.price, row.price) * 100;
+      const timeDistance = Math.abs(group.extremeTime - row.extremeTime);
+      return priceDistance <= 0.015 && timeDistance <= 2 * 60_000;
+    });
+    if (match) {
+      match.timeframes.add(row.timeframe);
+      match.touchCount = Math.max(match.touchCount, Number(row.touchCount) || 1);
+      match.confirmedAt = Math.min(match.confirmedAt, finite(row.confirmedAt) ?? match.confirmedAt);
+      if (side === "HIGH" && row.price > match.price) {
+        match.price = row.price;
+        match.extremeTime = row.extremeTime;
+      }
+      if (side === "LOW" && row.price < match.price) {
+        match.price = row.price;
+        match.extremeTime = row.extremeTime;
+      }
+      continue;
+    }
+    groups.push({
+      side,
+      price: row.price,
+      extremeTime: row.extremeTime,
+      confirmedAt: finite(row.confirmedAt) ?? eventAt,
+      touchCount: Math.max(1, Number(row.touchCount) || 1),
+      timeframes: new Set([row.timeframe]),
+      distance: row.distance,
+    });
+  }
+
+  for (const extreme of groups.slice(0, 32)) {
     const high = extreme.side === "HIGH";
-    const label = `${high ? "H" : "L"} ${extreme.timeframe} ×${extreme.touchCount ?? 1}`;
+    const timeframes = [...extreme.timeframes]
+      .sort((left, right) => (EPISODE_CHART_INTERVALS[left] ?? Infinity) - (EPISODE_CHART_INTERVALS[right] ?? Infinity));
+    const label = `${high ? "H" : "L"} ${timeframes.join("/")} ×${extreme.touchCount}`;
     target.push({
-      type: "point",
-      time: extreme.extremeTime,
+      type: "ray",
+      startAt: extreme.extremeTime,
       price: extreme.price,
       label,
       tone: high ? "danger" : "success",
+      state: "ACTIVE",
+      side: extreme.side,
+      timeframes,
     });
-    target.push({
-      type: "line",
-      price: extreme.price,
-      startAt: extreme.extremeTime,
-      endAt: eventAt + 60_000,
-      label: `${label} · активен`,
-      tone: high ? "danger" : "success",
-    });
-    if (finite(extreme.confirmedAt) !== null) {
-      target.push({
-        type: "event",
-        time: extreme.confirmedAt,
-        label: `${high ? "H" : "L"} подтверждён ${extreme.timeframe}`,
-        tone: "blue",
-      });
-    }
   }
 }
 
@@ -362,12 +391,10 @@ export function buildPatternAnnotations(episode) {
   }
 
   const canonicalLevelMap = pack?.levelMapLatest ?? pack?.levelMap;
-  // Raw per-timeframe extrema remain in Evidence Pack for diagnostics. On the normal
-  // chart they are hidden once canonical zones are available, otherwise every physical
-  // swing is drawn several times (1m/5m/15m/...).
-  if (!(canonicalLevelMap?.activeZones?.length > 0)) {
-    addExtremeMapAnnotations(annotations, pack?.extremeMap, eventAt, eventPrice);
-  }
+  // Every active extremum remains visible as a ray from its actual swing point until
+  // the detector invalidates it. Canonical zones stay as context, not as a substitute
+  // for the underlying extrema.
+  addExtremeMapAnnotations(annotations, pack?.extremeMap, eventAt, eventPrice);
   addLevelMapAnnotations(annotations, canonicalLevelMap, eventAt, eventPrice);
   addCascadeMapAnnotations(annotations, pack?.cascadeMapLatest ?? pack?.cascadeMap, eventAt, eventPrice);
 
@@ -378,11 +405,12 @@ export function buildPatternAnnotations(episode) {
     if (extremeAt !== null && extremePrice !== null) {
       const downImpulse = evidence?.impulseSide === "down";
       annotations.push({
-        type: "point",
-        time: extremeAt,
+        type: "ray",
+        startAt: extremeAt,
         price: extremePrice,
         label: downImpulse ? "LOW" : "HIGH",
         tone: downImpulse ? "success" : "danger",
+        state: "ACTIVE",
       });
       if (originPrice !== null) {
         const originAt = nearestOriginAt(pack, extremeAt, originPrice);

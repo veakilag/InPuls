@@ -186,14 +186,33 @@ async function probeChartModal(socket) {
   const evaluation = await send(socket, "Runtime.evaluate", {
     expression: `(async () => {
       const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const annotationModule = await import('./signal-lab-v3-full-chart.js?v=signal-lab-v9-extreme-rays');
+      const now = Date.now();
+      const rayProbeEpisode = {
+        id: 'runtime-smoke-ray',
+        symbol: 'BTCUSDT',
+        candidateType: 'cascade_breakout',
+        stage: 'SETUP',
+        firstSeenAt: now - 60_000,
+        latest: { price: 100 },
+        evidencePack: {
+          window: { eventAt: now - 30_000 },
+          extremeMap: {
+            timeframes: {
+              '1m': { active: [{ side: 'HIGH', price: 101, extremeTime: now - 90_000, confirmedAt: now - 60_000, touchCount: 1 }] },
+            },
+          },
+        },
+      };
+      const rayAnnotationReady = annotationModule.buildPatternAnnotations(rayProbeEpisode)
+        .some((annotation) => annotation.type === 'ray' && annotation.startAt === now - 90_000 && annotation.price === 101);
       const button = document.querySelector('[data-field="chart-toggle"]');
       let source = 'CARD_BUTTON';
       if (button) {
         button.click();
       } else {
         source = 'SYNTHETIC_EPISODE';
-        const modalModule = await import('./signal-lab-chart-modal.js?v=signal-lab-v8-smooth-modal-chart');
-        const now = Date.now();
+        const modalModule = await import('./signal-lab-chart-modal.js?v=signal-lab-v9-extreme-rays');
         void modalModule.openEpisodeChartModal({
           id: 'runtime-smoke-modal',
           symbol: 'BTCUSDT',
@@ -243,8 +262,9 @@ async function probeChartModal(socket) {
       await wait(50);
       const closed = root.hidden && root.getAttribute('aria-hidden') === 'true';
       return {
-        ok: Boolean(timeframeActive && resized && canvasReady && closed),
+        ok: Boolean(rayAnnotationReady && timeframeActive && resized && canvasReady && closed),
         source,
+        rayAnnotationReady,
         timeframeActive,
         resized,
         canvasReady,

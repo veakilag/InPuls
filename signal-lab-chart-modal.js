@@ -1,9 +1,9 @@
-import { CandlestickChart } from "./chart.js?v=signal-lab-modal-chart-v1";
+import { CandlestickChart } from "./chart.js?v=signal-lab-v9-extreme-rays";
 import {
   buildPatternAnnotations,
   loadEpisodeCandles,
   patternAnnotationSummary,
-} from "./signal-lab-v3-full-chart.js?v=signal-lab-modal-chart-v1";
+} from "./signal-lab-v3-full-chart.js?v=signal-lab-v9-extreme-rays";
 
 const TIMEFRAMES = Object.freeze([
   ["1s", "1с"], ["5s", "5с"], ["15s", "15с"], ["1m", "1м"], ["3m", "3м"],

@@ -52,7 +52,7 @@ test("only a real return after rearm increments canonical touch count", () => {
   assert.equal(subject.snapshot().activeZones[0].touchCount, 2);
 });
 
-test("normal chart hides raw timeframe duplicates when canonical zones exist", () => {
+test("normal chart keeps one deduplicated active ray together with the canonical zone", () => {
   const levelMap = engine().syncExtremeMap(multiTfExtremeMap(), { at: 70_000 });
   const episode = {
     candidateType: "cascade_v4_up",
@@ -68,15 +68,20 @@ test("normal chart hides raw timeframe duplicates when canonical zones exist", (
     },
   };
   const annotations = buildPatternAnnotations(episode);
+  const rays = annotations.filter((row) => row.type === "ray");
   const labels = annotations.map((row) => row.label ?? "");
-  assert.equal(labels.some((label) => /^H (1m|5m|15m) ×/.test(label)), false);
+  assert.equal(rays.length, 1);
+  assert.equal(rays[0].label, "H 1m/5m/15m ×1");
+  assert.equal(rays[0].price, 100.02);
   assert.equal(labels.filter((label) => label.startsWith("H зона ×1")).length, 1);
 });
 
-test("chart limits canonical levels and cascade overlays instead of drawing the whole map", () => {
+test("chart limits canonical overlays while always emitting deduplicated active rays", () => {
   const chart = fs.readFileSync(new URL("../signal-lab-v3-full-chart.js", import.meta.url), "utf8");
   assert.match(chart, /zones\.slice\(0, 8\)/);
   assert.match(chart, /eventHistory\.slice\(-8\)/);
   assert.match(chart, /\.slice\(0, 1\);/);
-  assert.match(chart, /canonicalLevelMap\?\.activeZones\?\.length/);
+  assert.match(chart, /groups\.slice\(0, 32\)/);
+  assert.match(chart, /addExtremeMapAnnotations\(annotations, pack\?\.extremeMap, eventAt, eventPrice\)/);
+  assert.doesNotMatch(chart, /if \(!\(canonicalLevelMap\?\.activeZones\?\.length > 0\)\)/);
 });
