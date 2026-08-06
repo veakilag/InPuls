@@ -21,6 +21,7 @@ export const DEFAULT_STRUCTURAL_EXTREME_CONFIG = Object.freeze({
   atrPeriod: 14,
   minimumBarsAfterCandidate: 2,
   tickSizeBufferTicks: 3,
+  crossingToleranceTicks: 1,
   touchZoneTicks: 1,
   rearmDistanceFactor: 0.7,
   acceptanceBars: 2,
@@ -90,6 +91,13 @@ function mergeConfig(timeframe, config = {}) {
     tickSizeBufferTicks: Math.max(
       1,
       Math.round(finite(config.tickSizeBufferTicks) ?? DEFAULT_STRUCTURAL_EXTREME_CONFIG.tickSizeBufferTicks),
+    ),
+    crossingToleranceTicks: Math.max(
+      0,
+      Math.round(
+        finite(config.crossingToleranceTicks)
+        ?? DEFAULT_STRUCTURAL_EXTREME_CONFIG.crossingToleranceTicks,
+      ),
     ),
     touchZoneTicks: Math.max(
       0,
@@ -383,7 +391,6 @@ export class StructuralExtremeEngine {
 
   #advanceUp(candle) {
     const highTicks = toTicks(candle.high, this.tickSize);
-    const toleranceTicks = this.config.tickSizeBufferTicks;
     if (!this.candidate) {
       this.candidate = makeCandidate("HIGH", candle.high, highTicks, candle, this.barIndex);
       this.lastDiagnostic = this.#diagnostic({
@@ -396,7 +403,7 @@ export class StructuralExtremeEngine {
       return;
     }
 
-    if (highTicks > this.candidate.priceTicks + toleranceTicks) {
+    if (highTicks > this.candidate.priceTicks) {
       const previousPrice = this.candidate.price;
       this.candidate = {
         ...makeCandidate("HIGH", candle.high, highTicks, candle, this.barIndex),
@@ -463,7 +470,6 @@ export class StructuralExtremeEngine {
 
   #advanceDown(candle) {
     const lowTicks = toTicks(candle.low, this.tickSize);
-    const toleranceTicks = this.config.tickSizeBufferTicks;
     if (!this.candidate) {
       this.candidate = makeCandidate("LOW", candle.low, lowTicks, candle, this.barIndex);
       this.lastDiagnostic = this.#diagnostic({
@@ -476,7 +482,7 @@ export class StructuralExtremeEngine {
       return;
     }
 
-    if (lowTicks < this.candidate.priceTicks - toleranceTicks) {
+    if (lowTicks < this.candidate.priceTicks) {
       const previousPrice = this.candidate.price;
       this.candidate = {
         ...makeCandidate("LOW", candle.low, lowTicks, candle, this.barIndex),
@@ -648,7 +654,7 @@ export class StructuralExtremeEngine {
     const lowTicks = toTicks(candle.low, this.tickSize);
     const highTicks = toTicks(candle.high, this.tickSize);
     const closeTicks = toTicks(candle.close, this.tickSize);
-    const tolerance = this.config.tickSizeBufferTicks;
+    const tolerance = this.config.crossingToleranceTicks;
     const touchZone = Math.max(tolerance, this.config.touchZoneTicks);
 
     for (const row of this.extremes) {
@@ -783,6 +789,7 @@ export class StructuralExtremeEngine {
         minimumSwingPercent: this.config.minimumSwingPercent,
         minimumBarsAfterCandidate: this.config.minimumBarsAfterCandidate,
         tickSizeBufferTicks: this.config.tickSizeBufferTicks,
+        crossingToleranceTicks: this.config.crossingToleranceTicks,
       },
       reason,
       confirmedExtremeId,

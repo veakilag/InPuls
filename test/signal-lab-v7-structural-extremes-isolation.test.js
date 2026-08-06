@@ -18,10 +18,13 @@ test("visual review page loads the isolated detector and all six independent tim
   assert.match(review, /signal-lab-v7-structural-extremes\.js/);
   assert.match(review, /fetchThirtyDays/);
   assert.match(review, /new StructuralExtremeEngine/);
+  assert.match(review, /let timeframe = "1h"/);
+  assert.match(review, /type: "segment"/);
   for (const timeframe of ["1m", "5m", "15m", "1h", "4h", "1d"]) {
     assert.match(html, new RegExp(`data-timeframe="${timeframe}"`));
   }
   assert.match(html, /Структурные экстремумы/);
   assert.match(html, /История снятых/);
   assert.match(html, /Candidate/);
+  assert.match(html, /data-timeframe="1h" class="is-active"/);
 });

@@ -93,6 +93,30 @@ test("several lower lows create one moving candidate and one confirmed low", () 
   assert.equal(final.history[0].confirmedAt, rows[6].closeTime);
 });
 
+test("candidate moves on every new traded tick even when reversal buffer is wider", () => {
+  const subject = engine({ tickSizeBufferTicks: 3, crossingToleranceTicks: 1 });
+  subject.ingestCandle(candle(0, 100, 100, 100, 100));
+  subject.ingestCandle(candle(1, 100, 101.0, 100, 100.8));
+  const snapshot = subject.ingestCandle(candle(2, 100.8, 101.1, 100.7, 101.0));
+  assert.equal(snapshot.direction, STRUCTURAL_DIRECTIONS.TRACKING_UP);
+  assert.equal(snapshot.candidate.price, 101.1);
+  assert.equal(snapshot.diagnostics.reason, "HIGH_CANDIDATE_MOVED");
+});
+
+test("crossing tolerance is independent from the wider reversal tick buffer", () => {
+  const subject = engine({ tickSizeBufferTicks: 3, crossingToleranceTicks: 1 });
+  subject.ingestCandles(risingToConfirmedHigh());
+  subject.ingestCandle(candle(7, 104.3, 104.5, 103.0, 103.5));
+  let snapshot = subject.ingestCandle(candle(8, 103.5, 105.1, 103.4, 105.0));
+  const highId = snapshot.history.find((row) => row.side === "HIGH").id;
+  assert.ok(snapshot.active.some((row) => row.id === highId));
+  snapshot = subject.ingestCandle(candle(9, 105.0, 105.2, 104.8, 105.1));
+  const crossedHigh = snapshot.history.find((row) => row.id === highId);
+  assert.equal(crossedHigh.active, false);
+  assert.equal(crossedHigh.status, STRUCTURAL_EXTREME_STATUSES.CROSSED);
+  assert.ok(snapshot.active.every((row) => row.id !== highId));
+});
+
 test("small pullback does not confirm an extreme", () => {
   const subject = engine({ minimumPercent: 1.0 });
   subject.ingestCandles(risingToConfirmedHigh().slice(0, 5));

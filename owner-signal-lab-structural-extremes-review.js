@@ -42,7 +42,7 @@ const chart = new CandlestickChart(elements.canvas, elements.tooltip, { storageK
 chart.setVolumeVisible(true);
 chart.setSessionsVisible(true);
 
-let timeframe = "1m";
+let timeframe = "1h";
 let current = null;
 let generation = 0;
 let abortController = null;
@@ -183,12 +183,14 @@ function annotationRows(snapshot) {
   const source = elements.showHistory.checked ? snapshot.history : snapshot.active;
   for (const extreme of source) {
     if (!elements.showHistory.checked && !extreme.active) continue;
+    const endAt = extreme.active
+      ? current?.loaded?.endAt
+      : extreme.crossedAt ?? current?.loaded?.endAt;
     rows.push({
-      type: extreme.active ? "ray" : "line",
-      startAt: extreme.extremeAt,
-      endAt: extreme.crossedAt,
-      price: extreme.price,
-      label: `${extreme.side === "HIGH" ? "H" : "L"} ${snapshot.timeframe} ×${extreme.touchCount}`,
+      type: "segment",
+      a: { time: extreme.extremeAt, price: extreme.price },
+      b: { time: endAt, price: extreme.price },
+      label: `${extreme.side === "HIGH" ? "H" : "L"} ${snapshot.timeframe} · атак ${extreme.touchCount}`,
       tone: extreme.side === "HIGH" ? "danger" : "success",
       state: extreme.status,
     });
