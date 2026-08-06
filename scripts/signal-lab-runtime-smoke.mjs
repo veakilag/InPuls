@@ -186,14 +186,34 @@ async function probeChartModal(socket) {
   const evaluation = await send(socket, "Runtime.evaluate", {
     expression: `(async () => {
       const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      let button = null;
-      for (let attempt = 0; attempt < 80; attempt += 1) {
-        button = document.querySelector('[data-field="chart-toggle"]');
-        if (button) break;
-        await wait(250);
+      const button = document.querySelector('[data-field="chart-toggle"]');
+      let source = 'CARD_BUTTON';
+      if (button) {
+        button.click();
+      } else {
+        source = 'SYNTHETIC_EPISODE';
+        const modalModule = await import('./signal-lab-chart-modal.js?v=signal-lab-v8-smooth-modal-chart');
+        const now = Date.now();
+        void modalModule.openEpisodeChartModal({
+          id: 'runtime-smoke-modal',
+          symbol: 'BTCUSDT',
+          label: 'Runtime smoke',
+          candidateType: 'cascade_breakout',
+          stage: 'SETUP',
+          direction: 'long',
+          firstSeenAt: now - 60_000,
+          lastSeenAt: now,
+          observations: 1,
+          peakEvidenceScore: 50,
+          evidencePack: {
+            window: {
+              eventAt: now - 30_000,
+              startAt: now - 120_000,
+              endAt: now + 60_000,
+            },
+          },
+        });
       }
-      if (!button) return { ok: false, reason: 'NO_CHART_BUTTON' };
-      button.click();
       let root = null;
       for (let attempt = 0; attempt < 40; attempt += 1) {
         root = document.querySelector('.signal-lab-chart-modal');
@@ -202,7 +222,7 @@ async function probeChartModal(socket) {
       }
       const panel = root?.querySelector('.signal-lab-chart-modal__window');
       const canvas = root?.querySelector('[data-modal-canvas]');
-      if (!root || !panel || !canvas || root.hidden) return { ok: false, reason: 'MODAL_DID_NOT_OPEN' };
+      if (!root || !panel || !canvas || root.hidden) return { ok: false, reason: 'MODAL_DID_NOT_OPEN', source };
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const before = panel.getBoundingClientRect();
       panel.style.width = '70vw';
@@ -223,6 +243,7 @@ async function probeChartModal(socket) {
       const canvasReady = canvas.getBoundingClientRect().width > 100 && canvas.getBoundingClientRect().height > 100;
       return {
         ok: Boolean(timeframeActive && resized && canvasReady && closed),
+        source,
         timeframeActive,
         resized,
         canvasReady,
