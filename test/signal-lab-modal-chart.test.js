@@ -22,4 +22,10 @@ test("Signal Lab opens one shared chart modal instead of chart instances inside 
   assert.match(html, /signal-lab-v8-smooth-modal-chart/);
   assert.match(smoke, /SYNTHETIC_EPISODE/);
   assert.match(smoke, /openEpisodeChartModal/);
+  assert.match(smoke, /const canvasRect = canvas\.getBoundingClientRect\(\)/);
+  assert.ok(
+    smoke.indexOf("const canvasRect = canvas.getBoundingClientRect()")
+      < smoke.indexOf("root.querySelector('[data-modal-close]')?.click()"),
+    "runtime smoke must measure the visible canvas before closing the modal",
+  );
 });
