@@ -68,4 +68,10 @@ if needle not in test_text:
 test_text = test_text.replace(needle, addition, 1)
 test_file.write_text(test_text, encoding="utf-8")
 
+replace_once(
+    "test/signal-lab-v3-full-chart.test.js",
+    'buttonGroup\\(TIMEFRAMES, "data-modal-timeframe", "1m"\\)',
+    'buttonGroup\\(TIMEFRAMES, "data-modal-timeframe", "1h"\\)',
+)
+
 print("Signal Lab 30-day default history patch applied")
