@@ -9,7 +9,7 @@ import {
 } from "./binance-stream-routing.js";
 
 const APP_BUILD = "26-99-tape-priority-comfort-v1";
-const STABLE_SW_BUILD = "26-116-spot-tape-routing-v2";
+const STABLE_SW_BUILD = "26-117-chart-interaction-performance-v1";
 const app = fs.readFileSync(new URL("./app.js", import.meta.url), "utf8");
 const index = fs.readFileSync(new URL("./index.html", import.meta.url), "utf8");
 const sw = fs.readFileSync(new URL("./sw.js", import.meta.url), "utf8");

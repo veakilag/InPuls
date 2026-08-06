@@ -186,7 +186,7 @@ async function probeChartModal(socket) {
   const evaluation = await send(socket, "Runtime.evaluate", {
     expression: `(async () => {
       const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      const annotationModule = await import('./signal-lab-v3-full-chart.js?v=signal-lab-v9-extreme-rays');
+      const annotationModule = await import('./signal-lab-v3-full-chart.js?v=26-117-chart-interaction-performance-v1');
       const now = Date.now();
       const rayProbeEpisode = {
         id: 'runtime-smoke-ray',
@@ -212,7 +212,7 @@ async function probeChartModal(socket) {
         button.click();
       } else {
         source = 'SYNTHETIC_EPISODE';
-        const modalModule = await import('./signal-lab-chart-modal.js?v=signal-lab-v9-extreme-rays');
+        const modalModule = await import('./signal-lab-chart-modal.js?v=26-117-chart-interaction-performance-v1');
         void modalModule.openEpisodeChartModal({
           id: 'runtime-smoke-modal',
           symbol: 'BTCUSDT',

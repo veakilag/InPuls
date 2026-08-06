@@ -18,7 +18,7 @@ test("Binance Spot uses independent market-qualified Worker feeds", () => {
 });
 
 test("Spot tape hotfix invalidates the full browser runtime chain", () => {
-  const build = "26-116-spot-tape-routing-v2";
+  const build = "26-117-chart-interaction-performance-v1";
   const index = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   const serviceWorker = readFileSync(new URL("./sw.js", import.meta.url), "utf8");
   assert.match(index, new RegExp(`app\\.js\\?v=${build}`));
