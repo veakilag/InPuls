@@ -3,6 +3,7 @@ from pathlib import Path
 OLD_RUNTIME_BUILD = "26-116-spot-tape-routing-v2"
 NEW_RUNTIME_BUILD = "26-117-chart-interaction-performance-v1"
 OLD_SIGNAL_LAB_BUILD = "signal-lab-v9-extreme-rays"
+OLD_CHART_BUILD = "26-102-tape-live-edge-minute-boundary-v1"
 
 TEXT_SUFFIXES = {
     ".css",
@@ -50,3 +51,19 @@ for old, new in replacements.items():
         raise SystemExit(f"Signal Lab annotation assertion mismatch for {old!r}: {count}")
     full_chart_test = full_chart_test.replace(old, new, 1)
 full_chart_test_path.write_text(full_chart_test, encoding="utf-8")
+
+smooth_test_path = Path("test-smooth-chart-first-v1.mjs")
+smooth_test = smooth_test_path.read_text(encoding="utf-8")
+old_smooth_assertion = '  assert.match(app, /chart\\.js\\?v=26-102-tape-live-edge-minute-boundary-v1/);'
+new_smooth_assertion = '  assert.match(app, /chart\\.js\\?v=26-117-chart-interaction-performance-v1/);'
+if smooth_test.count(old_smooth_assertion) != 1:
+    raise SystemExit("smooth chart cache assertion mismatch")
+smooth_test_path.write_text(smooth_test.replace(old_smooth_assertion, new_smooth_assertion, 1), encoding="utf-8")
+
+boundary_test_path = Path("test-tape-live-edge-minute-boundary-v1.mjs")
+boundary_test = boundary_test_path.read_text(encoding="utf-8")
+old_chart_constant = f'const CHART_BUILD = "{OLD_CHART_BUILD}";'
+new_chart_constant = f'const CHART_BUILD = "{NEW_RUNTIME_BUILD}";'
+if boundary_test.count(old_chart_constant) != 1:
+    raise SystemExit("boundary chart build assertion mismatch")
+boundary_test_path.write_text(boundary_test.replace(old_chart_constant, new_chart_constant, 1), encoding="utf-8")
