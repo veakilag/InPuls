@@ -1,0 +1,54 @@
+name: Package structural extrema preview
+
+on:
+  push:
+    branches:
+      - agent/signal-lab-structural-extremes-stage1
+    paths:
+      - .github/workflows/package-structural-extremes-preview.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out draft branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: agent/signal-lab-structural-extremes-stage1
+          persist-credentials: false
+
+      - name: Build static preview directory
+        run: |
+          mkdir -p structural-extremes-preview
+          cp owner-signal-lab-structural-extremes-review.html structural-extremes-preview/index.html
+          cp owner-signal-lab-structural-extremes-review.css structural-extremes-preview/
+          cp owner-signal-lab-structural-extremes-review.js structural-extremes-preview/
+          cp signal-lab-v7-structural-extremes.js structural-extremes-preview/
+          cp chart.js structural-extremes-preview/
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('structural-extremes-preview/index.html')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('./owner-signal-lab-v3.html', 'https://veakilag.github.io/InPuls/owner-signal-lab-v3.html')
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validate packaged module graph
+        run: |
+          node --check structural-extremes-preview/owner-signal-lab-structural-extremes-review.js
+          node --check structural-extremes-preview/signal-lab-v7-structural-extremes.js
+          node --check structural-extremes-preview/chart.js
+          test -s structural-extremes-preview/index.html
+
+      - name: Upload preview artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: structural-extremes-preview
+          path: structural-extremes-preview
+          if-no-files-found: error
+          retention-days: 3
