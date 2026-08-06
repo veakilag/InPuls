@@ -4,11 +4,15 @@ import {
   STRUCTURAL_EXTREME_STATUSES,
   STRUCTURAL_TIMEFRAMES,
 } from "./signal-lab-v7-structural-extremes.js";
+import {
+  fixedReviewUrl,
+  manualLevelLifecycle,
+} from "./signal-lab-v7-review-level-lifecycle.js";
 
 const KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
 const EXCHANGE_INFO_ENDPOINT = "https://fapi.binance.com/fapi/v1/exchangeInfo";
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60_000;
-const REVIEW_STORAGE_PREFIX = "inpuls-structural-extremes-review-v1";
+const REVIEW_STORAGE_PREFIX = "inpuls-structural-extremes-review-v3";
 const INTERVAL_MS = Object.freeze({
   "1m": 60_000,
   "5m": 300_000,
@@ -29,6 +33,7 @@ const REVIEW_TOOL_HINTS = Object.freeze({
   attacks: "Укажи ×N и кликни рядом с уровнем, для которого неверно посчитаны отдельные атаки.",
   line: "Поставь две точки — получится вспомогательная линия. Ctrl удерживает привязку к OHLC.",
   freehand: "Рисуй мышью прямо на графике. После отпускания рисунок сохранится в разметке.",
+  erase: "Кликни по своей метке, линии или рисунку, который нужно удалить.",
 });
 
 const STRUCTURED_REVIEW_TOOLS = new Set([
@@ -39,6 +44,7 @@ const STRUCTURED_REVIEW_TOOLS = new Set([
   "confirm",
   "cross",
   "attacks",
+  "erase",
 ]);
 
 const elements = {
@@ -70,7 +76,7 @@ function installReviewUi() {
       <div class="review-tools__title">
         <div>
           <strong>Разметка для обучения</strong>
-          <span>Выбери действие и кликни по графику</span>
+          <span>Эталонные уровни сами считают атаки и заканчиваются на пробое</span>
         </div>
         <span id="review-save-state">Сохраняется в браузере</span>
       </div>
@@ -85,12 +91,14 @@ function installReviewUi() {
         <button type="button" data-review-tool="attacks">×N Атаки</button>
         <button type="button" data-review-tool="line">／ Линия</button>
         <button type="button" data-review-tool="freehand">✎ Карандаш</button>
+        <button type="button" data-review-tool="erase">⌫ Ластик</button>
       </div>
       <div class="review-tool-options">
         <label>Атаки ×N <input id="review-attack-count" type="number" min="1" max="20" value="2" /></label>
         <label class="review-comment">Комментарий к следующей метке
           <input id="review-comment" maxlength="180" placeholder="Например: движение ещё не закончилось" />
         </label>
+        <button id="review-copy-period" type="button">Скопировать ссылку периода</button>
         <button id="review-undo" type="button">Отменить метку</button>
         <button id="review-clear" type="button">Очистить</button>
         <button id="review-copy" type="button">Скопировать JSON</button>
@@ -105,7 +113,7 @@ function installReviewUi() {
       <div class="review-feedback__head">
         <div>
           <h2>Моя разметка <span id="review-count">0</span></h2>
-          <p>После проверки скачай JSON и отправь его в чат. В нём будут монета, ТФ, свечи, все метки и рисунки.</p>
+          <p>Период закреплён в URL. При повторном открытии загрузятся те же свечи.</p>
         </div>
       </div>
       <ol id="review-notes" class="review-notes"><li class="review-empty">Пока нет правок.</li></ol>
@@ -116,6 +124,7 @@ function installReviewUi() {
     toolButtons: [...document.querySelectorAll("[data-review-tool]")],
     attackCount: document.querySelector("#review-attack-count"),
     comment: document.querySelector("#review-comment"),
+    copyPeriod: document.querySelector("#review-copy-period"),
     undo: document.querySelector("#review-undo"),
     clear: document.querySelector("#review-clear"),
     copy: document.querySelector("#review-copy"),
@@ -148,6 +157,7 @@ const finite = (value) => {
 };
 
 const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
+const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
 
 function validSymbol(value) {
   const symbol = String(value ?? "").trim().toUpperCase();
@@ -208,13 +218,48 @@ function parseKline(row, endAt) {
     : null;
 }
 
+async function fetchJsonWithRetry(url, signal, attempts = 4) {
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await fetch(url, { signal, cache: "no-store" });
+      if (response.ok) return await response.json();
+      const retryable = response.status === 418 || response.status === 429 || response.status >= 500;
+      if (!retryable) throw new Error(`Binance HTTP ${response.status}`);
+      lastError = new Error(`Binance HTTP ${response.status}`);
+    } catch (error) {
+      if (error?.name === "AbortError") throw error;
+      lastError = error;
+    }
+    if (attempt + 1 < attempts) {
+      await new Promise((resolve) => setTimeout(resolve, 300 * (2 ** attempt)));
+    }
+  }
+  throw lastError ?? new Error("Binance request failed");
+}
+
+async function mapWithConcurrency(items, concurrency, worker) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const runners = Array.from(
+    { length: Math.max(1, Math.min(items.length, concurrency)) },
+    async () => {
+      while (cursor < items.length) {
+        const index = cursor;
+        cursor += 1;
+        results[index] = await worker(items[index], index);
+      }
+    },
+  );
+  await Promise.all(runners);
+  return results;
+}
+
 async function fetchTickSize(symbol, signal) {
   if (tickSizeCache.has(symbol)) return tickSizeCache.get(symbol);
   const url = new URL(EXCHANGE_INFO_ENDPOINT);
   url.searchParams.set("symbol", symbol);
-  const response = await fetch(url, { signal, cache: "no-store" });
-  if (!response.ok) throw new Error(`Binance exchangeInfo HTTP ${response.status}`);
-  const payload = await response.json();
+  const payload = await fetchJsonWithRetry(url, signal);
   const market = Array.isArray(payload?.symbols) ? payload.symbols[0] : null;
   const filter = (Array.isArray(market?.filters) ? market.filters : [])
     .find((row) => row?.filterType === "PRICE_FILTER");
@@ -224,41 +269,52 @@ async function fetchTickSize(symbol, signal) {
   return tickSize;
 }
 
-async function fetchThirtyDays(symbol, selectedTimeframe, endAt, signal) {
+async function fetchThirtyDays(symbol, selectedTimeframe, endAt, signal, onProgress = null) {
   const intervalMs = INTERVAL_MS[selectedTimeframe];
   const startAt = endAt - THIRTY_DAYS_MS;
   const key = `${symbol}:${selectedTimeframe}:${Math.floor(endAt / intervalMs)}`;
-  if (cache.has(key)) return structuredClone(cache.get(key));
+  if (cache.has(key)) {
+    onProgress?.({ completed: 1, total: 1, cached: true });
+    return structuredClone(cache.get(key));
+  }
 
-  const candles = [];
-  let cursor = startAt;
-  let pages = 0;
-  const expected = Math.ceil(THIRTY_DAYS_MS / intervalMs) + 2;
-  const maximumPages = Math.min(64, Math.max(2, Math.ceil(expected / 1_500) + 2));
-  while (cursor <= endAt && pages < maximumPages && candles.length < 50_500) {
+  const pageSize = 1_500;
+  const pageSpan = intervalMs * pageSize;
+  const alignedStart = Math.floor(startAt / intervalMs) * intervalMs;
+  const windows = [];
+  for (let cursor = alignedStart; cursor <= endAt; cursor += pageSpan) {
+    windows.push({
+      startTime: cursor,
+      endTime: Math.min(endAt, cursor + pageSpan - 1),
+    });
+  }
+
+  let completed = 0;
+  const concurrency = selectedTimeframe === "1m" ? 4 : 3;
+  const pages = await mapWithConcurrency(windows, concurrency, async (window) => {
     const url = new URL(KLINES_ENDPOINT);
     url.searchParams.set("symbol", symbol);
     url.searchParams.set("interval", selectedTimeframe);
-    url.searchParams.set("startTime", String(Math.floor(cursor)));
-    url.searchParams.set("endTime", String(Math.floor(endAt)));
-    url.searchParams.set("limit", "1500");
-    const response = await fetch(url, { signal, cache: "no-store" });
-    if (!response.ok) throw new Error(`Binance ${selectedTimeframe} klines HTTP ${response.status}`);
-    const payload = await response.json();
+    url.searchParams.set("startTime", String(Math.floor(window.startTime)));
+    url.searchParams.set("endTime", String(Math.floor(window.endTime)));
+    url.searchParams.set("limit", String(pageSize));
+    const payload = await fetchJsonWithRetry(url, signal);
     const page = (Array.isArray(payload) ? payload : [])
       .map((row) => parseKline(row, endAt))
       .filter(Boolean);
-    pages += 1;
-    if (!page.length) break;
-    for (const row of page) {
-      if (row.time < startAt || row.time > endAt) continue;
-      if (!candles.length || row.time > candles.at(-1).time) candles.push(row);
+    completed += 1;
+    onProgress?.({ completed, total: windows.length, cached: false });
+    return page;
+  });
+
+  const byTime = new Map();
+  for (const page of pages) {
+    for (const candle of page) {
+      if (candle.time < startAt || candle.time > endAt) continue;
+      byTime.set(candle.time, candle);
     }
-    const next = page.at(-1).time + intervalMs;
-    if (!(next > cursor)) break;
-    cursor = next;
-    if (page.length < 1_500) break;
   }
+  const candles = [...byTime.values()].sort((left, right) => left.time - right.time);
   if (!candles.length) throw new Error("Binance не вернул закрытые свечи");
 
   const expectedFirst = Math.ceil(startAt / intervalMs) * intervalMs;
@@ -272,7 +328,7 @@ async function fetchThirtyDays(symbol, selectedTimeframe, endAt, signal) {
   );
   const result = {
     candles,
-    pages,
+    pages: windows.length,
     startAt,
     endAt,
     coverageRatio: Math.min(1, coveredSpan / requestedSpan),
@@ -281,6 +337,21 @@ async function fetchThirtyDays(symbol, selectedTimeframe, endAt, signal) {
   cache.set(key, result);
   while (cache.size > 12) cache.delete(cache.keys().next().value);
   return structuredClone(result);
+}
+
+async function replayEngineIncrementally(engine, candles, signal, onProgress = null) {
+  const chunkSize = candles.length > 10_000 ? 2_000 : 5_000;
+  for (let offset = 0; offset < candles.length; offset += chunkSize) {
+    if (signal?.aborted) {
+      const error = new Error("Aborted");
+      error.name = "AbortError";
+      throw error;
+    }
+    const end = Math.min(candles.length, offset + chunkSize);
+    engine.ingestCandles(candles.slice(offset, end));
+    onProgress?.({ completed: end, total: candles.length });
+    if (end < candles.length) await nextFrame();
+  }
 }
 
 function algorithmAnnotationRows(snapshot) {
@@ -296,7 +367,7 @@ function algorithmAnnotationRows(snapshot) {
       type: "segment",
       a: { time: extreme.extremeAt, price: extreme.price },
       b: { time: endAt, price: extreme.price },
-      label: `${extreme.side === "HIGH" ? "H" : "L"} ${snapshot.timeframe} · атак ${extreme.touchCount}`,
+      label: `${extreme.side === "HIGH" ? "H" : "L"} ${snapshot.timeframe} · ×${extreme.touchCount}${extreme.active ? "" : " · ПРОБИТ"}`,
       tone: extreme.side === "HIGH" ? "danger" : "success",
       state: extreme.status,
     });
@@ -311,7 +382,34 @@ function algorithmAnnotationRows(snapshot) {
       state: STRUCTURAL_EXTREME_STATUSES.CANDIDATE,
     });
   }
+  if (elements.showCandidate.checked && snapshot.oppositeCandidate) {
+    rows.push({
+      type: "point",
+      time: snapshot.oppositeCandidate.extremeAt,
+      price: snapshot.oppositeCandidate.price,
+      label: `${snapshot.oppositeCandidate.side} counter`,
+      tone: "blue",
+      state: "OPPOSITE_CANDIDATE",
+    });
+  }
   return rows;
+}
+
+function manualLifecycle(correction) {
+  const parameters = current?.snapshot?.diagnostics?.parameters ?? {};
+  return manualLevelLifecycle({
+    candles: current?.loaded?.candles ?? [],
+    side: correction.side,
+    price: correction.price,
+    extremeAt: correction.time,
+    tickSize: current?.tickSize,
+    reversalThresholdPct: parameters.minimumPercent ?? 0.5,
+    crossingToleranceTicks: parameters.crossingToleranceTicks ?? 1,
+    touchZoneTicks: parameters.touchZoneTicks ?? 2,
+    touchZoneFactor: parameters.touchZoneFactor ?? 0.15,
+    maximumTouchZonePct: parameters.maximumTouchZonePercent ?? 0.25,
+    rearmDistanceFactor: 0.7,
+  });
 }
 
 function reviewAnnotationRows() {
@@ -321,15 +419,22 @@ function reviewAnnotationRows() {
     const comment = correction.comment ? ` · ${correction.comment.slice(0, 28)}` : "";
     if (correction.type === "ADD_EXTREME") {
       const tone = correction.side === "HIGH" ? "danger" : "success";
+      const lifecycle = manualLifecycle(correction);
       rows.push({
-        type: "ray",
-        startAt: correction.time,
-        price: correction.price,
-        label: `ДОЛЖЕН БЫТЬ ${correction.side}${comment}`,
+        type: "segment",
+        a: { time: correction.time, price: correction.price },
+        b: { time: lifecycle.endAt ?? endAt, price: correction.price },
+        label: `ЭТАЛОН ${correction.side} · ×${lifecycle.touchCount}${lifecycle.active ? "" : " · ПРОБИТ"}${comment}`,
         tone,
-        state: "MANUAL_EXPECTED",
+        state: lifecycle.status,
       });
       rows.push({ type: "point", time: correction.time, price: correction.price, tone, label: correction.side });
+      for (const attack of lifecycle.attacks) {
+        rows.push({ type: "point", time: attack.time, price: correction.price, tone: "warning", label: `×${attack.number}` });
+      }
+      if (lifecycle.crossedAt) {
+        rows.push({ type: "event", time: lifecycle.crossedAt, tone: "accent", label: "ПРОБИТ" });
+      }
     } else if (correction.type === "REMOVE_EXTREME") {
       rows.push({
         type: "point",
@@ -384,10 +489,7 @@ function renderDiagnostics(snapshot) {
   elements.direction.textContent = snapshot?.direction ?? "—";
   elements.activeCount.textContent = String(snapshot?.active?.length ?? 0);
   elements.historyCount.textContent = String(snapshot?.history?.length ?? 0);
-  elements.currentDiagnostic.textContent = snapshot
-    ? JSON.stringify(snapshot.diagnostics, null, 2)
-    : "—";
-
+  elements.currentDiagnostic.textContent = snapshot ? JSON.stringify(snapshot.diagnostics, null, 2) : "—";
   const rows = [...(snapshot?.history ?? [])].reverse().slice(0, 200);
   elements.extremeRows.replaceChildren(...rows.map((extreme) => {
     const row = document.createElement("tr");
@@ -416,7 +518,11 @@ function renderDiagnostics(snapshot) {
 function correctionDescription(correction) {
   const time = correction.time ?? correction.extremeAt ?? correction.to?.time;
   const suffix = correction.comment ? ` — ${correction.comment}` : "";
-  if (correction.type === "ADD_EXTREME") return `Добавить ${correction.side} на ${formatShortDateTime(time)} по ${correction.price}${suffix}`;
+  if (correction.type === "ADD_EXTREME") {
+    const lifecycle = current ? manualLifecycle(correction) : null;
+    const status = lifecycle ? ` · ×${lifecycle.touchCount}${lifecycle.active ? "" : " · пробит"}` : "";
+    return `Добавить ${correction.side} на ${formatShortDateTime(time)} по ${correction.price}${status}${suffix}`;
+  }
   if (correction.type === "REMOVE_EXTREME") return `Лишний ${correction.side} ${formatShortDateTime(correction.extremeAt)} по ${correction.price}${suffix}`;
   if (correction.type === "MOVE_EXTREME") return `Перенести ${correction.side}: ${formatShortDateTime(correction.from.time)} → ${formatShortDateTime(correction.to.time)}${suffix}`;
   if (correction.type === "CONFIRM_AT") return `${correction.side} должен подтвердиться ${formatShortDateTime(correction.time)}${suffix}`;
@@ -477,8 +583,19 @@ function updateAnnotations() {
   renderReviewList();
 }
 
-function reviewStorageKey(symbol = current?.symbol, selectedTimeframe = current?.timeframe ?? timeframe) {
-  return symbol ? `${REVIEW_STORAGE_PREFIX}:${symbol}:${selectedTimeframe}` : null;
+function selectedEndAt() {
+  const value = new Date(elements.endAt.value).getTime();
+  return Number.isFinite(value) ? value : null;
+}
+
+function reviewStorageKey(
+  symbol = current?.symbol,
+  selectedTimeframe = current?.timeframe ?? timeframe,
+  endAt = current?.loaded?.endAt ?? selectedEndAt(),
+) {
+  if (!symbol || !Number.isFinite(endAt)) return null;
+  const bucket = Math.floor(endAt / INTERVAL_MS[selectedTimeframe]);
+  return `${REVIEW_STORAGE_PREFIX}:${symbol}:${selectedTimeframe}:${bucket}`;
 }
 
 function persistReviewState() {
@@ -486,7 +603,7 @@ function persistReviewState() {
   if (!key) return;
   try {
     localStorage.setItem(key, JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 3,
       corrections: reviewCorrections,
       drawings: chart.drawings,
       updatedAt: Date.now(),
@@ -517,16 +634,34 @@ function restoreReviewState() {
   }
 }
 
+function manualLevelsForExport() {
+  return reviewCorrections
+    .filter((row) => row.type === "ADD_EXTREME")
+    .map((row) => ({
+      correctionId: row.id,
+      side: row.side,
+      price: row.price,
+      extremeAt: row.time,
+      lifecycle: manualLifecycle(row),
+    }));
+}
+
 function exportReviewPayload() {
   const snapshot = current?.snapshot;
   return {
-    schemaVersion: 1,
+    schemaVersion: 3,
     entity: "InPulsStructuralExtremesTraderReview",
     exportedAt: Date.now(),
     symbol: current?.symbol ?? validSymbol(elements.symbol.value),
     timeframe: current?.timeframe ?? timeframe,
     source: "BINANCE_USDM_FUTURES",
     algorithmVersion: snapshot?.algorithmVersion ?? null,
+    fixedReviewUrl: current ? fixedReviewUrl({
+      locationHref: window.location.href,
+      symbol: current.symbol,
+      timeframe: current.timeframe,
+      endAt: current.loaded.endAt,
+    }) : null,
     range: current?.loaded ? {
       startAt: current.loaded.startAt,
       endAt: current.loaded.endAt,
@@ -536,6 +671,7 @@ function exportReviewPayload() {
     } : null,
     corrections: structuredClone(reviewCorrections),
     drawings: structuredClone(chart.drawings),
+    manualLevels: structuredClone(manualLevelsForExport()),
     algorithmExtremes: (snapshot?.history ?? []).map((row) => ({
       id: row.id,
       side: row.side,
@@ -545,6 +681,7 @@ function exportReviewPayload() {
       status: row.status,
       active: row.active,
       touchCount: row.touchCount,
+      crossedAt: row.crossedAt,
       swingAmplitudePct: row.swingAmplitudePct,
       confirmingReversalPct: row.confirmingReversalPct,
       reversalThresholdPct: row.reversalThresholdPct,
@@ -570,7 +707,7 @@ function downloadReview() {
   anchor.remove();
   URL.revokeObjectURL(url);
   elements.status.dataset.state = "complete";
-  elements.status.textContent = "Разметка скачана. Отправь JSON-файл в чат — по нему можно точно менять алгоритм.";
+  elements.status.textContent = "Разметка скачана вместе с атаками и моментами пробоя эталонных уровней.";
 }
 
 async function copyReview() {
@@ -581,6 +718,22 @@ async function copyReview() {
   } catch {
     elements.status.dataset.state = "error";
     elements.status.textContent = "Браузер не дал доступ к буферу. Используй «Скачать разметку».";
+  }
+}
+
+async function copyPeriodLink() {
+  const symbol = current?.symbol ?? validSymbol(elements.symbol.value);
+  const endAt = current?.loaded?.endAt ?? selectedEndAt();
+  if (!symbol || !Number.isFinite(endAt)) return;
+  const url = fixedReviewUrl({ locationHref: window.location.href, symbol, timeframe, endAt });
+  try {
+    await navigator.clipboard.writeText(url);
+    elements.status.dataset.state = "complete";
+    elements.status.textContent = "Ссылка на этот точный период скопирована.";
+  } catch {
+    window.history.replaceState(null, "", url);
+    elements.status.dataset.state = "complete";
+    elements.status.textContent = "Период закреплён в адресной строке.";
   }
 }
 
@@ -623,24 +776,48 @@ function pointerChartPoint(event) {
   return { x, y, index, candle, rawPrice };
 }
 
+function screenPointFor(time, price) {
+  if (!chart.layout) return null;
+  const index = candleIndexForTime(time);
+  if (index < 0) return null;
+  const { margins, plotWidth, plotHeight, minPrice, maxPrice } = chart.layout;
+  return {
+    x: margins.left + ((index + 0.5 - chart.viewStart) / chart.visibleCount) * plotWidth,
+    y: margins.top + ((maxPrice - price) / (maxPrice - minPrice)) * plotHeight,
+  };
+}
+
 function nearestAlgorithmExtreme(point) {
   const snapshot = current?.snapshot;
   if (!snapshot || !chart.layout) return null;
   const source = elements.showHistory.checked ? snapshot.history : snapshot.active;
-  const { margins, plotWidth, plotHeight, minPrice, maxPrice } = chart.layout;
   let best = null;
   for (const extreme of source) {
-    const index = candleIndexForTime(extreme.extremeAt);
-    if (index < 0) continue;
-    const originX = margins.left + ((index + 0.5 - chart.viewStart) / chart.visibleCount) * plotWidth;
-    if (point.candle.time < extreme.extremeAt || point.x < originX - 10) continue;
-    const levelY = margins.top + ((maxPrice - extreme.price) / (maxPrice - minPrice)) * plotHeight;
-    const verticalDistance = Math.abs(point.y - levelY);
+    const origin = screenPointFor(extreme.extremeAt, extreme.price);
+    if (!origin) continue;
+    if (point.candle.time < extreme.extremeAt || point.x < origin.x - 10) continue;
+    const verticalDistance = Math.abs(point.y - origin.y);
     if (verticalDistance > 30) continue;
-    const score = verticalDistance + Math.min(10, Math.max(0, originX - point.x));
+    const score = verticalDistance + Math.min(10, Math.max(0, origin.x - point.x));
     if (!best || score < best.score) best = { extreme, score };
   }
   return best?.extreme ?? null;
+}
+
+function nearestManualCorrection(point) {
+  let best = null;
+  for (const correction of reviewCorrections) {
+    const time = correction.time ?? correction.extremeAt ?? correction.to?.time ?? correction.from?.time;
+    const price = correction.price ?? correction.to?.price ?? correction.from?.price;
+    if (!Number.isFinite(time) || !Number.isFinite(price)) continue;
+    const origin = screenPointFor(time, price);
+    if (!origin) continue;
+    let distance = Math.hypot(point.x - origin.x, point.y - origin.y);
+    if (correction.type === "ADD_EXTREME" && point.x >= origin.x - 10) distance = Math.abs(point.y - origin.y);
+    if (distance > 22) continue;
+    if (!best || distance < best.distance) best = { correction, distance };
+  }
+  return best?.correction ?? null;
 }
 
 function correctionBase(type) {
@@ -666,10 +843,19 @@ function requireExtreme(point) {
   const extreme = nearestAlgorithmExtreme(point);
   if (!extreme) {
     elements.status.dataset.state = "error";
-    elements.status.textContent = "Не попал в луч экстремума. Приблизь график и кликни ближе к горизонтальному уровню.";
+    elements.status.textContent = "Не попал в луч экстремума. Приблизь график и кликни ближе к уровню.";
     return null;
   }
   return extreme;
+}
+
+function eraseAt(point) {
+  const drawing = chart.eraseDrawingAt?.(point.x, point.y, 16);
+  if (drawing) return `рисунок ${drawing.type ?? ""}`.trim();
+  const correction = nearestManualCorrection(point);
+  if (!correction) return null;
+  reviewCorrections = reviewCorrections.filter((row) => row.id !== correction.id);
+  return correctionDescription(correction);
 }
 
 function handleStructuredReviewClick(event) {
@@ -678,6 +864,21 @@ function handleStructuredReviewClick(event) {
   if (!point) return;
   event.preventDefault();
   event.stopImmediatePropagation();
+
+  if (reviewTool === "erase") {
+    const removed = eraseAt(point);
+    if (!removed) {
+      elements.status.dataset.state = "error";
+      elements.status.textContent = "Ластик не попал в ручную метку или рисунок.";
+      return;
+    }
+    persistReviewState();
+    updateAnnotations();
+    chart.render();
+    elements.status.dataset.state = "complete";
+    elements.status.textContent = `Удалено: ${removed}`;
+    return;
+  }
 
   if (reviewTool === "add-high" || reviewTool === "add-low") {
     const side = reviewTool === "add-high" ? "HIGH" : "LOW";
@@ -711,7 +912,6 @@ function handleStructuredReviewClick(event) {
 
   const extreme = requireExtreme(point);
   if (!extreme) return;
-
   if (reviewTool === "remove") {
     addCorrection({
       ...correctionBase("REMOVE_EXTREME"),
@@ -757,10 +957,15 @@ function handleStructuredReviewClick(event) {
   }
 }
 
+function updateFixedUrl(symbol, selectedTimeframe, endAt) {
+  const url = fixedReviewUrl({ locationHref: window.location.href, symbol, timeframe: selectedTimeframe, endAt });
+  window.history.replaceState(null, "", url);
+}
+
 async function load() {
   persistReviewState();
   const symbol = validSymbol(elements.symbol.value);
-  const endAt = new Date(elements.endAt.value).getTime();
+  const endAt = selectedEndAt();
   if (!symbol || !Number.isFinite(endAt)) {
     elements.status.dataset.state = "error";
     elements.status.textContent = "Проверь символ и конец периода.";
@@ -776,13 +981,34 @@ async function load() {
   try {
     const [tickSize, loaded] = await Promise.all([
       fetchTickSize(symbol, abortController.signal),
-      fetchThirtyDays(symbol, timeframe, endAt, abortController.signal),
+      fetchThirtyDays(
+        symbol,
+        timeframe,
+        endAt,
+        abortController.signal,
+        ({ completed, total, cached }) => {
+          if (localGeneration !== generation) return;
+          elements.status.textContent = cached
+            ? `История ${symbol} · ${timeframe} взята из кэша…`
+            : `Загружаю ${symbol} · ${timeframe}: пакет ${completed}/${total}…`;
+        },
+      ),
     ]);
     if (localGeneration !== generation) return;
     const engine = new StructuralExtremeEngine({ symbol, timeframe, tickSize });
-    engine.ingestCandles(loaded.candles);
+    await replayEngineIncrementally(
+      engine,
+      loaded.candles,
+      abortController.signal,
+      ({ completed, total }) => {
+        if (localGeneration !== generation) return;
+        elements.status.textContent = `Анализирую ${symbol} · ${timeframe}: ${completed.toLocaleString("ru-RU")}/${total.toLocaleString("ru-RU")} свечей…`;
+      },
+    );
+    if (localGeneration !== generation) return;
     const snapshot = engine.snapshot();
     current = { symbol, timeframe, tickSize, loaded, snapshot };
+    updateFixedUrl(symbol, timeframe, loaded.endAt);
 
     chart.setData(loaded.candles, {
       symbol,
@@ -805,7 +1031,7 @@ async function load() {
     elements.coverage.textContent = `${(loaded.coverageRatio * 100).toFixed(1)}% · ${loaded.complete ? "COMPLETE" : "PARTIAL"}`;
     elements.candlesCount.textContent = `${loaded.candles.length} · ${loaded.pages} стр.`;
     elements.status.dataset.state = loaded.complete ? "complete" : "error";
-    elements.status.textContent = `${symbol} · ${timeframe} · ${formatDateTime(loaded.startAt)} → ${formatDateTime(loaded.endAt)} · выбери инструмент разметки над графиком.`;
+    elements.status.textContent = `${symbol} · ${timeframe} · ${formatDateTime(loaded.startAt)} → ${formatDateTime(loaded.endAt)} · период закреплён в ссылке.`;
   } catch (error) {
     if (error?.name === "AbortError") return;
     elements.status.dataset.state = "error";
@@ -813,6 +1039,19 @@ async function load() {
   } finally {
     if (localGeneration === generation) elements.load.disabled = false;
   }
+}
+
+function applyUrlState() {
+  const url = new URL(window.location.href);
+  const symbol = validSymbol(url.searchParams.get("symbol"));
+  const requestedTimeframe = url.searchParams.get("tf");
+  const endAt = finite(url.searchParams.get("endAt"));
+  if (symbol) elements.symbol.value = symbol;
+  if (STRUCTURAL_TIMEFRAMES.includes(requestedTimeframe)) timeframe = requestedTimeframe;
+  elements.endAt.value = localDateTimeValue(endAt ?? Date.now() - 5 * 60_000);
+  elements.timeframeButtons.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.timeframe === timeframe);
+  });
 }
 
 for (const button of elements.timeframeButtons) {
@@ -831,6 +1070,7 @@ for (const button of reviewUi.toolButtons) {
   button.addEventListener("click", () => setReviewTool(button.dataset.reviewTool));
 }
 
+reviewUi.copyPeriod.addEventListener("click", copyPeriodLink);
 reviewUi.undo.addEventListener("click", () => {
   if (reviewCorrections.length) reviewCorrections.pop();
   else chart.undoDrawing();
@@ -838,10 +1078,9 @@ reviewUi.undo.addEventListener("click", () => {
   updateAnnotations();
   chart.render();
 });
-
 reviewUi.clear.addEventListener("click", () => {
   if (!reviewCorrections.length && !chart.drawings.length) return;
-  if (!window.confirm("Удалить всю ручную разметку для этой монеты и таймфрейма?")) return;
+  if (!window.confirm("Удалить всю ручную разметку для этой монеты, ТФ и периода?")) return;
   reviewCorrections = [];
   chart.drawings = [];
   chart.undoStack = [];
@@ -849,7 +1088,6 @@ reviewUi.clear.addEventListener("click", () => {
   updateAnnotations();
   chart.render();
 });
-
 reviewUi.copy.addEventListener("click", copyReview);
 reviewUi.export.addEventListener("click", downloadReview);
 elements.load.addEventListener("click", load);
@@ -870,6 +1108,6 @@ window.addEventListener("beforeunload", () => {
   chart.destroy();
 }, { once: true });
 
+applyUrlState();
 setReviewTool("navigate");
-elements.endAt.value = localDateTimeValue(Date.now() - 5 * 60_000);
 load();
