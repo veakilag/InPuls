@@ -7,10 +7,16 @@ on:
   pull_request:
     paths:
       - signal-lab-v7-structural-extremes.js
+      - signal-lab-v7-multi-timeframe-levels.js
+      - signal-lab-v7-multi-timeframe-review-runtime.js
+      - signal-lab-v7-binance-market-metadata.js
+      - signal-lab-v7-batch-ingest-runtime.js
+      - signal-lab-v7-attack-count-runtime.js
       - owner-signal-lab-structural-extremes-review.*
       - structural-extremes-review-standalone.html
       - scripts/build-structural-extremes-review-bundle.py
       - test/signal-lab-v7-structural-extremes*.test.js
+      - test/signal-lab-v7-multi-timeframe-levels.test.js
       - docs/signal-lab-v7-structural-extremes-stage1.md
 
 permissions:
@@ -39,12 +45,23 @@ jobs:
       - name: Validate syntax and diff
         run: |
           node --check signal-lab-v7-structural-extremes.js
+          node --check signal-lab-v7-multi-timeframe-levels.js
+          node --check signal-lab-v7-multi-timeframe-review-runtime.js
+          node --check owner-signal-lab-structural-extremes-review-entry.js
           node --check owner-signal-lab-structural-extremes-review.js
           python3 -m py_compile scripts/build-structural-extremes-review-bundle.py
           git diff --check origin/main...HEAD
 
       - name: Run structural unit and replay tests
-        run: node --test test/signal-lab-v7-structural-extremes.test.js test/signal-lab-v7-structural-extremes-isolation.test.js
+        run: |
+          node --test \
+            test/signal-lab-v7-structural-extremes.test.js \
+            test/signal-lab-v7-structural-extremes-isolation.test.js \
+            test/signal-lab-v7-structural-extremes-v3.test.js \
+            test/signal-lab-v7-multi-timeframe-levels.test.js \
+            test/signal-lab-v7-market-metadata.test.js \
+            test/signal-lab-v7-batch-ingest-runtime.test.js \
+            test/signal-lab-v7-attack-count-runtime.test.js
 
       - name: Run complete regression suite
         run: npm test
