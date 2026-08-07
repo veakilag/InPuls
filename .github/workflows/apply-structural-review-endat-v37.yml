@@ -1,0 +1,64 @@
+name: Apply structural review endAt guard V3.7
+
+on:
+  push:
+    branches:
+      - agent/signal-lab-structural-extremes-stage1
+    paths:
+      - scripts/apply-structural-review-endat-v37.py
+      - .github/workflows/apply-structural-review-endat-v37.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out draft branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/signal-lab-structural-extremes-stage1
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+
+      - name: Apply V3.7 endAt guard
+        run: python3 scripts/apply-structural-review-endat-v37.py
+
+      - name: Remove temporary patch helpers
+        run: |
+          rm -f scripts/apply-structural-review-endat-v37.py
+          rm -f .github/workflows/apply-structural-review-endat-v37.yml
+
+      - name: Validate syntax and focused review contract
+        run: |
+          node --check owner-signal-lab-structural-extremes-review.js
+          node --test test/signal-lab-v7-structural-extremes-isolation.test.js
+          git diff --check
+
+      - name: Run structural validation tests
+        run: |
+          node --test \
+            test/signal-lab-v7-structural-extremes.test.js \
+            test/signal-lab-v7-structural-extremes-v3.test.js \
+            test/signal-lab-v7-multi-timeframe-levels.test.js
+
+      - name: Rebuild standalone calibration page
+        run: |
+          python3 scripts/build-structural-extremes-review-bundle.py
+          test -s structural-extremes-review-standalone.html
+          git diff --check
+
+      - name: Commit verified V3.7 fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix structural review missing endAt fallback"
+          git push origin HEAD:agent/signal-lab-structural-extremes-stage1
