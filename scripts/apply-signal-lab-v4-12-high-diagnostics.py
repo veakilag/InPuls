@@ -14,10 +14,25 @@ new_guard = '''  const policy = LOCAL_PIVOT_PROMINENCE_POLICY[sourceTimeframe];
   if (!policy || !["LOW", "HIGH"].includes(extreme?.side)) {
     return Object.freeze({ admitted: true, reason: "PROMINENCE_NOT_APPLICABLE" });
   }
+  const isHigh = extreme?.side === "HIGH";
 '''
 if old_guard not in text:
     raise SystemExit('V4.12 guard anchor not found')
 text = text.replace(old_guard, new_guard, 1)
+
+for old_reason, new_reason in [
+    ('return Object.freeze({ admitted: true, reason: "PROMINENCE_MISSING_EXTREME_DATA" });',
+     'return Object.freeze({ admitted: true, reason: isHigh ? "HIGH_CALIBRATION_BYPASS" : "PROMINENCE_MISSING_EXTREME_DATA" });'),
+    ('return Object.freeze({ admitted: true, reason: "PROMINENCE_PIVOT_CANDLE_UNAVAILABLE" });',
+     'return Object.freeze({ admitted: true, reason: isHigh ? "HIGH_CALIBRATION_BYPASS" : "PROMINENCE_PIVOT_CANDLE_UNAVAILABLE" });'),
+    ('return Object.freeze({ admitted: true, reason: "PROMINENCE_CONTEXT_INCOMPLETE" });',
+     'return Object.freeze({ admitted: true, reason: isHigh ? "HIGH_CALIBRATION_BYPASS" : "PROMINENCE_CONTEXT_INCOMPLETE" });'),
+    ('return Object.freeze({ admitted: true, reason: "PROMINENCE_SCALE_UNAVAILABLE" });',
+     'return Object.freeze({ admitted: true, reason: isHigh ? "HIGH_CALIBRATION_BYPASS" : "PROMINENCE_SCALE_UNAVAILABLE" });'),
+]:
+    if old_reason not in text:
+        raise SystemExit(f'V4.12 compatibility anchor not found: {old_reason}')
+    text = text.replace(old_reason, new_reason, 1)
 
 old_refs = '''  const incomingReference = Math.max(...before.map((row) => row.high));
   const outgoingReference = Math.max(...after.map((row) => row.high));
@@ -28,7 +43,6 @@ new_refs = '''  // V4.12: HIGH remains calibration-bypassed, but calculate its c
   // prominence diagnostics symmetrically so trader review can distinguish a
   // meaningful rejection from a tiny edge/current-price peak without changing
   // visible behavior yet.
-  const isHigh = extreme?.side === "HIGH";
   const incomingReference = isHigh
     ? Math.min(...before.map((row) => row.low))
     : Math.max(...before.map((row) => row.high));
