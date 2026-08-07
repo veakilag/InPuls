@@ -176,5 +176,6 @@ loader = f"""
 """
 
 html = html.replace("</body>", f"{loader}\n  </body>", 1)
+html = "\n".join(line.rstrip() for line in html.splitlines()) + "\n"
 OUTPUT.write_text(html, encoding="utf-8")
 print(f"Built {OUTPUT.name} ({OUTPUT.stat().st_size} bytes)")
