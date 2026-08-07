@@ -77,6 +77,14 @@ export const LOCAL_HIERARCHICAL_ADMISSION = Object.freeze({
   "5m": Object.freeze({ minimumSwingPercent: 0.12, reversalMultiplier: 1.00 }),
 });
 
+// V4.5 controls only the visible LOCAL working map. Detector/history stay complete.
+// Macro levels belong to senior TFs, so an old single-touch 1m/5m level far from
+// the current working area does not need to remain as another permanent ray.
+export const LOCAL_WORKING_SET_POLICY = Object.freeze({
+  "1m": Object.freeze({ maxDistanceBaseNatr: 6, strongSwingBaseNatr: 4 }),
+  "5m": Object.freeze({ maxDistanceBaseNatr: 10, strongSwingBaseNatr: 4 }),
+});
+
 const finite = (value) => {
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
@@ -546,6 +554,95 @@ function applyHierarchyAcceptance(levels, candles, sourceTimeframe, includeHisto
   return next;
 }
 
+// A senior level is no longer the active frontier when a later CONFIRMED child
+// structural extreme exists beyond it. This is stronger evidence than a wick,
+// but does not require two closes beyond the old price. It solves fast takeouts
+// such as HFT where a new child swing high/low is confirmed after the old macro
+// level has already been traversed.
+export function structuralChildConfirmedTakeout(level, childSnapshot, childTimeframe, {
+  tickSize = 0,
+  toleranceTicks = 1,
+} = {}) {
+  if (!level || level.active === false || !["HIGH", "LOW"].includes(level.side)) return null;
+  const levelPrice = finite(level.price);
+  const originAt = finite(level.nativeExtremeAt ?? level.extremeAt);
+  if (!(levelPrice > 0) || originAt === null) return null;
+
+  const tolerance = Math.max(0, finite(tickSize) ?? 0)
+    * Math.max(0, Math.round(finite(toleranceTicks) ?? 1));
+  const history = Array.isArray(childSnapshot?.history) ? childSnapshot.history : [];
+  let winner = null;
+
+  for (const candidate of history) {
+    if (!candidate || candidate.side !== level.side) continue;
+    const extremeAt = finite(candidate.extremeAt);
+    const confirmedAt = finite(candidate.confirmedAt) ?? extremeAt;
+    const price = finite(candidate.price);
+    if (extremeAt === null || confirmedAt === null || extremeAt <= originAt || !(price > 0)) continue;
+    const beyond = level.side === "HIGH"
+      ? price > levelPrice + tolerance
+      : price < levelPrice - tolerance;
+    if (!beyond) continue;
+    if (!winner || confirmedAt < winner.at) {
+      winner = Object.freeze({
+        at: confirmedAt,
+        extremeAt,
+        price,
+        side: level.side,
+        childTimeframe,
+        extremeId: candidate.id ?? null,
+        reason: "CHILD_STRUCTURAL_TAKEOUT",
+      });
+    }
+  }
+  return winner;
+}
+
+function applyChildStructuralTakeout(levels, childSnapshot, childTimeframe, includeHistory, options) {
+  const next = [];
+  for (const level of Array.isArray(levels) ? levels : []) {
+    if (level?.active === false) {
+      next.push(level);
+      continue;
+    }
+    const takeout = structuralChildConfirmedTakeout(level, childSnapshot, childTimeframe, options);
+    if (!takeout) {
+      next.push(level);
+      continue;
+    }
+    if (!includeHistory) continue;
+    next.push(Object.freeze({
+      ...level,
+      active: false,
+      crossedAt: level.crossedAt ?? takeout.at,
+      endAt: takeout.at,
+      status: "TAKEN_OUT",
+      inactiveReason: "CHILD_STRUCTURAL_TAKEOUT",
+      takenOutOnTimeframe: childTimeframe,
+      takenOutByExtremeId: takeout.extremeId,
+    }));
+  }
+  return next;
+}
+
+export function structuralLocalWorkingSetVisible(level, volatilityContext) {
+  const sourceTimeframe = level?.sourceTimeframe;
+  const policy = LOCAL_WORKING_SET_POLICY[sourceTimeframe];
+  if (!policy || level?.active === false) return true;
+
+  const sources = Array.isArray(level?.sources) ? level.sources : [sourceTimeframe].filter(Boolean);
+  if (sources.length > 1 || Number(level?.confluenceCount) > 1) return true;
+  if ((Number(level?.attackCount) || 1) > 1) return true;
+
+  const distanceBaseNatr = structuralDistanceBaseNatr(level?.price, volatilityContext);
+  if (distanceBaseNatr === null || distanceBaseNatr <= policy.maxDistanceBaseNatr) return true;
+
+  const swingPct = finite(level?.swingAmplitudePct);
+  const baseNatrPct = finite(volatilityContext?.baseNatrPct);
+  const normalizedSwing = swingPct !== null && baseNatrPct > 0 ? swingPct / baseNatrPct : null;
+  return normalizedSwing !== null && normalizedSwing >= policy.strongSwingBaseNatr;
+}
+
 function candleExtreme(candle, side) {
   return finite(side === "HIGH" ? candle?.high : candle?.low);
 }
@@ -725,6 +822,16 @@ export function buildHierarchicalStructuralLevelMap({
     const snapshot = snapshotsByTimeframe?.[sourceTimeframe];
     const volatilityContext = volatilityByTimeframe[sourceTimeframe];
 
+    if (hierarchy.length && snapshot) {
+      hierarchy = applyChildStructuralTakeout(
+        hierarchy,
+        snapshot,
+        sourceTimeframe,
+        includeHistory,
+        { tickSize, toleranceTicks: 1 },
+      );
+    }
+
     if (hierarchy.length && childCandles.length) {
       hierarchy = applyHierarchyAcceptance(
         hierarchy,
@@ -766,5 +873,11 @@ export function buildHierarchicalStructuralLevelMap({
     hierarchy = [...clusterStructuralLevels([...hierarchy, ...nativeCandidates], { tickSize })];
   }
 
-  return Object.freeze(hierarchy);
+  if (includeHistory) return Object.freeze(hierarchy);
+
+  const workingHierarchy = hierarchy.filter((level) => structuralLocalWorkingSetVisible(
+    level,
+    volatilityByTimeframe[level?.sourceTimeframe],
+  ));
+  return Object.freeze(workingHierarchy);
 }
