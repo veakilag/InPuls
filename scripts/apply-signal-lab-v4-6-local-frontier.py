@@ -25,6 +25,12 @@ replace_once(
     '''  const distanceBaseNatr = structuralDistanceBaseNatr(level?.price, volatilityContext);\n  if (distanceBaseNatr === null) return true;\n\n  // V4.6: a distant local-only single-touch swing is memory, not an eternal\n  // working-map ray. If it is truly macro-important it must be represented by\n  // a senior timeframe, confluence, or repeated attacks. Strong local swing\n  // magnitude alone no longer bypasses the working-area radius.\n  return distanceBaseNatr <= policy.maxDistanceBaseNatr;''',
 )
 
+replace_once(
+    'test/signal-lab-v7-working-map-takeout.test.js',
+    '''  assert.equal(structuralLocalWorkingSetVisible({ ...farLocal, swingAmplitudePct: 5 }, context), true);''',
+    '''  assert.equal(structuralLocalWorkingSetVisible({ ...farLocal, swingAmplitudePct: 5 }, context), false);''',
+)
+
 # Focused regression: distant single-touch 5m lows are hidden, while nearby,
 # confluence and repeated-attack levels remain visible.
 test_path = ROOT / 'test/signal-lab-v7-local-frontier.test.js'
