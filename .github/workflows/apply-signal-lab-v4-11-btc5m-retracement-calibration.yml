@@ -58,13 +58,13 @@ jobs:
         run: node --test test/signal-lab-v7-pivot-prominence.test.js
 
       - name: Test local working-set pivot
-        run: node --test test/signal-lab-v7-local-working-set-pivot.test.js
+        run: node --test test/signal-lab-v7-working-set-pivot.test.js
 
       - name: Test multi-timeframe levels
         run: node --test test/signal-lab-v7-multi-timeframe-levels.test.js
 
       - name: Test HFT takeout regression
-        run: node --test test/signal-lab-v7-child-structural-takeout.test.js
+        run: node --test test/signal-lab-v7-working-map-takeout.test.js
 
       - name: Run complete regression suite
         run: npm test
