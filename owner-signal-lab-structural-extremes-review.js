@@ -11,7 +11,7 @@ import {
 
 const KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
 const EXCHANGE_INFO_ENDPOINT = "https://fapi.binance.com/fapi/v1/exchangeInfo";
-const REVIEW_STORAGE_PREFIX = "inpuls-structural-extremes-review-v3";
+const REVIEW_STORAGE_PREFIX = "inpuls-structural-extremes-review-v4-1";
 const INTERVAL_MS = Object.freeze({
   "1m": 60_000,
   "5m": 300_000,
@@ -91,7 +91,7 @@ function installReviewUi() {
       <div class="review-tools__title">
         <div>
           <strong>Разметка для обучения</strong>
-          <span>Эталонные уровни сами считают атаки и заканчиваются на пробое</span>
+          <span>Размечай только новые уровни своего TF: совпадение со старшим TF считается confluence и не дублируется</span>
         </div>
         <span id="review-save-state">Сохраняется в браузере</span>
       </div>
@@ -848,6 +848,37 @@ function correctionBase(type) {
   };
 }
 
+const REVIEW_TF_RANK = Object.freeze({
+  "1m": 1,
+  "5m": 2,
+  "15m": 3,
+  "1h": 4,
+  "4h": 5,
+  "1d": 6,
+});
+
+function inheritedSeniorLevelNear(side, price) {
+  const currentTimeframe = current?.timeframe ?? timeframe;
+  const currentRank = REVIEW_TF_RANK[currentTimeframe] ?? 0;
+  const tick = Math.max(0, finite(current?.tickSize) ?? 0);
+  const levels = Array.isArray(chart.structuralLevelMap) ? chart.structuralLevelMap : [];
+  let best = null;
+  for (const level of levels) {
+    if (!level || level.side !== side) continue;
+    const sourceRank = REVIEW_TF_RANK[level.sourceTimeframe] ?? 0;
+    if (sourceRank <= currentRank) continue;
+    const levelPrice = finite(level.price);
+    if (!(levelPrice > 0)) continue;
+    const tolerance = Math.max(tick * 3, levelPrice * 0.03 / 100);
+    const distance = Math.abs(levelPrice - price);
+    if (distance > tolerance) continue;
+    if (!best || sourceRank > best.sourceRank || (sourceRank === best.sourceRank && distance < best.distance)) {
+      best = { level, sourceRank, distance };
+    }
+  }
+  return best?.level ?? null;
+}
+
 function addCorrection(correction) {
   reviewCorrections.push(correction);
   reviewUi.comment.value = "";
@@ -899,12 +930,19 @@ function handleStructuredReviewClick(event) {
 
   if (reviewTool === "add-high" || reviewTool === "add-low") {
     const side = reviewTool === "add-high" ? "HIGH" : "LOW";
+    const price = side === "HIGH" ? point.candle.high : point.candle.low;
+    const inherited = inheritedSeniorLevelNear(side, price);
+    if (inherited) {
+      elements.status.dataset.state = "complete";
+      elements.status.textContent = `Уровень уже принадлежит ${inherited.sourceTimeframe}: отдельный ${current?.timeframe ?? timeframe} экстремум не нужен. Это confluence/refinement старшего уровня.`;
+      return;
+    }
     addCorrection({
       ...correctionBase("ADD_EXTREME"),
       side,
       time: point.candle.time,
       closeTime: point.candle.closeTime,
-      price: side === "HIGH" ? point.candle.high : point.candle.low,
+      price,
     });
     return;
   }

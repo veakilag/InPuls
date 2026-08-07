@@ -210,6 +210,7 @@ function combineAnnotations(state) {
   // candidate markers and auxiliary drawings remain untouched.
   const keptBase = baseRows.filter((row) => !algorithmAnnotation(row));
   const overlays = levelMap.map(annotationForLevel);
+  state.levelMap = levelMap;
   addContextStatus(state, levelMap);
   return [...keptBase, ...overlays];
 }
@@ -269,7 +270,9 @@ export function installMultiTimeframeReviewRuntime({ ChartClass, EngineClass }) 
     };
     state.baseAnnotations = Array.isArray(rows) ? rows : [];
     stateByChart.set(this, state);
-    return originalSetAnnotations.call(this, combineAnnotations(state));
+    const combined = combineAnnotations(state);
+    this.structuralLevelMap = state.levelMap ?? Object.freeze([]);
+    return originalSetAnnotations.call(this, combined);
   };
 
   prototype.setData = function setDataWithHierarchy(candles, meta = {}) {
@@ -318,7 +321,9 @@ export function installMultiTimeframeReviewRuntime({ ChartClass, EngineClass }) 
         if (Array.isArray(extendedViewCandles) && extendedViewCandles.length > candles.length) {
           originalSetData.call(this, extendedViewCandles, meta);
         }
-        originalSetAnnotations.call(this, combineAnnotations(latest));
+        const combined = combineAnnotations(latest);
+        this.structuralLevelMap = latest.levelMap ?? Object.freeze([]);
+        originalSetAnnotations.call(this, combined);
         this.render?.();
       } catch (error) {
         if (error?.name === "AbortError") return;
