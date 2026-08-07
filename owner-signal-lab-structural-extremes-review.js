@@ -11,7 +11,6 @@ import {
 
 const KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
 const EXCHANGE_INFO_ENDPOINT = "https://fapi.binance.com/fapi/v1/exchangeInfo";
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60_000;
 const REVIEW_STORAGE_PREFIX = "inpuls-structural-extremes-review-v3";
 const INTERVAL_MS = Object.freeze({
   "1m": 60_000,
@@ -20,6 +19,22 @@ const INTERVAL_MS = Object.freeze({
   "1h": 3_600_000,
   "4h": 14_400_000,
   "1d": 86_400_000,
+});
+const REVIEW_LOOKBACK_MS = Object.freeze({
+  "1m": 30 * 24 * 60 * 60_000,
+  "5m": 30 * 24 * 60 * 60_000,
+  "15m": 30 * 24 * 60 * 60_000,
+  "1h": 180 * 24 * 60 * 60_000,
+  "4h": 180 * 24 * 60 * 60_000,
+  "1d": 180 * 24 * 60 * 60_000,
+});
+const REVIEW_LOOKBACK_LABEL = Object.freeze({
+  "1m": "1 месяц",
+  "5m": "1 месяц",
+  "15m": "1 месяц",
+  "1h": "6 месяцев",
+  "4h": "6 месяцев",
+  "1d": "6 месяцев",
 });
 
 const REVIEW_TOOL_HINTS = Object.freeze({
@@ -269,9 +284,10 @@ async function fetchTickSize(symbol, signal) {
   return tickSize;
 }
 
-async function fetchThirtyDays(symbol, selectedTimeframe, endAt, signal, onProgress = null) {
+async function fetchReviewHistory(symbol, selectedTimeframe, endAt, signal, onProgress = null) {
   const intervalMs = INTERVAL_MS[selectedTimeframe];
-  const startAt = endAt - THIRTY_DAYS_MS;
+  const lookbackMs = REVIEW_LOOKBACK_MS[selectedTimeframe];
+  const startAt = endAt - lookbackMs;
   const key = `${symbol}:${selectedTimeframe}:${Math.floor(endAt / intervalMs)}`;
   if (cache.has(key)) {
     onProgress?.({ completed: 1, total: 1, cached: true });
@@ -976,12 +992,12 @@ async function load() {
   abortController?.abort();
   abortController = new AbortController();
   elements.status.dataset.state = "loading";
-  elements.status.textContent = `Загружаю ${symbol} · ${timeframe} · 30 дней закрытых свечей…`;
+  elements.status.textContent = `Загружаю ${symbol} · ${timeframe} · ${REVIEW_LOOKBACK_LABEL[timeframe]} закрытых свечей…`;
   elements.load.disabled = true;
   try {
     const [tickSize, loaded] = await Promise.all([
       fetchTickSize(symbol, abortController.signal),
-      fetchThirtyDays(
+      fetchReviewHistory(
         symbol,
         timeframe,
         endAt,

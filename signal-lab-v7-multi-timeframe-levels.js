@@ -20,15 +20,15 @@ export const STRUCTURAL_TF_INTERVAL_MS = Object.freeze({
 });
 
 export const STRUCTURAL_TF_LOOKBACK_MS = Object.freeze({
-  "1m": 24 * 60 * 60_000,
-  "5m": 24 * 60 * 60_000,
-  "15m": 365 * 24 * 60 * 60_000,
-  "1h": 10 * 365 * 24 * 60 * 60_000,
-  "4h": 10 * 365 * 24 * 60 * 60_000,
-  "1d": 10 * 365 * 24 * 60 * 60_000,
+  "1m": 30 * 24 * 60 * 60_000,
+  "5m": 30 * 24 * 60 * 60_000,
+  "15m": 30 * 24 * 60 * 60_000,
+  "1h": 180 * 24 * 60 * 60_000,
+  "4h": 180 * 24 * 60 * 60_000,
+  "1d": 180 * 24 * 60 * 60_000,
 });
 
-export const LOCAL_STRUCTURAL_LEVEL_HORIZON_MS = 24 * 60 * 60_000;
+export const LOCAL_STRUCTURAL_LEVEL_HORIZON_MS = 30 * 24 * 60 * 60_000;
 
 // Stage-1 calibration. This is deliberately a map-admission filter, not a
 // modification of the underlying detector. A 1m/5m swing may still exist in

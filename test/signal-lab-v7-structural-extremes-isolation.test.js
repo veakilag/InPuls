@@ -15,9 +15,12 @@ test("stage 1 structural detector remains isolated from current production signa
   assert.doesNotMatch(cascades, /signal-lab-v7-structural-extremes/);
 });
 
-test("visual review page loads the isolated detector and all six independent timeframes", () => {
+test("visual review page loads the isolated detector and all six hierarchical timeframe controls", () => {
   assert.match(review, /signal-lab-v7-structural-extremes\.js/);
-  assert.match(review, /fetchThirtyDays/);
+  assert.match(review, /fetchReviewHistory/);
+  assert.match(review, /REVIEW_LOOKBACK_MS/);
+  assert.match(review, /"1m": 30 \* 24 \* 60 \* 60_000/);
+  assert.match(review, /"1h": 180 \* 24 \* 60 \* 60_000/);
   assert.match(review, /new StructuralExtremeEngine/);
   assert.match(review, /let timeframe = "1h"/);
   assert.match(review, /type: "segment"/);

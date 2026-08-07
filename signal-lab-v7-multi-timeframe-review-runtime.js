@@ -51,6 +51,23 @@ async function fetchJson(url, signal) {
   return response.json();
 }
 
+async function mapWithConcurrency(items, concurrency, worker) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const runners = Array.from(
+    { length: Math.max(1, Math.min(items.length, concurrency)) },
+    async () => {
+      while (cursor < items.length) {
+        const index = cursor;
+        cursor += 1;
+        results[index] = await worker(items[index], index);
+      }
+    },
+  );
+  await Promise.all(runners);
+  return results;
+}
+
 async function fetchTickSize(symbol, signal) {
   const key = `tick:${symbol}`;
   if (cache.has(key)) return cache.get(key);
@@ -80,7 +97,7 @@ async function fetchCandles(symbol, timeframe, endAt, signal) {
     });
   }
 
-  const pages = await Promise.all(windows.map(async (window) => {
+  const pages = await mapWithConcurrency(windows, timeframe === "1m" ? 4 : 3, async (window) => {
     const url = new URL(KLINES_ENDPOINT);
     url.searchParams.set("symbol", symbol);
     url.searchParams.set("interval", timeframe);
@@ -91,7 +108,7 @@ async function fetchCandles(symbol, timeframe, endAt, signal) {
     return (Array.isArray(payload) ? payload : [])
       .map((row) => parseKline(row, endAt))
       .filter(Boolean);
-  }));
+  });
 
   const byTime = new Map();
   for (const page of pages) {
@@ -171,7 +188,7 @@ function addContextStatus(state, levelMap) {
     status.insertAdjacentElement("afterend", context);
   }
   const sources = visibleSourceTimeframes(state.viewTimeframe).slice().reverse().join(" → ");
-  context.textContent = `Иерархия: ${sources} · уровней ${levelMap.length} · 1ч/4ч/1д вся доступная история · 15м 1 год · 1м/5м 24ч`;
+  context.textContent = `Иерархия: ${sources} · уровней ${levelMap.length} · 1д/4ч/1ч: 6 мес · 15м/5м/1м: 1 мес`;
 }
 
 function combineAnnotations(state) {

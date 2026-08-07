@@ -55,18 +55,18 @@ test("lower chart sees its own timeframe and every stronger timeframe", () => {
   assert.deepEqual(hierarchicalDescentTimeframes("1m"), ["1d", "4h", "1h", "15m", "5m", "1m"]);
 });
 
-test("senior structural history reaches the full Binance Futures lifetime", async () => {
+test("review history uses six months for senior TFs and one month for 15m and below", async () => {
   const { STRUCTURAL_TF_LOOKBACK_MS } = await import("../signal-lab-v7-multi-timeframe-levels.js");
   const day = 24 * 60 * 60_000;
-  assert.equal(STRUCTURAL_TF_LOOKBACK_MS["1m"], day);
-  assert.equal(STRUCTURAL_TF_LOOKBACK_MS["5m"], day);
-  assert.ok(STRUCTURAL_TF_LOOKBACK_MS["15m"] >= 365 * day);
-  assert.ok(STRUCTURAL_TF_LOOKBACK_MS["1h"] >= 7 * 365 * day);
-  assert.ok(STRUCTURAL_TF_LOOKBACK_MS["4h"] >= 7 * 365 * day);
-  assert.ok(STRUCTURAL_TF_LOOKBACK_MS["1d"] >= 7 * 365 * day);
+  assert.equal(STRUCTURAL_TF_LOOKBACK_MS["1m"], 30 * day);
+  assert.equal(STRUCTURAL_TF_LOOKBACK_MS["5m"], 30 * day);
+  assert.equal(STRUCTURAL_TF_LOOKBACK_MS["15m"], 30 * day);
+  assert.equal(STRUCTURAL_TF_LOOKBACK_MS["1h"], 180 * day);
+  assert.equal(STRUCTURAL_TF_LOOKBACK_MS["4h"], 180 * day);
+  assert.equal(STRUCTURAL_TF_LOOKBACK_MS["1d"], 180 * day);
 });
 
-test("1m and 5m levels expire from the map after 24 hours", () => {
+test("1m and 5m levels expire from the map after 30 days", () => {
   const recent = normalizeStructuralLevel(extreme({
     id: "recent",
     price: 100,
