@@ -28,6 +28,7 @@ export function manualLevelLifecycle({
       crossedAt: null,
       endAt: originAt,
       touchCount: 0,
+      retestCount: 0,
       attacks: Object.freeze([]),
     });
   }
@@ -81,7 +82,7 @@ export function manualLevelLifecycle({
     if (touches) {
       if (!inZone && rearmed) {
         attacks.push(Object.freeze({
-          number: attacks.length + 1,
+          number: attacks.length + 2,
           time: candleTime,
           closeTime,
           price: side === "HIGH" ? high : low,
@@ -102,16 +103,20 @@ export function manualLevelLifecycle({
   const lastAt = rows.length
     ? finite(rows.at(-1)?.closeTime) ?? finite(rows.at(-1)?.time) ?? originAt
     : originAt;
+  const retestCount = attacks.length;
+  const touchCount = retestCount + 1;
 
   return Object.freeze({
-    status: active ? (attacks.length ? "TOUCHED" : "ACTIVE") : "CROSSED",
+    status: active ? (retestCount ? "TOUCHED" : "ACTIVE") : "CROSSED",
     active,
     crossedAt,
     endAt: crossedAt ?? lastAt,
-    touchCount: attacks.length,
+    touchCount,
+    retestCount,
     attacks: Object.freeze(attacks),
     zonePct,
     rearmPct,
+    attackCountSemantics: "FORMATION_IS_ATTACK_1",
   });
 }
 
