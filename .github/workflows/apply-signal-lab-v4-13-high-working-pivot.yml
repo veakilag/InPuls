@@ -54,6 +54,9 @@ jobs:
       - name: Test V4.13 HIGH working pivot
         run: node --test test/signal-lab-v7-high-working-pivot.test.js
 
+      - name: Test working-pivot regression
+        run: node --test test/signal-lab-v7-working-set-pivot.test.js
+
       - name: Test HIGH diagnostics regression
         run: node --test test/signal-lab-v7-high-prominence-diagnostics.test.js
 
