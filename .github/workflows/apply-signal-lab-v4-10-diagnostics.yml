@@ -56,8 +56,8 @@ jobs:
           grep -q '__INPULS_STRUCTURAL_DEBUG__' signal-lab-v7-multi-timeframe-review-runtime.js
           grep -q 'structuralLocalWorkingSetPivotDecision' signal-lab-v7-multi-timeframe-review-runtime.js
 
-      - name: Test V4.9 working-set pivot quality
-        run: node --test test/signal-lab-v7-working-set-pivot-quality.test.js
+      - name: Test V4.9 working-set pivot
+        run: node --test test/signal-lab-v7-working-set-pivot.test.js
 
       - name: Test V4.8 pivot retracement
         run: node --test test/signal-lab-v7-pivot-retracement.test.js
