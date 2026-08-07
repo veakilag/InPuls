@@ -54,7 +54,20 @@ jobs:
             test/signal-lab-v7-multi-timeframe-levels.test.js
 
       - name: Run complete regression suite
-        run: npm test
+        shell: bash
+        run: |
+          set +e
+          npm test > /tmp/inpuls-v36-npm-test.log 2>&1
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "=== V3.6 regression failure markers ==="
+            grep -n -E "not ok|AssertionError|ERR_ASSERTION|failureType|testCodeFailure|expected|actual" /tmp/inpuls-v36-npm-test.log | tail -120 || true
+            echo "=== V3.6 regression log tail ==="
+            tail -260 /tmp/inpuls-v36-npm-test.log
+            exit "$status"
+          fi
+          tail -80 /tmp/inpuls-v36-npm-test.log
 
       - name: Rebuild standalone calibration page
         run: |
