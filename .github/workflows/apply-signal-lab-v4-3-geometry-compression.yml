@@ -35,6 +35,19 @@ jobs:
       - name: Apply V4.3 geometry/compression patch
         run: python3 scripts/apply-signal-lab-v4-3-geometry-compression.py
 
+      - name: Normalize compression relief semantics
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("signal-lab-v7-multi-timeframe-levels.js")
+          text = path.read_text(encoding="utf-8")
+          old = "return Math.max(floor, Math.min(1, Math.sqrt(ratio)));"
+          new = "return Math.max(floor, Math.min(1, ratio));"
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one compression relief formula, found {text.count(old)}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+
       - name: Rebuild standalone calibration page
         run: python3 scripts/build-structural-extremes-review-bundle.py
 
