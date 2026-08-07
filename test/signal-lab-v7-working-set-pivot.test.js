@@ -66,9 +66,12 @@ test("V4.9 keeps a meaningful structural LOW pullback", () => {
   assert.equal(decision.visible, true);
 });
 
-test("V4.9 never applies the LOW pivot filter to HIGH", () => {
+test("V4.13 applies the HIGH-specific working-pivot gate to calibrated 5m HIGH", () => {
   const rows = [candle(0, 100, 101, 99, 100), candle(1, 100, 102, 100, 101)];
   const context = buildStructuralVolatilityContext(rows, { period: 2, baseWindow: 2 });
   const high = { ...level(1, 102), side: "HIGH" };
-  assert.equal(structuralLocalWorkingSetPivotDecision(high, rows, context).visible, true);
+  const decision = structuralLocalWorkingSetPivotDecision(high, rows, context);
+  assert.equal(decision.visible, false);
+  assert.equal(decision.reason, "HIGH_WORKING_PIVOT_WEAK_INCOMING_FILTERED");
+  assert.ok(decision.incomingBaseNatr < decision.minimumHighIncomingBaseNatr);
 });
