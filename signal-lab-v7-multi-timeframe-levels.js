@@ -800,7 +800,98 @@ export function structuralLocalPivotProminenceDecision(
   });
 }
 
-export function structuralLocalWorkingSetVisible(level, volatilityContext) {
+export function structuralLocalWorkingSetPivotDecision(level, candles, volatilityContext) {
+  const sourceTimeframe = level?.sourceTimeframe;
+  const policy = LOCAL_PIVOT_PROMINENCE_POLICY[sourceTimeframe];
+  if (!policy || level?.side !== "LOW") {
+    return Object.freeze({ visible: true, reason: "WORKING_PIVOT_NOT_APPLICABLE" });
+  }
+
+  const pivotAt = finite(level?.nativeExtremeAt ?? level?.extremeAt);
+  const pivotPrice = finite(level?.price);
+  if (pivotAt === null || !(pivotPrice > 0)) {
+    return Object.freeze({ visible: true, reason: "WORKING_PIVOT_MISSING_LEVEL_DATA" });
+  }
+
+  const rows = (Array.isArray(candles) ? candles : [])
+    .map(validCandle)
+    .filter(Boolean)
+    .sort((left, right) => left.time - right.time);
+  const pivotIndex = rows.findIndex((row) => row.time === pivotAt);
+  if (pivotIndex < 0) {
+    return Object.freeze({ visible: true, reason: "WORKING_PIVOT_CANDLE_UNAVAILABLE" });
+  }
+
+  const structureLookbackBars = Math.max(
+    3,
+    Math.round(finite(policy.structureLookbackBars) ?? 24),
+  );
+  const structuralBefore = rows.slice(Math.max(0, pivotIndex - structureLookbackBars), pivotIndex);
+  if (structuralBefore.length < 3) {
+    return Object.freeze({ visible: true, reason: "WORKING_PIVOT_CONTEXT_INCOMPLETE" });
+  }
+
+  let peakIndex = -1;
+  let peakPrice = null;
+  for (let index = 0; index < structuralBefore.length; index += 1) {
+    const high = finite(structuralBefore[index]?.high);
+    if (!(high > 0)) continue;
+    if (peakPrice === null || high >= peakPrice) {
+      peakPrice = high;
+      peakIndex = index;
+    }
+  }
+
+  let originLow = null;
+  if (peakIndex > 0) {
+    for (const row of structuralBefore.slice(0, peakIndex + 1)) {
+      const low = finite(row?.low);
+      if (!(low > 0)) continue;
+      if (originLow === null || low < originLow) originLow = low;
+    }
+  }
+
+  const baseNatrPct = finite(volatilityContext?.baseNatrPct);
+  const priorImpulsePct = peakPrice !== null && originLow !== null
+    ? structuralPercentMove(originLow, peakPrice)
+    : null;
+  const priorImpulseBaseNatr = priorImpulsePct !== null && baseNatrPct > 0
+    ? priorImpulsePct / baseNatrPct
+    : null;
+  const retracementRatio = peakPrice !== null && originLow !== null && peakPrice > originLow
+    ? Math.max(0, peakPrice - pivotPrice) / (peakPrice - originLow)
+    : null;
+  const minimumPriorImpulseBaseNatr = Math.max(
+    0,
+    finite(policy.minimumPriorImpulseBaseNatr) ?? 1.25,
+  );
+  const minimumRetracementRatio = Math.max(
+    0,
+    Math.min(1, finite(policy.minimumRetracementRatio) ?? 0.20),
+  );
+  const applicable = priorImpulseBaseNatr !== null
+    && priorImpulseBaseNatr >= minimumPriorImpulseBaseNatr
+    && retracementRatio !== null;
+  const visible = !applicable || retracementRatio >= minimumRetracementRatio;
+
+  return Object.freeze({
+    visible,
+    reason: visible ? "WORKING_PIVOT_PASS" : "WORKING_PIVOT_SHALLOW_RETRACEMENT_FILTERED",
+    pivotAt,
+    pivotPrice,
+    peakPrice,
+    originLow,
+    baseNatrPct,
+    priorImpulsePct,
+    priorImpulseBaseNatr,
+    retracementRatio,
+    minimumPriorImpulseBaseNatr,
+    minimumRetracementRatio,
+    applicable,
+  });
+}
+
+export function structuralLocalWorkingSetVisible(level, volatilityContext, candles = []) {
   const sourceTimeframe = level?.sourceTimeframe;
   const policy = LOCAL_WORKING_SET_POLICY[sourceTimeframe];
   if (!policy || level?.active === false) return true;
@@ -808,6 +899,13 @@ export function structuralLocalWorkingSetVisible(level, volatilityContext) {
   const sources = Array.isArray(level?.sources) ? level.sources : [sourceTimeframe].filter(Boolean);
   if (sources.length > 1 || Number(level?.confluenceCount) > 1) return true;
   if ((Number(level?.attackCount) || 1) > 1) return true;
+
+  // V4.9: post-cluster local-only LOW guard. Event generation stays recall-first,
+  // but a shallow pause inside a large rising impulse is memory, not a fresh
+  // working support ray. This runs on the normalized visible level itself, so an
+  // earlier admission bypass cannot accidentally leak it onto the chart.
+  const pivotDecision = structuralLocalWorkingSetPivotDecision(level, candles, volatilityContext);
+  if (!pivotDecision.visible) return false;
 
   const distanceBaseNatr = structuralDistanceBaseNatr(level?.price, volatilityContext);
   if (distanceBaseNatr === null) return true;
@@ -1060,6 +1158,7 @@ export function buildHierarchicalStructuralLevelMap({
   const workingHierarchy = hierarchy.filter((level) => structuralLocalWorkingSetVisible(
     level,
     volatilityByTimeframe[level?.sourceTimeframe],
+    candlesByTimeframe?.[level?.sourceTimeframe] ?? [],
   ));
   return Object.freeze(workingHierarchy);
 }
