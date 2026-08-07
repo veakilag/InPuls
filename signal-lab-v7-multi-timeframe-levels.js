@@ -112,6 +112,12 @@ export const LOCAL_PIVOT_PROMINENCE_POLICY = Object.freeze({
     // were either not applicable to this gate or measured 127% / 674%.
     // Keep the rule causal and apply it only when a valid prior impulse exists.
     minimumRetracementRatio: 0.30,
+    // V4.13 HIGH calibration from the same fixed BTC review window. The single
+    // trader-rejected edge HIGH had only 2.19 base-NATR of incoming rise, while
+    // retained local HIGHs measured 3.82N, 5.56N, 6.78N and 7.77N. Apply this
+    // only post-cluster in the local working map; senior confluence and x2+
+    // attacks bypass it before this decision is evaluated.
+    minimumHighIncomingBaseNatr: 3.00,
   }),
 });
 
@@ -835,7 +841,7 @@ export function structuralLocalPivotProminenceDecision(
 export function structuralLocalWorkingSetPivotDecision(level, candles, volatilityContext) {
   const sourceTimeframe = level?.sourceTimeframe;
   const policy = LOCAL_PIVOT_PROMINENCE_POLICY[sourceTimeframe];
-  if (!policy || level?.side !== "LOW") {
+  if (!policy || !["LOW", "HIGH"].includes(level?.side)) {
     return Object.freeze({ visible: true, reason: "WORKING_PIVOT_NOT_APPLICABLE" });
   }
 
@@ -852,6 +858,45 @@ export function structuralLocalWorkingSetPivotDecision(level, candles, volatilit
   const pivotIndex = rows.findIndex((row) => row.time === pivotAt);
   if (pivotIndex < 0) {
     return Object.freeze({ visible: true, reason: "WORKING_PIVOT_CANDLE_UNAVAILABLE" });
+  }
+
+  // V4.13: HIGH uses only causal incoming-leg prominence in the post-cluster
+  // working map. Do not mirror the LOW retracement formula: the BTC review
+  // showed outgoing rejection does not separate the edge HIGH, while incoming
+  // rise does. 1m remains unchanged until it has its own reviewed sample.
+  if (level?.side === "HIGH") {
+    const minimumHighIncomingBaseNatr = Math.max(
+      0,
+      finite(policy.minimumHighIncomingBaseNatr) ?? 0,
+    );
+    if (!(minimumHighIncomingBaseNatr > 0)) {
+      return Object.freeze({ visible: true, reason: "HIGH_WORKING_PIVOT_NOT_CALIBRATED" });
+    }
+    const lookbackBars = Math.max(2, Math.round(finite(policy.lookbackBars) ?? 6));
+    const before = rows.slice(Math.max(0, pivotIndex - lookbackBars), pivotIndex);
+    const baseNatrPct = finite(volatilityContext?.baseNatrPct);
+    if (!before.length || !(baseNatrPct > 0)) {
+      return Object.freeze({ visible: true, reason: "HIGH_WORKING_PIVOT_CONTEXT_INCOMPLETE" });
+    }
+    const incomingReference = Math.min(...before.map((row) => row.low));
+    const incomingPct = structuralPercentMove(incomingReference, pivotPrice);
+    const incomingBaseNatr = incomingPct !== null ? incomingPct / baseNatrPct : null;
+    if (incomingBaseNatr === null) {
+      return Object.freeze({ visible: true, reason: "HIGH_WORKING_PIVOT_SCALE_UNAVAILABLE" });
+    }
+    const visible = incomingBaseNatr >= minimumHighIncomingBaseNatr;
+    return Object.freeze({
+      visible,
+      reason: visible ? "HIGH_WORKING_PIVOT_PASS" : "HIGH_WORKING_PIVOT_WEAK_INCOMING_FILTERED",
+      pivotAt,
+      pivotPrice,
+      baseNatrPct,
+      incomingReference,
+      incomingPct,
+      incomingBaseNatr,
+      minimumHighIncomingBaseNatr,
+      lookbackBars,
+    });
   }
 
   const structureLookbackBars = Math.max(
@@ -932,10 +977,10 @@ export function structuralLocalWorkingSetVisible(level, volatilityContext, candl
   if (sources.length > 1 || Number(level?.confluenceCount) > 1) return true;
   if ((Number(level?.attackCount) || 1) > 1) return true;
 
-  // V4.9: post-cluster local-only LOW guard. Event generation stays recall-first,
-  // but a shallow pause inside a large rising impulse is memory, not a fresh
-  // working support ray. This runs on the normalized visible level itself, so an
-  // earlier admission bypass cannot accidentally leak it onto the chart.
+  // V4.13: post-cluster local-only pivot guard. LOW keeps the V4.11
+  // retracement rule; calibrated 5m HIGH now also requires a standalone incoming
+  // rise. Event generation stays recall-first, and senior confluence / x2+
+  // attacks have already bypassed this guard above.
   const pivotDecision = structuralLocalWorkingSetPivotDecision(level, candles, volatilityContext);
   if (!pivotDecision.visible) return false;
 
