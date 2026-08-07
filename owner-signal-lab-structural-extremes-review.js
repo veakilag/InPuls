@@ -595,6 +595,10 @@ function renderReviewList() {
 }
 
 function updateAnnotations() {
+  // V4.10 diagnostics bridge: expose only the trader review corrections so the
+  // isolated multi-TF calibration overlay can compare algorithmic local levels
+  // with manual ETALON points using the same causal pre-pivot geometry.
+  window.__INPULS_STRUCTURAL_REVIEW_CORRECTIONS__ = structuredClone(reviewCorrections);
   chart.setAnnotations(annotationRows(current?.snapshot));
   renderDiagnostics(current?.snapshot ?? null);
   renderReviewList();

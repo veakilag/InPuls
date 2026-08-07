@@ -313,6 +313,61 @@ function formatDiagnosticRow(row) {
   ].join(" | ");
 }
 
+function buildManualEtalonDiagnosticRows(state) {
+  const corrections = Array.isArray(window.__INPULS_STRUCTURAL_REVIEW_CORRECTIONS__)
+    ? window.__INPULS_STRUCTURAL_REVIEW_CORRECTIONS__
+    : [];
+  const timeframe = state?.viewTimeframe;
+  if (!(["1m", "5m"].includes(timeframe))) return Object.freeze([]);
+  const candles = state?.candlesByTimeframe?.[timeframe] ?? [];
+  const volatility = buildStructuralVolatilityContext(candles);
+  const rows = [];
+  for (const correction of corrections) {
+    if (correction?.type !== "ADD_EXTREME" || correction?.timeframe !== timeframe) continue;
+    if (!(["HIGH", "LOW"].includes(correction?.side))) continue;
+    const price = finite(correction?.price);
+    const extremeAt = finite(correction?.time);
+    if (!(price > 0) || extremeAt === null) continue;
+    const pseudoLevel = {
+      id: correction.id ?? `manual:${timeframe}:${correction.side}:${extremeAt}:${price}`,
+      side: correction.side,
+      price,
+      extremeAt,
+      nativeExtremeAt: extremeAt,
+      sourceTimeframe: timeframe,
+      sources: [timeframe],
+      attackCount: 1,
+      active: true,
+    };
+    const workingPivot = structuralLocalWorkingSetPivotDecision(pseudoLevel, candles, volatility);
+    const distanceBaseNatr = structuralDistanceBaseNatr(price, volatility);
+    rows.push(Object.freeze({
+      id: correction.id ?? null,
+      side: correction.side,
+      timeframe,
+      price,
+      extremeAt,
+      workingPivot,
+      distanceBaseNatr,
+      maxDistanceBaseNatr: finite(LOCAL_WORKING_SET_POLICY[timeframe]?.maxDistanceBaseNatr),
+    }));
+  }
+  return Object.freeze(rows);
+}
+
+function formatManualEtalonDiagnosticRow(row) {
+  const work = `${row.workingPivot?.visible === false ? "FAIL" : "PASS"}:${row.workingPivot?.reason ?? "—"}`;
+  return [
+    `ETALON ${row.side} ${row.timeframe} ${debugNumber(row.price, row.price >= 1000 ? 1 : 6)}`,
+    `work=${work}`,
+    `retr=${debugPercentRatio(row.workingPivot?.retracementRatio)} min=${debugPercentRatio(row.workingPivot?.minimumRetracementRatio)}`,
+    `prior=${debugNumber(row.workingPivot?.priorImpulseBaseNatr, 2)}N`,
+    `peak=${debugNumber(row.workingPivot?.peakPrice, row.price >= 1000 ? 1 : 6)}`,
+    `origin=${debugNumber(row.workingPivot?.originLow, row.price >= 1000 ? 1 : 6)}`,
+    `dist=${debugNumber(row.distanceBaseNatr, 2)}N/${debugNumber(row.maxDistanceBaseNatr, 1)}N`,
+  ].join(" | ");
+}
+
 function addDiagnosticPanel(state, levelMap) {
   const params = new URL(window.location.href).searchParams;
   const debugEnabled = params.get("debug") === "1";
@@ -342,9 +397,13 @@ function addDiagnosticPanel(state, levelMap) {
   const localRows = diagnostics
     .filter((row) => row.timeframe === state.viewTimeframe)
     .sort((left, right) => (right.price ?? 0) - (left.price ?? 0));
+  const manualEtalons = buildManualEtalonDiagnosticRows(state)
+    .sort((left, right) => (right.price ?? 0) - (left.price ?? 0));
   panel.textContent = [
     `DEBUG V4.10 · ${state.viewTimeframe} · visible local levels ${localRows.length}`,
     ...localRows.map(formatDiagnosticRow),
+    `ETALON DEBUG · manual levels ${manualEtalons.length}`,
+    ...manualEtalons.map(formatManualEtalonDiagnosticRow),
   ].join("\n");
 }
 
