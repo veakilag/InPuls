@@ -99,3 +99,41 @@ test("V4.13 does not calibrate 1m HIGH yet", () => {
   assert.equal(decision.visible, true);
   assert.equal(decision.reason, "HIGH_WORKING_PIVOT_NOT_CALIBRATED");
 });
+
+
+test("V4.15 filters a strong incoming 5m HIGH when its causal confirming reversal is below 0.60 base NATR", () => {
+  const candles = [
+    candle(0, 99.30, 99.10),
+    candle(1, 99.50, 99.25),
+    candle(2, 99.70, 99.45),
+    candle(3, 99.85, 99.65),
+    candle(4, 99.95, 99.78),
+    candle(5, 100.00, 99.90),
+    candle(6, 100.00, 99.94),
+  ];
+  const target = level(100.00, candles[5].time, { confirmingReversalPct: 0.05 });
+  const decision = structuralLocalWorkingSetPivotDecision(target, candles, volatility);
+  assert.ok(decision.incomingBaseNatr >= 3);
+  assert.ok(decision.confirmingReversalBaseNatr < 0.60);
+  assert.equal(decision.visible, false);
+  assert.equal(decision.reason, "HIGH_WORKING_PIVOT_WEAK_CONFIRMING_REVERSAL_FILTERED");
+  assert.equal(structuralLocalWorkingSetVisible(target, volatility, candles), false);
+});
+
+test("V4.15 keeps a strong 5m HIGH when both incoming leg and causal confirming reversal pass", () => {
+  const candles = [
+    candle(0, 99.30, 99.10),
+    candle(1, 99.50, 99.25),
+    candle(2, 99.70, 99.45),
+    candle(3, 99.85, 99.65),
+    candle(4, 99.95, 99.78),
+    candle(5, 100.00, 99.90),
+    candle(6, 99.90, 99.75),
+  ];
+  const target = level(100.00, candles[5].time, { confirmingReversalPct: 0.20 });
+  const decision = structuralLocalWorkingSetPivotDecision(target, candles, volatility);
+  assert.ok(decision.incomingBaseNatr >= 3);
+  assert.ok(decision.confirmingReversalBaseNatr >= 0.60);
+  assert.equal(decision.visible, true);
+  assert.equal(decision.reason, "HIGH_WORKING_PIVOT_PASS");
+});

@@ -118,6 +118,11 @@ export const LOCAL_PIVOT_PROMINENCE_POLICY = Object.freeze({
     // only post-cluster in the local working map; senior confluence and x2+
     // attacks bypass it before this decision is evaluated.
     minimumHighIncomingBaseNatr: 3.00,
+    // V4.15: a single 5m HIGH also needs a meaningful causal confirmation
+    // reversal relative to the stable regime scale. This rejects edge/current
+    // highs that are confirmed by the tiny recall-first detector threshold on
+    // volatile alts, without using candles after confirmedAt.
+    minimumHighConfirmingReversalBaseNatr: 0.60,
   }),
 });
 
@@ -884,10 +889,29 @@ export function structuralLocalWorkingSetPivotDecision(level, candles, volatilit
     if (incomingBaseNatr === null) {
       return Object.freeze({ visible: true, reason: "HIGH_WORKING_PIVOT_SCALE_UNAVAILABLE" });
     }
-    const visible = incomingBaseNatr >= minimumHighIncomingBaseNatr;
+    const minimumHighConfirmingReversalBaseNatr = Math.max(
+      0,
+      finite(policy.minimumHighConfirmingReversalBaseNatr) ?? 0,
+    );
+    const confirmingReversalPct = finite(level?.confirmingReversalPct);
+    const confirmingReversalBaseNatr = confirmingReversalPct !== null
+      ? confirmingReversalPct / baseNatrPct
+      : null;
+    const incomingPassed = incomingBaseNatr >= minimumHighIncomingBaseNatr;
+    // Missing confirmation diagnostics keep legacy visibility. Normalized live
+    // detector levels carry confirmingReversalPct, so calibrated review/runtime
+    // levels are evaluated without inventing future candles.
+    const confirmingReversalPassed = !(minimumHighConfirmingReversalBaseNatr > 0)
+      || confirmingReversalBaseNatr === null
+      || confirmingReversalBaseNatr >= minimumHighConfirmingReversalBaseNatr;
+    const visible = incomingPassed && confirmingReversalPassed;
     return Object.freeze({
       visible,
-      reason: visible ? "HIGH_WORKING_PIVOT_PASS" : "HIGH_WORKING_PIVOT_WEAK_INCOMING_FILTERED",
+      reason: visible
+        ? "HIGH_WORKING_PIVOT_PASS"
+        : !incomingPassed
+          ? "HIGH_WORKING_PIVOT_WEAK_INCOMING_FILTERED"
+          : "HIGH_WORKING_PIVOT_WEAK_CONFIRMING_REVERSAL_FILTERED",
       pivotAt,
       pivotPrice,
       baseNatrPct,
@@ -895,6 +919,11 @@ export function structuralLocalWorkingSetPivotDecision(level, candles, volatilit
       incomingPct,
       incomingBaseNatr,
       minimumHighIncomingBaseNatr,
+      incomingPassed,
+      confirmingReversalPct,
+      confirmingReversalBaseNatr,
+      minimumHighConfirmingReversalBaseNatr,
+      confirmingReversalPassed,
       lookbackBars,
     });
   }
@@ -990,6 +1019,12 @@ export function structuralLocalWorkingSetVisible(level, volatilityContext, candl
   // attacks have already bypassed this guard above.
   const pivotDecision = structuralLocalWorkingSetPivotDecision(level, candles, volatilityContext);
   if (!pivotDecision.visible) return false;
+
+  // V4.15: child confluence is allowed to retain a VALID local pivot outside
+  // the ordinary working-area radius, but it never bypasses the pivot-quality
+  // gate above. This restores accepted 5m structure on the 1m view without
+  // reintroducing the V4.14 resurrection bug.
+  if (sources.length > 1 || Number(level?.confluenceCount) > 1) return true;
 
   const distanceBaseNatr = structuralDistanceBaseNatr(level?.price, volatilityContext);
   if (distanceBaseNatr === null) return true;

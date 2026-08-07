@@ -34,3 +34,14 @@ test("V4.14 keeps nearby valid locals, repeated attacks, and true senior-primary
   assert.equal(structuralLocalWorkingSetVisible(level({ price: 97.0, attackCount: 2 }), ctx), true);
   assert.equal(structuralLocalWorkingSetVisible(level({ price: 97.0, sourceTimeframe: "1h", confluenceCount: 2, sources: ["1h", "5m"] }), ctx), true);
 });
+
+
+test("V4.15 child confluence retains a pivot after quality gate even outside local distance radius", () => {
+  const distantConfluent = level({
+    price: 97.0,
+    sourceTimeframe: "5m",
+    confluenceCount: 2,
+    sources: ["5m", "1m"],
+  });
+  assert.equal(structuralLocalWorkingSetVisible(distantConfluent, ctx), true);
+});

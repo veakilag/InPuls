@@ -75,3 +75,23 @@ test("V4.14 repeated attacks remain an independent local visibility bypass", () 
     true,
   );
 });
+
+
+test("V4.15 ordering keeps child confluence behind pivot quality", () => {
+  const weakFiveMinutePrimary = {
+    side: "HIGH",
+    price: 100.00,
+    sourceTimeframe: "5m",
+    nativeExtremeAt: 6 * STEP,
+    extremeAt: 6 * STEP,
+    active: true,
+    attackCount: 1,
+    sources: ["5m", "1m"],
+    confluenceCount: 2,
+    confirmingReversalPct: 0.20,
+  };
+  assert.equal(
+    structuralLocalWorkingSetVisible(weakFiveMinutePrimary, volatilityContext, candles),
+    false,
+  );
+});
