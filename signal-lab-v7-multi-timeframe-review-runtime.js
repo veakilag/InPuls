@@ -397,7 +397,7 @@ function addDiagnosticPanel(state, levelMap) {
   const localRows = diagnostics
     .filter((row) => row.timeframe === state.viewTimeframe)
     .sort((left, right) => (right.price ?? 0) - (left.price ?? 0));
-  const manualEtalons = buildManualEtalonDiagnosticRows(state)
+  const manualEtalons = [...buildManualEtalonDiagnosticRows(state)]
     .sort((left, right) => (right.price ?? 0) - (left.price ?? 0));
   panel.textContent = [
     `DEBUG V4.10 · ${state.viewTimeframe} · visible local levels ${localRows.length}`,
