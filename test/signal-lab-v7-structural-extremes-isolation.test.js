@@ -19,8 +19,12 @@ test("visual review page loads the isolated detector and all six hierarchical ti
   assert.match(review, /signal-lab-v7-structural-extremes\.js/);
   assert.match(review, /fetchReviewHistory/);
   assert.match(review, /REVIEW_LOOKBACK_MS/);
-  assert.match(review, /"1m": 30 \* 24 \* 60 \* 60_000/);
-  assert.match(review, /"1h": 180 \* 24 \* 60 \* 60_000/);
+  for (const timeframe of ["1m", "5m", "15m"]) {
+    assert.match(review, new RegExp(`\\"${timeframe}\\": 30 \\* 24 \\* 60 \\* 60_000`));
+  }
+  for (const timeframe of ["1h", "4h", "1d"]) {
+    assert.match(review, new RegExp(`\\"${timeframe}\\": 180 \\* 24 \\* 60 \\* 60_000`));
+  }
   assert.match(review, /new StructuralExtremeEngine/);
   assert.match(review, /let timeframe = "1h"/);
   assert.match(review, /type: "segment"/);
