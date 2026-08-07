@@ -1,6 +1,6 @@
 import {
   STRUCTURAL_TF_LOOKBACK_MS,
-  buildStructuralLevelMap,
+  buildHierarchicalStructuralLevelMap,
   structuralLevelLabel,
   visibleSourceTimeframes,
 } from "./signal-lab-v7-multi-timeframe-levels.js";
@@ -16,10 +16,11 @@ const INTERVAL_MS = Object.freeze({
   "4h": 14_400_000,
   "1d": 86_400_000,
 });
-const PATCH_MARKER = Symbol.for("inpuls.structural-extremes.multi-tf-review-v1");
+const PATCH_MARKER = Symbol.for("inpuls.structural-extremes.hierarchical-review-v1");
 const cache = new Map();
 
 const finite = (value) => {
+  if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 };
@@ -118,42 +119,33 @@ function algorithmAnnotation(row) {
   const label = String(row?.label ?? "");
   const match = /^([HL])\s+(1m|5m|15m|1h|4h|1d)\b/.exec(label);
   if (!match) return null;
-  const price = finite(row?.a?.price ?? row?.price);
-  const extremeAt = finite(row?.a?.time ?? row?.startAt ?? row?.time);
-  if (!(price > 0) || extremeAt === null) return null;
   return {
     row,
     side: match[1] === "H" ? "HIGH" : "LOW",
     sourceTimeframe: match[2],
-    price,
-    extremeAt,
   };
 }
 
 function annotationForLevel(level) {
   return {
     type: "segment",
-    a: { time: level.extremeAt, price: level.price },
+    a: { time: level.displayAt ?? level.extremeAt, price: level.price },
     b: { time: level.endAt, price: level.price },
     label: structuralLevelLabel(level),
     tone: level.side === "HIGH" ? "danger" : "success",
     state: level.status,
+    hierarchical: true,
     multiTimeframe: true,
     sourceTimeframe: level.sourceTimeframe,
     sources: level.sources,
+    nativeExtremeAt: level.nativeExtremeAt ?? level.extremeAt,
+    refinedAt: level.displayAt ?? level.extremeAt,
+    refinedThroughTimeframe: level.refinedThroughTimeframe ?? level.sourceTimeframe,
+    refinementPath: level.refinementPath,
   };
 }
 
-function nearLevel(annotation, level, tickSize) {
-  if (!annotation || annotation.side !== level.side) return false;
-  const tolerance = Math.max(
-    Math.max(0, Number(tickSize) || 0) * 3,
-    Math.max(annotation.price, level.price) * 0.03 / 100,
-  );
-  return Math.abs(annotation.price - level.price) <= tolerance;
-}
-
-function addContextStatus(chart, state, levelMap) {
+function addContextStatus(state, levelMap) {
   const status = document.querySelector("#status");
   if (!status) return;
   let context = document.querySelector("#multi-tf-context-status");
@@ -165,70 +157,63 @@ function addContextStatus(chart, state, levelMap) {
     context.style.opacity = "0.8";
     status.insertAdjacentElement("afterend", context);
   }
-  const sources = visibleSourceTimeframes(state.viewTimeframe).join(" + ");
-  context.textContent = `Multi-TF: ${sources} · уровней ${levelMap.length} · 1м/5м только последние 24ч`;
+  const sources = visibleSourceTimeframes(state.viewTimeframe).slice().reverse().join(" → ");
+  context.textContent = `Иерархия: ${sources} · уровней ${levelMap.length} · старший ТФ сохраняется · 1м/5м только 24ч`;
 }
 
-function combineAnnotations(chart, state) {
+function combineAnnotations(state) {
   const baseRows = Array.isArray(state.baseAnnotations) ? state.baseAnnotations : [];
   const showExtremes = document.querySelector("#show-extremes")?.checked !== false;
-  if (!showExtremes || !state.snapshotsByTimeframe || !state.tickSize) {
-    return baseRows;
-  }
+  if (!showExtremes || !state.snapshotsByTimeframe || !state.tickSize) return baseRows;
 
   const includeHistory = Boolean(document.querySelector("#show-history")?.checked);
-  const levelMap = buildStructuralLevelMap({
+  const levelMap = buildHierarchicalStructuralLevelMap({
     snapshotsByTimeframe: state.snapshotsByTimeframe,
+    candlesByTimeframe: state.candlesByTimeframe,
     viewTimeframe: state.viewTimeframe,
     endAt: state.endAt,
     includeHistory,
     tickSize: state.tickSize,
   });
 
-  const higherLevels = levelMap.filter((level) => level.sourceTimeframe !== state.viewTimeframe);
-  const keptBase = [];
-  for (const row of baseRows) {
-    const parsed = algorithmAnnotation(row);
-    if (!parsed) {
-      keptBase.push(row);
-      continue;
-    }
-
-    if ((parsed.sourceTimeframe === "1m" || parsed.sourceTimeframe === "5m")
-      && parsed.extremeAt < state.endAt - 24 * 60 * 60_000) {
-      continue;
-    }
-
-    const coveredByStronger = higherLevels.some((level) => nearLevel(parsed, level, state.tickSize));
-    if (!coveredByStronger) keptBase.push(row);
-  }
-
-  const overlays = higherLevels.map(annotationForLevel);
-  addContextStatus(chart, state, levelMap);
+  // The hierarchy owns every algorithmic H/L line. Manual trader annotations,
+  // candidate markers and auxiliary drawings remain untouched.
+  const keptBase = baseRows.filter((row) => !algorithmAnnotation(row));
+  const overlays = levelMap.map(annotationForLevel);
+  addContextStatus(state, levelMap);
   return [...keptBase, ...overlays];
 }
 
-async function loadMultiTfContext({
+async function loadHierarchicalContext({
   symbol,
   viewTimeframe,
   endAt,
+  viewCandles,
   EngineClass,
   signal,
 }) {
   const tickSize = await fetchTickSize(symbol, signal);
   const sourceTimeframes = visibleSourceTimeframes(viewTimeframe);
   const snapshotsByTimeframe = {};
+  const candlesByTimeframe = {};
 
-  const higherTimeframes = sourceTimeframes.filter((row) => row !== viewTimeframe);
-  await Promise.all(higherTimeframes.map(async (sourceTimeframe) => {
-    const candles = await fetchCandles(symbol, sourceTimeframe, endAt, signal);
-    if (!candles.length) return;
+  await Promise.all(sourceTimeframes.map(async (sourceTimeframe) => {
+    const lookback = STRUCTURAL_TF_LOOKBACK_MS[sourceTimeframe];
+    const startAt = endAt - lookback;
+    const sourceCandles = sourceTimeframe === viewTimeframe
+      ? (Array.isArray(viewCandles) ? viewCandles : []).filter((row) => {
+        const time = finite(row?.time);
+        return time !== null && time >= startAt && time <= endAt;
+      })
+      : await fetchCandles(symbol, sourceTimeframe, endAt, signal);
+    if (!sourceCandles.length) return;
+    candlesByTimeframe[sourceTimeframe] = sourceCandles;
     const engine = new EngineClass({ symbol, timeframe: sourceTimeframe, tickSize });
-    engine.ingestCandles(candles);
+    engine.ingestCandles(sourceCandles);
     snapshotsByTimeframe[sourceTimeframe] = engine.snapshot();
   }));
 
-  return { tickSize, snapshotsByTimeframe };
+  return { tickSize, snapshotsByTimeframe, candlesByTimeframe };
 }
 
 export function installMultiTimeframeReviewRuntime({ ChartClass, EngineClass }) {
@@ -249,10 +234,11 @@ export function installMultiTimeframeReviewRuntime({ ChartClass, EngineClass }) 
     writable: false,
   });
 
-  prototype.setAnnotations = function setAnnotationsWithMultiTf(rows) {
+  prototype.setAnnotations = function setAnnotationsWithHierarchy(rows) {
     const state = stateByChart.get(this) ?? {
       baseAnnotations: [],
       snapshotsByTimeframe: null,
+      candlesByTimeframe: null,
       tickSize: null,
       viewTimeframe: null,
       endAt: null,
@@ -261,10 +247,10 @@ export function installMultiTimeframeReviewRuntime({ ChartClass, EngineClass }) 
     };
     state.baseAnnotations = Array.isArray(rows) ? rows : [];
     stateByChart.set(this, state);
-    return originalSetAnnotations.call(this, combineAnnotations(this, state));
+    return originalSetAnnotations.call(this, combineAnnotations(state));
   };
 
-  prototype.setData = function setDataWithMultiTf(candles, meta = {}) {
+  prototype.setData = function setDataWithHierarchy(candles, meta = {}) {
     const result = originalSetData.call(this, candles, meta);
     const symbol = String(meta?.symbol ?? "").trim().toUpperCase();
     const viewTimeframe = String(meta?.interval ?? "");
@@ -281,7 +267,8 @@ export function installMultiTimeframeReviewRuntime({ ChartClass, EngineClass }) 
     const abortController = new AbortController();
     const state = {
       baseAnnotations: previous?.baseAnnotations ?? [],
-      snapshotsByTimeframe: { [viewTimeframe]: null },
+      snapshotsByTimeframe: null,
+      candlesByTimeframe: null,
       tickSize: null,
       viewTimeframe,
       endAt,
@@ -293,10 +280,11 @@ export function installMultiTimeframeReviewRuntime({ ChartClass, EngineClass }) 
 
     queueMicrotask(async () => {
       try {
-        const loaded = await loadMultiTfContext({
+        const loaded = await loadHierarchicalContext({
           symbol,
           viewTimeframe,
           endAt,
+          viewCandles: candles,
           EngineClass,
           signal: abortController.signal,
         });
@@ -304,12 +292,13 @@ export function installMultiTimeframeReviewRuntime({ ChartClass, EngineClass }) 
         if (!latest || latest.generation !== localGeneration || abortController.signal.aborted) return;
         latest.tickSize = loaded.tickSize;
         latest.snapshotsByTimeframe = loaded.snapshotsByTimeframe;
-        originalSetAnnotations.call(this, combineAnnotations(this, latest));
+        latest.candlesByTimeframe = loaded.candlesByTimeframe;
+        originalSetAnnotations.call(this, combineAnnotations(latest));
         this.render?.();
       } catch (error) {
         if (error?.name === "AbortError") return;
         const context = document.querySelector("#multi-tf-context-status");
-        if (context) context.textContent = `Multi-TF context error: ${String(error?.message ?? error)}`;
+        if (context) context.textContent = `Иерархия не загрузилась: ${String(error?.message ?? error)}`;
       }
     });
 
