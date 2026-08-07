@@ -85,7 +85,46 @@ export function structuralChildLevelSignificant(extreme, sourceTimeframe) {
   return swing >= hierarchicalAdmissionRequiredPercent(extreme, sourceTimeframe);
 }
 
-export function normalizeStructuralLevel(extreme, sourceTimeframe, endAt) {
+// An old HIGH/LOW is structurally obsolete once the same timeframe has later
+// confirmed a new same-side extreme beyond it. This deliberately does NOT use a
+// one-tick pierce as a break: ambiguous PIERCED cases remain available for
+// visual calibration, while obviously passed levels stop polluting the active map.
+export function structuralExtremeSupersession(extreme, snapshot) {
+  if (!extreme || !["HIGH", "LOW"].includes(extreme.side)) return null;
+  const targetPrice = finite(extreme.price);
+  const targetAt = finite(extreme.extremeAt);
+  if (!(targetPrice > 0) || targetAt === null) return null;
+
+  const history = Array.isArray(snapshot?.history) ? snapshot.history : [];
+  let winner = null;
+  for (const candidate of history) {
+    if (!candidate || candidate.id === extreme.id || candidate.side !== extreme.side) continue;
+    const candidateAt = finite(candidate.extremeAt);
+    const candidatePrice = finite(candidate.price);
+    if (candidateAt === null || candidateAt <= targetAt || !(candidatePrice > 0)) continue;
+    const beyond = extreme.side === "HIGH"
+      ? candidatePrice > targetPrice
+      : candidatePrice < targetPrice;
+    if (!beyond) continue;
+
+    const confirmedAt = finite(candidate.confirmedAt) ?? candidateAt;
+    if (!winner || confirmedAt < winner.at) {
+      winner = Object.freeze({
+        at: confirmedAt,
+        extremeAt: candidateAt,
+        price: candidatePrice,
+        extremeId: candidate.id ?? null,
+        side: candidate.side,
+        reason: "STRUCTURAL_SUPERSESSION",
+      });
+    }
+  }
+  return winner;
+}
+
+export function normalizeStructuralLevel(extreme, sourceTimeframe, endAt, {
+  supersededAt = null,
+} = {}) {
   if (!extreme || !["HIGH", "LOW"].includes(extreme.side)) return null;
   const price = finite(extreme.price);
   const extremeAt = finite(extreme.extremeAt);
@@ -97,8 +136,11 @@ export function normalizeStructuralLevel(extreme, sourceTimeframe, endAt) {
     1,
     Math.round(finite(extreme.attackCount) ?? finite(extreme.touchCount) ?? 1),
   );
-  const crossedAt = finite(extreme.crossedAt);
+  const nativeCrossedAt = finite(extreme.crossedAt);
+  const structuralSupersededAt = finite(supersededAt);
+  const crossedAt = nativeCrossedAt ?? structuralSupersededAt;
   const active = extreme.active !== false && crossedAt === null;
+  const structurallySuperseded = nativeCrossedAt === null && structuralSupersededAt !== null;
   return Object.freeze({
     id: extreme.id ?? `${sourceTimeframe}:${extreme.side}:${extremeAt}:${price}`,
     side: extreme.side,
@@ -114,8 +156,12 @@ export function normalizeStructuralLevel(extreme, sourceTimeframe, endAt) {
     attackCount,
     active,
     crossedAt,
+    structurallySuperseded,
+    inactiveReason: structurallySuperseded ? "STRUCTURAL_SUPERSESSION" : null,
     endAt: active ? rangeEnd : crossedAt ?? rangeEnd,
-    status: extreme.status ?? (active ? "ACTIVE" : "CROSSED"),
+    status: structurallySuperseded
+      ? "SUPERSEDED"
+      : extreme.status ?? (active ? "ACTIVE" : "CROSSED"),
     swingAmplitudePct: finite(extreme.swingAmplitudePct),
     confirmingReversalPct: finite(extreme.confirmingReversalPct),
     reversalThresholdPct: finite(extreme.reversalThresholdPct),
@@ -247,7 +293,10 @@ export function structuralLevelLabel(level) {
   const confluence = sources.length > 1 ? ` + ${sources.slice(1).join("+")}` : "";
   const attacks = Math.max(1, Math.round(Number(level?.attackCount) || 1));
   const price = formatStructuralLevelPrice(level?.price);
-  return `${side} ${primary}${confluence} · ×${attacks} · ${price}${level?.active === false ? " · ПРОБИТ" : ""}`;
+  const inactiveLabel = level?.structurallySuperseded
+    ? " · СНЯТ"
+    : level?.active === false ? " · ПРОБИТ" : "";
+  return `${side} ${primary}${confluence} · ×${attacks} · ${price}${inactiveLabel}`;
 }
 
 function sourceRows(snapshot, includeHistory) {
@@ -255,6 +304,20 @@ function sourceRows(snapshot, includeHistory) {
   return Array.isArray(includeHistory ? snapshot.history : snapshot.active)
     ? (includeHistory ? snapshot.history : snapshot.active)
     : [];
+}
+
+function normalizedSourceLevels(snapshot, sourceTimeframe, endAt, includeHistory, predicate = null) {
+  const levels = [];
+  for (const extreme of sourceRows(snapshot, includeHistory)) {
+    if (predicate && !predicate(extreme)) continue;
+    const supersession = structuralExtremeSupersession(extreme, snapshot);
+    if (supersession && !includeHistory) continue;
+    const level = normalizeStructuralLevel(extreme, sourceTimeframe, endAt, {
+      supersededAt: supersession?.at ?? null,
+    });
+    if (level) levels.push(level);
+  }
+  return levels;
 }
 
 export function buildStructuralLevelMap({
@@ -267,10 +330,7 @@ export function buildStructuralLevelMap({
   const levels = [];
   for (const sourceTimeframe of visibleSourceTimeframes(viewTimeframe)) {
     const snapshot = snapshotsByTimeframe?.[sourceTimeframe];
-    for (const extreme of sourceRows(snapshot, includeHistory)) {
-      const level = normalizeStructuralLevel(extreme, sourceTimeframe, endAt);
-      if (level) levels.push(level);
-    }
+    levels.push(...normalizedSourceLevels(snapshot, sourceTimeframe, endAt, includeHistory));
   }
   return clusterStructuralLevels(levels, { tickSize });
 }
@@ -302,10 +362,13 @@ export function buildHierarchicalStructuralLevelMap({
     }
 
     const snapshot = snapshotsByTimeframe?.[sourceTimeframe];
-    const nativeCandidates = sourceRows(snapshot, includeHistory)
-      .filter((extreme) => structuralChildLevelSignificant(extreme, sourceTimeframe))
-      .map((extreme) => normalizeStructuralLevel(extreme, sourceTimeframe, endAt))
-      .filter(Boolean);
+    const nativeCandidates = normalizedSourceLevels(
+      snapshot,
+      sourceTimeframe,
+      endAt,
+      includeHistory,
+      (extreme) => structuralChildLevelSignificant(extreme, sourceTimeframe),
+    );
 
     // A lower-TF level near an inherited stronger level is confluence/refinement,
     // not a new independent line. Clustering keeps the native label of the older
