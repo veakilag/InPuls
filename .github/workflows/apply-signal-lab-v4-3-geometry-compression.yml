@@ -35,17 +35,31 @@ jobs:
       - name: Apply V4.3 geometry/compression patch
         run: python3 scripts/apply-signal-lab-v4-3-geometry-compression.py
 
-      - name: Normalize compression relief semantics
+      - name: Normalize compression relief and 1m noise guard
         run: |
           python3 - <<'PY'
           from pathlib import Path
           path = Path("signal-lab-v7-multi-timeframe-levels.js")
           text = path.read_text(encoding="utf-8")
-          old = "return Math.max(floor, Math.min(1, Math.sqrt(ratio)));"
-          new = "return Math.max(floor, Math.min(1, ratio));"
-          if text.count(old) != 1:
-              raise SystemExit(f"expected one compression relief formula, found {text.count(old)}")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          replacements = [
+              (
+                  "return Math.max(floor, Math.min(1, Math.sqrt(ratio)));",
+                  "return Math.max(floor, Math.min(1, ratio));",
+              ),
+              (
+                  '  "1m": Object.freeze({\n    fallbackMinimumSwingPercent: 0.15,',
+                  '  "1m": Object.freeze({\n    fallbackMinimumSwingPercent: 0.30,',
+              ),
+              (
+                  '  "1m": Object.freeze({ minimumSwingPercent: 0.15, reversalMultiplier: 1.00 }),',
+                  '  "1m": Object.freeze({ minimumSwingPercent: 0.30, reversalMultiplier: 1.00 }),',
+              ),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"expected one V4.3 normalization target, found {text.count(old)}: {old[:80]}")
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding="utf-8")
           PY
 
       - name: Rebuild standalone calibration page
