@@ -1,0 +1,82 @@
+name: Apply Signal Lab V4.12 HIGH diagnostics
+
+on:
+  push:
+    branches:
+      - agent/signal-lab-structural-extremes-stage1
+    paths:
+      - scripts/apply-signal-lab-v4-12-high-diagnostics.py
+      - .github/workflows/apply-signal-lab-v4-12-high-diagnostics.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: signal-lab-v4-12-high-diagnostics
+  cancel-in-progress: false
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out draft branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/signal-lab-structural-extremes-stage1
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+
+      - name: Apply V4.12 HIGH diagnostics
+        run: python3 scripts/apply-signal-lab-v4-12-high-diagnostics.py
+
+      - name: Rebuild standalone calibration page
+        run: python3 scripts/build-structural-extremes-review-bundle.py
+
+      - name: Remove temporary apply machinery
+        run: |
+          rm -f scripts/apply-signal-lab-v4-12-high-diagnostics.py
+          rm -f .github/workflows/apply-signal-lab-v4-12-high-diagnostics.yml
+          rm -rf scripts/__pycache__
+
+      - name: Validate syntax and diff
+        run: |
+          node --check signal-lab-v7-multi-timeframe-levels.js
+          node --check signal-lab-v7-multi-timeframe-review-runtime.js
+          git diff --check
+          grep -q 'V4.12: HIGH remains calibration-bypassed' signal-lab-v7-multi-timeframe-levels.js
+
+      - name: Test HIGH diagnostics
+        run: node --test test/signal-lab-v7-high-prominence-diagnostics.test.js
+
+      - name: Test pivot prominence
+        run: node --test test/signal-lab-v7-pivot-prominence.test.js
+
+      - name: Test pivot retracement
+        run: node --test test/signal-lab-v7-pivot-retracement.test.js
+
+      - name: Test working-set pivot
+        run: node --test test/signal-lab-v7-working-set-pivot.test.js
+
+      - name: Test multi-timeframe levels
+        run: node --test test/signal-lab-v7-multi-timeframe-levels.test.js
+
+      - name: Run complete regression suite
+        run: npm test
+
+      - name: Commit verified V4.12
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Expose HIGH prominence diagnostics V4.12"
+          git push origin HEAD:agent/signal-lab-structural-extremes-stage1
