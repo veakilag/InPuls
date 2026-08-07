@@ -1,0 +1,72 @@
+name: Apply review horizon policy V3.6
+
+on:
+  push:
+    branches:
+      - agent/signal-lab-structural-extremes-stage1
+    paths:
+      - scripts/apply-review-horizons-v36.py
+      - .github/workflows/apply-review-horizons-v36.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out draft branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: agent/signal-lab-structural-extremes-stage1
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Apply V3.6 horizon policy
+        run: python3 scripts/apply-review-horizons-v36.py
+
+      - name: Remove temporary patch helpers
+        run: |
+          rm -f scripts/apply-review-horizons-v36.py
+          rm -f scripts/normalize-structural-standalone-whitespace.py
+          rm -f .github/workflows/apply-review-horizons-v36.yml
+
+      - name: Validate syntax and diff
+        run: |
+          node --check signal-lab-v7-multi-timeframe-levels.js
+          node --check signal-lab-v7-multi-timeframe-review-runtime.js
+          node --check owner-signal-lab-structural-extremes-review.js
+          node --check chart.js
+          python3 -m py_compile scripts/build-structural-extremes-review-bundle.py
+          git diff --check
+
+      - name: Run focused structural and multi-TF tests
+        run: |
+          node --test \
+            test/signal-lab-v7-structural-extremes.test.js \
+            test/signal-lab-v7-structural-extremes-v3.test.js \
+            test/signal-lab-v7-multi-timeframe-levels.test.js
+
+      - name: Run complete regression suite
+        run: npm test
+
+      - name: Rebuild standalone calibration page
+        run: |
+          python3 scripts/build-structural-extremes-review-bundle.py
+          test -s structural-extremes-review-standalone.html
+          grep -q "Разметка для обучения" structural-extremes-review-standalone.html
+          git diff --check
+
+      - name: Commit verified V3.6 changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Set structural review horizons by timeframe"
+          git push origin HEAD:agent/signal-lab-structural-extremes-stage1
