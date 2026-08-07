@@ -1,4 +1,5 @@
 export const STRUCTURAL_TF_ORDER = Object.freeze(["1m", "5m", "15m", "1h", "4h", "1d"]);
+export const STRUCTURAL_TF_DESCENT_ORDER = Object.freeze(["1d", "4h", "1h", "15m", "5m", "1m"]);
 
 export const STRUCTURAL_TF_STRENGTH = Object.freeze({
   "1m": 1,
@@ -7,6 +8,15 @@ export const STRUCTURAL_TF_STRENGTH = Object.freeze({
   "1h": 4,
   "4h": 5,
   "1d": 6,
+});
+
+export const STRUCTURAL_TF_INTERVAL_MS = Object.freeze({
+  "1m": 60_000,
+  "5m": 5 * 60_000,
+  "15m": 15 * 60_000,
+  "1h": 60 * 60_000,
+  "4h": 4 * 60 * 60_000,
+  "1d": 24 * 60 * 60_000,
 });
 
 export const STRUCTURAL_TF_LOOKBACK_MS = Object.freeze({
@@ -20,6 +30,14 @@ export const STRUCTURAL_TF_LOOKBACK_MS = Object.freeze({
 
 export const LOCAL_STRUCTURAL_LEVEL_HORIZON_MS = 24 * 60 * 60_000;
 
+// Stage-1 calibration. This is deliberately a map-admission filter, not a
+// modification of the underlying detector. A 1m/5m swing may still exist in
+// replay diagnostics without becoming a visible structural level.
+export const LOCAL_HIERARCHICAL_ADMISSION = Object.freeze({
+  "1m": Object.freeze({ minimumSwingPercent: 0.30, reversalMultiplier: 1.70 }),
+  "5m": Object.freeze({ minimumSwingPercent: 0.45, reversalMultiplier: 1.55 }),
+});
+
 const finite = (value) => {
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
@@ -32,6 +50,12 @@ export function visibleSourceTimeframes(viewTimeframe) {
   return Object.freeze(STRUCTURAL_TF_ORDER.slice(index));
 }
 
+export function hierarchicalDescentTimeframes(viewTimeframe) {
+  const index = STRUCTURAL_TF_DESCENT_ORDER.indexOf(String(viewTimeframe));
+  if (index < 0) return Object.freeze([]);
+  return Object.freeze(STRUCTURAL_TF_DESCENT_ORDER.slice(0, index + 1));
+}
+
 export function isLocalStructuralTimeframe(timeframe) {
   return timeframe === "1m" || timeframe === "5m";
 }
@@ -42,6 +66,23 @@ export function structuralLevelVisibleAt({ sourceTimeframe, extremeAt, endAt }) 
   if (origin === null || rangeEnd === null) return false;
   if (!isLocalStructuralTimeframe(sourceTimeframe)) return true;
   return origin >= rangeEnd - LOCAL_STRUCTURAL_LEVEL_HORIZON_MS;
+}
+
+export function hierarchicalAdmissionRequiredPercent(extreme, sourceTimeframe) {
+  const policy = LOCAL_HIERARCHICAL_ADMISSION[sourceTimeframe];
+  if (!policy) return 0;
+  const reversalThreshold = Math.max(0, finite(extreme?.reversalThresholdPct) ?? 0);
+  return Math.max(
+    policy.minimumSwingPercent,
+    reversalThreshold * policy.reversalMultiplier,
+  );
+}
+
+export function structuralChildLevelSignificant(extreme, sourceTimeframe) {
+  if (!isLocalStructuralTimeframe(sourceTimeframe)) return true;
+  const swing = finite(extreme?.swingAmplitudePct);
+  if (swing === null) return true;
+  return swing >= hierarchicalAdmissionRequiredPercent(extreme, sourceTimeframe);
 }
 
 export function normalizeStructuralLevel(extreme, sourceTimeframe, endAt) {
@@ -63,13 +104,21 @@ export function normalizeStructuralLevel(extreme, sourceTimeframe, endAt) {
     side: extreme.side,
     price,
     extremeAt,
+    nativeExtremeAt: extremeAt,
+    displayAt: extremeAt,
     sourceTimeframe,
+    anchorTimeframe: sourceTimeframe,
+    refinedThroughTimeframe: sourceTimeframe,
+    refinementPath: Object.freeze([{ timeframe: sourceTimeframe, time: extremeAt }]),
     strength: STRUCTURAL_TF_STRENGTH[sourceTimeframe] ?? 0,
     attackCount,
     active,
     crossedAt,
     endAt: active ? rangeEnd : crossedAt ?? rangeEnd,
     status: extreme.status ?? (active ? "ACTIVE" : "CROSSED"),
+    swingAmplitudePct: finite(extreme.swingAmplitudePct),
+    confirmingReversalPct: finite(extreme.confirmingReversalPct),
+    reversalThresholdPct: finite(extreme.reversalThresholdPct),
   });
 }
 
@@ -84,6 +133,59 @@ function samePriceZone(left, right, options) {
   const anchor = Math.max(left.price, right.price);
   const tolerance = levelTolerancePrice(anchor, options.tickSize, options.tolerancePct, options.toleranceTicks);
   return Math.abs(left.price - right.price) <= tolerance;
+}
+
+function candleExtreme(candle, side) {
+  return finite(side === "HIGH" ? candle?.high : candle?.low);
+}
+
+export function refineStructuralLevelToTimeframe(level, targetTimeframe, candles, {
+  tickSize = 0,
+  tolerancePct = 0.03,
+  toleranceTicks = 3,
+} = {}) {
+  if (!level || !STRUCTURAL_TF_INTERVAL_MS[targetTimeframe]) return level ?? null;
+  if ((STRUCTURAL_TF_STRENGTH[targetTimeframe] ?? 0) >= (level.strength ?? 0)) return level;
+  const rows = Array.isArray(candles) ? candles : [];
+  if (!rows.length) return level;
+
+  const anchorTimeframe = level.anchorTimeframe ?? level.sourceTimeframe;
+  const anchorInterval = STRUCTURAL_TF_INTERVAL_MS[anchorTimeframe];
+  const anchorAt = finite(level.displayAt ?? level.extremeAt);
+  if (!anchorInterval || anchorAt === null) return level;
+  const bucketStart = Math.floor(anchorAt / anchorInterval) * anchorInterval;
+  const bucketEnd = bucketStart + anchorInterval;
+  const candidates = rows.filter((candle) => {
+    const time = finite(candle?.time);
+    return time !== null && time >= bucketStart && time < bucketEnd;
+  });
+  if (!candidates.length) return level;
+
+  let best = null;
+  for (const candle of candidates) {
+    const price = candleExtreme(candle, level.side);
+    const time = finite(candle?.time);
+    if (!(price > 0) || time === null) continue;
+    if (!best
+      || (level.side === "HIGH" && price > best.price)
+      || (level.side === "LOW" && price < best.price)) {
+      best = { time, price };
+    }
+  }
+  if (!best) return level;
+
+  const tolerance = levelTolerancePrice(level.price, tickSize, tolerancePct, toleranceTicks);
+  if (Math.abs(best.price - level.price) > tolerance) return level;
+
+  const path = Array.isArray(level.refinementPath) ? [...level.refinementPath] : [];
+  path.push({ timeframe: targetTimeframe, time: best.time });
+  return Object.freeze({
+    ...level,
+    displayAt: best.time,
+    anchorTimeframe: targetTimeframe,
+    refinedThroughTimeframe: targetTimeframe,
+    refinementPath: Object.freeze(path),
+  });
 }
 
 export function clusterStructuralLevels(levels, {
@@ -140,6 +242,13 @@ export function structuralLevelLabel(level) {
   return `${side} ${primary}${confluence} · ×${attacks}${level?.active === false ? " · ПРОБИТ" : ""}`;
 }
 
+function sourceRows(snapshot, includeHistory) {
+  if (!snapshot) return [];
+  return Array.isArray(includeHistory ? snapshot.history : snapshot.active)
+    ? (includeHistory ? snapshot.history : snapshot.active)
+    : [];
+}
+
 export function buildStructuralLevelMap({
   snapshotsByTimeframe,
   viewTimeframe,
@@ -150,12 +259,51 @@ export function buildStructuralLevelMap({
   const levels = [];
   for (const sourceTimeframe of visibleSourceTimeframes(viewTimeframe)) {
     const snapshot = snapshotsByTimeframe?.[sourceTimeframe];
-    if (!snapshot) continue;
-    const source = includeHistory ? snapshot.history : snapshot.active;
-    for (const extreme of Array.isArray(source) ? source : []) {
+    for (const extreme of sourceRows(snapshot, includeHistory)) {
       const level = normalizeStructuralLevel(extreme, sourceTimeframe, endAt);
       if (level) levels.push(level);
     }
   }
   return clusterStructuralLevels(levels, { tickSize });
+}
+
+// Top-down map: 1d is established first. Each lower timeframe refines the exact
+// candle of inherited levels while preserving native timeframe and price, then
+// contributes only genuinely new structural children for its own scale.
+export function buildHierarchicalStructuralLevelMap({
+  snapshotsByTimeframe,
+  candlesByTimeframe,
+  viewTimeframe,
+  endAt,
+  includeHistory = false,
+  tickSize = 0,
+}) {
+  const descent = hierarchicalDescentTimeframes(viewTimeframe);
+  if (!descent.length) return Object.freeze([]);
+
+  let hierarchy = [];
+  for (const sourceTimeframe of descent) {
+    const childCandles = candlesByTimeframe?.[sourceTimeframe] ?? [];
+    if (hierarchy.length) {
+      hierarchy = hierarchy.map((level) => refineStructuralLevelToTimeframe(
+        level,
+        sourceTimeframe,
+        childCandles,
+        { tickSize },
+      ));
+    }
+
+    const snapshot = snapshotsByTimeframe?.[sourceTimeframe];
+    const nativeCandidates = sourceRows(snapshot, includeHistory)
+      .filter((extreme) => structuralChildLevelSignificant(extreme, sourceTimeframe))
+      .map((extreme) => normalizeStructuralLevel(extreme, sourceTimeframe, endAt))
+      .filter(Boolean);
+
+    // A lower-TF level near an inherited stronger level is confluence/refinement,
+    // not a new independent line. Clustering keeps the native label of the older
+    // stronger timeframe.
+    hierarchy = [...clusterStructuralLevels([...hierarchy, ...nativeCandidates], { tickSize })];
+  }
+
+  return Object.freeze(hierarchy);
 }
