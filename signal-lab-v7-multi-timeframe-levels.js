@@ -21,6 +21,7 @@ export const STRUCTURAL_TF_LOOKBACK_MS = Object.freeze({
 export const LOCAL_STRUCTURAL_LEVEL_HORIZON_MS = 24 * 60 * 60_000;
 
 const finite = (value) => {
+  if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 };
