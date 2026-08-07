@@ -209,6 +209,46 @@ if old_test not in test_text:
     raise RuntimeError("multi-TF horizon test block not found")
 test_path.write_text(test_text.replace(old_test, new_test, 1), encoding="utf-8")
 
+# Update the old review-page regression contract. The page still exposes all six
+# timeframe controls, but the history loader is no longer one hard-coded 30d
+# function: it follows the agreed 6m/1m horizon policy.
+isolation_path = ROOT / "test/signal-lab-v7-structural-extremes-isolation.test.js"
+isolation_text = isolation_path.read_text(encoding="utf-8")
+old_isolation = '''test("visual review page loads the isolated detector and all six independent timeframes", () => {
+  assert.match(review, /signal-lab-v7-structural-extremes\\.js/);
+  assert.match(review, /fetchThirtyDays/);
+  assert.match(review, /new StructuralExtremeEngine/);
+  assert.match(review, /let timeframe = "1h"/);
+  assert.match(review, /type: "segment"/);
+  for (const timeframe of ["1m", "5m", "15m", "1h", "4h", "1d"]) {
+    assert.match(html, new RegExp(`data-timeframe="${timeframe}"`));
+  }
+  assert.match(html, /Структурные экстремумы/);
+  assert.match(html, /История снятых/);
+  assert.match(html, /Candidate/);
+  assert.match(html, /data-timeframe="1h" class="is-active"/);
+});'''
+new_isolation = '''test("visual review page loads the isolated detector and all six hierarchical timeframe controls", () => {
+  assert.match(review, /signal-lab-v7-structural-extremes\\.js/);
+  assert.match(review, /fetchReviewHistory/);
+  assert.match(review, /REVIEW_LOOKBACK_MS/);
+  assert.match(review, /"1m": 30 \\* 24 \\* 60 \\* 60_000/);
+  assert.match(review, /"1h": 180 \\* 24 \\* 60 \\* 60_000/);
+  assert.match(review, /new StructuralExtremeEngine/);
+  assert.match(review, /let timeframe = "1h"/);
+  assert.match(review, /type: "segment"/);
+  for (const timeframe of ["1m", "5m", "15m", "1h", "4h", "1d"]) {
+    assert.match(html, new RegExp(`data-timeframe="${timeframe}"`));
+  }
+  assert.match(html, /Структурные экстремумы/);
+  assert.match(html, /История снятых/);
+  assert.match(html, /Candidate/);
+  assert.match(html, /data-timeframe="1h" class="is-active"/);
+});'''
+if old_isolation not in isolation_text:
+    raise RuntimeError("old visual review isolation contract not found")
+isolation_path.write_text(isolation_text.replace(old_isolation, new_isolation, 1), encoding="utf-8")
+
 # Update calibration note to the latest agreed horizon policy.
 doc = ROOT / "docs/signal-lab-v7-structural-extremes-trader-calibration-v2.md"
 doc_text = doc.read_text(encoding="utf-8")
