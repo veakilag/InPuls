@@ -29,8 +29,8 @@ test("V4.6 hides distant local-only single-touch 5m levels even when swing was l
   assert.equal(structuralLocalWorkingSetVisible(level({ price: 98.0 }), ctx), false);
 });
 
-test("V4.6 keeps nearby, confluence, and repeated-attack local levels", () => {
+test("V4.14 keeps nearby valid locals, repeated attacks, and true senior-primary confluence", () => {
   assert.equal(structuralLocalWorkingSetVisible(level({ price: 99.2 }), ctx), true);
   assert.equal(structuralLocalWorkingSetVisible(level({ price: 97.0, attackCount: 2 }), ctx), true);
-  assert.equal(structuralLocalWorkingSetVisible(level({ price: 97.0, confluenceCount: 2, sources: ["1h", "5m"] }), ctx), true);
+  assert.equal(structuralLocalWorkingSetVisible(level({ price: 97.0, sourceTimeframe: "1h", confluenceCount: 2, sources: ["1h", "5m"] }), ctx), true);
 });

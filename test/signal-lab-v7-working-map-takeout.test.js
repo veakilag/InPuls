@@ -37,7 +37,7 @@ test("V4.5 wick-like child point without confirmed structural extreme is not eno
   assert.equal(takeout, null);
 });
 
-test("V4.5 far single-touch local level is hidden from working map but confluence/attacks survive", () => {
+test("V4.14 far single-touch local is hidden while attacks and true senior-primary confluence survive", () => {
   const context = { currentPrice: 100, baseNatrPct: 1 };
   const farLocal = {
     side: "LOW",
@@ -51,6 +51,6 @@ test("V4.5 far single-touch local level is hidden from working map but confluenc
   };
   assert.equal(structuralLocalWorkingSetVisible(farLocal, context), false);
   assert.equal(structuralLocalWorkingSetVisible({ ...farLocal, attackCount: 2 }, context), true);
-  assert.equal(structuralLocalWorkingSetVisible({ ...farLocal, sources: ["1h", "5m"], confluenceCount: 2 }, context), true);
+  assert.equal(structuralLocalWorkingSetVisible({ ...farLocal, sourceTimeframe: "1h", sources: ["1h", "5m"], confluenceCount: 2 }, context), true);
   assert.equal(structuralLocalWorkingSetVisible({ ...farLocal, swingAmplitudePct: 5 }, context), false);
 });

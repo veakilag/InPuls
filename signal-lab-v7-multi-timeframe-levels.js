@@ -974,7 +974,14 @@ export function structuralLocalWorkingSetVisible(level, volatilityContext, candl
   if (!policy || level?.active === false) return true;
 
   const sources = Array.isArray(level?.sources) ? level.sources : [sourceTimeframe].filter(Boolean);
-  if (sources.length > 1 || Number(level?.confluenceCount) > 1) return true;
+
+  // V4.14: child confluence must never resurrect a local primary that already
+  // fails its own source-TF working-pivot gate. After clustering the strongest
+  // member is primary, so a genuine senior confluence (15m/1h/4h/1d) already
+  // has a non-local sourceTimeframe and bypasses this function via the policy
+  // check above. A 5m+1m cluster, however, remains a 5m primary and must still
+  // pass the calibrated 5m gate. Repeated attacks remain an independent reason
+  // to keep the level visible.
   if ((Number(level?.attackCount) || 1) > 1) return true;
 
   // V4.13: post-cluster local-only pivot guard. LOW keeps the V4.11

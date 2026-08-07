@@ -77,7 +77,7 @@ test("V4.13 keeps a 5m HIGH with a standalone incoming rise above 3 base NATR", 
   assert.equal(structuralLocalWorkingSetVisible(target, volatility, candles), true);
 });
 
-test("V4.13 preserves senior confluence and x2+ attack bypasses for weak HIGH", () => {
+test("V4.14 preserves true senior-primary confluence and x2+ attack bypasses for weak HIGH", () => {
   const candles = [
     candle(0, 99.82, 99.70),
     candle(1, 99.88, 99.76),
@@ -88,7 +88,7 @@ test("V4.13 preserves senior confluence and x2+ attack bypasses for weak HIGH", 
   ];
   const weak = level(100.00, candles[5].time);
   assert.equal(structuralLocalWorkingSetPivotDecision(weak, candles, volatility).visible, false);
-  assert.equal(structuralLocalWorkingSetVisible(level(100.00, candles[5].time, { sources: ["5m", "1h"] }), volatility, candles), true);
+  assert.equal(structuralLocalWorkingSetVisible(level(100.00, candles[5].time, { sourceTimeframe: "1h", sources: ["1h", "5m"], confluenceCount: 2 }), volatility, candles), true);
   assert.equal(structuralLocalWorkingSetVisible(level(100.00, candles[5].time, { attackCount: 2 }), volatility, candles), true);
 });
 
