@@ -56,14 +56,20 @@ jobs:
           node --check owner-signal-lab-structural-extremes-review.js
           git diff --check
 
-      - name: Run focused structural tests
-        run: |
-          node --test \
-            test/signal-lab-v7-adaptive-hierarchy.test.js \
-            test/signal-lab-v7-multi-timeframe-levels.test.js \
-            test/signal-lab-v7-pierce-lifecycle.test.js \
-            test/signal-lab-v7-structural-extremes.test.js \
-            test/signal-lab-v7-structural-extremes-isolation.test.js
+      - name: Test adaptive hierarchy
+        run: node --test test/signal-lab-v7-adaptive-hierarchy.test.js
+
+      - name: Test multi-timeframe levels
+        run: node --test test/signal-lab-v7-multi-timeframe-levels.test.js
+
+      - name: Test pierce lifecycle
+        run: node --test test/signal-lab-v7-pierce-lifecycle.test.js
+
+      - name: Test structural detector
+        run: node --test test/signal-lab-v7-structural-extremes.test.js
+
+      - name: Test isolation
+        run: node --test test/signal-lab-v7-structural-extremes-isolation.test.js
 
       - name: Run complete regression suite
         run: npm test
