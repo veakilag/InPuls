@@ -109,7 +109,7 @@ html = html.replace(
 html = html.replace("</head>", f"\n    <style>\n{css}\n    </style>\n  </head>", 1)
 
 loader = f"""
-<!-- InPulsStructuralExtremesTraderReview · standalone multi-timeframe calibration bundle -->
+<!-- Разметка для обучения · InPulsStructuralExtremesTraderReview · standalone multi-timeframe calibration bundle -->
 <script>
 (() => {{
   const decode = (encoded) => {{
