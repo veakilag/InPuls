@@ -1,0 +1,81 @@
+name: Apply Signal Lab V4.3 geometry compression
+
+on:
+  push:
+    branches:
+      - agent/signal-lab-structural-extremes-stage1
+    paths:
+      - scripts/apply-signal-lab-v4-3-geometry-compression.py
+      - .github/workflows/apply-signal-lab-v4-3-geometry-compression.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: signal-lab-v4-3-geometry-compression
+  cancel-in-progress: false
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out draft branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: agent/signal-lab-structural-extremes-stage1
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Apply V4.3 geometry/compression patch
+        run: python3 scripts/apply-signal-lab-v4-3-geometry-compression.py
+
+      - name: Rebuild standalone calibration page
+        run: python3 scripts/build-structural-extremes-review-bundle.py
+
+      - name: Remove temporary apply machinery
+        run: |
+          rm -f scripts/apply-signal-lab-v4-1-calibration-ownership.py
+          rm -f .github/workflows/apply-signal-lab-v4-1-calibration-ownership.yml
+          rm -f scripts/apply-signal-lab-v4-2-hierarchy.py
+          rm -f .github/workflows/apply-signal-lab-v4-2-hierarchy.yml
+          rm -f scripts/apply-signal-lab-v4-3-geometry-compression.py
+          rm -f .github/workflows/apply-signal-lab-v4-3-geometry-compression.yml
+          rm -rf scripts/__pycache__
+
+      - name: Validate syntax and diff
+        run: |
+          node --check signal-lab-v7-multi-timeframe-levels.js
+          node --check signal-lab-v7-structural-extremes.js
+          node --check signal-lab-v7-multi-timeframe-review-runtime.js
+          node --check owner-signal-lab-structural-extremes-review.js
+          git diff --check
+
+      - name: Run focused structural tests
+        run: |
+          node --test \
+            test/signal-lab-v7-adaptive-hierarchy.test.js \
+            test/signal-lab-v7-multi-timeframe-levels.test.js \
+            test/signal-lab-v7-pierce-lifecycle.test.js \
+            test/signal-lab-v7-structural-extremes.test.js \
+            test/signal-lab-v7-structural-extremes-isolation.test.js
+
+      - name: Run complete regression suite
+        run: npm test
+
+      - name: Commit verified V4.3
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Calibrate structural extremes V4.3 geometry and compression"
+          git push origin HEAD:agent/signal-lab-structural-extremes-stage1
