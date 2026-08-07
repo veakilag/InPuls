@@ -9,6 +9,7 @@ import {
   normalizeStructuralLevel,
   refineStructuralLevelToTimeframe,
   structuralChildLevelSignificant,
+  structuralExtremeSupersession,
   structuralLevelLabel,
   visibleSourceTimeframes,
 } from "../signal-lab-v7-multi-timeframe-levels.js";
@@ -20,6 +21,7 @@ function extreme({
   side = "HIGH",
   price,
   extremeAt,
+  confirmedAt = extremeAt + 1_000,
   attackCount = 1,
   active = true,
   crossedAt = null,
@@ -32,6 +34,7 @@ function extreme({
     side,
     price,
     extremeAt,
+    confirmedAt,
     attackCount,
     touchCount: Math.max(0, attackCount - 1),
     active,
@@ -156,18 +159,100 @@ test("shallow 1m micro swing is not admitted while meaningful 1m swing is", () =
   }), "1m"), true);
 });
 
+test("later confirmed higher HIGH structurally retires an older passed HIGH", () => {
+  const oldHigh = extreme({
+    id: "old-high",
+    side: "HIGH",
+    price: 100,
+    extremeAt: END - 10_000,
+    confirmedAt: END - 9_000,
+  });
+  const newHigh = extreme({
+    id: "new-high",
+    side: "HIGH",
+    price: 105,
+    extremeAt: END - 5_000,
+    confirmedAt: END - 4_000,
+  });
+  const snapshot = { active: [oldHigh, newHigh], history: [oldHigh, newHigh] };
+
+  const supersession = structuralExtremeSupersession(oldHigh, snapshot);
+  assert.equal(supersession?.extremeId, "new-high");
+  assert.equal(supersession?.at, END - 4_000);
+
+  const activeMap = buildStructuralLevelMap({
+    snapshotsByTimeframe: { "1h": snapshot },
+    viewTimeframe: "1h",
+    endAt: END,
+    tickSize: 0.01,
+  });
+  assert.equal(activeMap.some((row) => row.id === "old-high"), false);
+  assert.equal(activeMap.some((row) => row.id === "new-high"), true);
+
+  const historyMap = buildStructuralLevelMap({
+    snapshotsByTimeframe: { "1h": snapshot },
+    viewTimeframe: "1h",
+    endAt: END,
+    includeHistory: true,
+    tickSize: 0.01,
+  });
+  const retired = historyMap.find((row) => row.id === "old-high");
+  assert.equal(retired?.active, false);
+  assert.equal(retired?.structurallySuperseded, true);
+  assert.equal(retired?.status, "SUPERSEDED");
+  assert.equal(structuralLevelLabel(retired), "H 1h · ×1 · 100 · СНЯТ");
+});
+
+test("later confirmed lower LOW structurally retires an older passed LOW", () => {
+  const oldLow = extreme({
+    id: "old-low",
+    side: "LOW",
+    price: 90,
+    extremeAt: END - 12_000,
+    confirmedAt: END - 11_000,
+  });
+  const newLow = extreme({
+    id: "new-low",
+    side: "LOW",
+    price: 84,
+    extremeAt: END - 6_000,
+    confirmedAt: END - 5_000,
+  });
+  const snapshot = { active: [oldLow, newLow], history: [oldLow, newLow] };
+
+  const supersession = structuralExtremeSupersession(oldLow, snapshot);
+  assert.equal(supersession?.extremeId, "new-low");
+
+  const levels = buildHierarchicalStructuralLevelMap({
+    snapshotsByTimeframe: { "1h": snapshot, "4h": { active: [], history: [] }, "1d": { active: [], history: [] } },
+    candlesByTimeframe: { "1d": [], "4h": [], "1h": [] },
+    viewTimeframe: "1h",
+    endAt: END,
+    tickSize: 0.01,
+  });
+  assert.equal(levels.some((row) => row.id === "old-low"), false);
+  assert.equal(levels.some((row) => row.id === "new-low"), true);
+});
+
+test("a later same-side extreme that does not pass the old price does not retire it", () => {
+  const oldHigh = extreme({ id: "old", side: "HIGH", price: 100, extremeAt: END - 10_000 });
+  const lowerHigh = extreme({ id: "lower", side: "HIGH", price: 98, extremeAt: END - 5_000 });
+  const snapshot = { active: [oldHigh, lowerHigh], history: [oldHigh, lowerHigh] };
+  assert.equal(structuralExtremeSupersession(oldHigh, snapshot), null);
+});
+
 test("hierarchical map starts at 1d, refines it and only then adds significant children", () => {
   const dayStart = Date.UTC(2026, 7, 6, 0, 0, 0);
   const snapshotsByTimeframe = {
-    "1d": { active: [extreme({ id: "d", side: "HIGH", price: 110, extremeAt: dayStart, attackCount: 2 })] },
-    "4h": { active: [extreme({ id: "h4", side: "LOW", price: 90, extremeAt: dayStart + 8 * 60 * 60_000 })] },
-    "1h": { active: [] },
-    "15m": { active: [] },
-    "5m": { active: [] },
+    "1d": { active: [extreme({ id: "d", side: "HIGH", price: 110, extremeAt: dayStart, attackCount: 2 })], history: [] },
+    "4h": { active: [extreme({ id: "h4", side: "LOW", price: 90, extremeAt: dayStart + 8 * 60 * 60_000 })], history: [] },
+    "1h": { active: [], history: [] },
+    "15m": { active: [], history: [] },
+    "5m": { active: [], history: [] },
     "1m": { active: [
       extreme({ id: "noise", side: "LOW", price: 100, extremeAt: END - 10 * 60_000, swingAmplitudePct: 0.15, reversalThresholdPct: 0.10 }),
       extreme({ id: "local", side: "HIGH", price: 104, extremeAt: END - 5 * 60_000, swingAmplitudePct: 0.60, reversalThresholdPct: 0.10 }),
-    ] },
+    ], history: [] },
   };
   const candlesByTimeframe = {
     "4h": [candle(dayStart, 105, 95), candle(dayStart + 4 * 60 * 60_000, 110, 94)],
