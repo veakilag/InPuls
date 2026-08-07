@@ -804,7 +804,48 @@ function screenPointFor(time, price) {
   };
 }
 
+function nearestVisibleStructuralLevel(point) {
+  if (!chart.layout) return null;
+  const levels = Array.isArray(chart.structuralLevelMap) ? chart.structuralLevelMap : [];
+  let best = null;
+  for (const level of levels) {
+    if (!level || !["HIGH", "LOW"].includes(level.side)) continue;
+    const startAt = finite(level.displayAt ?? level.extremeAt);
+    const price = finite(level.price);
+    if (startAt === null || !(price > 0)) continue;
+    const origin = screenPointFor(startAt, price);
+    if (!origin) continue;
+    if (point.candle.time < startAt || point.x < origin.x - 10) continue;
+    const verticalDistance = Math.abs(point.y - origin.y);
+    if (verticalDistance > 30) continue;
+    const score = verticalDistance + Math.min(10, Math.max(0, origin.x - point.x));
+    if (!best || score < best.score) {
+      best = {
+        score,
+        target: {
+          id: level.id,
+          side: level.side,
+          price,
+          extremeAt: finite(level.nativeExtremeAt ?? level.extremeAt) ?? startAt,
+          displayAt: startAt,
+          sourceTimeframe: level.sourceTimeframe,
+          sources: level.sources,
+          hierarchical: true,
+        },
+      };
+    }
+  }
+  return best?.target ?? null;
+}
+
 function nearestAlgorithmExtreme(point) {
+  // V4.6 review fix: the hierarchy owns the visible algorithmic rays. Review
+  // tools must hit-test that exact working map first; otherwise a trader can
+  // click a visible L/H line and still get "not in extreme" because the raw
+  // current-TF snapshot is a different dataset.
+  const visibleLevel = nearestVisibleStructuralLevel(point);
+  if (visibleLevel) return visibleLevel;
+
   const snapshot = current?.snapshot;
   if (!snapshot || !chart.layout) return null;
   const source = elements.showHistory.checked ? snapshot.history : snapshot.active;
