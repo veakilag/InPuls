@@ -85,6 +85,18 @@ export const LOCAL_WORKING_SET_POLICY = Object.freeze({
   "5m": Object.freeze({ maxDistanceBaseNatr: 6 }),
 });
 
+// V4.7 calibration: trader review on BTC 5m showed that two shallow pauses
+// inside one rising impulse were incorrectly promoted to fresh LOW levels while
+// deeper swing bases were the intended structure. Keep event generation recall-
+// first, but require a local LOW to have a meaningful incoming down-leg and an
+// outgoing rebound before it enters the hierarchy. HIGH is deliberately not
+// gated yet: the current BTC compression/high sequence is already visually
+// correct and must not be regressed until we have an explicit HIGH review set.
+export const LOCAL_PIVOT_PROMINENCE_POLICY = Object.freeze({
+  "1m": Object.freeze({ lookbackBars: 8, minimumIncomingBaseNatr: 0.75, minimumOutgoingBaseNatr: 0.60 }),
+  "5m": Object.freeze({ lookbackBars: 6, minimumIncomingBaseNatr: 0.75, minimumOutgoingBaseNatr: 0.60 }),
+});
+
 const finite = (value) => {
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
@@ -625,6 +637,89 @@ function applyChildStructuralTakeout(levels, childSnapshot, childTimeframe, incl
   return next;
 }
 
+function structuralPercentMove(from, to) {
+  const start = finite(from);
+  const end = finite(to);
+  if (!(start > 0) || !(end > 0)) return null;
+  return Math.abs(end - start) / start * 100;
+}
+
+// Causal prominence check for local LOW calibration. Only candles available by
+// confirmedAt are used on the right side of the pivot; no later future candles
+// participate. A shallow pause inside a rising leg therefore fails on the weak
+// incoming down-leg even if price later accelerates upward.
+export function structuralLocalPivotProminenceDecision(
+  extreme,
+  sourceTimeframe,
+  candles,
+  volatilityContext,
+) {
+  const policy = LOCAL_PIVOT_PROMINENCE_POLICY[sourceTimeframe];
+  if (!policy || extreme?.side !== "LOW") {
+    return Object.freeze({ admitted: true, reason: extreme?.side === "HIGH" ? "HIGH_CALIBRATION_BYPASS" : "PROMINENCE_NOT_APPLICABLE" });
+  }
+
+  const pivotAt = finite(extreme?.extremeAt);
+  const confirmedAt = finite(extreme?.confirmedAt);
+  const pivotPrice = finite(extreme?.price);
+  if (pivotAt === null || !(pivotPrice > 0)) {
+    return Object.freeze({ admitted: true, reason: "PROMINENCE_MISSING_EXTREME_DATA" });
+  }
+
+  const rows = (Array.isArray(candles) ? candles : [])
+    .map(validCandle)
+    .filter(Boolean)
+    .sort((left, right) => left.time - right.time);
+  const pivotIndex = rows.findIndex((row) => row.time === pivotAt);
+  if (pivotIndex < 0) {
+    return Object.freeze({ admitted: true, reason: "PROMINENCE_PIVOT_CANDLE_UNAVAILABLE" });
+  }
+
+  const lookbackBars = Math.max(2, Math.round(finite(policy.lookbackBars) ?? 6));
+  const before = rows.slice(Math.max(0, pivotIndex - lookbackBars), pivotIndex);
+  const after = rows
+    .slice(pivotIndex + 1)
+    .filter((row) => confirmedAt === null || row.time <= confirmedAt);
+  if (!before.length || !after.length) {
+    return Object.freeze({ admitted: true, reason: "PROMINENCE_CONTEXT_INCOMPLETE" });
+  }
+
+  const incomingReference = Math.max(...before.map((row) => row.high));
+  const outgoingReference = Math.max(...after.map((row) => row.high));
+  const incomingPct = structuralPercentMove(incomingReference, pivotPrice);
+  const outgoingPct = structuralPercentMove(pivotPrice, outgoingReference);
+  const natrAtExtreme = structuralNatrAt(volatilityContext, pivotAt);
+  const baseNatrPct = finite(volatilityContext?.baseNatrPct) ?? natrAtExtreme;
+  if (!(baseNatrPct > 0) || incomingPct === null || outgoingPct === null) {
+    return Object.freeze({ admitted: true, reason: "PROMINENCE_SCALE_UNAVAILABLE" });
+  }
+
+  const incomingBaseNatr = incomingPct / baseNatrPct;
+  const outgoingBaseNatr = outgoingPct / baseNatrPct;
+  const minimumIncomingBaseNatr = Math.max(0, finite(policy.minimumIncomingBaseNatr) ?? 0.75);
+  const minimumOutgoingBaseNatr = Math.max(0, finite(policy.minimumOutgoingBaseNatr) ?? 0.60);
+  const incomingPassed = incomingBaseNatr >= minimumIncomingBaseNatr;
+  const outgoingPassed = outgoingBaseNatr >= minimumOutgoingBaseNatr;
+  const admitted = incomingPassed && outgoingPassed;
+
+  return Object.freeze({
+    admitted,
+    reason: admitted ? "LOW_PIVOT_PROMINENCE_PASS" : "LOW_PIVOT_PROMINENCE_FILTERED",
+    incomingPct,
+    outgoingPct,
+    baseNatrPct,
+    incomingBaseNatr,
+    outgoingBaseNatr,
+    minimumIncomingBaseNatr,
+    minimumOutgoingBaseNatr,
+    incomingPassed,
+    outgoingPassed,
+    lookbackBars,
+    pivotAt,
+    confirmedAt,
+  });
+}
+
 export function structuralLocalWorkingSetVisible(level, volatilityContext) {
   const sourceTimeframe = level?.sourceTimeframe;
   const policy = LOCAL_WORKING_SET_POLICY[sourceTimeframe];
@@ -864,7 +959,13 @@ export function buildHierarchicalStructuralLevelMap({
           { tickSize, tolerancePct: 0.03, toleranceTicks: 3 },
         ));
         if (confirmsInheritedLevel) return true;
-        return structuralChildLevelSignificant(extreme, sourceTimeframe, { volatilityContext });
+        if (!structuralChildLevelSignificant(extreme, sourceTimeframe, { volatilityContext })) return false;
+        return structuralLocalPivotProminenceDecision(
+          extreme,
+          sourceTimeframe,
+          childCandles,
+          volatilityContext,
+        ).admitted;
       },
     );
 
