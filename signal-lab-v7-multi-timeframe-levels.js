@@ -673,15 +673,16 @@ export function structuralLocalPivotProminenceDecision(
   volatilityContext,
 ) {
   const policy = LOCAL_PIVOT_PROMINENCE_POLICY[sourceTimeframe];
-  if (!policy || extreme?.side !== "LOW") {
-    return Object.freeze({ admitted: true, reason: extreme?.side === "HIGH" ? "HIGH_CALIBRATION_BYPASS" : "PROMINENCE_NOT_APPLICABLE" });
+  if (!policy || !["LOW", "HIGH"].includes(extreme?.side)) {
+    return Object.freeze({ admitted: true, reason: "PROMINENCE_NOT_APPLICABLE" });
   }
+  const isHigh = extreme?.side === "HIGH";
 
   const pivotAt = finite(extreme?.extremeAt);
   const confirmedAt = finite(extreme?.confirmedAt);
   const pivotPrice = finite(extreme?.price);
   if (pivotAt === null || !(pivotPrice > 0)) {
-    return Object.freeze({ admitted: true, reason: "PROMINENCE_MISSING_EXTREME_DATA" });
+    return Object.freeze({ admitted: true, reason: isHigh ? "HIGH_CALIBRATION_BYPASS" : "PROMINENCE_MISSING_EXTREME_DATA" });
   }
 
   const rows = (Array.isArray(candles) ? candles : [])
@@ -690,7 +691,7 @@ export function structuralLocalPivotProminenceDecision(
     .sort((left, right) => left.time - right.time);
   const pivotIndex = rows.findIndex((row) => row.time === pivotAt);
   if (pivotIndex < 0) {
-    return Object.freeze({ admitted: true, reason: "PROMINENCE_PIVOT_CANDLE_UNAVAILABLE" });
+    return Object.freeze({ admitted: true, reason: isHigh ? "HIGH_CALIBRATION_BYPASS" : "PROMINENCE_PIVOT_CANDLE_UNAVAILABLE" });
   }
 
   const lookbackBars = Math.max(2, Math.round(finite(policy.lookbackBars) ?? 6));
@@ -699,17 +700,25 @@ export function structuralLocalPivotProminenceDecision(
     .slice(pivotIndex + 1)
     .filter((row) => confirmedAt === null || row.time <= confirmedAt);
   if (!before.length || !after.length) {
-    return Object.freeze({ admitted: true, reason: "PROMINENCE_CONTEXT_INCOMPLETE" });
+    return Object.freeze({ admitted: true, reason: isHigh ? "HIGH_CALIBRATION_BYPASS" : "PROMINENCE_CONTEXT_INCOMPLETE" });
   }
 
-  const incomingReference = Math.max(...before.map((row) => row.high));
-  const outgoingReference = Math.max(...after.map((row) => row.high));
+  // V4.12: HIGH remains calibration-bypassed, but calculate its causal
+  // prominence diagnostics symmetrically so trader review can distinguish a
+  // meaningful rejection from a tiny edge/current-price peak without changing
+  // visible behavior yet.
+  const incomingReference = isHigh
+    ? Math.min(...before.map((row) => row.low))
+    : Math.max(...before.map((row) => row.high));
+  const outgoingReference = isHigh
+    ? Math.min(...after.map((row) => row.low))
+    : Math.max(...after.map((row) => row.high));
   const incomingPct = structuralPercentMove(incomingReference, pivotPrice);
   const outgoingPct = structuralPercentMove(pivotPrice, outgoingReference);
   const natrAtExtreme = structuralNatrAt(volatilityContext, pivotAt);
   const baseNatrPct = finite(volatilityContext?.baseNatrPct) ?? natrAtExtreme;
   if (!(baseNatrPct > 0) || incomingPct === null || outgoingPct === null) {
-    return Object.freeze({ admitted: true, reason: "PROMINENCE_SCALE_UNAVAILABLE" });
+    return Object.freeze({ admitted: true, reason: isHigh ? "HIGH_CALIBRATION_BYPASS" : "PROMINENCE_SCALE_UNAVAILABLE" });
   }
 
   const incomingBaseNatr = incomingPct / baseNatrPct;
@@ -718,6 +727,25 @@ export function structuralLocalPivotProminenceDecision(
   const minimumOutgoingBaseNatr = Math.max(0, finite(policy.minimumOutgoingBaseNatr) ?? 0.60);
   const incomingPassed = incomingBaseNatr >= minimumIncomingBaseNatr;
   const outgoingPassed = outgoingBaseNatr >= minimumOutgoingBaseNatr;
+
+  if (isHigh) {
+    return Object.freeze({
+      admitted: true,
+      reason: "HIGH_CALIBRATION_BYPASS",
+      incomingPct,
+      outgoingPct,
+      baseNatrPct,
+      incomingBaseNatr,
+      outgoingBaseNatr,
+      minimumIncomingBaseNatr,
+      minimumOutgoingBaseNatr,
+      incomingPassed,
+      outgoingPassed,
+      lookbackBars,
+      pivotAt,
+      confirmedAt,
+    });
+  }
 
   // V4.8: absolute NATR prominence is not enough. During a strong rising leg a
   // tiny pause can still be > 0.75 NATR and therefore look "large" in isolation.
