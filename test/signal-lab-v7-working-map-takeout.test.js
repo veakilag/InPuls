@@ -52,5 +52,5 @@ test("V4.5 far single-touch local level is hidden from working map but confluenc
   assert.equal(structuralLocalWorkingSetVisible(farLocal, context), false);
   assert.equal(structuralLocalWorkingSetVisible({ ...farLocal, attackCount: 2 }, context), true);
   assert.equal(structuralLocalWorkingSetVisible({ ...farLocal, sources: ["1h", "5m"], confluenceCount: 2 }, context), true);
-  assert.equal(structuralLocalWorkingSetVisible({ ...farLocal, swingAmplitudePct: 5 }, context), true);
+  assert.equal(structuralLocalWorkingSetVisible({ ...farLocal, swingAmplitudePct: 5 }, context), false);
 });

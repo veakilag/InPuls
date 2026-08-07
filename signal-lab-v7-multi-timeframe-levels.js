@@ -81,8 +81,8 @@ export const LOCAL_HIERARCHICAL_ADMISSION = Object.freeze({
 // Macro levels belong to senior TFs, so an old single-touch 1m/5m level far from
 // the current working area does not need to remain as another permanent ray.
 export const LOCAL_WORKING_SET_POLICY = Object.freeze({
-  "1m": Object.freeze({ maxDistanceBaseNatr: 6, strongSwingBaseNatr: 4 }),
-  "5m": Object.freeze({ maxDistanceBaseNatr: 10, strongSwingBaseNatr: 4 }),
+  "1m": Object.freeze({ maxDistanceBaseNatr: 4 }),
+  "5m": Object.freeze({ maxDistanceBaseNatr: 6 }),
 });
 
 const finite = (value) => {
@@ -635,12 +635,13 @@ export function structuralLocalWorkingSetVisible(level, volatilityContext) {
   if ((Number(level?.attackCount) || 1) > 1) return true;
 
   const distanceBaseNatr = structuralDistanceBaseNatr(level?.price, volatilityContext);
-  if (distanceBaseNatr === null || distanceBaseNatr <= policy.maxDistanceBaseNatr) return true;
+  if (distanceBaseNatr === null) return true;
 
-  const swingPct = finite(level?.swingAmplitudePct);
-  const baseNatrPct = finite(volatilityContext?.baseNatrPct);
-  const normalizedSwing = swingPct !== null && baseNatrPct > 0 ? swingPct / baseNatrPct : null;
-  return normalizedSwing !== null && normalizedSwing >= policy.strongSwingBaseNatr;
+  // V4.6: a distant local-only single-touch swing is memory, not an eternal
+  // working-map ray. If it is truly macro-important it must be represented by
+  // a senior timeframe, confluence, or repeated attacks. Strong local swing
+  // magnitude alone no longer bypasses the working-area radius.
+  return distanceBaseNatr <= policy.maxDistanceBaseNatr;
 }
 
 function candleExtreme(candle, side) {
