@@ -79,7 +79,7 @@ test("new higher high resets a stale opposite low", () => {
   assert.equal(snapshot.oppositeCandidate, null);
 });
 
-test("manual level counts two independent attacks and stops at break", () => {
+test("manual level counts formation plus two independent retests and stops at break", () => {
   const rows = [
     candle(0, 100, 100, 99, 99.5),
     candle(1, 99.5, 99.6, 97, 97.5),
@@ -101,14 +101,15 @@ test("manual level counts two independent attacks and stops at break", () => {
     maximumTouchZonePct: 0.25,
     rearmDistanceFactor: 0.7,
   });
-  assert.equal(result.touchCount, 2);
+  assert.equal(result.touchCount, 3);
+  assert.equal(result.retestCount, 2);
   assert.equal(result.status, "CROSSED");
   assert.equal(result.active, false);
   assert.equal(result.crossedAt, rows[5].closeTime);
-  assert.deepEqual(result.attacks.map((row) => row.number), [1, 2]);
+  assert.deepEqual(result.attacks.map((row) => row.number), [2, 3]);
 });
 
-test("continuous candles in the level zone remain one attack", () => {
+test("continuous candles in the level zone remain one retest after formation", () => {
   const rows = [
     candle(0, 100, 100, 99, 99.5),
     candle(1, 99.5, 99.6, 97, 97.5),
@@ -124,7 +125,8 @@ test("continuous candles in the level zone remain one attack", () => {
     tickSize: 0.1,
     reversalThresholdPct: 1,
   });
-  assert.equal(result.touchCount, 1);
+  assert.equal(result.touchCount, 2);
+  assert.equal(result.retestCount, 1);
   assert.equal(result.active, true);
 });
 
@@ -143,7 +145,7 @@ test("fixed review URL keeps exact symbol timeframe and end time", () => {
   assert.equal(url.searchParams.get("old"), "1");
 });
 
-test("algorithm level uses adaptive zone and counts two attacks", () => {
+test("algorithm level uses adaptive zone and counts two retests internally", () => {
   const subject = engine({
     minimumPercent: 1,
     maximumPercent: 1,
