@@ -19,6 +19,7 @@ test("visual review page loads the isolated detector and all six hierarchical ti
   assert.match(review, /signal-lab-v7-structural-extremes\.js/);
   assert.match(review, /fetchReviewHistory/);
   assert.match(review, /REVIEW_LOOKBACK_MS/);
+  assert.match(review, /value === null \|\| value === undefined \|\| value === ""/);
   for (const timeframe of ["1m", "5m", "15m"]) {
     assert.match(review, new RegExp(`\\"${timeframe}\\": 30 \\* 24 \\* 60 \\* 60_000`));
   }
