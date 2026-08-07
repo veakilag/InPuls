@@ -1,47 +1,4 @@
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def replace_once(path: str, old: str, new: str) -> None:
-    target = ROOT / path
-    text = target.read_text(encoding="utf-8")
-    count = text.count(old)
-    if count != 1:
-        raise RuntimeError(f"{path}: expected one occurrence, found {count}: {old[:180]!r}")
-    target.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-
-runtime = "signal-lab-v7-multi-timeframe-review-runtime.js"
-levels = "signal-lab-v7-multi-timeframe-levels.js"
-
-replace_once(
-    runtime,
-    '''const INTERVAL_MS = Object.freeze({\n  "1m": 60_000,\n  "5m": 300_000,\n  "15m": 900_000,\n  "1h": 3_600_000,\n  "4h": 14_400_000,\n  "1d": 86_400_000,\n});''',
-    '''const INTERVAL_MS = Object.freeze({\n  "1m": 60_000,\n  "5m": 300_000,\n  "15m": 900_000,\n  "1h": 3_600_000,\n  "4h": 14_400_000,\n  "1d": 86_400_000,\n});\n\n// V4.4 review-only generation policy. The event detector must be recall-first:\n// it records price geometry, while hierarchical admission owns cross-asset\n// significance/noise filtering. This prevents the same ATR/NATR idea from\n// deleting a swing twice before it can even reach the visible map.\nexport const STRUCTURAL_REVIEW_GENERATION_CONFIG = Object.freeze({\n  "1m": Object.freeze({\n    minimumSwingPercent: 0.08,\n    minimumPercent: 0.06,\n    atrMultiplier: 0,\n    minimumBarsAfterCandidate: 1,\n  }),\n  "5m": Object.freeze({\n    minimumSwingPercent: 0.10,\n    minimumPercent: 0.08,\n    atrMultiplier: 0,\n    minimumBarsAfterCandidate: 1,\n  }),\n});''',
-)
-
-replace_once(
-    runtime,
-    '''    const engine = new EngineClass({ symbol, timeframe: sourceTimeframe, tickSize });''',
-    '''    const engine = new EngineClass({\n      symbol,\n      timeframe: sourceTimeframe,\n      tickSize,\n      config: STRUCTURAL_REVIEW_GENERATION_CONFIG[sourceTimeframe] ?? {},\n    });''',
-)
-
-replace_once(
-    levels,
-    '''  "5m": Object.freeze({\n    fallbackMinimumSwingPercent: 0.18,''',
-    '''  "5m": Object.freeze({\n    fallbackMinimumSwingPercent: 0.12,''',
-)
-replace_once(
-    levels,
-    '''  "5m": Object.freeze({ minimumSwingPercent: 0.18, reversalMultiplier: 1.00 }),''',
-    '''  "5m": Object.freeze({ minimumSwingPercent: 0.12, reversalMultiplier: 1.00 }),''',
-)
-
-# Add focused regression proving the review detector can retain calm-market local
-# geometry before adaptive admission filters volatile-market noise.
-test_path = ROOT / "test/signal-lab-v7-review-generation.test.js"
-test_path.write_text(r'''import test from "node:test";
+import test from "node:test";
 import assert from "node:assert/strict";
 import { StructuralExtremeEngine } from "../signal-lab-v7-structural-extremes.js";
 import { STRUCTURAL_REVIEW_GENERATION_CONFIG } from "../signal-lab-v7-multi-timeframe-review-runtime.js";
@@ -119,4 +76,3 @@ test("V4.4 keeps detector recall separate from adaptive HFT noise admission", ()
   assert.equal(calmDecision.admitted, true);
   assert.equal(hotDecision.admitted, false);
 });
-''', encoding="utf-8")

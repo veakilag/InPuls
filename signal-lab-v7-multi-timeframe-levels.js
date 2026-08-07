@@ -46,7 +46,7 @@ export const ADAPTIVE_HIERARCHICAL_ADMISSION = Object.freeze({
     minimumCompressionRelief: 0.60,
   }),
   "5m": Object.freeze({
-    fallbackMinimumSwingPercent: 0.18,
+    fallbackMinimumSwingPercent: 0.12,
     reversalMultiplier: 1.00,
     natrSwingMultiplier: 0.90,
     freeDistanceNatr: 4,
@@ -74,7 +74,7 @@ export const ADAPTIVE_HIERARCHICAL_ADMISSION = Object.freeze({
 // Backward-compatible export name used by existing Stage-1 tests/documentation.
 export const LOCAL_HIERARCHICAL_ADMISSION = Object.freeze({
   "1m": Object.freeze({ minimumSwingPercent: 0.30, reversalMultiplier: 1.00 }),
-  "5m": Object.freeze({ minimumSwingPercent: 0.18, reversalMultiplier: 1.00 }),
+  "5m": Object.freeze({ minimumSwingPercent: 0.12, reversalMultiplier: 1.00 }),
 });
 
 const finite = (value) => {

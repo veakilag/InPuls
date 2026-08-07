@@ -16,6 +16,25 @@ const INTERVAL_MS = Object.freeze({
   "4h": 14_400_000,
   "1d": 86_400_000,
 });
+
+// V4.4 review-only generation policy. The event detector must be recall-first:
+// it records price geometry, while hierarchical admission owns cross-asset
+// significance/noise filtering. This prevents the same ATR/NATR idea from
+// deleting a swing twice before it can even reach the visible map.
+export const STRUCTURAL_REVIEW_GENERATION_CONFIG = Object.freeze({
+  "1m": Object.freeze({
+    minimumSwingPercent: 0.08,
+    minimumPercent: 0.06,
+    atrMultiplier: 0,
+    minimumBarsAfterCandidate: 1,
+  }),
+  "5m": Object.freeze({
+    minimumSwingPercent: 0.10,
+    minimumPercent: 0.08,
+    atrMultiplier: 0,
+    minimumBarsAfterCandidate: 1,
+  }),
+});
 const PATCH_MARKER = Symbol.for("inpuls.structural-extremes.hierarchical-review-v1");
 const cache = new Map();
 
@@ -231,7 +250,12 @@ async function loadHierarchicalContext({
     const sourceCandles = await fetchCandles(symbol, sourceTimeframe, endAt, signal);
     if (!sourceCandles.length) return;
     candlesByTimeframe[sourceTimeframe] = sourceCandles;
-    const engine = new EngineClass({ symbol, timeframe: sourceTimeframe, tickSize });
+    const engine = new EngineClass({
+      symbol,
+      timeframe: sourceTimeframe,
+      tickSize,
+      config: STRUCTURAL_REVIEW_GENERATION_CONFIG[sourceTimeframe] ?? {},
+    });
     engine.ingestCandles(sourceCandles);
     snapshotsByTimeframe[sourceTimeframe] = engine.snapshot();
   }));
