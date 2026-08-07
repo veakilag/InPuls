@@ -1,0 +1,9 @@
+from pathlib import Path
+
+PATH = Path('test/signal-lab-v7-structural-extremes-trader-calibration.test.js')
+text = PATH.read_text(encoding='utf-8')
+old = '''test("equal touch remains active and an actual pass crosses", () => {\n  const subject = engine();\n  subject.ingestCandles(risingToConfirmedHigh());\n  subject.ingestCandle(candle(7, 104.3, 104.5, 103, 103.5));\n  let snapshot = subject.ingestCandle(candle(8, 103.5, 105, 103.4, 104.8));\n  assert.equal(snapshot.history[0].status, STRUCTURAL_EXTREME_STATUSES.TOUCHED);\n  snapshot = subject.ingestCandle(candle(9, 104.8, 105.2, 104.7, 105.1));\n  assert.equal(snapshot.history[0].status, STRUCTURAL_EXTREME_STATUSES.CROSSED);\n});'''
+new = '''test("equal touch is an attack, first pass is a pierce, accepted break needs persistence", () => {\n  const subject = engine();\n  subject.ingestCandles(risingToConfirmedHigh());\n  subject.ingestCandle(candle(7, 104.3, 104.5, 103, 103.5));\n  let snapshot = subject.ingestCandle(candle(8, 103.5, 105, 103.4, 104.8));\n  const highId = snapshot.history.find((row) => row.side === "HIGH").id;\n  let high = snapshot.history.find((row) => row.id === highId);\n  assert.equal(high.status, STRUCTURAL_EXTREME_STATUSES.TOUCHED);\n  snapshot = subject.ingestCandle(candle(9, 104.8, 105.2, 104.7, 105.1));\n  high = snapshot.history.find((row) => row.id === highId);\n  assert.equal(high.status, STRUCTURAL_EXTREME_STATUSES.PIERCED);\n  assert.equal(high.active, true);\n  snapshot = subject.ingestCandle(candle(10, 105.1, 105.4, 105.0, 105.2));\n  high = snapshot.history.find((row) => row.id === highId);\n  assert.equal(high.status, STRUCTURAL_EXTREME_STATUSES.ACCEPTED);\n  assert.equal(high.active, false);\n});'''
+if old not in text:
+    raise SystemExit('Expected trader calibration block not found')
+PATH.write_text(text.replace(old, new, 1), encoding='utf-8')
