@@ -93,8 +93,22 @@ export const LOCAL_WORKING_SET_POLICY = Object.freeze({
 // gated yet: the current BTC compression/high sequence is already visually
 // correct and must not be regressed until we have an explicit HIGH review set.
 export const LOCAL_PIVOT_PROMINENCE_POLICY = Object.freeze({
-  "1m": Object.freeze({ lookbackBars: 8, minimumIncomingBaseNatr: 0.75, minimumOutgoingBaseNatr: 0.60 }),
-  "5m": Object.freeze({ lookbackBars: 6, minimumIncomingBaseNatr: 0.75, minimumOutgoingBaseNatr: 0.60 }),
+  "1m": Object.freeze({
+    lookbackBars: 8,
+    structureLookbackBars: 60,
+    minimumIncomingBaseNatr: 0.75,
+    minimumOutgoingBaseNatr: 0.60,
+    minimumPriorImpulseBaseNatr: 1.25,
+    minimumRetracementRatio: 0.15,
+  }),
+  "5m": Object.freeze({
+    lookbackBars: 6,
+    structureLookbackBars: 24,
+    minimumIncomingBaseNatr: 0.75,
+    minimumOutgoingBaseNatr: 0.60,
+    minimumPriorImpulseBaseNatr: 1.25,
+    minimumRetracementRatio: 0.20,
+  }),
 });
 
 const finite = (value) => {
@@ -700,11 +714,67 @@ export function structuralLocalPivotProminenceDecision(
   const minimumOutgoingBaseNatr = Math.max(0, finite(policy.minimumOutgoingBaseNatr) ?? 0.60);
   const incomingPassed = incomingBaseNatr >= minimumIncomingBaseNatr;
   const outgoingPassed = outgoingBaseNatr >= minimumOutgoingBaseNatr;
-  const admitted = incomingPassed && outgoingPassed;
+
+  // V4.8: absolute NATR prominence is not enough. During a strong rising leg a
+  // tiny pause can still be > 0.75 NATR and therefore look "large" in isolation.
+  // Measure the pullback against the whole causal impulse that preceded the LOW.
+  // A shallow retracement inside that same impulse stays event-memory, not a new
+  // structural support ray. Compression HIGHs are untouched by this LOW-only gate.
+  const structureLookbackBars = Math.max(
+    lookbackBars + 2,
+    Math.round(finite(policy.structureLookbackBars) ?? lookbackBars * 3),
+  );
+  const structuralBefore = rows.slice(Math.max(0, pivotIndex - structureLookbackBars), pivotIndex);
+  let priorImpulsePeakIndex = -1;
+  let priorImpulsePeak = null;
+  for (let index = 0; index < structuralBefore.length; index += 1) {
+    const high = finite(structuralBefore[index]?.high);
+    if (!(high > 0)) continue;
+    if (priorImpulsePeak === null || high >= priorImpulsePeak) {
+      priorImpulsePeak = high;
+      priorImpulsePeakIndex = index;
+    }
+  }
+
+  let priorImpulseOriginLow = null;
+  if (priorImpulsePeakIndex > 0) {
+    for (const row of structuralBefore.slice(0, priorImpulsePeakIndex + 1)) {
+      const low = finite(row?.low);
+      if (!(low > 0)) continue;
+      if (priorImpulseOriginLow === null || low < priorImpulseOriginLow) priorImpulseOriginLow = low;
+    }
+  }
+
+  const priorImpulsePct = priorImpulsePeak !== null && priorImpulseOriginLow !== null
+    ? structuralPercentMove(priorImpulseOriginLow, priorImpulsePeak)
+    : null;
+  const priorImpulseBaseNatr = priorImpulsePct !== null ? priorImpulsePct / baseNatrPct : null;
+  const retracementRatio = priorImpulsePeak !== null
+    && priorImpulseOriginLow !== null
+    && priorImpulsePeak > priorImpulseOriginLow
+    ? Math.max(0, priorImpulsePeak - pivotPrice) / (priorImpulsePeak - priorImpulseOriginLow)
+    : null;
+  const minimumPriorImpulseBaseNatr = Math.max(
+    0,
+    finite(policy.minimumPriorImpulseBaseNatr) ?? 1.25,
+  );
+  const minimumRetracementRatio = Math.max(
+    0,
+    Math.min(1, finite(policy.minimumRetracementRatio) ?? 0.20),
+  );
+  const retracementApplicable = priorImpulseBaseNatr !== null
+    && priorImpulseBaseNatr >= minimumPriorImpulseBaseNatr
+    && retracementRatio !== null;
+  const retracementPassed = !retracementApplicable || retracementRatio >= minimumRetracementRatio;
+  const admitted = incomingPassed && outgoingPassed && retracementPassed;
 
   return Object.freeze({
     admitted,
-    reason: admitted ? "LOW_PIVOT_PROMINENCE_PASS" : "LOW_PIVOT_PROMINENCE_FILTERED",
+    reason: admitted
+      ? "LOW_PIVOT_PROMINENCE_PASS"
+      : !retracementPassed
+        ? "LOW_PIVOT_SHALLOW_RETRACEMENT_FILTERED"
+        : "LOW_PIVOT_PROMINENCE_FILTERED",
     incomingPct,
     outgoingPct,
     baseNatrPct,
@@ -715,6 +785,16 @@ export function structuralLocalPivotProminenceDecision(
     incomingPassed,
     outgoingPassed,
     lookbackBars,
+    structureLookbackBars,
+    priorImpulsePeak,
+    priorImpulseOriginLow,
+    priorImpulsePct,
+    priorImpulseBaseNatr,
+    minimumPriorImpulseBaseNatr,
+    retracementRatio,
+    minimumRetracementRatio,
+    retracementApplicable,
+    retracementPassed,
     pivotAt,
     confirmedAt,
   });
