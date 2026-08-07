@@ -1,0 +1,63 @@
+name: Apply structural pierce lifecycle V3.9
+
+on:
+  push:
+    branches:
+      - agent/signal-lab-structural-extremes-stage1
+    paths:
+      - scripts/apply-structural-pierce-lifecycle-v39.py
+      - .github/workflows/apply-structural-pierce-lifecycle-v39.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out draft branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: agent/signal-lab-structural-extremes-stage1
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Apply V3.9 attack and pierce lifecycle
+        run: python3 scripts/apply-structural-pierce-lifecycle-v39.py
+
+      - name: Remove temporary V3.9 patch files
+        run: |
+          rm -f scripts/apply-structural-pierce-lifecycle-v39.py
+          rm -f .github/workflows/apply-structural-pierce-lifecycle-v39.yml
+
+      - name: Validate syntax and diff
+        run: |
+          node --check signal-lab-v7-structural-extremes.js
+          node --check signal-lab-v7-review-level-lifecycle.js
+          node --check signal-lab-v7-attack-count-runtime.js
+          git diff --check
+
+      - name: Run focused structural lifecycle tests
+        run: |
+          node --test \
+            test/signal-lab-v7-pierce-lifecycle.test.js \
+            test/signal-lab-v7-attack-count-runtime.test.js \
+            test/signal-lab-v7-structural-extremes-v3.test.js \
+            test/signal-lab-v7-structural-extremes.test.js
+
+      - name: Run complete regression suite
+        run: npm test
+
+      - name: Commit verified V3.9 lifecycle
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Separate exact attacks from rejected pierces and accepted breaks"
+          git push origin HEAD:agent/signal-lab-structural-extremes-stage1
