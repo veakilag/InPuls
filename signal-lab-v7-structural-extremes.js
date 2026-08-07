@@ -1,4 +1,4 @@
-export const STRUCTURAL_EXTREME_ALGORITHM_VERSION = "signal-lab-structural-extremes-stage1-v3-opposite-candidate-2026-08";
+export const STRUCTURAL_EXTREME_ALGORITHM_VERSION = "signal-lab-structural-extremes-stage1-v3.9-pierce-lifecycle-2026-08";
 
 export const STRUCTURAL_DIRECTIONS = Object.freeze({
   UNDEFINED: "UNDEFINED",
@@ -10,6 +10,7 @@ export const STRUCTURAL_EXTREME_STATUSES = Object.freeze({
   CANDIDATE: "CANDIDATE",
   CONFIRMED_ACTIVE: "CONFIRMED_ACTIVE",
   TOUCHED: "TOUCHED",
+  PIERCED: "PIERCED",
   CROSSED: "CROSSED",
   ACCEPTED: "ACCEPTED",
   REJECTED: "REJECTED",
@@ -207,7 +208,7 @@ function candidatePublic(candidate) {
 
 function extremePublic(row) {
   if (!row) return null;
-  const { attackState, rearmed, crossedBarIndex, acceptanceCount, ...publicRow } = row;
+  const { attackState, rearmed, crossedBarIndex, piercedBarIndex, acceptanceCount, ...publicRow } = row;
   return Object.freeze({ ...publicRow });
 }
 
@@ -517,6 +518,9 @@ export class StructuralExtremeEngine {
       atrPercentAtConfirmation: round(metrics.threshold.atrPercent),
       atrWasCapped: metrics.threshold.atrWasCapped,
       touchCount: 0,
+      pierceCount: 0,
+      piercedAt: undefined,
+      lastRejectedPierceAt: undefined,
       crossedAt: undefined,
       acceptedAt: undefined,
       rejectedAt: undefined,
@@ -533,6 +537,7 @@ export class StructuralExtremeEngine {
       attackState: "AWAY",
       rearmed: false,
       crossedBarIndex: null,
+      piercedBarIndex: null,
       acceptanceCount: 0,
     };
     this.extremes.push(row);
@@ -584,66 +589,115 @@ export class StructuralExtremeEngine {
     const lowTicks = toTicks(candle.low, this.tickSize);
     const highTicks = toTicks(candle.high, this.tickSize);
     const closeTicks = toTicks(candle.close, this.tickSize);
-    const tolerance = this.config.crossingToleranceTicks;
+
+    const restoreAfterRejectedPierce = (row) => {
+      row.status = row.touchCount > 0
+        ? STRUCTURAL_EXTREME_STATUSES.TOUCHED
+        : STRUCTURAL_EXTREME_STATUSES.CONFIRMED_ACTIVE;
+      row.lastRejectedPierceAt = candle.closeTime;
+      row.acceptanceCount = 0;
+      row.piercedBarIndex = null;
+      row.attackState = "AWAY";
+      row.rearmed = false;
+      this.activeExtremeIds.add(row.id);
+      this.eventLog.push(eventRecord("EXTREME_PIERCE_REJECTED", candle.closeTime, {
+        extremeId: row.id,
+        side: row.side,
+        price: row.price,
+        pierceCount: row.pierceCount,
+      }));
+    };
+
+    const acceptBreak = (row) => {
+      row.active = false;
+      row.status = STRUCTURAL_EXTREME_STATUSES.ACCEPTED;
+      row.acceptedAt = candle.closeTime;
+      // crossedAt remains the backwards-compatible terminal ray end.
+      row.crossedAt = candle.closeTime;
+      row.crossedBarIndex = this.barIndex;
+      row.acceptanceCount = 0;
+      this.activeExtremeIds.delete(row.id);
+      this.eventLog.push(eventRecord("EXTREME_BREAK_ACCEPTED", candle.closeTime, {
+        extremeId: row.id,
+        side: row.side,
+        price: row.price,
+        pierceCount: row.pierceCount,
+      }));
+    };
+
     for (const row of this.extremes) {
-      if (row.status === STRUCTURAL_EXTREME_STATUSES.CROSSED) {
-        const beyond = row.side === "HIGH"
-          ? closeTicks > row.normalizedPrice + tolerance
-          : closeTicks < row.normalizedPrice - tolerance;
-        const returned = row.side === "HIGH"
-          ? closeTicks <= row.normalizedPrice - tolerance
-          : closeTicks >= row.normalizedPrice + tolerance;
-        row.acceptanceCount = beyond ? row.acceptanceCount + 1 : 0;
-        if (row.acceptanceCount >= this.config.acceptanceBars) {
-          row.status = STRUCTURAL_EXTREME_STATUSES.ACCEPTED;
-          row.acceptedAt = candle.closeTime;
-          this.eventLog.push(eventRecord("EXTREME_ACCEPTED", candle.closeTime, { extremeId: row.id }));
-        } else if (returned && this.barIndex - row.crossedBarIndex <= this.config.rejectionBars) {
-          row.status = STRUCTURAL_EXTREME_STATUSES.REJECTED;
-          row.rejectedAt = candle.closeTime;
-          this.eventLog.push(eventRecord("EXTREME_REJECTED", candle.closeTime, { extremeId: row.id }));
-        }
-        continue;
-      }
       if (!row.active) continue;
-      const crossed = row.side === "HIGH"
-        ? highTicks > row.normalizedPrice + tolerance
-        : lowTicks < row.normalizedPrice - tolerance;
-      if (crossed) {
-        row.active = false;
-        row.status = STRUCTURAL_EXTREME_STATUSES.CROSSED;
-        row.crossedAt = candle.closeTime;
-        row.crossedBarIndex = this.barIndex;
-        row.acceptanceCount = 0;
-        this.activeExtremeIds.delete(row.id);
-        this.eventLog.push(eventRecord("EXTREME_CROSSED", candle.closeTime, { extremeId: row.id, side: row.side, price: row.price }));
+
+      if (row.status === STRUCTURAL_EXTREME_STATUSES.PIERCED) {
+        const closeBeyond = row.side === "HIGH"
+          ? closeTicks > row.normalizedPrice
+          : closeTicks < row.normalizedPrice;
+        if (!closeBeyond) {
+          restoreAfterRejectedPierce(row);
+          continue;
+        }
+        row.acceptanceCount += 1;
+        if (row.acceptanceCount >= this.config.acceptanceBars) acceptBreak(row);
         continue;
       }
-      const tickZonePct = this.tickSize * this.config.touchZoneTicks / row.price * 100;
-      const adaptiveZonePct = Math.min(
-        this.config.maximumTouchZonePercent,
-        Math.max(this.config.minimumPercent, row.reversalThresholdPct ?? this.config.minimumPercent) * this.config.touchZoneFactor,
-      );
-      const touchZonePct = Math.max(tickZonePct, adaptiveZonePct);
-      const touchZonePrice = row.price * touchZonePct / 100;
-      const touchesZone = row.side === "HIGH"
-        ? candle.high >= row.price - touchZonePrice
-        : candle.low <= row.price + touchZonePrice;
-      if (touchesZone) {
-        if (row.attackState !== "IN_ZONE") {
+
+      // V3.9: touching the exact exchange tick is an attack. A print through
+      // the level is only a pierce attempt until price is accepted beyond it.
+      const pierced = row.side === "HIGH"
+        ? highTicks > row.normalizedPrice
+        : lowTicks < row.normalizedPrice;
+      if (pierced) {
+        row.status = STRUCTURAL_EXTREME_STATUSES.PIERCED;
+        row.piercedAt = candle.closeTime;
+        row.piercedBarIndex = this.barIndex;
+        row.pierceCount = Math.max(0, Number(row.pierceCount) || 0) + 1;
+        row.acceptanceCount = 0;
+        row.attackState = "AWAY";
+        row.rearmed = false;
+        this.eventLog.push(eventRecord("EXTREME_PIERCED", candle.closeTime, {
+          extremeId: row.id,
+          side: row.side,
+          price: row.price,
+          pierceCount: row.pierceCount,
+        }));
+
+        const closeBeyond = row.side === "HIGH"
+          ? closeTicks > row.normalizedPrice
+          : closeTicks < row.normalizedPrice;
+        if (!closeBeyond) {
+          restoreAfterRejectedPierce(row);
+          continue;
+        }
+        row.acceptanceCount = 1;
+        if (row.acceptanceCount >= this.config.acceptanceBars) acceptBreak(row);
+        continue;
+      }
+
+      const exactAttack = row.side === "HIGH"
+        ? highTicks === row.normalizedPrice
+        : lowTicks === row.normalizedPrice;
+      if (exactAttack) {
+        if (row.attackState !== "AT_LEVEL") {
           if (row.rearmed && candle.closeTime > row.confirmedAt) {
             row.touchCount += 1;
             row.status = STRUCTURAL_EXTREME_STATUSES.TOUCHED;
-            this.eventLog.push(eventRecord("EXTREME_TOUCHED", candle.closeTime, { extremeId: row.id, touchCount: row.touchCount }));
+            this.eventLog.push(eventRecord("EXTREME_ATTACKED", candle.closeTime, {
+              extremeId: row.id,
+              attackRetestCount: row.touchCount,
+              attackPrice: row.price,
+              semantics: "EXACT_PRICE_TICK",
+            }));
           }
-          row.attackState = "IN_ZONE";
+          row.attackState = "AT_LEVEL";
           row.rearmed = false;
         }
         continue;
       }
+
       row.attackState = "AWAY";
       const thresholdPct = Math.max(this.config.minimumPercent, row.reversalThresholdPct ?? this.config.minimumPercent);
-      const rearmPct = Math.max(touchZonePct * 2, thresholdPct * this.config.rearmDistanceFactor);
+      // Volatility separates independent attacks but never widens the attack price.
+      const rearmPct = Math.max(0.01, thresholdPct * this.config.rearmDistanceFactor);
       const distancePct = row.side === "HIGH"
         ? Math.max(0, (row.price - candle.close) / row.price * 100)
         : Math.max(0, (candle.close - row.price) / row.price * 100);

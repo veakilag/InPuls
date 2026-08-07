@@ -15,6 +15,7 @@ export function manualLevelLifecycle({
   touchZoneFactor = 0.15,
   maximumTouchZonePct = 0.25,
   rearmDistanceFactor = 0.7,
+  acceptanceBars = 2,
   explicitCrossAt = null,
 }) {
   const rows = Array.isArray(candles) ? candles : [];
@@ -30,31 +31,36 @@ export function manualLevelLifecycle({
       touchCount: 0,
       retestCount: 0,
       attacks: Object.freeze([]),
+      pierces: Object.freeze([]),
     });
   }
 
-  const tolerance = tick * Math.max(0, Math.round(crossingToleranceTicks));
-  const tickZonePct = tick > 0
-    ? tick * Math.max(1, Math.round(touchZoneTicks)) / levelPrice * 100
-    : 0;
-  const adaptiveZonePct = Math.min(
-    Math.max(0.01, finite(maximumTouchZonePct) ?? 0.25),
-    Math.max(0, finite(reversalThresholdPct) ?? 0.5)
-      * Math.max(0.01, finite(touchZoneFactor) ?? 0.15),
-  );
-  const zonePct = Math.max(tickZonePct, adaptiveZonePct);
-  const zoneDistance = levelPrice * zonePct / 100;
+  // Old zone arguments remain in the signature for review/export compatibility,
+  // but they no longer define an attack.
+  void crossingToleranceTicks;
+  void touchZoneTicks;
+  void touchZoneFactor;
+  void maximumTouchZonePct;
+
+  const levelTicks = tick > 0 ? Math.round(levelPrice / tick) : null;
   const rearmPct = Math.max(
-    zonePct * 2,
+    0.01,
     Math.max(0.01, finite(reversalThresholdPct) ?? 0.5)
       * Math.max(0.1, finite(rearmDistanceFactor) ?? 0.7),
   );
+  const requiredAcceptanceBars = Math.max(1, Math.round(finite(acceptanceBars) ?? 2));
 
   let active = true;
   let crossedAt = null;
-  let inZone = false;
+  let inAttack = false;
   let rearmed = false;
+  let pendingPierce = false;
+  let acceptanceCount = 0;
+  let rejectedPierceCount = 0;
   const attacks = [];
+  const pierces = [];
+
+  const isCloseBeyond = (close) => side === "HIGH" ? close > levelPrice : close < levelPrice;
 
   for (const candle of rows) {
     const candleTime = finite(candle?.time);
@@ -65,35 +71,83 @@ export function manualLevelLifecycle({
     const close = finite(candle?.close);
     if (![high, low, close].every(Number.isFinite)) continue;
 
-    const explicitCross = explicitCrossAt !== null && candleTime >= explicitCrossAt;
-    const crossed = side === "HIGH"
-      ? high > levelPrice + tolerance
-      : low < levelPrice - tolerance;
-    if (explicitCross || crossed) {
+    if (explicitCrossAt !== null && candleTime >= explicitCrossAt) {
       active = false;
       crossedAt = closeTime;
+      pendingPierce = false;
       break;
     }
 
-    const touches = side === "HIGH"
-      ? high >= levelPrice - zoneDistance
-      : low <= levelPrice + zoneDistance;
+    if (pendingPierce) {
+      if (!isCloseBeyond(close)) {
+        rejectedPierceCount += 1;
+        pendingPierce = false;
+        acceptanceCount = 0;
+        inAttack = false;
+        rearmed = false;
+        continue;
+      }
+      acceptanceCount += 1;
+      if (acceptanceCount >= requiredAcceptanceBars) {
+        active = false;
+        crossedAt = closeTime;
+        pendingPierce = false;
+        break;
+      }
+      continue;
+    }
 
-    if (touches) {
-      if (!inZone && rearmed) {
+    const highTicks = levelTicks === null ? null : Math.round(high / tick);
+    const lowTicks = levelTicks === null ? null : Math.round(low / tick);
+    const pierced = side === "HIGH"
+      ? (levelTicks === null ? high > levelPrice : highTicks > levelTicks)
+      : (levelTicks === null ? low < levelPrice : lowTicks < levelTicks);
+
+    if (pierced) {
+      pierces.push(Object.freeze({
+        number: pierces.length + 1,
+        time: candleTime,
+        closeTime,
+        price: side === "HIGH" ? high : low,
+      }));
+      inAttack = false;
+      rearmed = false;
+      if (!isCloseBeyond(close)) {
+        rejectedPierceCount += 1;
+        acceptanceCount = 0;
+        continue;
+      }
+      pendingPierce = true;
+      acceptanceCount = 1;
+      if (acceptanceCount >= requiredAcceptanceBars) {
+        active = false;
+        crossedAt = closeTime;
+        pendingPierce = false;
+        break;
+      }
+      continue;
+    }
+
+    const exactAttack = side === "HIGH"
+      ? (levelTicks === null ? high === levelPrice : highTicks === levelTicks)
+      : (levelTicks === null ? low === levelPrice : lowTicks === levelTicks);
+
+    if (exactAttack) {
+      if (!inAttack && rearmed) {
         attacks.push(Object.freeze({
           number: attacks.length + 2,
           time: candleTime,
           closeTime,
-          price: side === "HIGH" ? high : low,
+          price: levelPrice,
+          semantics: "EXACT_PRICE_TICK",
         }));
       }
-      inZone = true;
+      inAttack = true;
       rearmed = false;
       continue;
     }
 
-    inZone = false;
+    inAttack = false;
     const awayPct = side === "HIGH"
       ? Math.max(0, (levelPrice - close) / levelPrice * 100)
       : Math.max(0, (close - levelPrice) / levelPrice * 100);
@@ -105,18 +159,30 @@ export function manualLevelLifecycle({
     : originAt;
   const retestCount = attacks.length;
   const touchCount = retestCount + 1;
+  const status = active
+    ? pendingPierce
+      ? "PIERCED"
+      : retestCount
+        ? "TOUCHED"
+        : "ACTIVE"
+    : "ACCEPTED";
 
   return Object.freeze({
-    status: active ? (retestCount ? "TOUCHED" : "ACTIVE") : "CROSSED",
+    status,
     active,
     crossedAt,
     endAt: crossedAt ?? lastAt,
     touchCount,
     retestCount,
     attacks: Object.freeze(attacks),
-    zonePct,
+    pierces: Object.freeze(pierces),
+    pendingPierce,
+    rejectedPierceCount,
     rearmPct,
-    attackCountSemantics: "FORMATION_IS_ATTACK_1",
+    zonePct: 0,
+    attackToleranceTicks: 0,
+    attackCountSemantics: "FORMATION_IS_ATTACK_1_EXACT_PRICE_TICK",
+    breakSemantics: "PIERCE_THEN_ACCEPTANCE",
   });
 }
 

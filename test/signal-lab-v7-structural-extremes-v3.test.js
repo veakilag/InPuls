@@ -83,10 +83,11 @@ test("manual level counts formation plus two independent retests and stops at br
   const rows = [
     candle(0, 100, 100, 99, 99.5),
     candle(1, 99.5, 99.6, 97, 97.5),
-    candle(2, 97.5, 99.95, 97.4, 99.7),
+    candle(2, 97.5, 100, 97.4, 99.7),
     candle(3, 99.5, 99.6, 97, 97.4),
     candle(4, 97.4, 100, 97.3, 99.8),
     candle(5, 99.8, 100.3, 99.7, 100.2),
+    candle(6, 100.2, 100.4, 100.1, 100.3),
   ];
   const result = manualLevelLifecycle({
     candles: rows,
@@ -103,9 +104,9 @@ test("manual level counts formation plus two independent retests and stops at br
   });
   assert.equal(result.touchCount, 3);
   assert.equal(result.retestCount, 2);
-  assert.equal(result.status, "CROSSED");
+  assert.equal(result.status, "ACCEPTED");
   assert.equal(result.active, false);
-  assert.equal(result.crossedAt, rows[5].closeTime);
+  assert.equal(result.crossedAt, rows[6].closeTime);
   assert.deepEqual(result.attacks.map((row) => row.number), [2, 3]);
 });
 
@@ -113,7 +114,7 @@ test("continuous candles in the level zone remain one retest after formation", (
   const rows = [
     candle(0, 100, 100, 99, 99.5),
     candle(1, 99.5, 99.6, 97, 97.5),
-    candle(2, 97.5, 99.95, 97.4, 99.7),
+    candle(2, 97.5, 100, 97.4, 99.7),
     candle(3, 99.7, 100, 99.5, 99.8),
     candle(4, 99.8, 99.95, 99.6, 99.7),
   ];
@@ -145,7 +146,7 @@ test("fixed review URL keeps exact symbol timeframe and end time", () => {
   assert.equal(url.searchParams.get("old"), "1");
 });
 
-test("algorithm level uses adaptive zone and counts two retests internally", () => {
+test("algorithm level counts only exact-price independent attacks", () => {
   const subject = engine({
     minimumPercent: 1,
     maximumPercent: 1,
@@ -157,7 +158,7 @@ test("algorithm level uses adaptive zone and counts two retests internally", () 
     candle(2, 103.5, 105, 103, 104.5),
     candle(3, 104.5, 104.8, 101.5, 102),
     candle(4, 102, 103, 101, 102),
-    candle(5, 102, 104.9, 101.8, 104.7),
+    candle(5, 102, 105, 101.8, 104.7),
     candle(6, 104.7, 104.7, 101.5, 102),
     candle(7, 102, 105, 101.9, 104.8),
   ];

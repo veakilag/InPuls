@@ -103,18 +103,17 @@ test("candidate moves on every new traded tick even when reversal buffer is wide
   assert.equal(snapshot.diagnostics.reason, "HIGH_CANDIDATE_MOVED");
 });
 
-test("crossing tolerance is independent from the wider reversal tick buffer", () => {
+test("one-tick pierce that closes back is rejected and level stays active", () => {
   const subject = engine({ tickSizeBufferTicks: 3, crossingToleranceTicks: 1 });
   subject.ingestCandles(risingToConfirmedHigh());
   subject.ingestCandle(candle(7, 104.3, 104.5, 103.0, 103.5));
-  let snapshot = subject.ingestCandle(candle(8, 103.5, 105.1, 103.4, 105.0));
-  const highId = snapshot.history.find((row) => row.side === "HIGH").id;
-  assert.ok(snapshot.active.some((row) => row.id === highId));
-  snapshot = subject.ingestCandle(candle(9, 105.0, 105.2, 104.8, 105.1));
-  const crossedHigh = snapshot.history.find((row) => row.id === highId);
-  assert.equal(crossedHigh.active, false);
-  assert.equal(crossedHigh.status, STRUCTURAL_EXTREME_STATUSES.CROSSED);
-  assert.ok(snapshot.active.every((row) => row.id !== highId));
+  const snapshot = subject.ingestCandle(candle(8, 103.5, 105.1, 103.4, 104.9));
+  const high = snapshot.history.find((row) => row.side === "HIGH");
+  assert.ok(high);
+  assert.equal(high.active, true);
+  assert.equal(high.status, STRUCTURAL_EXTREME_STATUSES.CONFIRMED_ACTIVE);
+  assert.equal(high.pierceCount, 1);
+  assert.equal(high.lastRejectedPierceAt, snapshot.lastCandleTime + STEP - 1);
 });
 
 test("small pullback does not confirm an extreme", () => {
@@ -181,15 +180,22 @@ test("equal touch does not remove an active high", () => {
   assert.equal(snapshot.active[0].crossedAt, undefined);
 });
 
-test("actual pass beyond tick tolerance removes active high", () => {
+test("accepted break removes target high only after acceptance beyond the level", () => {
   const subject = engine();
   subject.ingestCandles(risingToConfirmedHigh());
   subject.ingestCandle(candle(7, 104.3, 104.5, 103.0, 103.5));
-  const crossing = candle(8, 103.5, 105.2, 103.4, 105.15);
-  const snapshot = subject.ingestCandle(crossing);
-  assert.equal(snapshot.active.length, 0);
-  assert.equal(snapshot.history[0].status, STRUCTURAL_EXTREME_STATUSES.CROSSED);
-  assert.equal(snapshot.history[0].crossedAt, crossing.closeTime);
+  let snapshot = subject.ingestCandle(candle(8, 103.5, 105.2, 103.4, 105.1));
+  const highId = snapshot.history.find((row) => row.side === "HIGH").id;
+  let high = snapshot.history.find((row) => row.id === highId);
+  assert.equal(high.active, true);
+  assert.equal(high.status, STRUCTURAL_EXTREME_STATUSES.PIERCED);
+  const accepted = candle(9, 105.1, 105.4, 105.0, 105.2);
+  snapshot = subject.ingestCandle(accepted);
+  high = snapshot.history.find((row) => row.id === highId);
+  assert.equal(high.active, false);
+  assert.equal(high.status, STRUCTURAL_EXTREME_STATUSES.ACCEPTED);
+  assert.equal(high.crossedAt, accepted.closeTime);
+  assert.ok(snapshot.active.every((row) => row.id !== highId));
 });
 
 test("continuous candles near a level count as one attack", () => {

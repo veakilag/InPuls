@@ -49,7 +49,7 @@ test("public review snapshot shows retest one as attack two", () => {
     candle(2, 103.5, 105, 103, 104.5),
     candle(3, 104.5, 104.8, 101.5, 102),
     candle(4, 102, 103, 101, 102),
-    candle(5, 102, 104.9, 101.8, 104.7),
+    candle(5, 102, 105, 101.8, 104.7),
   ];
   const snapshot = engine.ingestCandles(rows);
   const high = snapshot.history.find((row) => row.side === "HIGH");

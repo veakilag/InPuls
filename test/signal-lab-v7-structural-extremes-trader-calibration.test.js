@@ -145,14 +145,22 @@ test("timeframe structural strength grows monotonically", () => {
   assert.deepEqual(ranks, [1, 2, 3, 4, 5, 6]);
 });
 
-test("equal touch remains active and an actual pass crosses", () => {
+test("equal touch is an attack, first pass is a pierce, accepted break needs persistence", () => {
   const subject = engine();
   subject.ingestCandles(risingToConfirmedHigh());
   subject.ingestCandle(candle(7, 104.3, 104.5, 103, 103.5));
   let snapshot = subject.ingestCandle(candle(8, 103.5, 105, 103.4, 104.8));
-  assert.equal(snapshot.history[0].status, STRUCTURAL_EXTREME_STATUSES.TOUCHED);
+  const highId = snapshot.history.find((row) => row.side === "HIGH").id;
+  let high = snapshot.history.find((row) => row.id === highId);
+  assert.equal(high.status, STRUCTURAL_EXTREME_STATUSES.TOUCHED);
   snapshot = subject.ingestCandle(candle(9, 104.8, 105.2, 104.7, 105.1));
-  assert.equal(snapshot.history[0].status, STRUCTURAL_EXTREME_STATUSES.CROSSED);
+  high = snapshot.history.find((row) => row.id === highId);
+  assert.equal(high.status, STRUCTURAL_EXTREME_STATUSES.PIERCED);
+  assert.equal(high.active, true);
+  snapshot = subject.ingestCandle(candle(10, 105.1, 105.4, 105.0, 105.2));
+  high = snapshot.history.find((row) => row.id === highId);
+  assert.equal(high.status, STRUCTURAL_EXTREME_STATUSES.ACCEPTED);
+  assert.equal(high.active, false);
 });
 
 test("serialize and restore remain deterministic", () => {
