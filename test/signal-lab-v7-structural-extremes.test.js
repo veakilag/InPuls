@@ -301,6 +301,10 @@ test("full replay and step-by-step live processing are deterministic", () => {
       minimumSwingPercent: 0.5,
       minimumBarsAfterCandidate: 2,
       tickSizeBufferTicks: 1,
+      touchZoneTicks: 1,
+      rearmDistanceFactor: 0.5,
+      acceptanceBars: 2,
+      rejectionBars: 3,
     },
   }, rows);
   const live = engine();
