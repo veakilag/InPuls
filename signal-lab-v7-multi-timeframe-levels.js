@@ -22,10 +22,10 @@ export const STRUCTURAL_TF_INTERVAL_MS = Object.freeze({
 export const STRUCTURAL_TF_LOOKBACK_MS = Object.freeze({
   "1m": 24 * 60 * 60_000,
   "5m": 24 * 60 * 60_000,
-  "15m": 30 * 24 * 60 * 60_000,
-  "1h": 60 * 24 * 60 * 60_000,
-  "4h": 180 * 24 * 60 * 60_000,
-  "1d": 365 * 24 * 60 * 60_000,
+  "15m": 365 * 24 * 60 * 60_000,
+  "1h": 10 * 365 * 24 * 60 * 60_000,
+  "4h": 10 * 365 * 24 * 60 * 60_000,
+  "1d": 10 * 365 * 24 * 60 * 60_000,
 });
 
 export const LOCAL_STRUCTURAL_LEVEL_HORIZON_MS = 24 * 60 * 60_000;
@@ -231,6 +231,13 @@ export function clusterStructuralLevels(levels, {
   }));
 }
 
+export function formatStructuralLevelPrice(value) {
+  const price = finite(value);
+  if (!(price > 0)) return "—";
+  const digits = price >= 1000 ? 2 : price >= 1 ? 4 : price >= 0.1 ? 5 : price >= 0.01 ? 6 : 8;
+  return price.toFixed(digits).replace(/\.?0+$/, "");
+}
+
 export function structuralLevelLabel(level) {
   const side = level?.side === "HIGH" ? "H" : "L";
   const sources = Array.isArray(level?.sources) && level.sources.length
@@ -239,7 +246,8 @@ export function structuralLevelLabel(level) {
   const primary = sources[0] ?? "?";
   const confluence = sources.length > 1 ? ` + ${sources.slice(1).join("+")}` : "";
   const attacks = Math.max(1, Math.round(Number(level?.attackCount) || 1));
-  return `${side} ${primary}${confluence} · ×${attacks}${level?.active === false ? " · ПРОБИТ" : ""}`;
+  const price = formatStructuralLevelPrice(level?.price);
+  return `${side} ${primary}${confluence} · ×${attacks} · ${price}${level?.active === false ? " · ПРОБИТ" : ""}`;
 }
 
 function sourceRows(snapshot, includeHistory) {

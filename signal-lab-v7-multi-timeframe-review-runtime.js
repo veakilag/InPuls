@@ -127,10 +127,8 @@ function algorithmAnnotation(row) {
 }
 
 function annotationForLevel(level) {
-  return {
-    type: "segment",
-    a: { time: level.displayAt ?? level.extremeAt, price: level.price },
-    b: { time: level.endAt, price: level.price },
+  const startAt = level.displayAt ?? level.extremeAt;
+  const common = {
     label: structuralLevelLabel(level),
     tone: level.side === "HIGH" ? "danger" : "success",
     state: level.status,
@@ -139,9 +137,24 @@ function annotationForLevel(level) {
     sourceTimeframe: level.sourceTimeframe,
     sources: level.sources,
     nativeExtremeAt: level.nativeExtremeAt ?? level.extremeAt,
-    refinedAt: level.displayAt ?? level.extremeAt,
+    refinedAt: startAt,
     refinedThroughTimeframe: level.refinedThroughTimeframe ?? level.sourceTimeframe,
     refinementPath: level.refinementPath,
+  };
+  if (level.active !== false) {
+    return {
+      ...common,
+      type: "ray",
+      startAt,
+      price: level.price,
+      pinLabelRight: true,
+    };
+  }
+  return {
+    ...common,
+    type: "segment",
+    a: { time: startAt, price: level.price },
+    b: { time: level.endAt, price: level.price },
   };
 }
 
@@ -158,7 +171,7 @@ function addContextStatus(state, levelMap) {
     status.insertAdjacentElement("afterend", context);
   }
   const sources = visibleSourceTimeframes(state.viewTimeframe).slice().reverse().join(" → ");
-  context.textContent = `Иерархия: ${sources} · уровней ${levelMap.length} · старший ТФ сохраняется · 1м/5м только 24ч`;
+  context.textContent = `Иерархия: ${sources} · уровней ${levelMap.length} · 1ч/4ч/1д вся доступная история · 15м 1 год · 1м/5м 24ч`;
 }
 
 function combineAnnotations(state) {
@@ -188,7 +201,6 @@ async function loadHierarchicalContext({
   symbol,
   viewTimeframe,
   endAt,
-  viewCandles,
   EngineClass,
   signal,
 }) {
@@ -198,14 +210,7 @@ async function loadHierarchicalContext({
   const candlesByTimeframe = {};
 
   await Promise.all(sourceTimeframes.map(async (sourceTimeframe) => {
-    const lookback = STRUCTURAL_TF_LOOKBACK_MS[sourceTimeframe];
-    const startAt = endAt - lookback;
-    const sourceCandles = sourceTimeframe === viewTimeframe
-      ? (Array.isArray(viewCandles) ? viewCandles : []).filter((row) => {
-        const time = finite(row?.time);
-        return time !== null && time >= startAt && time <= endAt;
-      })
-      : await fetchCandles(symbol, sourceTimeframe, endAt, signal);
+    const sourceCandles = await fetchCandles(symbol, sourceTimeframe, endAt, signal);
     if (!sourceCandles.length) return;
     candlesByTimeframe[sourceTimeframe] = sourceCandles;
     const engine = new EngineClass({ symbol, timeframe: sourceTimeframe, tickSize });
@@ -284,7 +289,6 @@ export function installMultiTimeframeReviewRuntime({ ChartClass, EngineClass }) 
           symbol,
           viewTimeframe,
           endAt,
-          viewCandles: candles,
           EngineClass,
           signal: abortController.signal,
         });
@@ -293,6 +297,10 @@ export function installMultiTimeframeReviewRuntime({ ChartClass, EngineClass }) 
         latest.tickSize = loaded.tickSize;
         latest.snapshotsByTimeframe = loaded.snapshotsByTimeframe;
         latest.candlesByTimeframe = loaded.candlesByTimeframe;
+        const extendedViewCandles = loaded.candlesByTimeframe?.[viewTimeframe];
+        if (Array.isArray(extendedViewCandles) && extendedViewCandles.length > candles.length) {
+          originalSetData.call(this, extendedViewCandles, meta);
+        }
         originalSetAnnotations.call(this, combineAnnotations(latest));
         this.render?.();
       } catch (error) {

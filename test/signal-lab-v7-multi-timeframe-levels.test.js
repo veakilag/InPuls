@@ -55,6 +55,17 @@ test("lower chart sees its own timeframe and every stronger timeframe", () => {
   assert.deepEqual(hierarchicalDescentTimeframes("1m"), ["1d", "4h", "1h", "15m", "5m", "1m"]);
 });
 
+test("senior structural history reaches the full Binance Futures lifetime", async () => {
+  const { STRUCTURAL_TF_LOOKBACK_MS } = await import("../signal-lab-v7-multi-timeframe-levels.js");
+  const day = 24 * 60 * 60_000;
+  assert.equal(STRUCTURAL_TF_LOOKBACK_MS["1m"], day);
+  assert.equal(STRUCTURAL_TF_LOOKBACK_MS["5m"], day);
+  assert.ok(STRUCTURAL_TF_LOOKBACK_MS["15m"] >= 365 * day);
+  assert.ok(STRUCTURAL_TF_LOOKBACK_MS["1h"] >= 7 * 365 * day);
+  assert.ok(STRUCTURAL_TF_LOOKBACK_MS["4h"] >= 7 * 365 * day);
+  assert.ok(STRUCTURAL_TF_LOOKBACK_MS["1d"] >= 7 * 365 * day);
+});
+
 test("1m and 5m levels expire from the map after 24 hours", () => {
   const recent = normalizeStructuralLevel(extreme({
     id: "recent",
@@ -86,7 +97,7 @@ test("near levels keep the strongest native timeframe", () => {
   assert.equal(clustered.length, 1);
   assert.equal(clustered[0].sourceTimeframe, "4h");
   assert.deepEqual(clustered[0].sources, ["4h", "5m"]);
-  assert.equal(structuralLevelLabel(clustered[0]), "H 4h + 5m · ×2");
+  assert.equal(structuralLevelLabel(clustered[0]), "H 4h + 5m · ×2 · 100");
 });
 
 test("5m map includes 15m, 1h, 4h and 1d without relabeling them to 5m", () => {
@@ -100,7 +111,7 @@ test("5m map includes 15m, 1h, 4h and 1d without relabeling them to 5m", () => {
   const levels = buildStructuralLevelMap({ snapshotsByTimeframe, viewTimeframe: "5m", endAt: END, tickSize: 0.01 });
   assert.deepEqual(new Set(levels.map((row) => row.sourceTimeframe)), new Set(["5m", "15m", "1h", "4h", "1d"]));
   const fourHour = levels.find((row) => row.id === "4h");
-  assert.equal(structuralLevelLabel(fourHour), "H 4h · ×2");
+  assert.equal(structuralLevelLabel(fourHour), "H 4h · ×2 · 110");
 });
 
 test("older level keeps price and native timeframe while its timestamp is refined downward", () => {
