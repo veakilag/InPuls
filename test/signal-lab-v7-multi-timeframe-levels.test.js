@@ -10,6 +10,7 @@ import {
   refineStructuralLevelToTimeframe,
   structuralChildLevelSignificant,
   structuralExtremeSupersession,
+  structuralHierarchyAcceptance,
   structuralLevelLabel,
   visibleSourceTimeframes,
 } from "../signal-lab-v7-multi-timeframe-levels.js";
@@ -274,4 +275,100 @@ test("hierarchical map starts at 1d, refines it and only then adds significant c
   assert.ok(levels.find((row) => row.id === "h4" && row.sourceTimeframe === "4h"));
   assert.ok(levels.find((row) => row.id === "local" && row.sourceTimeframe === "1m"));
   assert.equal(levels.some((row) => row.id === "noise"), false);
+});
+
+
+test("V4.3 keeps nearby same-timeframe highs as separate structural events", () => {
+  const first = normalizeStructuralLevel(extreme({
+    id: "5m-a",
+    side: "HIGH",
+    price: 100,
+    extremeAt: END - 30 * 60_000,
+  }), "5m", END);
+  const second = normalizeStructuralLevel(extreme({
+    id: "5m-b",
+    side: "HIGH",
+    price: 100.01,
+    extremeAt: END - 10 * 60_000,
+  }), "5m", END);
+  const clustered = clusterStructuralLevels([first, second], {
+    tickSize: 0.01,
+    tolerancePct: 0.03,
+    toleranceTicks: 3,
+  });
+  assert.equal(clustered.length, 2);
+});
+
+test("V4.3 still merges a junior duplicate into senior ownership/confluence", () => {
+  const senior = normalizeStructuralLevel(extreme({
+    id: "4h-high",
+    side: "HIGH",
+    price: 100,
+    extremeAt: END - 4 * 60 * 60_000,
+  }), "4h", END);
+  const junior = normalizeStructuralLevel(extreme({
+    id: "5m-high",
+    side: "HIGH",
+    price: 100.01,
+    extremeAt: END - 60 * 60_000,
+  }), "5m", END);
+  const clustered = clusterStructuralLevels([senior, junior], {
+    tickSize: 0.01,
+    tolerancePct: 0.03,
+    toleranceTicks: 3,
+  });
+  assert.equal(clustered.length, 1);
+  assert.equal(clustered[0].sourceTimeframe, "4h");
+  assert.deepEqual(clustered[0].sources, ["4h", "5m"]);
+});
+
+test("V4.3 child timeframe retires an inherited HIGH only after two closes beyond", () => {
+  const level = normalizeStructuralLevel(extreme({
+    id: "1h-high",
+    side: "HIGH",
+    price: 100,
+    extremeAt: END - 60 * 60_000,
+  }), "1h", END);
+  const oneClose = [
+    { time: END - 15 * 60_000, closeTime: END - 10 * 60_000 - 1, high: 101, low: 99, close: 100.5 },
+  ];
+  const accepted = [
+    ...oneClose,
+    { time: END - 10 * 60_000, closeTime: END - 5 * 60_000 - 1, high: 101.2, low: 100, close: 100.7 },
+  ];
+  assert.equal(structuralHierarchyAcceptance(level, oneClose, { tickSize: 0.01 }), null);
+  assert.equal(structuralHierarchyAcceptance(level, accepted, { tickSize: 0.01 })?.reason, "CHILD_TIMEFRAME_ACCEPTANCE");
+});
+
+test("V4.3 hierarchical map removes a passed inherited LOW on child candles", () => {
+  const seniorLow = extreme({
+    id: "1h-low",
+    side: "LOW",
+    price: 90,
+    extremeAt: END - 2 * 60 * 60_000,
+  });
+  const childCandles = [
+    { time: END - 15 * 60_000, closeTime: END - 10 * 60_000 - 1, high: 91, low: 88, open: 90, close: 89.5 },
+    { time: END - 10 * 60_000, closeTime: END - 5 * 60_000 - 1, high: 90, low: 88, open: 89.5, close: 89.0 },
+  ];
+  const levels = buildHierarchicalStructuralLevelMap({
+    snapshotsByTimeframe: {
+      "1d": { active: [], history: [] },
+      "4h": { active: [], history: [] },
+      "1h": { active: [seniorLow], history: [seniorLow] },
+      "15m": { active: [], history: [] },
+      "5m": { active: [], history: [] },
+    },
+    candlesByTimeframe: {
+      "1d": [],
+      "4h": [],
+      "1h": [],
+      "15m": [],
+      "5m": childCandles,
+    },
+    viewTimeframe: "5m",
+    endAt: END,
+    tickSize: 0.01,
+  });
+  assert.equal(levels.some((row) => row.id === "1h-low"), false);
 });

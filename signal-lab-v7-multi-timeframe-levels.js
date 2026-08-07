@@ -30,47 +30,51 @@ export const STRUCTURAL_TF_LOOKBACK_MS = Object.freeze({
 
 export const LOCAL_STRUCTURAL_LEVEL_HORIZON_MS = 30 * 24 * 60 * 60_000;
 
-// V4 calibration: the detector still stores every replay event. This policy only
-// decides which native child extrema are admitted into the visible hierarchical
-// map. The smaller the timeframe and the farther a level is from current price,
-// the stronger its swing must be relative to NATR. 4h/1d remain broad anchors.
-// Numeric values are deliberately reversible calibration defaults, not a final
-// trading formula.
+// V4.3 calibration: geometry creates a structural extreme first. Volatility
+// only adapts scale. A stable base NATR normalizes cross-asset significance and
+// distance; current NATR describes compression/expansion and may only RELAX a
+// scale requirement during compression. It never makes a nearby level harder to
+// keep merely because the spring is tightening. Numeric values remain reversible
+// calibration defaults, not a trading formula.
 export const ADAPTIVE_HIERARCHICAL_ADMISSION = Object.freeze({
   "1m": Object.freeze({
     fallbackMinimumSwingPercent: 0.30,
-    reversalMultiplier: 1.70,
+    reversalMultiplier: 1.00,
     natrSwingMultiplier: 1.00,
     freeDistanceNatr: 3,
     maxDistanceMultiplier: 4.0,
+    minimumCompressionRelief: 0.60,
   }),
   "5m": Object.freeze({
-    fallbackMinimumSwingPercent: 0.45,
-    reversalMultiplier: 1.55,
+    fallbackMinimumSwingPercent: 0.18,
+    reversalMultiplier: 1.00,
     natrSwingMultiplier: 0.90,
     freeDistanceNatr: 4,
     maxDistanceMultiplier: 3.5,
+    minimumCompressionRelief: 0.60,
   }),
   "15m": Object.freeze({
     fallbackMinimumSwingPercent: 0,
-    reversalMultiplier: 1.35,
+    reversalMultiplier: 1.00,
     natrSwingMultiplier: 0.80,
     freeDistanceNatr: 6,
     maxDistanceMultiplier: 3.0,
+    minimumCompressionRelief: 0.65,
   }),
   "1h": Object.freeze({
     fallbackMinimumSwingPercent: 0,
-    reversalMultiplier: 1.20,
+    reversalMultiplier: 1.00,
     natrSwingMultiplier: 0.70,
     freeDistanceNatr: 8,
     maxDistanceMultiplier: 2.5,
+    minimumCompressionRelief: 0.70,
   }),
 });
 
 // Backward-compatible export name used by existing Stage-1 tests/documentation.
 export const LOCAL_HIERARCHICAL_ADMISSION = Object.freeze({
-  "1m": Object.freeze({ minimumSwingPercent: 0.30, reversalMultiplier: 1.70 }),
-  "5m": Object.freeze({ minimumSwingPercent: 0.45, reversalMultiplier: 1.55 }),
+  "1m": Object.freeze({ minimumSwingPercent: 0.30, reversalMultiplier: 1.00 }),
+  "5m": Object.freeze({ minimumSwingPercent: 0.18, reversalMultiplier: 1.00 }),
 });
 
 const finite = (value) => {
@@ -116,10 +120,23 @@ function validCandle(row) {
   return { time, high, low, close };
 }
 
-// Standard normalized ATR context. NATR at the extreme is used to judge the
-// original swing in its own volatility regime; current NATR is used only to
-// normalize how far the level is from the current market.
-export function buildStructuralVolatilityContext(candles, { period = 14 } = {}) {
+function median(values) {
+  const rows = (Array.isArray(values) ? values : [])
+    .filter((value) => Number.isFinite(value) && value >= 0)
+    .slice()
+    .sort((left, right) => left - right);
+  if (!rows.length) return null;
+  const middle = Math.floor(rows.length / 2);
+  return rows.length % 2
+    ? rows[middle]
+    : (rows[middle - 1] + rows[middle]) / 2;
+}
+
+// V4.3 volatility context has two meanings:
+// - baseNatrPct: stable recent regime used for scale/distance normalization;
+// - currentNatrPct: current state used only to describe compression/expansion.
+// Historical NATR at the extreme is still retained for diagnostics.
+export function buildStructuralVolatilityContext(candles, { period = 14, baseWindow = 96 } = {}) {
   const rows = (Array.isArray(candles) ? candles : [])
     .map(validCandle)
     .filter(Boolean)
@@ -127,14 +144,19 @@ export function buildStructuralVolatilityContext(candles, { period = 14 } = {}) 
   if (!rows.length) {
     return Object.freeze({
       period,
+      baseWindow,
       currentPrice: null,
       currentNatrPct: null,
+      baseNatrPct: null,
+      compressionRatio: null,
+      volatilityState: "UNKNOWN",
       times: Object.freeze([]),
       natrs: Object.freeze([]),
     });
   }
 
   const safePeriod = Math.max(1, Math.round(finite(period) ?? 14));
+  const safeBaseWindow = Math.max(safePeriod, Math.round(finite(baseWindow) ?? 96));
   const times = [];
   const natrs = [];
   let previousClose = null;
@@ -161,10 +183,27 @@ export function buildStructuralVolatilityContext(candles, { period = 14 } = {}) 
     previousClose = row.close;
   }
 
+  const currentNatrPct = natrs.at(-1) ?? null;
+  const baseNatrPct = median(natrs.slice(-safeBaseWindow));
+  const compressionRatio = currentNatrPct !== null && baseNatrPct > 0
+    ? currentNatrPct / baseNatrPct
+    : null;
+  const volatilityState = compressionRatio === null
+    ? "UNKNOWN"
+    : compressionRatio < 0.75
+      ? "COMPRESSION"
+      : compressionRatio > 1.35
+        ? "EXPANSION"
+        : "NORMAL";
+
   return Object.freeze({
     period: safePeriod,
+    baseWindow: safeBaseWindow,
     currentPrice: rows.at(-1)?.close ?? null,
-    currentNatrPct: natrs.at(-1) ?? null,
+    currentNatrPct,
+    baseNatrPct,
+    compressionRatio,
+    volatilityState,
     times: Object.freeze(times),
     natrs: Object.freeze(natrs),
   });
@@ -200,12 +239,28 @@ export function structuralDistanceNatr(price, volatilityContext) {
   return distancePct / currentNatrPct;
 }
 
+export function structuralDistanceBaseNatr(price, volatilityContext) {
+  const levelPrice = finite(price);
+  const currentPrice = finite(volatilityContext?.currentPrice);
+  const baseNatrPct = finite(volatilityContext?.baseNatrPct);
+  if (!(levelPrice > 0) || !(currentPrice > 0) || !(baseNatrPct > 0)) return null;
+  const distancePct = Math.abs(levelPrice - currentPrice) / currentPrice * 100;
+  return distancePct / baseNatrPct;
+}
+
 function adaptiveDistanceMultiplier(policy, distanceNatr) {
   const distance = Math.max(0, finite(distanceNatr) ?? 0);
   const free = Math.max(0.1, finite(policy?.freeDistanceNatr) ?? 1);
   const maximum = Math.max(1, finite(policy?.maxDistanceMultiplier) ?? 1);
   if (distance <= free) return 1;
   return Math.min(maximum, 1 + ((distance - free) / free));
+}
+
+function compressionReliefFactor(policy, volatilityContext) {
+  const ratio = finite(volatilityContext?.compressionRatio);
+  if (!(ratio > 0) || ratio >= 1) return 1;
+  const floor = Math.max(0.25, Math.min(1, finite(policy?.minimumCompressionRelief) ?? 0.60));
+  return Math.max(floor, Math.min(1, ratio));
 }
 
 export function hierarchicalAdmissionRequiredPercent(extreme, sourceTimeframe, {
@@ -217,14 +272,22 @@ export function hierarchicalAdmissionRequiredPercent(extreme, sourceTimeframe, {
   const reversalThreshold = Math.max(0, finite(extreme?.reversalThresholdPct) ?? 0);
   const fallbackMinimum = Math.max(0, finite(policy.fallbackMinimumSwingPercent) ?? 0);
   const reversalRequirement = reversalThreshold * Math.max(0, finite(policy.reversalMultiplier) ?? 0);
+  const geometryRequirement = Math.max(fallbackMinimum, reversalRequirement);
+
+  const baseNatrPct = finite(volatilityContext?.baseNatrPct);
   const natrAtExtreme = structuralNatrAt(volatilityContext, extreme?.extremeAt);
-  const distanceNatr = structuralDistanceNatr(extreme?.price, volatilityContext);
-  const distanceMultiplier = adaptiveDistanceMultiplier(policy, distanceNatr);
-  const natrRequirement = natrAtExtreme !== null && natrAtExtreme > 0
-    ? natrAtExtreme * Math.max(0, finite(policy.natrSwingMultiplier) ?? 0) * distanceMultiplier
+  const scaleNatrPct = baseNatrPct ?? natrAtExtreme;
+  const distanceBaseNatr = structuralDistanceBaseNatr(extreme?.price, volatilityContext);
+  const distanceMultiplier = adaptiveDistanceMultiplier(policy, distanceBaseNatr);
+  const compressionRelief = compressionReliefFactor(policy, volatilityContext);
+  const scaleRequirement = scaleNatrPct !== null && scaleNatrPct > 0
+    ? scaleNatrPct
+      * Math.max(0, finite(policy.natrSwingMultiplier) ?? 0)
+      * distanceMultiplier
+      * compressionRelief
     : 0;
 
-  return Math.max(fallbackMinimum, reversalRequirement, natrRequirement);
+  return Math.max(geometryRequirement, scaleRequirement);
 }
 
 export function structuralChildAdmissionDecision(extreme, sourceTimeframe, {
@@ -239,8 +302,6 @@ export function structuralChildAdmissionDecision(extreme, sourceTimeframe, {
     return Object.freeze({ admitted: true, reason: "MISSING_SWING_DIAGNOSTIC" });
   }
 
-  // 15m/1h were intentionally unfiltered before V4. If candles are unavailable,
-  // keep that old behavior instead of silently dropping levels.
   const natrAtExtreme = structuralNatrAt(volatilityContext, extreme?.extremeAt);
   if (natrAtExtreme === null && !isLocalStructuralTimeframe(sourceTimeframe)) {
     return Object.freeze({
@@ -252,24 +313,54 @@ export function structuralChildAdmissionDecision(extreme, sourceTimeframe, {
 
   const policy = ADAPTIVE_HIERARCHICAL_ADMISSION[sourceTimeframe];
   const currentNatrPct = finite(volatilityContext?.currentNatrPct);
-  const distanceNatr = structuralDistanceNatr(extreme?.price, volatilityContext);
-  const distanceMultiplier = adaptiveDistanceMultiplier(policy, distanceNatr);
-  const requiredSwingPct = hierarchicalAdmissionRequiredPercent(extreme, sourceTimeframe, {
-    volatilityContext,
-  });
+  const baseNatrPct = finite(volatilityContext?.baseNatrPct);
+  const compressionRatio = finite(volatilityContext?.compressionRatio);
+  const volatilityState = volatilityContext?.volatilityState ?? "UNKNOWN";
+  const currentDistanceNatr = structuralDistanceNatr(extreme?.price, volatilityContext);
+  const distanceBaseNatr = structuralDistanceBaseNatr(extreme?.price, volatilityContext);
+  const distanceMultiplier = adaptiveDistanceMultiplier(policy, distanceBaseNatr);
+  const compressionRelief = compressionReliefFactor(policy, volatilityContext);
+  const reversalThreshold = Math.max(0, finite(extreme?.reversalThresholdPct) ?? 0);
+  const fallbackMinimum = Math.max(0, finite(policy.fallbackMinimumSwingPercent) ?? 0);
+  const reversalRequirement = reversalThreshold * Math.max(0, finite(policy.reversalMultiplier) ?? 0);
+  const geometryRequirement = Math.max(fallbackMinimum, reversalRequirement);
+  const scaleNatrPct = baseNatrPct ?? natrAtExtreme;
+  const scaleRequirement = scaleNatrPct !== null && scaleNatrPct > 0
+    ? scaleNatrPct
+      * Math.max(0, finite(policy.natrSwingMultiplier) ?? 0)
+      * distanceMultiplier
+      * compressionRelief
+    : 0;
+  const requiredSwingPct = Math.max(geometryRequirement, scaleRequirement);
   const normalizedSwing = natrAtExtreme !== null && natrAtExtreme > 0
     ? swingPct / natrAtExtreme
     : null;
+  const baseNormalizedSwing = baseNatrPct !== null && baseNatrPct > 0
+    ? swingPct / baseNatrPct
+    : null;
+  const admitted = swingPct >= requiredSwingPct;
 
   return Object.freeze({
-    admitted: swingPct >= requiredSwingPct,
-    reason: swingPct >= requiredSwingPct ? "ADAPTIVE_NATR_PASS" : "ADAPTIVE_NATR_FILTERED",
+    admitted,
+    reason: admitted ? "GEOMETRY_SCALE_PASS" : "GEOMETRY_SCALE_FILTERED",
     swingPct,
     requiredSwingPct,
+    geometryRequirement,
+    scaleRequirement,
+    geometryPassed: swingPct >= geometryRequirement,
+    scalePassed: swingPct >= scaleRequirement,
     natrAtExtreme,
     normalizedSwing,
+    baseNatrPct,
+    baseNormalizedSwing,
     currentNatrPct,
-    distanceNatr,
+    compressionRatio,
+    volatilityState,
+    compressionRelief,
+    currentDistanceNatr,
+    distanceBaseNatr,
+    // Backward-compatible diagnostic name; V4.3 intentionally means BASE-NATR distance here.
+    distanceNatr: distanceBaseNatr,
     distanceMultiplier,
   });
 }
@@ -374,6 +465,87 @@ function samePriceZone(left, right, options) {
   return Math.abs(left.price - right.price) <= tolerance;
 }
 
+function sameHierarchyZone(left, right, options) {
+  if (!samePriceZone(left, right, options)) return false;
+  if (left?.sourceTimeframe === right?.sourceTimeframe) return left?.id === right?.id;
+  return true;
+}
+
+export function structuralHierarchyAcceptance(level, candles, {
+  tickSize = 0,
+  crossingToleranceTicks = 1,
+  acceptanceBars = 2,
+} = {}) {
+  if (!level || !["HIGH", "LOW"].includes(level.side)) return null;
+  const levelPrice = finite(level.price);
+  const originAt = finite(level.nativeExtremeAt ?? level.extremeAt);
+  if (!(levelPrice > 0) || originAt === null) return null;
+
+  const tolerance = Math.max(0, finite(tickSize) ?? 0)
+    * Math.max(0, Math.round(finite(crossingToleranceTicks) ?? 1));
+  const requiredBars = Math.max(1, Math.round(finite(acceptanceBars) ?? 2));
+  const rows = (Array.isArray(candles) ? candles : [])
+    .filter((row) => finite(row?.time) !== null)
+    .slice()
+    .sort((left, right) => Number(left.time) - Number(right.time));
+  let consecutive = 0;
+  let firstBeyondAt = null;
+
+  for (const candle of rows) {
+    const time = finite(candle?.time);
+    const closeTime = finite(candle?.closeTime) ?? time;
+    const close = finite(candle?.close);
+    if (time === null || time <= originAt || !(close > 0)) continue;
+    const beyond = level.side === "HIGH"
+      ? close > levelPrice + tolerance
+      : close < levelPrice - tolerance;
+    if (!beyond) {
+      consecutive = 0;
+      firstBeyondAt = null;
+      continue;
+    }
+    if (consecutive === 0) firstBeyondAt = closeTime;
+    consecutive += 1;
+    if (consecutive >= requiredBars) {
+      return Object.freeze({
+        at: closeTime,
+        firstBeyondAt,
+        side: level.side,
+        price: levelPrice,
+        acceptanceBars: requiredBars,
+        reason: "CHILD_TIMEFRAME_ACCEPTANCE",
+      });
+    }
+  }
+  return null;
+}
+
+function applyHierarchyAcceptance(levels, candles, sourceTimeframe, includeHistory, options) {
+  const next = [];
+  for (const level of Array.isArray(levels) ? levels : []) {
+    if (level?.active === false) {
+      next.push(level);
+      continue;
+    }
+    const acceptance = structuralHierarchyAcceptance(level, candles, options);
+    if (!acceptance) {
+      next.push(level);
+      continue;
+    }
+    if (!includeHistory) continue;
+    next.push(Object.freeze({
+      ...level,
+      active: false,
+      crossedAt: level.crossedAt ?? acceptance.at,
+      endAt: acceptance.at,
+      status: "ACCEPTED",
+      inactiveReason: "CHILD_TIMEFRAME_ACCEPTANCE",
+      acceptedOnTimeframe: sourceTimeframe,
+    }));
+  }
+  return next;
+}
+
 function candleExtreme(candle, side) {
   return finite(side === "HIGH" ? candle?.high : candle?.low);
 }
@@ -443,7 +615,7 @@ export function clusterStructuralLevels(levels, {
 
   const clusters = [];
   for (const level of ordered) {
-    let cluster = clusters.find((row) => samePriceZone(row.primary, level, {
+    let cluster = clusters.find((row) => sameHierarchyZone(row.primary, level, {
       tickSize,
       tolerancePct,
       toleranceTicks,
@@ -550,6 +722,19 @@ export function buildHierarchicalStructuralLevelMap({
   let hierarchy = [];
   for (const sourceTimeframe of descent) {
     const childCandles = candlesByTimeframe?.[sourceTimeframe] ?? [];
+    const snapshot = snapshotsByTimeframe?.[sourceTimeframe];
+    const volatilityContext = volatilityByTimeframe[sourceTimeframe];
+
+    if (hierarchy.length && childCandles.length) {
+      hierarchy = applyHierarchyAcceptance(
+        hierarchy,
+        childCandles,
+        sourceTimeframe,
+        includeHistory,
+        { tickSize, crossingToleranceTicks: 1, acceptanceBars: 2 },
+      );
+    }
+
     if (hierarchy.length) {
       hierarchy = hierarchy.map((level) => refineStructuralLevelToTimeframe(
         level,
@@ -558,9 +743,6 @@ export function buildHierarchicalStructuralLevelMap({
         { tickSize },
       ));
     }
-
-    const snapshot = snapshotsByTimeframe?.[sourceTimeframe];
-    const volatilityContext = volatilityByTimeframe[sourceTimeframe];
     const nativeCandidates = normalizedSourceLevels(
       snapshot,
       sourceTimeframe,
@@ -568,7 +750,7 @@ export function buildHierarchicalStructuralLevelMap({
       includeHistory,
       (extreme) => {
         const candidateLevel = normalizeStructuralLevel(extreme, sourceTimeframe, endAt);
-        const confirmsInheritedLevel = candidateLevel && hierarchy.some((level) => samePriceZone(
+        const confirmsInheritedLevel = candidateLevel && hierarchy.some((level) => sameHierarchyZone(
           level,
           candidateLevel,
           { tickSize, tolerancePct: 0.03, toleranceTicks: 3 },

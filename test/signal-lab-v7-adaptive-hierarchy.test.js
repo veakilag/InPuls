@@ -4,6 +4,7 @@ import {
   buildHierarchicalStructuralLevelMap,
   buildStructuralVolatilityContext,
   structuralChildAdmissionDecision,
+  structuralDistanceBaseNatr,
   structuralDistanceNatr,
   structuralNatrAt,
 } from "../signal-lab-v7-multi-timeframe-levels.js";
@@ -126,4 +127,38 @@ test("junior confluence with inherited senior price survives adaptive child filt
   assert.equal(levels[0].sourceTimeframe, "1d");
   assert.deepEqual(levels[0].sources, ["1d", "1m"]);
   assert.deepEqual(levels[0].memberIds, ["senior", "tiny-junior"]);
+});
+
+
+test("V4.3 current NATR compression relaxes scale but never hardens distance", () => {
+  const start = END - 120 * MINUTE;
+  const rows = Array.from({ length: 120 }, (_, index) => {
+    const compressed = index >= 106;
+    const halfRange = compressed ? 0.05 : 0.25;
+    return {
+      time: start + index * MINUTE,
+      open: 100,
+      high: 100 + halfRange,
+      low: 100 - halfRange,
+      close: 100,
+      closeTime: start + index * MINUTE + MINUTE - 1,
+    };
+  });
+  const context = buildStructuralVolatilityContext(rows);
+  const candidate = extreme({
+    id: "compression-high",
+    side: "HIGH",
+    price: 100.1,
+    swingAmplitudePct: 0.32,
+    reversalThresholdPct: 0.10,
+  });
+  const decision = structuralChildAdmissionDecision(candidate, "1m", { volatilityContext: context });
+
+  assert.equal(context.volatilityState, "COMPRESSION");
+  assert.ok(context.currentNatrPct < context.baseNatrPct);
+  assert.ok(context.compressionRatio < 1);
+  assert.equal(decision.admitted, true);
+  assert.ok(decision.compressionRelief < 1);
+  assert.equal(decision.distanceNatr, decision.distanceBaseNatr);
+  assert.ok(structuralDistanceNatr(candidate.price, context) > structuralDistanceBaseNatr(candidate.price, context));
 });
