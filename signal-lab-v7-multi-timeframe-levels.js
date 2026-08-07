@@ -107,7 +107,11 @@ export const LOCAL_PIVOT_PROMINENCE_POLICY = Object.freeze({
     minimumIncomingBaseNatr: 0.75,
     minimumOutgoingBaseNatr: 0.60,
     minimumPriorImpulseBaseNatr: 1.25,
-    minimumRetracementRatio: 0.20,
+    // V4.11 visual calibration on BTC 5m: two trader-rejected pauses
+    // measured 23.7% and 25.5% retracement, while reviewed structural LOWs
+    // were either not applicable to this gate or measured 127% / 674%.
+    // Keep the rule causal and apply it only when a valid prior impulse exists.
+    minimumRetracementRatio: 0.30,
   }),
 });
 

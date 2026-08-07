@@ -50,7 +50,8 @@ test("V4.8 filters a shallow LOW pause inside one larger rising impulse", () => 
   assert.equal(decision.incomingPassed, true);
   assert.equal(decision.outgoingPassed, true);
   assert.equal(decision.retracementApplicable, true);
-  assert.ok(decision.retracementRatio < 0.20);
+  assert.ok(decision.retracementRatio < 0.30);
+  assert.equal(decision.minimumRetracementRatio, 0.30);
   assert.equal(decision.admitted, false);
   assert.equal(decision.reason, "LOW_PIVOT_SHALLOW_RETRACEMENT_FILTERED");
 });
@@ -78,7 +79,8 @@ test("V4.8 keeps a meaningful LOW retracement after a real prior impulse", () =>
   assert.equal(decision.incomingPassed, true);
   assert.equal(decision.outgoingPassed, true);
   assert.equal(decision.retracementApplicable, true);
-  assert.ok(decision.retracementRatio >= 0.20);
+  assert.ok(decision.retracementRatio >= 0.30);
+  assert.equal(decision.minimumRetracementRatio, 0.30);
   assert.equal(decision.admitted, true);
 });
 
