@@ -394,7 +394,13 @@ export class StructuralExtremeEngine {
     if (highTicks > this.candidate.priceTicks) {
       const previousPrice = this.candidate.price;
       this.candidate = { ...makeCandidate("HIGH", candle.high, highTicks, candle, this.barIndex), movedCount: this.candidate.movedCount + 1 };
+      // A new main extreme invalidates any stale opposite candidate from older
+      // bars. V4.20 may seed a NEW same-bar opposite wick only when this closed
+      // candle has already reversed from the new extreme by the causal reversal
+      // threshold. This preserves violent reversal candles without turning every
+      // ordinary higher high into a synthetic LOW.
       this.oppositeCandidate = null;
+      this.#maybeSeedSameBarOppositeCandidate("LOW", candle);
       this.eventLog.push(eventRecord("CANDIDATE_MOVED", candle.closeTime, {
         side: "HIGH",
         fromPrice: previousPrice,
@@ -434,7 +440,11 @@ export class StructuralExtremeEngine {
     if (lowTicks < this.candidate.priceTicks) {
       const previousPrice = this.candidate.price;
       this.candidate = { ...makeCandidate("LOW", candle.low, lowTicks, candle, this.barIndex), movedCount: this.candidate.movedCount + 1 };
+      // Same invariant as TRACKING_UP: stale opposite state is discarded first.
+      // Only a materially reversed CLOSE may seed the opposite HIGH wick from
+      // this same closed candle.
       this.oppositeCandidate = null;
+      this.#maybeSeedSameBarOppositeCandidate("HIGH", candle);
       this.eventLog.push(eventRecord("CANDIDATE_MOVED", candle.closeTime, {
         side: "LOW",
         fromPrice: previousPrice,
@@ -455,6 +465,37 @@ export class StructuralExtremeEngine {
     const confirmationPrice = this.config.confirmationSource === "wick" ? candle.high : candle.close;
     const reversalPct = Math.max(0, (confirmationPrice - this.candidate.price) / this.candidate.price * 100);
     this.#tryConfirm("LOW", candle, reversalPct, threshold);
+  }
+
+  #maybeSeedSameBarOppositeCandidate(side, candle) {
+    if (!this.candidate) return;
+    const threshold = this.#reversalThresholdPct(this.candidate.price);
+    // Use the CLOSE, not the opposite wick itself, as evidence that a reversal
+    // really existed by candle close. OHLC cannot reveal whether high or low
+    // happened first inside the minute, therefore this remains provisional and
+    // explicitly carries intrabarOrderUnknown=true.
+    const closeReversalPct = this.candidate.side === "HIGH"
+      ? Math.max(0, (this.candidate.price - candle.close) / this.candidate.price * 100)
+      : Math.max(0, (candle.close - this.candidate.price) / this.candidate.price * 100);
+    if (closeReversalPct < threshold.thresholdPct) return;
+
+    const price = side === "LOW" ? candle.low : candle.high;
+    const priceTicks = toTicks(price, this.tickSize);
+    this.oppositeCandidate = {
+      ...makeCandidate(side, price, priceTicks, candle, this.barIndex),
+      provisionalSameBar: true,
+      intrabarOrderUnknown: true,
+      sameBarCloseReversalPct: round(closeReversalPct),
+      sameBarReversalThresholdPct: round(threshold.thresholdPct),
+    };
+    this.eventLog.push(eventRecord("OPPOSITE_CANDIDATE_SEEDED_SAME_BAR", candle.closeTime, {
+      side,
+      price,
+      extremeAt: candle.time,
+      closeReversalPct: round(closeReversalPct),
+      reversalThresholdPct: round(threshold.thresholdPct),
+      semantics: "CLOSED_OHLC_INTRABAR_ORDER_UNKNOWN",
+    }));
   }
 
   #updateOppositeCandidate(side, candle) {
@@ -517,6 +558,13 @@ export class StructuralExtremeEngine {
       atrAtConfirmation: round(metrics.threshold.atr),
       atrPercentAtConfirmation: round(metrics.threshold.atrPercent),
       atrWasCapped: metrics.threshold.atrWasCapped,
+      // Preserve data-quality semantics if this extremum originated from the
+      // opposite wick of one closed OHLC bar. The price is observed, but the
+      // intrabar high/low ordering is not knowable from 1m OHLC alone.
+      provisionalSameBar: Boolean(source.provisionalSameBar),
+      intrabarOrderUnknown: Boolean(source.intrabarOrderUnknown),
+      sameBarCloseReversalPct: finite(source.sameBarCloseReversalPct) ?? undefined,
+      sameBarReversalThresholdPct: finite(source.sameBarReversalThresholdPct) ?? undefined,
       touchCount: 0,
       pierceCount: 0,
       piercedAt: undefined,
