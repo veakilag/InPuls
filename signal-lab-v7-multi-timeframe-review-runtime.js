@@ -436,6 +436,52 @@ function formatManualEtalonDiagnosticRow(row) {
   ].join(" | ");
 }
 
+function buildCandleTraceRows(state) {
+  const params = new URL(window.location.href).searchParams;
+  const traceFrom = finite(params.get("traceFrom"));
+  const traceTo = finite(params.get("traceTo"));
+  if (traceFrom === null || traceTo === null || traceTo < traceFrom) return Object.freeze([]);
+  const timeframe = state?.viewTimeframe;
+  const candles = state?.candlesByTimeframe?.[timeframe] ?? [];
+  return Object.freeze(candles
+    .filter((candle) => {
+      const at = finite(candle?.time);
+      return at !== null && at >= traceFrom && at <= traceTo;
+    })
+    .map((candle) => Object.freeze({
+      time: finite(candle?.time),
+      open: finite(candle?.open),
+      high: finite(candle?.high),
+      low: finite(candle?.low),
+      close: finite(candle?.close),
+      volume: finite(candle?.volume),
+    })));
+}
+
+function formatCandleTraceRow(row) {
+  const at = row.time === null ? "—" : new Date(row.time).toISOString().slice(11, 16);
+  const digits = Math.max(row.open ?? 0, row.high ?? 0, row.low ?? 0, row.close ?? 0) >= 1000 ? 1 : 6;
+  const rangePct = row.low > 0 && row.high !== null
+    ? (row.high - row.low) / row.low * 100
+    : null;
+  const closeFromLowPct = row.low > 0 && row.close !== null
+    ? (row.close - row.low) / row.low * 100
+    : null;
+  const closeFromHighPct = row.high > 0 && row.close !== null
+    ? (row.high - row.close) / row.high * 100
+    : null;
+  return [
+    `CANDLE ${at}Z`,
+    `O=${debugNumber(row.open, digits)}`,
+    `H=${debugNumber(row.high, digits)}`,
+    `L=${debugNumber(row.low, digits)}`,
+    `C=${debugNumber(row.close, digits)}`,
+    `range=${debugNumber(rangePct, 3)}%`,
+    `C-L=${debugNumber(closeFromLowPct, 3)}%`,
+    `H-C=${debugNumber(closeFromHighPct, 3)}%`,
+  ].join(" | ");
+}
+
 function ensureDiagnosticPanel(message = null) {
   const params = new URL(window.location.href).searchParams;
   const debugEnabled = params.get("debug") === "1";
@@ -475,11 +521,14 @@ function addDiagnosticPanel(state, levelMap) {
   const manualEtalons = [...buildManualEtalonDiagnosticRows(state)]
     .sort((left, right) => (right.price ?? 0) - (left.price ?? 0));
   const rawNativeRows = [...buildRawNativeDiagnosticRows(state)];
+  const candleTraceRows = [...buildCandleTraceRows(state)];
   panel.textContent = [
-    `DEBUG V4.19 · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
+    `DEBUG V4.20 TRACE · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
     ...localRows.map(formatDiagnosticRow),
     `RAW NATIVE DEBUG · recent ${rawNativeRows.length}`,
     ...rawNativeRows.map(formatRawNativeDiagnosticRow),
+    `CANDLE TRACE · rows ${candleTraceRows.length}`,
+    ...candleTraceRows.map(formatCandleTraceRow),
     `ETALON DEBUG · manual levels ${manualEtalons.length}`,
     ...manualEtalons.map(formatManualEtalonDiagnosticRow),
   ].join("\n");
@@ -602,7 +651,7 @@ export function installMultiTimeframeReviewRuntime({ ChartClass, EngineClass }) 
     };
     const localGeneration = state.generation;
     stateByChart.set(this, state);
-    ensureDiagnosticPanel(`DEBUG V4.19 · ${viewTimeframe} · STATE=LOADING\nsymbol=${symbol} endAt=${endAt}`);
+    ensureDiagnosticPanel(`DEBUG V4.20 TRACE · ${viewTimeframe} · STATE=LOADING\nsymbol=${symbol} endAt=${endAt}`);
 
     queueMicrotask(async () => {
       try {
@@ -631,7 +680,7 @@ export function installMultiTimeframeReviewRuntime({ ChartClass, EngineClass }) 
         const message = String(error?.message ?? error);
         const context = document.querySelector("#multi-tf-context-status");
         if (context) context.textContent = `Иерархия не загрузилась: ${message}`;
-        ensureDiagnosticPanel(`DEBUG V4.19 · ${viewTimeframe} · STATE=ERROR\nsymbol=${symbol} endAt=${endAt}\n${message}`);
+        ensureDiagnosticPanel(`DEBUG V4.20 TRACE · ${viewTimeframe} · STATE=ERROR\nsymbol=${symbol} endAt=${endAt}\n${message}`);
       }
     });
 
