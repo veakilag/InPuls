@@ -1,0 +1,44 @@
+name: Apply Signal Lab V4.23 shadow confluence time
+
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-signal-lab-v4-23-shadow-confluence-time.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out draft branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/signal-lab-structural-extremes-stage1
+          fetch-depth: 0
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply V4.23
+        run: python scripts/apply-signal-lab-v4-23-shadow-confluence-time.py
+      - name: Rebuild standalone calibration page
+        run: python scripts/build-structural-extremes-review-bundle.py
+      - name: Remove temporary apply machinery
+        run: rm scripts/apply-signal-lab-v4-23-shadow-confluence-time.py .github/workflows/apply-signal-lab-v4-23-shadow-confluence-time.yml
+      - name: Validate focused regression
+        run: |
+          node --check signal-lab-v7-multi-timeframe-levels.js
+          node --test test/signal-lab-v7-local-same-side-shadow.test.js
+      - name: Run complete regression suite
+        run: npm test
+      - name: Commit verified V4.23
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix 1m shadow cleanup across senior confluence V4.23"
+          git push origin HEAD:agent/signal-lab-structural-extremes-stage1
