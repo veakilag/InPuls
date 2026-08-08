@@ -78,7 +78,7 @@ test("volatility context exposes historical NATR and current distance in NATR un
   assert.ok(distance > 0);
 });
 
-test("junior confluence with inherited senior price survives adaptive child filtering", () => {
+test("5m junior confluence with inherited senior price survives adaptive child filtering on a 1m chart", () => {
   const oneDayAt = END - 2 * 24 * 60 * 60_000;
   const juniorAt = END - 5 * MINUTE;
   const senior = extreme({
@@ -103,16 +103,17 @@ test("junior confluence with inherited senior price survives adaptive child filt
     "4h": { active: [], history: [] },
     "1h": { active: [], history: [] },
     "15m": { active: [], history: [] },
-    "5m": { active: [], history: [] },
-    "1m": { active: [tinyJunior], history: [tinyJunior] },
+    "5m": { active: [tinyJunior], history: [tinyJunior] },
+    // 1m is chart-only under the persistent structural floor contract.
+    "1m": { active: [], history: [] },
   };
   const candlesByTimeframe = {
     "1d": candles({ start: oneDayAt - 20 * 24 * 60 * 60_000, step: 24 * 60 * 60_000, halfRange: 1 }),
     "4h": [],
     "1h": [],
     "15m": [],
-    "5m": [],
-    "1m": candles({ halfRange: 5 }),
+    "5m": candles({ start: END - 100 * MINUTE, count: 20, step: 5 * MINUTE, halfRange: 5 }),
+    "1m": [],
   };
 
   const levels = buildHierarchicalStructuralLevelMap({
@@ -125,7 +126,7 @@ test("junior confluence with inherited senior price survives adaptive child filt
 
   assert.equal(levels.length, 1);
   assert.equal(levels[0].sourceTimeframe, "1d");
-  assert.deepEqual(levels[0].sources, ["1d", "1m"]);
+  assert.deepEqual(levels[0].sources, ["1d", "5m"]);
   assert.deepEqual(levels[0].memberIds, ["senior", "tiny-junior"]);
 });
 

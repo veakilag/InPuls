@@ -1,6 +1,13 @@
 export const STRUCTURAL_TF_ORDER = Object.freeze(["1m", "5m", "15m", "1h", "4h", "1d"]);
 export const STRUCTURAL_TF_DESCENT_ORDER = Object.freeze(["1d", "4h", "1h", "15m", "5m", "1m"]);
 
+// V5.2 product contract: 1m remains a chart/micro-context timeframe only.
+// Persistent structural levels and future pattern formation start at 5m.
+// Keep the legacy six-TF constants above for engine/backward compatibility,
+// but hierarchy source selection must never admit native 1m extrema.
+export const STRUCTURAL_PERSISTENT_TF_ORDER = Object.freeze(["5m", "15m", "1h", "4h", "1d"]);
+export const STRUCTURAL_PERSISTENT_TF_DESCENT_ORDER = Object.freeze(["1d", "4h", "1h", "15m", "5m"]);
+
 export const STRUCTURAL_TF_STRENGTH = Object.freeze({
   "1m": 1,
   "5m": 2,
@@ -154,15 +161,19 @@ const finite = (value) => {
 };
 
 export function visibleSourceTimeframes(viewTimeframe) {
-  const index = STRUCTURAL_TF_ORDER.indexOf(String(viewTimeframe));
+  const view = String(viewTimeframe);
+  if (view === "1m") return Object.freeze([...STRUCTURAL_PERSISTENT_TF_ORDER]);
+  const index = STRUCTURAL_PERSISTENT_TF_ORDER.indexOf(view);
   if (index < 0) return Object.freeze([]);
-  return Object.freeze(STRUCTURAL_TF_ORDER.slice(index));
+  return Object.freeze(STRUCTURAL_PERSISTENT_TF_ORDER.slice(index));
 }
 
 export function hierarchicalDescentTimeframes(viewTimeframe) {
-  const index = STRUCTURAL_TF_DESCENT_ORDER.indexOf(String(viewTimeframe));
+  const view = String(viewTimeframe);
+  if (view === "1m") return Object.freeze([...STRUCTURAL_PERSISTENT_TF_DESCENT_ORDER]);
+  const index = STRUCTURAL_PERSISTENT_TF_DESCENT_ORDER.indexOf(view);
   if (index < 0) return Object.freeze([]);
-  return Object.freeze(STRUCTURAL_TF_DESCENT_ORDER.slice(0, index + 1));
+  return Object.freeze(STRUCTURAL_PERSISTENT_TF_DESCENT_ORDER.slice(0, index + 1));
 }
 
 export function isLocalStructuralTimeframe(timeframe) {

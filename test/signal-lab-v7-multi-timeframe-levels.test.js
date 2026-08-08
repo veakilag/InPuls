@@ -51,12 +51,12 @@ function candle(time, high, low) {
   return { time, high, low, open: low, close: high, closeTime: time + 59_999 };
 }
 
-test("lower chart sees its own timeframe and every stronger timeframe", () => {
-  assert.deepEqual(visibleSourceTimeframes("1m"), ["1m", "5m", "15m", "1h", "4h", "1d"]);
+test("1m chart inherits 5m+ structure but native persistent structure starts at 5m", () => {
+  assert.deepEqual(visibleSourceTimeframes("1m"), ["5m", "15m", "1h", "4h", "1d"]);
   assert.deepEqual(visibleSourceTimeframes("5m"), ["5m", "15m", "1h", "4h", "1d"]);
   assert.deepEqual(visibleSourceTimeframes("4h"), ["4h", "1d"]);
   assert.deepEqual(visibleSourceTimeframes("1d"), ["1d"]);
-  assert.deepEqual(hierarchicalDescentTimeframes("1m"), ["1d", "4h", "1h", "15m", "5m", "1m"]);
+  assert.deepEqual(hierarchicalDescentTimeframes("1m"), ["1d", "4h", "1h", "15m", "5m"]);
 });
 
 test("review history uses six months for senior TFs and one month for 15m and below", async () => {
@@ -249,10 +249,13 @@ test("hierarchical map starts at 1d, refines it and only then adds significant c
     "4h": { active: [extreme({ id: "h4", side: "LOW", price: 90, extremeAt: dayStart + 8 * 60 * 60_000 })], history: [] },
     "1h": { active: [], history: [] },
     "15m": { active: [], history: [] },
-    "5m": { active: [], history: [] },
+    "5m": { active: [
+      extreme({ id: "local-5m", side: "HIGH", price: 104, extremeAt: END - 5 * 60_000, swingAmplitudePct: 0.60, reversalThresholdPct: 0.10 }),
+    ], history: [] },
+    // Native 1m data may exist for chart/research compatibility, but the
+    // persistent hierarchy must ignore it completely.
     "1m": { active: [
-      extreme({ id: "noise", side: "LOW", price: 100, extremeAt: END - 10 * 60_000, swingAmplitudePct: 0.15, reversalThresholdPct: 0.10 }),
-      extreme({ id: "local", side: "HIGH", price: 104, extremeAt: END - 5 * 60_000, swingAmplitudePct: 0.60, reversalThresholdPct: 0.10 }),
+      extreme({ id: "local-1m", side: "LOW", price: 100, extremeAt: END - 2 * 60_000, swingAmplitudePct: 5, reversalThresholdPct: 0.10 }),
     ], history: [] },
   };
   const candlesByTimeframe = {
@@ -273,8 +276,9 @@ test("hierarchical map starts at 1d, refines it and only then adds significant c
 
   assert.ok(levels.find((row) => row.id === "d" && row.sourceTimeframe === "1d"));
   assert.ok(levels.find((row) => row.id === "h4" && row.sourceTimeframe === "4h"));
-  assert.ok(levels.find((row) => row.id === "local" && row.sourceTimeframe === "1m"));
-  assert.equal(levels.some((row) => row.id === "noise"), false);
+  assert.ok(levels.find((row) => row.id === "local-5m" && row.sourceTimeframe === "5m"));
+  assert.equal(levels.some((row) => row.sourceTimeframe === "1m"), false);
+  assert.equal(levels.some((row) => row.id === "local-1m"), false);
 });
 
 

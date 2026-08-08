@@ -29,12 +29,8 @@ const INTERVAL_MS = Object.freeze({
 // significance/noise filtering. This prevents the same ATR/NATR idea from
 // deleting a swing twice before it can even reach the visible map.
 export const STRUCTURAL_REVIEW_GENERATION_CONFIG = Object.freeze({
-  "1m": Object.freeze({
-    minimumSwingPercent: 0.08,
-    minimumPercent: 0.06,
-    atrMultiplier: 0,
-    minimumBarsAfterCandidate: 1,
-  }),
+  // V5.2: 1m intentionally has no structural generation config. The 1m chart
+  // may display inherited 5m+ levels, but native persistent structure starts here.
   "5m": Object.freeze({
     minimumSwingPercent: 0.10,
     minimumPercent: 0.08,
@@ -214,7 +210,7 @@ function addContextStatus(state, levelMap) {
     status.insertAdjacentElement("afterend", context);
   }
   const sources = visibleSourceTimeframes(state.viewTimeframe).slice().reverse().join(" → ");
-  context.textContent = `Иерархия: ${sources} · уровней ${levelMap.length} · 1д/4ч/1ч: 6 мес · 15м/5м/1м: 1 мес`;
+  context.textContent = `Иерархия: ${sources} · уровней ${levelMap.length} · 1д/4ч/1ч: 6 мес · 15м/5м: 1 мес · 1м: только график`;
 }
 
 function debugNumber(value, digits = 2) {
@@ -250,7 +246,7 @@ export function buildStructuralReviewDiagnosticRows(state, levelMap) {
   const rows = [];
   for (const level of Array.isArray(levelMap) ? levelMap : []) {
     const timeframe = level?.sourceTimeframe;
-    if (!(["1m", "5m"].includes(timeframe)) || level?.active === false) continue;
+    if (timeframe !== "5m" || level?.active === false) continue;
     const candles = state?.candlesByTimeframe?.[timeframe] ?? [];
     const volatility = buildStructuralVolatilityContext(candles);
     const extreme = findNativeExtreme(state, level);
@@ -316,7 +312,7 @@ function formatDiagnosticRow(row) {
 
 function buildRawNativeDiagnosticRows(state) {
   const timeframe = state?.viewTimeframe;
-  if (!(["1m", "5m"].includes(timeframe))) return Object.freeze([]);
+  if (timeframe !== "5m") return Object.freeze([]);
   const snapshot = state?.snapshotsByTimeframe?.[timeframe];
   if (!snapshot) return Object.freeze([]);
   const candles = state?.candlesByTimeframe?.[timeframe] ?? [];
@@ -384,7 +380,7 @@ function formatRawNativeDiagnosticRow(row) {
 
 function buildV5SourceQualificationDiagnosticRows(state, levelMap) {
   const timeframe = state?.viewTimeframe;
-  if (!(timeframe === "1m" || timeframe === "5m")) return Object.freeze([]);
+  if (timeframe !== "5m") return Object.freeze([]);
   const snapshot = state?.snapshotsByTimeframe?.[timeframe];
   if (!snapshot) return Object.freeze([]);
   const candles = state?.candlesByTimeframe?.[timeframe] ?? [];
@@ -466,7 +462,7 @@ function buildManualEtalonDiagnosticRows(state) {
     ? window.__INPULS_STRUCTURAL_REVIEW_CORRECTIONS__
     : [];
   const timeframe = state?.viewTimeframe;
-  if (!(["1m", "5m"].includes(timeframe))) return Object.freeze([]);
+  if (timeframe !== "5m") return Object.freeze([]);
   const candles = state?.candlesByTimeframe?.[timeframe] ?? [];
   const volatility = buildStructuralVolatilityContext(candles);
   const rows = [];
