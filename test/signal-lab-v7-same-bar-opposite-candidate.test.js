@@ -87,3 +87,55 @@ test("V4.20 ordinary new higher high still clears stale opposite when close reve
   // 112 -> 111 is only 0.89%, below the 2% reversal threshold: do not seed 106.
   assert.equal(snapshot.oppositeCandidate, null);
 });
+
+
+test("V4.21 qualified same-bar opposite survives continued primary extremes until confirmation", () => {
+  const engine = new StructuralExtremeEngine({
+    symbol: "TESTUSDT",
+    timeframe: "1m",
+    tickSize: 0.01,
+    config: {
+      minimumSwingPercent: 1,
+      minimumPercent: 0.5,
+      maximumPercent: 5,
+      atrMultiplier: 0,
+      minimumBarsAfterCandidate: 1,
+    },
+  });
+
+  engine.ingestCandles([
+    candle(0, { open: 100, high: 100, low: 99, close: 99.5 }),
+    candle(1, { open: 99.5, high: 99.5, low: 95, close: 95.5 }),
+    // Qualified same-bar opposite HIGH=98 is created while LOW moves to 90.
+    candle(2, { open: 95.5, high: 98, low: 90, close: 91 }),
+  ]);
+
+  let snapshot = engine.snapshot();
+  assert.equal(snapshot.candidate?.side, "LOW");
+  assert.equal(snapshot.candidate?.price, 90);
+  assert.equal(snapshot.oppositeCandidate?.price, 98);
+  assert.equal(snapshot.oppositeCandidate?.provisionalSameBar, true);
+
+  // The main down-leg continues. Smaller same-bar highs must not erase or
+  // downgrade the already qualified 98 boundary.
+  engine.ingestCandle(candle(3, { open: 91, high: 94, low: 85, close: 86 }));
+  snapshot = engine.snapshot();
+  assert.equal(snapshot.candidate?.price, 85);
+  assert.equal(snapshot.oppositeCandidate?.side, "HIGH");
+  assert.equal(snapshot.oppositeCandidate?.price, 98);
+
+  engine.ingestCandle(candle(4, { open: 86, high: 93, low: 80, close: 81 }));
+  snapshot = engine.snapshot();
+  assert.equal(snapshot.candidate?.price, 80);
+  assert.equal(snapshot.oppositeCandidate?.price, 98);
+
+  // Once the LOW is confirmed by a later reversal, the preserved opposite HIGH
+  // becomes the normal next candidate rather than being lost.
+  engine.ingestCandle(candle(5, { open: 81, high: 90, low: 81, close: 88 }));
+  snapshot = engine.snapshot();
+  assert.equal(snapshot.direction, "TRACKING_UP");
+  assert.equal(snapshot.candidate?.side, "HIGH");
+  assert.equal(snapshot.candidate?.price, 98);
+  assert.equal(snapshot.candidate?.provisionalSameBar, true);
+  assert.equal(snapshot.candidate?.intrabarOrderUnknown, true);
+});

@@ -394,12 +394,16 @@ export class StructuralExtremeEngine {
     if (highTicks > this.candidate.priceTicks) {
       const previousPrice = this.candidate.price;
       this.candidate = { ...makeCandidate("HIGH", candle.high, highTicks, candle, this.barIndex), movedCount: this.candidate.movedCount + 1 };
-      // A new main extreme invalidates any stale opposite candidate from older
-      // bars. V4.20 may seed a NEW same-bar opposite wick only when this closed
-      // candle has already reversed from the new extreme by the causal reversal
-      // threshold. This preserves violent reversal candles without turning every
-      // ordinary higher high into a synthetic LOW.
-      this.oppositeCandidate = null;
+      // A new main extreme invalidates ordinary stale opposite state. V4.21
+      // keeps only a previously QUALIFIED same-bar provisional LOW alive across
+      // continued higher highs; otherwise a violent reversal wick can be seeded
+      // correctly and then erased by the very next continuation bar before the
+      // primary HIGH is confirmed.
+      const preservedQualifiedOpposite = this.oppositeCandidate?.provisionalSameBar === true
+        && this.oppositeCandidate?.side === "LOW"
+        ? { ...this.oppositeCandidate }
+        : null;
+      this.oppositeCandidate = preservedQualifiedOpposite;
       this.#maybeSeedSameBarOppositeCandidate("LOW", candle);
       this.eventLog.push(eventRecord("CANDIDATE_MOVED", candle.closeTime, {
         side: "HIGH",
@@ -440,10 +444,16 @@ export class StructuralExtremeEngine {
     if (lowTicks < this.candidate.priceTicks) {
       const previousPrice = this.candidate.price;
       this.candidate = { ...makeCandidate("LOW", candle.low, lowTicks, candle, this.barIndex), movedCount: this.candidate.movedCount + 1 };
-      // Same invariant as TRACKING_UP: stale opposite state is discarded first.
-      // Only a materially reversed CLOSE may seed the opposite HIGH wick from
-      // this same closed candle.
-      this.oppositeCandidate = null;
+      // Same invariant as TRACKING_UP: discard ordinary stale opposite state,
+      // but preserve an already-qualified same-bar provisional HIGH while the
+      // primary LOW continues to make lower lows. This is the HFT 08:53 case:
+      // H=0.0258 was observed on a materially reversed candle, then later lower
+      // lows must not erase that structural opposite before LOW confirmation.
+      const preservedQualifiedOpposite = this.oppositeCandidate?.provisionalSameBar === true
+        && this.oppositeCandidate?.side === "HIGH"
+        ? { ...this.oppositeCandidate }
+        : null;
+      this.oppositeCandidate = preservedQualifiedOpposite;
       this.#maybeSeedSameBarOppositeCandidate("HIGH", candle);
       this.eventLog.push(eventRecord("CANDIDATE_MOVED", candle.closeTime, {
         side: "LOW",
@@ -481,6 +491,15 @@ export class StructuralExtremeEngine {
 
     const price = side === "LOW" ? candle.low : candle.high;
     const priceTicks = toTicks(price, this.tickSize);
+    const existing = this.oppositeCandidate;
+    const shouldReplace = !existing
+      || existing.side !== side
+      || (side === "LOW" && priceTicks < existing.priceTicks)
+      || (side === "HIGH" && priceTicks > existing.priceTicks);
+    // If a previously qualified provisional opposite is more extreme, keep it.
+    // Continuation candles may observe smaller opposite wicks, but they must not
+    // downgrade the structural boundary already seen in closed OHLC data.
+    if (!shouldReplace) return;
     this.oppositeCandidate = {
       ...makeCandidate(side, price, priceTicks, candle, this.barIndex),
       provisionalSameBar: true,
