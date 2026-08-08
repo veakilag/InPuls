@@ -26,9 +26,6 @@ jobs:
       - name: Apply V6.3.1 causal approach fix
         run: python3 .github/scripts/apply_signal_lab_v6_3_1.py
 
-      - name: Rebuild standalone calibration page
-        run: node scripts/build-signal-lab-standalone.mjs owner-signal-lab-structural-extremes-review.html
-
       - name: Remove temporary apply machinery
         run: |
           rm -f .github/scripts/apply_signal_lab_v6_3_1.py
