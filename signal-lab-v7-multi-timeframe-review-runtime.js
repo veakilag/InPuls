@@ -646,8 +646,9 @@ function formatV5SourceQualificationDiagnosticRow(row) {
     `quality=${row.sourceQualityPassed ? "PASS" : "FAIL"}`,
     `prev=${debugNumber(row.previousPrice, row.price >= 1000 ? 1 : 6)}@${prevAt}`,
     `v5=${verdict}`,
-    `leg=${debugNumber(row.decision?.legExtreme, row.price >= 1000 ? 1 : 6)}`,
-    `reset=${debugPercentRatio(row.decision?.resetRatio)} min=${debugPercentRatio(row.decision?.minimumLegResetRatio)}`,
+    `v1=${debugNumber(row.decision?.vRejection?.immediateBalanceNatr ?? row.decision?.immediateBalanceNatr, 2)}N`,
+    `v6=${debugNumber(row.decision?.vRejection?.sustainedBalanceNatr ?? row.decision?.sustainedBalanceNatr, 2)}N`,
+    `def6=${row.decision?.vRejection?.defenseReturns ?? row.decision?.defenseReturns ?? "—"}`,
     `bars=${debugNumber(row.decision?.anchorBars, 1)}`,
     `in=${debugNumber(row.prominence?.incomingBaseNatr, 2)}N out=${debugNumber(row.prominence?.outgoingBaseNatr, 2)}N`,
     `retr=${debugPercentRatio(row.prominence?.retracementRatio)}`,
@@ -882,7 +883,7 @@ function addDiagnosticPanel(state, levelMap) {
   const vShapeRows = [...buildVShapeShadowDiagnosticRows(state, levelMap)];
   const candleTraceRows = [...buildCandleTraceRows(state)];
   panel.textContent = [
-    `DEBUG V5.3 SHADOW METRICS · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
+    `DEBUG V5.4 V-ANCHOR · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
     ...localRows.map(formatDiagnosticRow),
     `V-SHAPE SHADOW DEBUG · rows ${vShapeRows.length}`,
     ...vShapeRows.map(formatVShapeShadowDiagnosticRow),

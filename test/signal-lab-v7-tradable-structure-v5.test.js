@@ -2,138 +2,155 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  filterLocalTradableStructure,
+  buildStructuralVAnchorExtremes,
+  structuralLocalVRejectionDecision,
   structuralTrendLegQualificationDecision,
 } from "../signal-lab-v7-multi-timeframe-levels.js";
 
-const minute = 60_000;
+const five = 5 * 60_000;
+const candle = (index, high, low, close = (high + low) / 2) => ({
+  time: index * five,
+  closeTime: (index + 1) * five - 1,
+  open: close,
+  high,
+  low,
+  close,
+  volume: 1,
+  closed: true,
+});
 const level = (id, side, price, index, extra = {}) => ({
   id,
   side,
   price,
-  extremeAt: index * minute,
-  nativeExtremeAt: index * minute,
-  displayAt: index * minute,
-  sourceTimeframe: "1m",
-  sources: ["1m"],
-  refinedThroughTimeframe: "1m",
-  refinementPath: [{ timeframe: "1m", time: index * minute }],
+  extremeAt: index * five,
+  nativeExtremeAt: index * five,
+  displayAt: index * five,
+  sourceTimeframe: "5m",
+  sources: ["5m"],
+  refinedThroughTimeframe: "5m",
+  refinementPath: [{ timeframe: "5m", time: index * five }],
   active: true,
   attackCount: 1,
   ...extra,
 });
-const candle = (index, high, low, close = (high + low) / 2) => ({
-  time: index * minute,
-  high,
-  low,
-  close,
-});
 
-test("V5 filters shallow higher-LOW staircases inside one bullish leg", () => {
-  const levels = [
-    level("low-base", "LOW", 100, 0),
-    level("low-step-1", "LOW", 108, 5),
-    level("low-step-2", "LOW", 109, 10),
-  ];
-  const candles = [
-    candle(1, 104, 101), candle(2, 108, 103), candle(3, 110, 106),
-    candle(4, 110, 107), candle(5, 109, 108),
-    candle(6, 111, 108), candle(7, 112, 109), candle(8, 112, 109),
-    candle(9, 112, 109), candle(10, 111, 109),
-  ];
-  const result = filterLocalTradableStructure(levels, "1m", candles);
-  assert.deepEqual(result.map((row) => row.id), ["low-base"]);
-});
+function volatilityFor(candles, natr = 2) {
+  return {
+    baseNatrPct: natr,
+    currentNatrPct: natr,
+    times: candles.map((row) => row.time),
+    natrs: candles.map(() => natr),
+  };
+}
 
-test("V5 accepts a higher LOW after a meaningful leg reset", () => {
-  const prior = level("low-base", "LOW", 100, 0);
-  const current = level("low-reset", "LOW", 106, 5);
-  const candles = [
-    candle(1, 104, 101), candle(2, 108, 103), candle(3, 110, 105),
-    candle(4, 109, 106), candle(5, 108, 106),
+function cleanLowCandles() {
+  return [
+    candle(0, 101, 97),
+    candle(1, 100, 96),
+    candle(2, 99, 95),
+    candle(3, 98, 94),
+    candle(4, 97, 93),
+    candle(5, 95, 92),
+    candle(6, 93, 90, 91),
+    candle(7, 96, 92, 95),
+    candle(8, 97, 94, 96),
+    candle(9, 98, 95, 97),
+    candle(10, 99, 95, 98),
+    candle(11, 100, 96, 99),
+    candle(12, 101, 97, 100),
+    candle(13, 102, 98, 101),
   ];
-  const decision = structuralTrendLegQualificationDecision(current, prior, "1m", candles);
+}
+
+test("V5.4 accepts a clean balanced 5m V rejection", () => {
+  const candles = cleanLowCandles();
+  const decision = structuralLocalVRejectionDecision(
+    level("good-low", "LOW", 90, 6),
+    "5m",
+    candles,
+    volatilityFor(candles),
+  );
   assert.equal(decision.qualified, true);
-  assert.equal(decision.reason, "TREND_LEG_RESET_PASS");
-  assert.ok(decision.resetRatio >= 0.30);
+  assert.equal(decision.reason, "V_REJECTION_PASS");
+  assert.ok(decision.immediateBalanceNatr >= 1);
+  assert.ok(decision.sustainedBalanceNatr >= 2);
+  assert.equal(decision.defenseReturns, 0);
 });
 
-test("V5 mirrors the rule for lower HIGH staircases inside one bearish leg", () => {
-  const levels = [
-    level("high-base", "HIGH", 110, 0),
-    level("high-step", "HIGH", 102, 5),
-  ];
-  const candles = [
-    candle(1, 109, 106), candle(2, 107, 103), candle(3, 104, 100),
-    candle(4, 103, 100), candle(5, 102, 101),
-  ];
-  const result = filterLocalTradableStructure(levels, "1m", candles);
-  assert.deepEqual(result.map((row) => row.id), ["high-base"]);
-});
-
-test("V5 never suppresses repeated attacks or multi-TF confluence", () => {
-  const levels = [
-    level("low-base", "LOW", 100, 0),
-    level("low-x2", "LOW", 109, 5, { attackCount: 2 }),
-    level("low-confluence", "LOW", 109.5, 6, {
-      sourceTimeframe: "15m",
-      sources: ["15m", "1m"],
-      refinementPath: [
-        { timeframe: "15m", time: 0 },
-        { timeframe: "1m", time: 6 * minute },
-      ],
-      displayAt: 6 * minute,
-    }),
-  ];
-  const candles = [
-    candle(1, 104, 101), candle(2, 108, 103), candle(3, 110, 106),
-    candle(4, 110, 108), candle(5, 110, 109), candle(6, 110, 109.5),
-  ];
-  const result = filterLocalTradableStructure(levels, "1m", candles);
-  assert.deepEqual(result.map((row) => row.id), ["low-base", "low-x2", "low-confluence"]);
-});
-
-test("V5.1 keeps a same-side leg anchor alive across a long smooth trend", () => {
-  const prior = level("low-old", "LOW", 100, 0);
-  const current = level("low-new", "LOW", 109, 61);
-  const decision = structuralTrendLegQualificationDecision(current, prior, "1m", [
-    candle(30, 106, 103), candle(60, 110, 108), candle(61, 110, 109),
-  ]);
+test("V5.4 rejects a turn that returns into the level zone", () => {
+  const candles = cleanLowCandles();
+  candles[9] = candle(9, 98, 90.4, 97);
+  const decision = structuralLocalVRejectionDecision(
+    level("retested-low", "LOW", 90, 6),
+    "5m",
+    candles,
+    volatilityFor(candles),
+  );
   assert.equal(decision.qualified, false);
-  assert.equal(decision.reason, "TREND_LEG_SHALLOW_CONTINUATION_FILTERED");
-  assert.equal(decision.anchorBars, 61);
-  assert.ok(decision.resetRatio < 0.30);
+  assert.equal(decision.reason, "V_REJECTION_ZONE_RETESTED");
+  assert.ok(decision.defenseReturns > 0);
 });
 
+test("V5.4 rejects weak immediate V geometry even if price later runs", () => {
+  const candles = cleanLowCandles();
+  candles[5] = candle(5, 91, 90.5, 90.8);
+  const decision = structuralLocalVRejectionDecision(
+    level("weak-low", "LOW", 90, 6),
+    "5m",
+    candles,
+    volatilityFor(candles),
+  );
+  assert.equal(decision.qualified, false);
+  assert.equal(decision.reason, "V_REJECTION_WEAK_IMMEDIATE_TURN");
+});
 
-test("V5.1 filters a native 5m staircase before it can become hierarchy noise", () => {
-  const five = 5 * minute;
-  const native = (id, price, index) => ({
-    id,
-    side: "LOW",
-    price,
-    extremeAt: index * five,
-    nativeExtremeAt: index * five,
-    displayAt: index * five,
-    sourceTimeframe: "5m",
-    sources: ["5m"],
-    refinedThroughTimeframe: "5m",
-    refinementPath: [{ timeframe: "5m", time: index * five }],
-    active: true,
-    attackCount: 1,
-  });
-  const rows = [
-    { time: 1 * five, high: 104, low: 101, close: 103 },
-    { time: 2 * five, high: 108, low: 103, close: 107 },
-    { time: 3 * five, high: 110, low: 106, close: 109 },
-    { time: 4 * five, high: 110, low: 107, close: 109 },
-    { time: 5 * five, high: 110, low: 108, close: 109 },
-    { time: 6 * five, high: 111, low: 108.5, close: 110 },
-  ];
-  const result = filterLocalTradableStructure([
-    native("base", 100, 0),
-    native("step-1", 108, 5),
-    native("step-2", 108.5, 6),
-  ], "5m", rows);
-  assert.deepEqual(result.map((row) => row.id), ["base"]);
+test("V5.4 candle scanner creates a missing 5m V anchor without 1m data", () => {
+  const candles = cleanLowCandles();
+  const anchors = buildStructuralVAnchorExtremes(
+    candles,
+    "5m",
+    volatilityFor(candles),
+    { tickSize: 0.01, endAt: candles.at(-1).closeTime },
+  );
+  const anchor = anchors.find((row) => row.side === "LOW" && row.extremeAt === 6 * five);
+  assert.ok(anchor);
+  assert.equal(anchor.price, 90);
+  assert.equal(anchor.syntheticStructuralAnchor, true);
+  assert.equal(anchor.structuralReason, "V_REJECTION_5M");
+});
+
+test("V5.4 continuation level must prove V rejection, while repeated attack bypass remains", () => {
+  const candles = cleanLowCandles();
+  const prior = level("prior-low", "LOW", 80, 0);
+  const current = level("current-low", "LOW", 90, 6);
+  const decision = structuralTrendLegQualificationDecision(
+    current,
+    prior,
+    "5m",
+    candles,
+    volatilityFor(candles),
+  );
+  assert.equal(decision.qualified, true);
+  assert.equal(decision.reason, "TREND_LEG_V_REJECTION_PASS");
+
+  const bypass = structuralTrendLegQualificationDecision(
+    { ...current, id: "x2", attackCount: 2 },
+    prior,
+    "5m",
+    [],
+    volatilityFor(candles),
+  );
+  assert.equal(bypass.qualified, true);
+  assert.equal(bypass.reason, "TREND_LEG_REPEATED_ATTACK_BYPASS");
+});
+
+test("1m no longer runs tradable structural qualification", () => {
+  const decision = structuralTrendLegQualificationDecision(
+    { ...level("legacy", "LOW", 90, 6), sourceTimeframe: "1m", sources: ["1m"] },
+    null,
+    "1m",
+    [],
+  );
+  assert.equal(decision.qualified, true);
+  assert.equal(decision.reason, "TREND_LEG_QUALIFICATION_NOT_APPLICABLE");
 });

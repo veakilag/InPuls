@@ -102,15 +102,23 @@ export const LOCAL_WORKING_SET_POLICY = Object.freeze({
   "5m": Object.freeze({ maxDistanceBaseNatr: 6 }),
 });
 
-// V5.0: trader-reviewed BICO 1m/5m showed that a smooth directional leg can
-// generate many technically valid swing pivots that are not independently tradable
-// liquidity levels. Keep detector/history recall-first, but require a continuation-
-// side higher LOW / lower HIGH to reset a meaningful part of the preceding leg
-// before it is promoted to the working map. This is structural geometry, not a
-// price-prediction score. Repeated attacks and multi-TF confluence bypass it.
+// V5.4: persistent local structure now starts at 5m. Trader-reviewed BICO
+// separated real tradable turns from trend-leg noise by a balanced V-rejection:
+// immediate arrival+departure >= 1.0 base/local NATR, sustained six-bar separation
+// >= 2.0 NATR, and no return into a narrow 0.35-NATR zone during those six bars.
+// This is a structural qualification rule, not a price prediction. Repeated attacks
+// and senior confluence remain independent evidence and bypass continuation filtering.
 export const LOCAL_TRADABLE_STRUCTURE_POLICY = Object.freeze({
-  "1m": Object.freeze({ minimumLegResetRatio: 0.30 }),
-  "5m": Object.freeze({ minimumLegResetRatio: 0.30 }),
+  "5m": Object.freeze({ mode: "V_REJECTION" }),
+});
+
+export const LOCAL_V_REJECTION_POLICY = Object.freeze({
+  "5m": Object.freeze({
+    immediateBalanceNatr: 1.00,
+    sustainedBalanceNatr: 2.00,
+    separationBars: 6,
+    zoneNatr: 0.35,
+  }),
 });
 
 // V4.7 calibration: trader review on BTC 5m showed that two shallow pauses
@@ -327,6 +335,242 @@ export function structuralDistanceBaseNatr(price, volatilityContext) {
   if (!(levelPrice > 0) || !(currentPrice > 0) || !(baseNatrPct > 0)) return null;
   const distancePct = Math.abs(levelPrice - currentPrice) / currentPrice * 100;
   return distancePct / baseNatrPct;
+}
+
+
+function structuralVReference(window, side) {
+  if (!window.length) return null;
+  if (side === "LOW") return Math.max(...window.map((row) => row.high));
+  return Math.min(...window.map((row) => row.low));
+}
+
+function structuralVMovePct(price, reference) {
+  const pivot = finite(price);
+  const value = finite(reference);
+  if (!(pivot > 0) || !(value > 0)) return null;
+  return Math.abs(value - pivot) / pivot * 100;
+}
+
+function structuralVRejectionMetricsFromRows(
+  level,
+  sourceTimeframe,
+  rows,
+  volatilityContext,
+  pivotIndex,
+) {
+  const policy = LOCAL_V_REJECTION_POLICY[sourceTimeframe];
+  if (!policy || sourceTimeframe !== "5m") {
+    return Object.freeze({ qualified: true, reason: "V_REJECTION_NOT_APPLICABLE" });
+  }
+  const side = level?.side;
+  const price = finite(level?.price);
+  const extremeAt = finite(level?.nativeExtremeAt ?? level?.extremeAt);
+  if (!(side === "LOW" || side === "HIGH") || !(price > 0) || extremeAt === null || pivotIndex < 0) {
+    return Object.freeze({ qualified: false, reason: "V_REJECTION_MISSING_PIVOT" });
+  }
+
+  const separationBars = Math.max(1, Math.round(finite(policy.separationBars) ?? 6));
+  const before1 = rows.slice(Math.max(0, pivotIndex - 1), pivotIndex);
+  const after1 = rows.slice(pivotIndex + 1, pivotIndex + 2);
+  const beforeLong = rows.slice(Math.max(0, pivotIndex - separationBars), pivotIndex);
+  const afterLong = rows.slice(pivotIndex + 1, pivotIndex + 1 + separationBars);
+  if (!before1.length || !after1.length || afterLong.length < separationBars) {
+    return Object.freeze({
+      qualified: false,
+      reason: "V_REJECTION_CONTEXT_INCOMPLETE",
+      separationBars,
+    });
+  }
+
+  const natrAtExtreme = structuralNatrAt(volatilityContext, extremeAt);
+  const baseNatrPct = finite(volatilityContext?.baseNatrPct);
+  const scaleNatrPct = natrAtExtreme !== null && natrAtExtreme > 0 ? natrAtExtreme : baseNatrPct;
+  if (!(scaleNatrPct > 0)) {
+    return Object.freeze({ qualified: false, reason: "V_REJECTION_SCALE_UNAVAILABLE" });
+  }
+
+  const normalize = (pct) => pct === null ? null : pct / scaleNatrPct;
+  const incoming1Pct = structuralVMovePct(price, structuralVReference(before1, side));
+  const outgoing1Pct = structuralVMovePct(price, structuralVReference(after1, side));
+  const incomingLongPct = structuralVMovePct(price, structuralVReference(beforeLong, side));
+  const outgoingLongPct = structuralVMovePct(price, structuralVReference(afterLong, side));
+  const incoming1Natr = normalize(incoming1Pct);
+  const outgoing1Natr = normalize(outgoing1Pct);
+  const incomingLongNatr = normalize(incomingLongPct);
+  const outgoingLongNatr = normalize(outgoingLongPct);
+  const immediateBalanceNatr = incoming1Natr !== null && outgoing1Natr !== null
+    ? Math.min(incoming1Natr, outgoing1Natr)
+    : null;
+  const sustainedBalanceNatr = incomingLongNatr !== null && outgoingLongNatr !== null
+    ? Math.min(incomingLongNatr, outgoingLongNatr)
+    : null;
+
+  const zoneNatr = Math.max(0, finite(policy.zoneNatr) ?? 0.35);
+  const zonePct = scaleNatrPct * zoneNatr;
+  let defenseReturns = 0;
+  for (const row of afterLong) {
+    const touch = side === "LOW" ? finite(row?.low) : finite(row?.high);
+    if (!(touch > 0)) continue;
+    const distancePct = Math.abs(touch - price) / price * 100;
+    if (distancePct <= zonePct) defenseReturns += 1;
+  }
+
+  const minimumImmediateBalanceNatr = Math.max(0, finite(policy.immediateBalanceNatr) ?? 1);
+  const minimumSustainedBalanceNatr = Math.max(0, finite(policy.sustainedBalanceNatr) ?? 2);
+  const immediatePassed = immediateBalanceNatr !== null
+    && immediateBalanceNatr >= minimumImmediateBalanceNatr;
+  const sustainedPassed = sustainedBalanceNatr !== null
+    && sustainedBalanceNatr >= minimumSustainedBalanceNatr;
+  const cleanSeparationPassed = defenseReturns === 0;
+  const qualified = immediatePassed && sustainedPassed && cleanSeparationPassed;
+
+  return Object.freeze({
+    qualified,
+    reason: qualified
+      ? "V_REJECTION_PASS"
+      : !immediatePassed
+        ? "V_REJECTION_WEAK_IMMEDIATE_TURN"
+        : !sustainedPassed
+          ? "V_REJECTION_WEAK_SUSTAINED_SEPARATION"
+          : "V_REJECTION_ZONE_RETESTED",
+    side,
+    price,
+    extremeAt,
+    scaleNatrPct,
+    natrAtExtreme,
+    baseNatrPct,
+    incoming1Natr,
+    outgoing1Natr,
+    incomingLongNatr,
+    outgoingLongNatr,
+    immediateBalanceNatr,
+    sustainedBalanceNatr,
+    minimumImmediateBalanceNatr,
+    minimumSustainedBalanceNatr,
+    separationBars,
+    zoneNatr,
+    defenseReturns,
+    immediatePassed,
+    sustainedPassed,
+    cleanSeparationPassed,
+  });
+}
+
+export function structuralLocalVRejectionDecision(
+  level,
+  sourceTimeframe,
+  candles = [],
+  volatilityContext = null,
+) {
+  const rows = (Array.isArray(candles) ? candles : [])
+    .map(validCandle)
+    .filter(Boolean)
+    .sort((left, right) => left.time - right.time);
+  const pivotAt = finite(level?.nativeExtremeAt ?? level?.extremeAt);
+  const pivotIndex = rows.findIndex((row) => row.time === pivotAt);
+  const context = volatilityContext ?? buildStructuralVolatilityContext(rows);
+  return structuralVRejectionMetricsFromRows(level, sourceTimeframe, rows, context, pivotIndex);
+}
+
+function structuralVAnchorAcceptance(rows, startIndex, side, price, tickSize, intervalMs) {
+  const tolerance = Math.max(0, finite(tickSize) ?? 0);
+  let consecutive = 0;
+  for (let index = startIndex; index < rows.length; index += 1) {
+    const close = finite(rows[index]?.close);
+    if (!(close > 0)) continue;
+    const beyond = side === "LOW"
+      ? close < price - tolerance
+      : close > price + tolerance;
+    consecutive = beyond ? consecutive + 1 : 0;
+    if (consecutive >= 2) {
+      return rows[index].time + intervalMs - 1;
+    }
+  }
+  return null;
+}
+
+// Recall supplement for a specific failure mode of the alternating swing engine:
+// a meaningful opposite 5m V-turn can occur inside a larger continuing leg and be
+// overwritten before it becomes the engine's next alternating candidate. We scan
+// closed 5m OHLC only, wait six full bars for causal separation, and emit a
+// structural anchor. No 1m data or intrabar-order assumption is used.
+export function buildStructuralVAnchorExtremes(
+  candles,
+  sourceTimeframe,
+  volatilityContext = null,
+  { tickSize = 0, endAt = null } = {},
+) {
+  if (sourceTimeframe !== "5m" || !LOCAL_V_REJECTION_POLICY[sourceTimeframe]) {
+    return Object.freeze([]);
+  }
+  const rows = (Array.isArray(candles) ? candles : [])
+    .map(validCandle)
+    .filter(Boolean)
+    .sort((left, right) => left.time - right.time);
+  if (rows.length < 8) return Object.freeze([]);
+  const context = volatilityContext ?? buildStructuralVolatilityContext(rows);
+  const intervalMs = STRUCTURAL_TF_INTERVAL_MS[sourceTimeframe];
+  const separationBars = Math.max(
+    1,
+    Math.round(finite(LOCAL_V_REJECTION_POLICY[sourceTimeframe]?.separationBars) ?? 6),
+  );
+  const rangeEnd = finite(endAt);
+  const anchors = [];
+
+  for (let index = 1; index + separationBars < rows.length; index += 1) {
+    const row = rows[index];
+    const previous = rows[index - 1];
+    const next = rows[index + 1];
+    for (const side of ["LOW", "HIGH"]) {
+      const price = finite(side === "LOW" ? row.low : row.high);
+      if (!(price > 0)) continue;
+      const localTurn = side === "LOW"
+        ? price < previous.low && price <= next.low
+        : price > previous.high && price >= next.high;
+      if (!localTurn) continue;
+
+      const pseudo = { side, price, extremeAt: row.time, nativeExtremeAt: row.time };
+      const decision = structuralVRejectionMetricsFromRows(
+        pseudo,
+        sourceTimeframe,
+        rows,
+        context,
+        index,
+      );
+      if (!decision.qualified) continue;
+
+      const confirmedAt = rows[index + separationBars].time + intervalMs - 1;
+      if (rangeEnd !== null && confirmedAt > rangeEnd) continue;
+      const crossedAt = structuralVAnchorAcceptance(
+        rows,
+        index + separationBars + 1,
+        side,
+        price,
+        tickSize,
+        intervalMs,
+      );
+      const active = crossedAt === null || (rangeEnd !== null && crossedAt > rangeEnd);
+      anchors.push(Object.freeze({
+        id: `vanchor:${sourceTimeframe}:${side}:${row.time}:${price}`,
+        side,
+        price,
+        extremeAt: row.time,
+        confirmedAt,
+        attackCount: 1,
+        touchCount: 0,
+        active,
+        crossedAt: active ? null : crossedAt,
+        status: active ? "CONFIRMED_ACTIVE" : "ACCEPTED",
+        swingAmplitudePct: null,
+        confirmingReversalPct: decision.outgoing1Natr * decision.scaleNatrPct,
+        reversalThresholdPct: null,
+        syntheticStructuralAnchor: true,
+        structuralReason: "V_REJECTION_5M",
+        vRejection: decision,
+      }));
+    }
+  }
+  return Object.freeze(anchors);
 }
 
 function adaptiveDistanceMultiplier(policy, distanceNatr) {
@@ -1201,9 +1445,10 @@ export function structuralTrendLegQualificationDecision(
   previousQualifiedSameSide,
   viewTimeframe,
   candles = [],
+  volatilityContext = null,
 ) {
   const policy = LOCAL_TRADABLE_STRUCTURE_POLICY[viewTimeframe];
-  if (!policy || !isLocalStructuralTimeframe(viewTimeframe)) {
+  if (!policy || viewTimeframe !== "5m") {
     return Object.freeze({ qualified: true, reason: "TREND_LEG_QUALIFICATION_NOT_APPLICABLE" });
   }
   if (!level || level.active === false || !["HIGH", "LOW"].includes(level.side)) {
@@ -1214,9 +1459,6 @@ export function structuralTrendLegQualificationDecision(
     ? level.sources
     : [level?.sourceTimeframe].filter(Boolean);
   const attackCount = Math.max(1, Math.round(Number(level?.attackCount) || 1));
-
-  // Senior ownership, multi-TF confluence and repeated defence are independent
-  // structural evidence. V5 must not erase them merely because a local leg is smooth.
   if (level.sourceTimeframe !== viewTimeframe || sources.length > 1 || attackCount > 1) {
     return Object.freeze({
       qualified: true,
@@ -1245,15 +1487,7 @@ export function structuralTrendLegQualificationDecision(
     return Object.freeze({ qualified: true, reason: "TREND_LEG_CONTEXT_INCOMPLETE" });
   }
 
-  // V5.1: a directional leg does not expire because a fixed number of candles
-  // elapsed. The same-side structural anchor remains valid until price itself
-  // produces a meaningful reset/new structure. This prevents a long smooth trend
-  // from restarting the noise ladder every N bars.
   const anchorBars = (currentAt - priorAt) / intervalMs;
-
-  // V5.0 intentionally targets continuation-side staircases only. A new lower LOW
-  // or higher HIGH is left for the next qualification stage (V-reversal/defence),
-  // rather than being guessed here.
   const continuationSide = level.side === "LOW"
     ? currentPrice > priorPrice
     : currentPrice < priorPrice;
@@ -1265,60 +1499,21 @@ export function structuralTrendLegQualificationDecision(
     });
   }
 
-  const rows = (Array.isArray(candles) ? candles : [])
-    .map(validCandle)
-    .filter(Boolean)
-    .filter((row) => row.time > priorAt && row.time <= currentAt)
-    .sort((left, right) => left.time - right.time);
-  if (!rows.length) {
-    return Object.freeze({ qualified: true, reason: "TREND_LEG_CANDLES_UNAVAILABLE" });
-  }
-
-  let legExtreme = null;
-  let legMove = null;
-  let resetMove = null;
-  if (level.side === "LOW") {
-    legExtreme = Math.max(...rows.map((row) => row.high));
-    if (!(legExtreme > priorPrice)) {
-      return Object.freeze({ qualified: true, reason: "TREND_LEG_NO_ADVANCE" });
-    }
-    legMove = legExtreme - priorPrice;
-    resetMove = Math.max(0, legExtreme - currentPrice);
-  } else {
-    legExtreme = Math.min(...rows.map((row) => row.low));
-    if (!(legExtreme < priorPrice)) {
-      return Object.freeze({ qualified: true, reason: "TREND_LEG_NO_DECLINE" });
-    }
-    legMove = priorPrice - legExtreme;
-    resetMove = Math.max(0, currentPrice - legExtreme);
-  }
-
-  if (!(legMove > 0)) {
-    return Object.freeze({ qualified: true, reason: "TREND_LEG_ZERO_MOVE" });
-  }
-
-  const resetRatio = resetMove / legMove;
-  const minimumLegResetRatio = Math.max(
-    0,
-    Math.min(1, finite(policy.minimumLegResetRatio) ?? 0.30),
+  const context = volatilityContext ?? buildStructuralVolatilityContext(candles);
+  const vRejection = structuralLocalVRejectionDecision(
+    level,
+    viewTimeframe,
+    candles,
+    context,
   );
-  const qualified = resetRatio >= minimumLegResetRatio;
   return Object.freeze({
-    qualified,
-    reason: qualified
-      ? "TREND_LEG_RESET_PASS"
-      : "TREND_LEG_SHALLOW_CONTINUATION_FILTERED",
-    side: level.side,
-    priorPrice,
-    currentPrice,
-    priorAt,
-    currentAt,
+    ...vRejection,
+    qualified: Boolean(vRejection.qualified),
+    reason: vRejection.qualified
+      ? "TREND_LEG_V_REJECTION_PASS"
+      : "TREND_LEG_V_REJECTION_FILTERED",
     anchorBars,
-    legExtreme,
-    legMove,
-    resetMove,
-    resetRatio,
-    minimumLegResetRatio,
+    vRejection,
   });
 }
 
@@ -1333,6 +1528,7 @@ export function filterLocalTradableStructure(levels, viewTimeframe, candles = []
     return String(left?.id ?? "").localeCompare(String(right?.id ?? ""));
   });
 
+  const volatilityContext = buildStructuralVolatilityContext(candles);
   const keptIds = new Set();
   const lastQualifiedBySide = new Map();
   for (const level of ordered) {
@@ -1342,6 +1538,7 @@ export function filterLocalTradableStructure(levels, viewTimeframe, candles = []
       previous,
       viewTimeframe,
       candles,
+      volatilityContext,
     );
     if (!decision.qualified) continue;
     if (level?.id) keptIds.add(level.id);
@@ -1586,8 +1783,38 @@ export function buildHierarchicalStructuralLevelMap({
     // V5.1: qualify each native source timeframe BEFORE hierarchy/clustering.
     // A weak 5m continuation pivot must not become immune merely because it later
     // clusters into a senior-owned/confluent level. Detector/history remain recall-first.
+    let sourceCandidates = rawNativeCandidates;
+    if (sourceTimeframe === "5m" && childCandles.length) {
+      const vAnchors = buildStructuralVAnchorExtremes(
+        childCandles,
+        sourceTimeframe,
+        volatilityContext,
+        { tickSize, endAt },
+      );
+      const intervalMs = STRUCTURAL_TF_INTERVAL_MS[sourceTimeframe];
+      const augmented = [...sourceCandidates];
+      for (const anchor of vAnchors) {
+        if (!includeHistory && anchor.active === false) continue;
+        const level = normalizeStructuralLevel(anchor, sourceTimeframe, endAt);
+        if (!level) continue;
+        const duplicate = augmented.some((existing) => {
+          if (existing?.side !== level.side) return false;
+          const existingAt = finite(existing?.nativeExtremeAt ?? existing?.extremeAt);
+          const levelAt = finite(level?.nativeExtremeAt ?? level?.extremeAt);
+          if (existingAt === null || levelAt === null || Math.abs(existingAt - levelAt) > intervalMs) return false;
+          return samePriceZone(existing, level, {
+            tickSize,
+            tolerancePct: 0.03,
+            toleranceTicks: 3,
+          });
+        });
+        if (!duplicate) augmented.push(level);
+      }
+      sourceCandidates = augmented;
+    }
+
     const nativeCandidates = filterLocalTradableStructure(
-      rawNativeCandidates,
+      sourceCandidates,
       sourceTimeframe,
       childCandles,
     );
