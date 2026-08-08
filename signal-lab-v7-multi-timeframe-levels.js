@@ -997,7 +997,9 @@ export function structuralLocalWorkingSetPivotDecision(level, candles, volatilit
   });
 }
 
-export function structuralLocalWorkingSetVisible(level, volatilityContext, candles = []) {
+export function structuralLocalWorkingSetVisible(level, volatilityContext, candles = [], {
+  retainAsNativeFrontier = false,
+} = {}) {
   const sourceTimeframe = level?.sourceTimeframe;
   const policy = LOCAL_WORKING_SET_POLICY[sourceTimeframe];
   if (!policy || level?.active === false) return true;
@@ -1019,6 +1021,12 @@ export function structuralLocalWorkingSetVisible(level, volatilityContext, candl
   // attacks have already bypassed this guard above.
   const pivotDecision = structuralLocalWorkingSetPivotDecision(level, candles, volatilityContext);
   if (!pivotDecision.visible) return false;
+
+  // V4.16: the latest ACTIVE native local HIGH/LOW is the current structural
+  // frontier for that view timeframe. It must still pass source-TF pivot quality
+  // above, but a volatility expansion must not hide it merely because the stable
+  // base-NATR distance radius became small relative to the move.
+  if (retainAsNativeFrontier) return true;
 
   // V4.15: child confluence is allowed to retain a VALID local pivot outside
   // the ordinary working-area radius, but it never bypasses the pivot-quality
@@ -1274,10 +1282,31 @@ export function buildHierarchicalStructuralLevelMap({
 
   if (includeHistory) return Object.freeze(hierarchy);
 
+  // V4.16: preserve exactly one latest ACTIVE native frontier per side on local
+  // views. This is intentionally NOT a global distance bypass: older local rays
+  // still obey the working-set radius, and filtered pivots remain filtered.
+  const nativeFrontierIds = new Set();
+  if (isLocalStructuralTimeframe(viewTimeframe)) {
+    for (const side of ["HIGH", "LOW"]) {
+      let latest = null;
+      let latestAt = -Infinity;
+      for (const level of hierarchy) {
+        if (level?.active === false || level?.side !== side) continue;
+        if (level?.sourceTimeframe !== viewTimeframe) continue;
+        const at = finite(level?.nativeExtremeAt ?? level?.extremeAt);
+        if (at === null || at < latestAt) continue;
+        latest = level;
+        latestAt = at;
+      }
+      if (latest?.id) nativeFrontierIds.add(latest.id);
+    }
+  }
+
   const workingHierarchy = hierarchy.filter((level) => structuralLocalWorkingSetVisible(
     level,
     volatilityByTimeframe[level?.sourceTimeframe],
     candlesByTimeframe?.[level?.sourceTimeframe] ?? [],
+    { retainAsNativeFrontier: nativeFrontierIds.has(level?.id) },
   ));
   return Object.freeze(workingHierarchy);
 }

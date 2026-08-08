@@ -45,3 +45,16 @@ test("V4.15 child confluence retains a pivot after quality gate even outside loc
   });
   assert.equal(structuralLocalWorkingSetVisible(distantConfluent, ctx), true);
 });
+
+
+test("V4.16 retains the latest valid native 1m frontier outside distance radius without widening all locals", () => {
+  const oneMinute = level({
+    sourceTimeframe: "1m",
+    side: "HIGH",
+    price: 102.0,
+    sources: ["1m"],
+    confluenceCount: 1,
+  });
+  assert.equal(structuralLocalWorkingSetVisible(oneMinute, ctx), false);
+  assert.equal(structuralLocalWorkingSetVisible(oneMinute, ctx, [], { retainAsNativeFrontier: true }), true);
+});
