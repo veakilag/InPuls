@@ -1040,6 +1040,18 @@ function ensureDiagnosticPanel(message = null) {
     copyButton.style.color = "inherit";
     copyButton.style.font = "inherit";
 
+    const researchButton = document.createElement("button");
+    researchButton.type = "button";
+    researchButton.id = "copy-structural-research";
+    researchButton.textContent = "Копировать research";
+    researchButton.style.cursor = "pointer";
+    researchButton.style.padding = "6px 10px";
+    researchButton.style.border = "1px solid rgba(255,255,255,0.20)";
+    researchButton.style.borderRadius = "7px";
+    researchButton.style.background = "rgba(255,255,255,0.08)";
+    researchButton.style.color = "inherit";
+    researchButton.style.font = "inherit";
+
     const copyStatus = document.createElement("span");
     copyStatus.id = "copy-structural-debug-status";
     copyStatus.style.fontSize = "12px";
@@ -1072,7 +1084,23 @@ function ensureDiagnosticPanel(message = null) {
       }, 2200);
     });
 
-    toolbar.append(copyButton, copyStatus);
+    researchButton.addEventListener("click", async () => {
+      const originalLabel = researchButton.textContent;
+      researchButton.disabled = true;
+      const snapshot = String(window.__INPULS_RESEARCH_SNAPSHOT_TEXT__ ?? "");
+      const copied = await copyDiagnosticText(snapshot);
+      researchButton.textContent = copied ? "Research скопирован ✓" : "Не скопировалось";
+      copyStatus.textContent = copied
+        ? "Пришли этот короткий блок в чат"
+        : "Research snapshot ещё не готов";
+      window.setTimeout(() => {
+        researchButton.textContent = originalLabel;
+        researchButton.disabled = false;
+        copyStatus.textContent = "";
+      }, 2200);
+    });
+
+    toolbar.append(copyButton, researchButton, copyStatus);
     wrapper.append(toolbar, panel);
     anchor.insertAdjacentElement("afterend", wrapper);
   }
@@ -1124,6 +1152,18 @@ function addDiagnosticPanel(state, levelMap) {
   const approachEvidenceContext = buildApproachEvidenceResearchContext(approachContext);
   window.__INPULS_APPROACH_EVIDENCE__ = approachEvidenceContext;
   const approachEvidenceLines = formatApproachEvidenceResearchContext(approachEvidenceContext);
+  const researchParams = new URL(window.location.href).searchParams;
+  const researchSymbol = String(researchParams.get("symbol") ?? "?").trim().toUpperCase() || "?";
+  const localResearchRows = levelContextRows.filter((row) => row?.relevance?.inFivePercentWindow);
+  const researchSnapshotText = [
+    `RESEARCH SNAPSHOT v6.6-compact-cross-asset-2026-08 · ${researchSymbol} · ${state.viewTimeframe} · endAt=${new Date(state.endAt).toISOString()}`,
+    ...localStructureLines,
+    ...stackRouteLines,
+    ...approachEvidenceLines,
+    `LOCAL LEVELS 0-5% · rows=${localResearchRows.length}`,
+    ...localResearchRows.map(formatLevelResearchContextRow),
+  ].join("\n");
+  window.__INPULS_RESEARCH_SNAPSHOT_TEXT__ = researchSnapshotText;
   const candleTraceRows = [...buildCandleTraceRows(state)];
   panel.textContent = [
     `DEBUG V6.5 LEVEL LADDER + V6.4 EVIDENCE · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
