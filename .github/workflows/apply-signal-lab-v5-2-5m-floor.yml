@@ -58,8 +58,17 @@ jobs:
             test/signal-lab-v7-same-bar-opposite-candidate.test.js \
             test/signal-lab-v7-multi-timeframe-levels.test.js
 
-      - name: Run complete regression suite
-        run: npm test
+      - name: Run complete regression suite with diagnostic annotation
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee /tmp/full-test.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            summary=$(grep -E -A8 -B2 'not ok [0-9]+|AssertionError|ERR_ASSERTION|error:' /tmp/full-test.log | head -n 80 | tr '\n' ' ' | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g')
+            echo "::error title=5m floor full regression failure::$summary"
+          fi
+          exit "$status"
 
       - name: Commit verified 5m structural floor
         run: |
