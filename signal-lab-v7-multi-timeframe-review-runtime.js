@@ -13,7 +13,7 @@ import {
   visibleSourceTimeframes,
 } from "./signal-lab-v7-multi-timeframe-levels.js";
 import { binanceFuturesTickSize } from "./signal-lab-v7-binance-market-metadata.js";
-import { LEVEL_CONTEXT_RESEARCH_VERSION, buildLevelResearchContexts } from "./signal-lab-v8-level-context.js";
+import { LEVEL_CONTEXT_RESEARCH_VERSION, buildLevelResearchContexts, mergeLevelResearchCandidatePool } from "./signal-lab-v8-level-context.js";
 
 const KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
 const EXCHANGE_INFO_ENDPOINT = "https://fapi.binance.com/fapi/v1/exchangeInfo";
@@ -744,6 +744,35 @@ function formatBoundaryContext(timeContext) {
   }).join(" ");
 }
 
+
+function buildLevelContextCandidatePool(state, levelMap) {
+  const hiddenCandidates = [];
+  if (state?.viewTimeframe === "5m") {
+    const timeframe = "5m";
+    const snapshot = state?.snapshotsByTimeframe?.[timeframe];
+    const candles = state?.candlesByTimeframe?.[timeframe] ?? [];
+    const volatility = buildStructuralVolatilityContext(candles);
+    for (const extreme of Array.isArray(snapshot?.active) ? snapshot.active : []) {
+      if (!extreme || extreme.active === false || !["HIGH", "LOW"].includes(extreme?.side)) continue;
+      const significance = structuralChildAdmissionDecision(extreme, timeframe, { volatilityContext: volatility });
+      const prominence = structuralLocalPivotProminenceDecision(extreme, timeframe, candles, volatility);
+      if (significance?.admitted === false || prominence?.admitted === false) continue;
+      hiddenCandidates.push(Object.freeze({
+        ...extreme,
+        sourceTimeframe: timeframe,
+        nativeExtremeAt: extreme?.extremeAt,
+        sources: Object.freeze([timeframe]),
+        confluenceCount: 1,
+        // Do not reinterpret lifecycle touchCount as Attack ×N. Exact attack
+        // semantics remain owned by the structural lifecycle engine.
+        attackCount: Math.max(1, Math.round(Number(extreme?.attackCount) || 1)),
+        active: true,
+      }));
+    }
+  }
+  return mergeLevelResearchCandidatePool(levelMap, hiddenCandidates);
+}
+
 function formatLevelResearchContextRow(row) {
   const missing = Object.entries(row?.coverage ?? {})
     .filter(([, state]) => state !== "AVAILABLE")
@@ -752,6 +781,7 @@ function formatLevelResearchContextRow(row) {
   const sources = Array.isArray(row?.sources) ? row.sources.join("+") : row?.sourceTimeframe ?? "?";
   return [
     `CTX ${row.side} ${sources} ${debugNumber(row.price, row.price >= 1000 ? 1 : 6)}`,
+    `map=${row.candidateState === "VISIBLE_MAP" ? "VISIBLE" : "shadow"}`,
     `Q=${row.quality?.score ?? "—"}`,
     `R=${row.relevance?.score ?? "—"}`,
     `dist=${debugNumber(row.relevance?.distancePct, 3)}%`,
@@ -917,16 +947,18 @@ function addDiagnosticPanel(state, levelMap) {
   const rawNativeRows = [...buildRawNativeDiagnosticRows(state)];
   const v5SourceRows = [...buildV5SourceQualificationDiagnosticRows(state, levelMap)];
   const vShapeRows = [...buildVShapeShadowDiagnosticRows(state, levelMap)];
-  const levelContextRows = [...buildLevelResearchContexts(levelMap, {
+  const levelContextPool = buildLevelContextCandidatePool(state, levelMap);
+  const levelContextRows = [...buildLevelResearchContexts(levelContextPool, {
     candlesByTimeframe: state.candlesByTimeframe,
     viewTimeframe: state.viewTimeframe,
     endAt: state.endAt,
   })];
+  window.__INPULS_LEVEL_CONTEXT_CANDIDATES__ = levelContextPool;
   window.__INPULS_LEVEL_CONTEXT__ = levelContextRows;
   const candleTraceRows = [...buildCandleTraceRows(state)];
   panel.textContent = [
     `DEBUG V6 LEVEL CONTEXT · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
-    `LEVEL CONTEXT ${LEVEL_CONTEXT_RESEARCH_VERSION} · RESEARCH ONLY · Q=structural geometry · R=price/structure relevance only`,
+    `LEVEL CONTEXT ${LEVEL_CONTEXT_RESEARCH_VERSION} · RESEARCH ONLY · pool=${levelContextPool.length} visible=${levelContextRows.filter((row) => row.candidateState === "VISIBLE_MAP").length} shadow=${levelContextRows.filter((row) => row.candidateState !== "VISIBLE_MAP").length} · Q=structural geometry · R=0-5% current relevance`,
     ...levelContextRows.map(formatLevelResearchContextRow),
     `LEGACY V5.4 LEVEL DEBUG · rows ${localRows.length}`,
     ...localRows.map(formatDiagnosticRow),

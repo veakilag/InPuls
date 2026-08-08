@@ -35,6 +35,48 @@ function levelSources(level) {
   return [...new Set(rows.map(String))];
 }
 
+
+function researchLevelSemanticKey(level) {
+  const side = String(level?.side ?? "?");
+  const timeframe = String(level?.sourceTimeframe ?? "?");
+  const at = finite(level?.nativeExtremeAt ?? level?.extremeAt ?? level?.displayAt);
+  const price = finite(level?.price);
+  if (at === null || !(price > 0)) return null;
+  return `${side}:${timeframe}:${at}:${price.toPrecision(14)}`;
+}
+
+// V6.1 shadow architecture: context research must be able to inspect source-
+// qualified candidates that the current working-map filter hides. This does not
+// change the chart or hierarchy. It only creates a deduplicated research pool.
+export function mergeLevelResearchCandidatePool(visibleLevels, hiddenCandidates) {
+  const visible = (Array.isArray(visibleLevels) ? visibleLevels : []).filter(Boolean);
+  const hidden = (Array.isArray(hiddenCandidates) ? hiddenCandidates : []).filter(Boolean);
+  const visibleIds = new Set();
+  const semanticKeys = new Set();
+  const rows = [];
+
+  for (const level of visible) {
+    if (level?.id) visibleIds.add(level.id);
+    for (const id of Array.isArray(level?.memberIds) ? level.memberIds : []) {
+      if (id) visibleIds.add(id);
+    }
+    const key = researchLevelSemanticKey(level);
+    if (key) semanticKeys.add(key);
+    rows.push(Object.freeze({ ...level, researchCandidateState: "VISIBLE_MAP" }));
+  }
+
+  for (const candidate of hidden) {
+    if (candidate?.id && visibleIds.has(candidate.id)) continue;
+    const key = researchLevelSemanticKey(candidate);
+    if (key && semanticKeys.has(key)) continue;
+    if (candidate?.id) visibleIds.add(candidate.id);
+    if (key) semanticKeys.add(key);
+    rows.push(Object.freeze({ ...candidate, researchCandidateState: "SOURCE_QUALIFIED_HIDDEN" }));
+  }
+
+  return Object.freeze(rows);
+}
+
 function levelOriginAt(level) {
   return finite(level?.nativeExtremeAt ?? level?.extremeAt ?? level?.displayAt);
 }
@@ -159,9 +201,16 @@ function currentRelevance(level, allLevels, currentPrice) {
   // Price-structure-only research score. Context with ambiguous directionality
   // (density, age, time boundaries) is exposed as features but intentionally
   // not assigned a positive/negative weight until outcome data exists.
+  // Current relevance is intentionally local to the product's 0-5% working
+  // range. A far-away historical level may have excellent structural quality,
+  // repeated attacks or confluence, but it is not relevant NOW merely because
+  // of those properties. Quality remains available separately.
+  const inFivePercentWindow = distancePct !== null ? distancePct <= FIVE_PERCENT : null;
   const weighted = proximity === null
     ? null
-    : (0.60 * proximity) + (0.25 * attacks) + (0.15 * confluence);
+    : inFivePercentWindow
+      ? (0.60 * proximity) + (0.25 * attacks) + (0.15 * confluence)
+      : 0;
 
   const active = (Array.isArray(allLevels) ? allLevels : []).filter((row) => row?.active !== false);
   const neighborRows = active.filter((row) => {
@@ -184,7 +233,7 @@ function currentRelevance(level, allLevels, currentPrice) {
     score: weighted === null ? null : Math.round(weighted * 100),
     state: weighted === null ? "UNKNOWN" : "PRICE_STRUCTURE_ONLY",
     distancePct: round(distancePct, 4),
-    inFivePercentWindow: distancePct !== null ? distancePct <= FIVE_PERCENT : null,
+    inFivePercentWindow,
     proximityComponent: proximity === null ? null : score(proximity),
     attackComponent: score(attacks),
     confluenceComponent: score(confluence),
@@ -228,6 +277,7 @@ export function buildLevelResearchContexts(levels, {
       id: level?.id ?? null,
       side: level?.side ?? null,
       price: finite(level?.price),
+      candidateState: level?.researchCandidateState ?? "VISIBLE_MAP",
       sourceTimeframe: timeframe ?? null,
       sources: Object.freeze(levelSources(level)),
       attackCount: Math.max(1, Math.round(Number(level?.attackCount) || 1)),
@@ -260,4 +310,4 @@ export function buildLevelResearchContexts(levels, {
   }));
 }
 
-export const LEVEL_CONTEXT_RESEARCH_VERSION = "v6-shadow-2026-08";
+export const LEVEL_CONTEXT_RESEARCH_VERSION = "v6.1-candidate-shadow-2026-08";

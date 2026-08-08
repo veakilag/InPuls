@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildLevelResearchContexts } from "../signal-lab-v8-level-context.js";
+import { buildLevelResearchContexts, mergeLevelResearchCandidatePool } from "../signal-lab-v8-level-context.js";
 
 const STEP = 300_000;
 const candles = Array.from({ length: 40 }, (_, index) => ({
@@ -103,4 +103,46 @@ test("V6 quality is normalized only from available structural geometry and stays
   const weakRow = rows.find((row) => row.id === "weak");
   assert.ok(strongRow.quality.score > weakRow.quality.score);
   assert.equal(strongRow.quality.state, "RESEARCH_ONLY");
+});
+
+
+test("V6.1 far-away confluence and attacks do not manufacture current relevance outside 5%", () => {
+  const farStrong = {
+    ...base,
+    id: "far-strong",
+    price: 120,
+    attackCount: 5,
+    sources: ["5m", "15m", "1h"],
+    confluenceCount: 3,
+  };
+  const [row] = buildLevelResearchContexts([farStrong], {
+    candlesByTimeframe: { "5m": candles },
+    viewTimeframe: "5m",
+    endAt: 40 * STEP - 1,
+    currentPrice: 100,
+  });
+  assert.equal(row.relevance.inFivePercentWindow, false);
+  assert.equal(row.relevance.score, 0);
+  assert.equal(row.relevance.attackComponent, 100);
+  assert.equal(row.relevance.confluenceComponent, 100);
+});
+
+test("V6.1 research pool adds hidden source-qualified candidates without duplicating visible members", () => {
+  const visible = [{
+    ...base,
+    id: "senior-primary",
+    memberIds: ["native-visible"],
+    price: 102,
+    sources: ["15m", "5m"],
+    sourceTimeframe: "15m",
+  }];
+  const hidden = [
+    { ...base, id: "native-visible", price: 102 },
+    { ...base, id: "hidden-near", price: 101 },
+  ];
+  const pool = mergeLevelResearchCandidatePool(visible, hidden);
+  assert.equal(pool.length, 2);
+  assert.equal(pool.find((row) => row.id === "senior-primary")?.researchCandidateState, "VISIBLE_MAP");
+  assert.equal(pool.find((row) => row.id === "hidden-near")?.researchCandidateState, "SOURCE_QUALIFIED_HIDDEN");
+  assert.equal(pool.some((row) => row.id === "native-visible"), false);
 });
