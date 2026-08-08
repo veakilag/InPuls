@@ -81,7 +81,13 @@ export const LOCAL_HIERARCHICAL_ADMISSION = Object.freeze({
 // Macro levels belong to senior TFs, so an old single-touch 1m/5m level far from
 // the current working area does not need to remain as another permanent ray.
 export const LOCAL_WORKING_SET_POLICY = Object.freeze({
-  "1m": Object.freeze({ maxDistanceBaseNatr: 4 }),
+  "1m": Object.freeze({
+    maxDistanceBaseNatr: 4,
+    // V4.17: a single-touch native 1m pivot at the right edge is still an
+    // unresolved micro turn. Keep it in event/history memory, but do not draw
+    // it on the working map until two later 1m candles are fully available.
+    minimumRightBars: 2,
+  }),
   "5m": Object.freeze({ maxDistanceBaseNatr: 6 }),
 });
 
@@ -997,6 +1003,44 @@ export function structuralLocalWorkingSetPivotDecision(level, candles, volatilit
   });
 }
 
+export function structuralLocalRightEdgeMaturityDecision(level, candles = []) {
+  const sourceTimeframe = level?.sourceTimeframe;
+  const policy = LOCAL_WORKING_SET_POLICY[sourceTimeframe];
+  const minimumRightBars = Math.max(0, Math.round(finite(policy?.minimumRightBars) ?? 0));
+  if (!(minimumRightBars > 0) || level?.active === false) {
+    return Object.freeze({ mature: true, reason: "RIGHT_EDGE_MATURITY_NOT_APPLICABLE", minimumRightBars });
+  }
+
+  const pivotAt = finite(level?.nativeExtremeAt ?? level?.extremeAt);
+  if (pivotAt === null) {
+    return Object.freeze({ mature: true, reason: "RIGHT_EDGE_MATURITY_MISSING_PIVOT", minimumRightBars });
+  }
+
+  const rows = (Array.isArray(candles) ? candles : [])
+    .map(validCandle)
+    .filter(Boolean)
+    .sort((left, right) => left.time - right.time);
+  if (!rows.length) {
+    return Object.freeze({ mature: true, reason: "RIGHT_EDGE_MATURITY_CONTEXT_UNAVAILABLE", minimumRightBars });
+  }
+
+  const pivotIndex = rows.findIndex((row) => row.time === pivotAt);
+  if (pivotIndex < 0) {
+    return Object.freeze({ mature: true, reason: "RIGHT_EDGE_MATURITY_PIVOT_CANDLE_UNAVAILABLE", minimumRightBars });
+  }
+
+  const rightBars = Math.max(0, rows.length - pivotIndex - 1);
+  const mature = rightBars >= minimumRightBars;
+  return Object.freeze({
+    mature,
+    reason: mature ? "RIGHT_EDGE_MATURE" : "RIGHT_EDGE_UNRESOLVED_FILTERED",
+    pivotAt,
+    rightBars,
+    minimumRightBars,
+    latestCandleAt: rows.at(-1)?.time ?? null,
+  });
+}
+
 export function structuralLocalWorkingSetVisible(level, volatilityContext, candles = [], {
   retainAsNativeFrontier = false,
 } = {}) {
@@ -1014,6 +1058,13 @@ export function structuralLocalWorkingSetVisible(level, volatilityContext, candl
   // pass the calibrated 5m gate. Repeated attacks remain an independent reason
   // to keep the level visible.
   if ((Number(level?.attackCount) || 1) > 1) return true;
+
+  // V4.17: do not promote the unresolved single-touch 1m tail at the data/live
+  // edge into a working-map level. Detector/history remain complete. Two later
+  // closed 1m bars are enough to distinguish a confirmed structural turn from
+  // the last technical bounce/pullback pair without using percentage tuning.
+  const maturityDecision = structuralLocalRightEdgeMaturityDecision(level, candles);
+  if (!maturityDecision.mature) return false;
 
   // V4.13: post-cluster local-only pivot guard. LOW keeps the V4.11
   // retracement rule; calibrated 5m HIGH now also requires a standalone incoming
@@ -1282,9 +1333,10 @@ export function buildHierarchicalStructuralLevelMap({
 
   if (includeHistory) return Object.freeze(hierarchy);
 
-  // V4.16: preserve exactly one latest ACTIVE native frontier per side on local
-  // views. This is intentionally NOT a global distance bypass: older local rays
-  // still obey the working-set radius, and filtered pivots remain filtered.
+  // V4.17: preserve exactly one latest MATURE ACTIVE native frontier per side on
+  // local views. An unresolved right-edge micro pivot must not steal frontier
+  // ownership from the preceding structural swing. This remains only a distance
+  // bypass; pivot-quality and right-edge maturity are still mandatory.
   const nativeFrontierIds = new Set();
   if (isLocalStructuralTimeframe(viewTimeframe)) {
     for (const side of ["HIGH", "LOW"]) {
@@ -1293,6 +1345,11 @@ export function buildHierarchicalStructuralLevelMap({
       for (const level of hierarchy) {
         if (level?.active === false || level?.side !== side) continue;
         if (level?.sourceTimeframe !== viewTimeframe) continue;
+        const maturityDecision = structuralLocalRightEdgeMaturityDecision(
+          level,
+          candlesByTimeframe?.[viewTimeframe] ?? [],
+        );
+        if (!maturityDecision.mature && (Number(level?.attackCount) || 1) <= 1) continue;
         const at = finite(level?.nativeExtremeAt ?? level?.extremeAt);
         if (at === null || at < latestAt) continue;
         latest = level;

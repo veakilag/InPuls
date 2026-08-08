@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   LOCAL_WORKING_SET_POLICY,
+  structuralLocalRightEdgeMaturityDecision,
   structuralLocalWorkingSetVisible,
 } from "../signal-lab-v7-multi-timeframe-levels.js";
 
@@ -57,4 +58,48 @@ test("V4.16 retains the latest valid native 1m frontier outside distance radius 
   });
   assert.equal(structuralLocalWorkingSetVisible(oneMinute, ctx), false);
   assert.equal(structuralLocalWorkingSetVisible(oneMinute, ctx, [], { retainAsNativeFrontier: true }), true);
+});
+
+
+test("V4.17 hides unresolved single-touch native 1m pivots at the right edge", () => {
+  const oneMinute = level({
+    sourceTimeframe: "1m",
+    side: "HIGH",
+    price: 100.1,
+    extremeAt: 120_000,
+    nativeExtremeAt: 120_000,
+    sources: ["1m"],
+  });
+  const oneBarRight = [
+    { time: 60_000, high: 100, low: 99, close: 99.5 },
+    { time: 120_000, high: 100.1, low: 99.4, close: 99.8 },
+    { time: 180_000, high: 100, low: 99.5, close: 99.7 },
+  ];
+  const twoBarsRight = [
+    ...oneBarRight,
+    { time: 240_000, high: 99.9, low: 99.3, close: 99.6 },
+  ];
+
+  assert.equal(LOCAL_WORKING_SET_POLICY["1m"].minimumRightBars, 2);
+  assert.equal(structuralLocalRightEdgeMaturityDecision(oneMinute, oneBarRight).mature, false);
+  assert.equal(structuralLocalWorkingSetVisible(oneMinute, ctx, oneBarRight), false);
+  assert.equal(structuralLocalRightEdgeMaturityDecision(oneMinute, twoBarsRight).mature, true);
+  assert.equal(structuralLocalWorkingSetVisible(oneMinute, ctx, twoBarsRight), true);
+});
+
+test("V4.17 repeated attacks bypass right-edge maturity because x2+ is already confirmed structure", () => {
+  const repeated = level({
+    sourceTimeframe: "1m",
+    side: "HIGH",
+    price: 100.1,
+    extremeAt: 120_000,
+    nativeExtremeAt: 120_000,
+    attackCount: 2,
+    sources: ["1m"],
+  });
+  const edge = [
+    { time: 60_000, high: 100, low: 99, close: 99.5 },
+    { time: 120_000, high: 100.1, low: 99.4, close: 99.8 },
+  ];
+  assert.equal(structuralLocalWorkingSetVisible(repeated, ctx, edge), true);
 });
