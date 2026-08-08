@@ -73,15 +73,15 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
           if git ls-files --error-unmatch .github/scripts/apply_signal_lab_v6_3_1.py >/dev/null 2>&1; then
-            echo "temporary patch script is still tracked" >&2
+            echo "temporary patch script is still tracked after staging deletions" >&2
             exit 1
           fi
           if git ls-files --error-unmatch .github/workflows/apply-signal-lab-v6-3-1-causal-approach.yml >/dev/null 2>&1; then
-            echo "temporary workflow is still tracked" >&2
+            echo "temporary workflow is still tracked after staging deletions" >&2
             exit 1
           fi
-          git add -A
           if git diff --cached --quiet; then
             echo "No staged changes to commit"
             exit 1
