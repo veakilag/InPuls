@@ -436,17 +436,17 @@ function formatManualEtalonDiagnosticRow(row) {
   ].join(" | ");
 }
 
-function addDiagnosticPanel(state, levelMap) {
+function ensureDiagnosticPanel(message = null) {
   const params = new URL(window.location.href).searchParams;
   const debugEnabled = params.get("debug") === "1";
   let panel = document.querySelector("#structural-level-debug");
   if (!debugEnabled) {
     panel?.remove();
-    return;
+    return null;
   }
-  const context = document.querySelector("#multi-tf-context-status");
-  if (!context) return;
   if (!panel) {
+    const anchor = document.querySelector("#multi-tf-context-status") ?? document.querySelector("#status");
+    if (!anchor) return null;
     panel = document.createElement("pre");
     panel.id = "structural-level-debug";
     panel.style.margin = "8px 0 12px";
@@ -458,8 +458,15 @@ function addDiagnosticPanel(state, levelMap) {
     panel.style.lineHeight = "1.45";
     panel.style.whiteSpace = "pre-wrap";
     panel.style.userSelect = "text";
-    context.insertAdjacentElement("afterend", panel);
+    anchor.insertAdjacentElement("afterend", panel);
   }
+  if (message !== null) panel.textContent = String(message);
+  return panel;
+}
+
+function addDiagnosticPanel(state, levelMap) {
+  const panel = ensureDiagnosticPanel();
+  if (!panel) return;
   const diagnostics = buildStructuralReviewDiagnosticRows(state, levelMap);
   window.__INPULS_STRUCTURAL_DEBUG__ = diagnostics;
   const localRows = diagnostics
@@ -469,7 +476,7 @@ function addDiagnosticPanel(state, levelMap) {
     .sort((left, right) => (right.price ?? 0) - (left.price ?? 0));
   const rawNativeRows = [...buildRawNativeDiagnosticRows(state)];
   panel.textContent = [
-    `DEBUG V4.18 · ${state.viewTimeframe} · visible local levels ${localRows.length}`,
+    `DEBUG V4.19 · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
     ...localRows.map(formatDiagnosticRow),
     `RAW NATIVE DEBUG · recent ${rawNativeRows.length}`,
     ...rawNativeRows.map(formatRawNativeDiagnosticRow),
@@ -595,6 +602,7 @@ export function installMultiTimeframeReviewRuntime({ ChartClass, EngineClass }) 
     };
     const localGeneration = state.generation;
     stateByChart.set(this, state);
+    ensureDiagnosticPanel(`DEBUG V4.19 · ${viewTimeframe} · STATE=LOADING\nsymbol=${symbol} endAt=${endAt}`);
 
     queueMicrotask(async () => {
       try {
@@ -620,8 +628,10 @@ export function installMultiTimeframeReviewRuntime({ ChartClass, EngineClass }) 
         this.render?.();
       } catch (error) {
         if (error?.name === "AbortError") return;
+        const message = String(error?.message ?? error);
         const context = document.querySelector("#multi-tf-context-status");
-        if (context) context.textContent = `Иерархия не загрузилась: ${String(error?.message ?? error)}`;
+        if (context) context.textContent = `Иерархия не загрузилась: ${message}`;
+        ensureDiagnosticPanel(`DEBUG V4.19 · ${viewTimeframe} · STATE=ERROR\nsymbol=${symbol} endAt=${endAt}\n${message}`);
       }
     });
 
