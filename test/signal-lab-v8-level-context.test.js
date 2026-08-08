@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildApproachCompressionResearchContext, buildLevelResearchContexts, buildLocalStructureResearchContext, mergeLevelResearchCandidatePool } from "../signal-lab-v8-level-context.js";
+import { buildApproachCompressionResearchContext, buildApproachEvidenceResearchContext, buildLevelResearchContexts, buildLocalStructureResearchContext, mergeLevelResearchCandidatePool } from "../signal-lab-v8-level-context.js";
 
 const STEP = 300_000;
 const candles = Array.from({ length: 40 }, (_, index) => ({
@@ -340,4 +340,76 @@ test("V6.3.1 causal approach labels origin fallback and does not invent evidence
   assert.equal(row.proximityGroups, null);
   assert.equal(row.closeBeyondBars, null);
   assert.equal(row.extremeBeyondBars, null);
+});
+
+
+
+test("V6.4 evidence vector reports observable facts without a combined score", () => {
+  const context = buildApproachEvidenceResearchContext({
+    state: "PATH_CONTEXT_AVAILABLE",
+    timeframe: "5m",
+    targets: [{
+      side: "HIGH",
+      targetPrice: 105,
+      roles: ["QUALITY"],
+      candidateState: "VISIBLE_MAP",
+      sampleBars: 6,
+      requestedLookbackBars: 12,
+      currentDistanceNatr: 1.08,
+      towardDelta3Natr: 0.26,
+      towardDelta6Natr: 0.15,
+      towardDelta12Natr: null,
+      medianGapCompressionNatr: 0.05,
+      progressionNatr: 0.10,
+      progressionLabel: "HIGHER_FLOOR",
+      nearBarsWindow: 0,
+      proximityGroups: 0,
+      closeBeyondBars: 0,
+      extremeBeyondBars: 0,
+      rangeContractionRatio3v3: 0.90,
+    }],
+  });
+  assert.equal(context.state, "EVIDENCE_AVAILABLE");
+  const row = context.targets[0];
+  assert.equal(row.readiness, "OBSERVABLE_6B");
+  assert.ok(row.facts.includes("TOWARD_3B"));
+  assert.ok(row.facts.includes("TOWARD_6B"));
+  assert.ok(row.facts.includes("MEDIAN_GAP_SHRINKING"));
+  assert.ok(row.facts.includes("FLOOR_RISING"));
+  assert.ok(row.facts.includes("RANGE_CONTRACTING"));
+  assert.ok(row.facts.includes("NO_NEAR_ZONE"));
+  assert.equal(Object.prototype.hasOwnProperty.call(row, "score"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(row, "breakoutProbability"), false);
+  assert.equal(row.researchOnly, true);
+});
+
+test("V6.4 keeps early samples explicitly early and does not invent unavailable facts", () => {
+  const context = buildApproachEvidenceResearchContext({
+    state: "PATH_CONTEXT_AVAILABLE",
+    timeframe: "5m",
+    targets: [{
+      side: "LOW",
+      targetPrice: 95,
+      roles: ["NEAREST"],
+      candidateState: "SOURCE_QUALIFIED_HIDDEN",
+      sampleBars: 1,
+      requestedLookbackBars: 12,
+      currentDistanceNatr: 0.8,
+      towardDelta3Natr: null,
+      towardDelta6Natr: null,
+      towardDelta12Natr: null,
+      medianGapCompressionNatr: null,
+      progressionNatr: null,
+      progressionLabel: "LOWER_CEILING",
+      nearBarsWindow: null,
+      proximityGroups: null,
+      closeBeyondBars: null,
+      extremeBeyondBars: null,
+      rangeContractionRatio3v3: null,
+    }],
+  });
+  const row = context.targets[0];
+  assert.equal(row.readiness, "INSUFFICIENT");
+  assert.deepEqual(row.facts, []);
+  assert.equal(row.researchOnly, true);
 });

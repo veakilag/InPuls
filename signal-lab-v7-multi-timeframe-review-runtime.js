@@ -13,7 +13,7 @@ import {
   visibleSourceTimeframes,
 } from "./signal-lab-v7-multi-timeframe-levels.js";
 import { binanceFuturesTickSize } from "./signal-lab-v7-binance-market-metadata.js";
-import { APPROACH_CONTEXT_RESEARCH_VERSION, LEVEL_CONTEXT_RESEARCH_VERSION, LOCAL_STRUCTURE_RESEARCH_VERSION, buildApproachCompressionResearchContext, buildLevelResearchContexts, buildLocalStructureResearchContext, mergeLevelResearchCandidatePool } from "./signal-lab-v8-level-context.js";
+import { APPROACH_CONTEXT_RESEARCH_VERSION, APPROACH_EVIDENCE_RESEARCH_VERSION, LEVEL_CONTEXT_RESEARCH_VERSION, LOCAL_STRUCTURE_RESEARCH_VERSION, buildApproachCompressionResearchContext, buildApproachEvidenceResearchContext, buildLevelResearchContexts, buildLocalStructureResearchContext, mergeLevelResearchCandidatePool } from "./signal-lab-v8-level-context.js";
 
 const KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
 const EXCHANGE_INFO_ENDPOINT = "https://fapi.binance.com/fapi/v1/exchangeInfo";
@@ -862,6 +862,34 @@ function formatApproachResearchContext(row) {
   ];
 }
 
+
+function formatApproachEvidenceResearchContext(row) {
+  if (!row || row.state === "UNKNOWN") return ["APPROACH EVIDENCE | unavailable"];
+  const rows = Array.isArray(row.targets) ? row.targets : [];
+  return [
+    `APPROACH EVIDENCE ${APPROACH_EVIDENCE_RESEARCH_VERSION} · RESEARCH ONLY · facts, no combined score`,
+    ...(rows.length ? rows.map((target) => {
+      const roles = Array.isArray(target.roles) ? target.roles.join("+") : "?";
+      const map = target.candidateState === "VISIBLE_MAP" ? "VISIBLE" : "shadow";
+      const facts = Array.isArray(target.facts) && target.facts.length ? target.facts.join(",") : "none";
+      return [
+        `EVIDENCE ${target.side} ${roles}`,
+        `target=${debugNumber(target.targetPrice, target.targetPrice >= 1000 ? 1 : 6)}`,
+        `map=${map}`,
+        `ready=${target.readiness}`,
+        `sample=${target.sampleBars}/${target.requestedLookbackBars}b`,
+        `dist=${debugNumber(target.currentDistanceNatr, 2)}N`,
+        `toward3/6/12=${debugNumber(target.towardDelta3Natr, 2)}/${debugNumber(target.towardDelta6Natr, 2)}/${debugNumber(target.towardDelta12Natr, 2)}N`,
+        `${target.progressionLabel === "HIGHER_FLOOR" ? "floorRise" : "ceilingDrop"}=${debugNumber(target.progressionNatr, 2)}N`,
+        `medianCompress=${debugNumber(target.medianGapCompressionNatr, 2)}N`,
+        `range3v3=${debugNumber(target.rangeContractionRatio3v3, 2)}x`,
+        `near=${target.nearBarsWindow ?? "—"}b/groups=${target.proximityGroups ?? "—"}`,
+        `facts=${facts}`,
+      ].join(" | ");
+    }) : ["APPROACH EVIDENCE TARGETS | none"]),
+  ];
+}
+
 function formatLevelResearchContextRow(row) {
   const missing = Object.entries(row?.coverage ?? {})
     .filter(([, state]) => state !== "AVAILABLE")
@@ -1060,11 +1088,15 @@ function addDiagnosticPanel(state, levelMap) {
   });
   window.__INPULS_APPROACH_CONTEXT__ = approachContext;
   const approachLines = formatApproachResearchContext(approachContext);
+  const approachEvidenceContext = buildApproachEvidenceResearchContext(approachContext);
+  window.__INPULS_APPROACH_EVIDENCE__ = approachEvidenceContext;
+  const approachEvidenceLines = formatApproachEvidenceResearchContext(approachEvidenceContext);
   const candleTraceRows = [...buildCandleTraceRows(state)];
   panel.textContent = [
     `DEBUG V6.3.1 CAUSAL APPROACH CONTEXT · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
     ...localStructureLines,
     ...approachLines,
+    ...approachEvidenceLines,
     `LEVEL CONTEXT ${LEVEL_CONTEXT_RESEARCH_VERSION} · RESEARCH ONLY · pool=${levelContextPool.length} visible=${levelContextRows.filter((row) => row.candidateState === "VISIBLE_MAP").length} shadow=${levelContextRows.filter((row) => row.candidateState !== "VISIBLE_MAP").length} · Q=structural geometry · R=0-5% current relevance`,
     ...levelContextRows.map(formatLevelResearchContextRow),
     `LEGACY V5.4 LEVEL DEBUG · rows ${localRows.length}`,

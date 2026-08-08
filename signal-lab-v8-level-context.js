@@ -727,6 +727,103 @@ export function buildApproachCompressionResearchContext(candles, localStructureC
   });
 }
 
+
+function evidenceReadiness(sampleBars, requestedLookbackBars) {
+  const sample = Math.max(0, Math.round(finite(sampleBars) ?? 0));
+  const requested = Math.max(2, Math.round(finite(requestedLookbackBars) ?? 12));
+  if (sample < 2) return "INSUFFICIENT";
+  if (sample < 3) return "EARLY_2B";
+  if (sample < 6) return "EARLY_3B";
+  if (sample < requested) return "OBSERVABLE_6B";
+  return "FULL_WINDOW";
+}
+
+function signedEvidenceFlag(value, positive, negative, flat) {
+  const number = finite(value);
+  if (number === null) return null;
+  if (number > 0) return positive;
+  if (number < 0) return negative;
+  return flat;
+}
+
+// V6.4 deliberately keeps approach evidence as a vector of observable facts.
+// It does not combine them into a score, breakout probability, or trade signal.
+// Magnitudes remain available beside labels so later calibration can decide
+// whether tiny positive/negative changes are meaningful across a large sample.
+export function buildApproachEvidenceResearchContext(approachContext) {
+  if (!approachContext || approachContext.state === "UNKNOWN") {
+    return Object.freeze({ state: "UNKNOWN", targets: Object.freeze([]), researchOnly: true });
+  }
+
+  const targets = (Array.isArray(approachContext.targets) ? approachContext.targets : [])
+    .map((row) => {
+      if (!row || !["HIGH", "LOW"].includes(row?.side)) return null;
+      const facts = [];
+      const push = (value) => { if (value) facts.push(value); };
+      push(signedEvidenceFlag(row.towardDelta3Natr, "TOWARD_3B", "AWAY_3B", "TOWARD_3B_FLAT"));
+      push(signedEvidenceFlag(row.towardDelta6Natr, "TOWARD_6B", "AWAY_6B", "TOWARD_6B_FLAT"));
+      push(signedEvidenceFlag(row.towardDelta12Natr, "TOWARD_12B", "AWAY_12B", "TOWARD_12B_FLAT"));
+      push(signedEvidenceFlag(
+        row.medianGapCompressionNatr,
+        "MEDIAN_GAP_SHRINKING",
+        "MEDIAN_GAP_WIDENING",
+        "MEDIAN_GAP_FLAT",
+      ));
+      const progressionPositive = row.progressionLabel === "HIGHER_FLOOR" ? "FLOOR_RISING" : "CEILING_FALLING";
+      const progressionNegative = row.progressionLabel === "HIGHER_FLOOR" ? "FLOOR_FALLING" : "CEILING_RISING";
+      push(signedEvidenceFlag(row.progressionNatr, progressionPositive, progressionNegative, "OPPOSITE_BOUNDARY_FLAT"));
+
+      const rangeRatio = finite(row.rangeContractionRatio3v3);
+      if (rangeRatio !== null) {
+        facts.push(rangeRatio < 1 ? "RANGE_CONTRACTING" : rangeRatio > 1 ? "RANGE_EXPANDING" : "RANGE_FLAT");
+      }
+      const nearBars = finite(row.nearBarsWindow);
+      if (nearBars !== null) facts.push(nearBars > 0 ? "NEAR_ZONE_SEEN" : "NO_NEAR_ZONE");
+      const groups = finite(row.proximityGroups);
+      if (groups !== null) {
+        facts.push(groups >= 2 ? "MULTI_PROXIMITY_GROUPS" : groups === 1 ? "ONE_PROXIMITY_GROUP" : "NO_PROXIMITY_GROUP");
+      }
+      const closeBeyond = finite(row.closeBeyondBars);
+      if (closeBeyond !== null && closeBeyond > 0) facts.push("CLOSE_BEYOND_OBSERVED_NOT_PIERCED");
+      const extremeBeyond = finite(row.extremeBeyondBars);
+      if (extremeBeyond !== null && extremeBeyond > 0) facts.push("EXTREME_BEYOND_OBSERVED_NOT_PIERCED");
+
+      return Object.freeze({
+        side: row.side,
+        targetPrice: finite(row.targetPrice),
+        roles: Object.freeze(Array.isArray(row.roles) ? [...row.roles] : []),
+        candidateState: row.candidateState ?? "VISIBLE_MAP",
+        readiness: evidenceReadiness(row.sampleBars, row.requestedLookbackBars),
+        sampleBars: Math.max(0, Math.round(finite(row.sampleBars) ?? 0)),
+        requestedLookbackBars: Math.max(2, Math.round(finite(row.requestedLookbackBars) ?? 12)),
+        currentDistanceNatr: finite(row.currentDistanceNatr),
+        towardDelta3Natr: finite(row.towardDelta3Natr),
+        towardDelta6Natr: finite(row.towardDelta6Natr),
+        towardDelta12Natr: finite(row.towardDelta12Natr),
+        medianGapCompressionNatr: finite(row.medianGapCompressionNatr),
+        progressionNatr: finite(row.progressionNatr),
+        progressionLabel: row.progressionLabel ?? null,
+        nearBarsWindow: nearBars,
+        proximityGroups: groups,
+        rangeContractionRatio3v3: rangeRatio,
+        closeBeyondBars: closeBeyond,
+        extremeBeyondBars: extremeBeyond,
+        facts: Object.freeze(facts),
+        researchOnly: true,
+      });
+    })
+    .filter(Boolean);
+
+  return Object.freeze({
+    state: targets.length ? "EVIDENCE_AVAILABLE" : "NO_LOCAL_TARGETS",
+    timeframe: approachContext.timeframe ?? "5m",
+    targets: Object.freeze(targets),
+    researchOnly: true,
+  });
+}
+
+export const APPROACH_EVIDENCE_RESEARCH_VERSION = "v6.4-approach-evidence-shadow-2026-08";
+
 export const APPROACH_CONTEXT_RESEARCH_VERSION = "v6.3.1-causal-path-shadow-2026-08";
 
 export const LOCAL_STRUCTURE_RESEARCH_VERSION = "v6.2-relational-shadow-2026-08";
