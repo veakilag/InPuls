@@ -828,21 +828,26 @@ function formatLocalStructureResearchContext(row) {
 function formatApproachResearchRow(row) {
   const map = row?.candidateState === "VISIBLE_MAP" ? "VISIBLE" : "shadow";
   const roles = Array.isArray(row?.roles) ? row.roles.join("+") : "?";
+  const causalAt = finite(row?.causalFromAt);
+  const causalAtLabel = causalAt === null ? "—" : new Date(causalAt).toISOString().slice(11, 16);
+  const countOrDash = (value) => value === null || value === undefined ? "—" : value;
   return [
     `APPROACH ${row.side} ${roles}`,
     `target=${debugNumber(row.targetPrice, row.targetPrice >= 1000 ? 1 : 6)}`,
     `map=${map}`,
     `Q=${row.qualityScore ?? "—"} R=${row.relevanceScore ?? "—"}`,
+    `sample=${row.sampleBars ?? 0}/${row.requestedLookbackBars ?? 12}b(${row.sampleState ?? "?"})`,
+    `causal=${row.causalBasis ?? "?"}@${causalAtLabel}`,
     `dist=${debugNumber(row.currentDistancePct, 3)}%/${debugNumber(row.currentDistanceNatr, 2)}N`,
     `gap=${debugNumber(row.startGapNatr, 2)}→${debugNumber(row.endGapNatr, 2)}N`,
     `toward3/6/12=${debugNumber(row.towardDelta3Natr, 2)}/${debugNumber(row.towardDelta6Natr, 2)}/${debugNumber(row.towardDelta12Natr, 2)}N`,
     `medianCompress=${debugNumber(row.medianGapCompressionNatr, 2)}N`,
     `${row.progressionLabel === "HIGHER_FLOOR" ? "floorRise" : "ceilingDrop"}=${debugNumber(row.progressionNatr, 2)}N`,
-    `near3/6/${row.lookbackBars}=${row.nearBars3}/${row.nearBars6}/${row.nearBarsWindow}`,
-    `nearGroups=${row.proximityGroups}(not×N)`,
+    `near3/6/${row.sampleBars ?? 0}=${countOrDash(row.nearBars3)}/${countOrDash(row.nearBars6)}/${countOrDash(row.nearBarsWindow)}`,
+    `nearGroups=${countOrDash(row.proximityGroups)}(not×N)`,
     `lastNear=${row.lastNearBarsAgo ?? "—"}b`,
-    `closeBeyond=${row.closeBeyondBars}`,
-    `extremeBeyond=${row.extremeBeyondBars}(not PIERCED)`,
+    `closeBeyond=${countOrDash(row.closeBeyondBars)}`,
+    `extremeBeyond=${countOrDash(row.extremeBeyondBars)}(not PIERCED)`,
     `range3v3=${debugNumber(row.rangeContractionRatio3v3, 2)}x`,
   ].join(" | ");
 }
@@ -1057,7 +1062,7 @@ function addDiagnosticPanel(state, levelMap) {
   const approachLines = formatApproachResearchContext(approachContext);
   const candleTraceRows = [...buildCandleTraceRows(state)];
   panel.textContent = [
-    `DEBUG V6.3 APPROACH CONTEXT · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
+    `DEBUG V6.3.1 CAUSAL APPROACH CONTEXT · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
     ...localStructureLines,
     ...approachLines,
     `LEVEL CONTEXT ${LEVEL_CONTEXT_RESEARCH_VERSION} · RESEARCH ONLY · pool=${levelContextPool.length} visible=${levelContextRows.filter((row) => row.candidateState === "VISIBLE_MAP").length} shadow=${levelContextRows.filter((row) => row.candidateState !== "VISIBLE_MAP").length} · Q=structural geometry · R=0-5% current relevance`,

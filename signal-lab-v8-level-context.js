@@ -283,6 +283,7 @@ export function buildLevelResearchContexts(levels, {
       attackCount: Math.max(1, Math.round(Number(level?.attackCount) || 1)),
       confluenceCount: Math.max(1, Number(level?.confluenceCount) || levelSources(level).length || 1),
       originAt: levelOriginAt(level),
+      confirmedAt: finite(level?.confirmedAt),
       ageBars: round(levelAgeBars(level, endAt), 1),
       currentPrice: resolvedCurrentPrice,
       quality,
@@ -325,6 +326,8 @@ function researchBoundaryRow(row, currentPrice) {
     relevanceScore: finite(row?.relevance?.score),
     candidateState: row?.candidateState ?? "VISIBLE_MAP",
     sourceTimeframe: row?.sourceTimeframe ?? null,
+    originAt: finite(row?.originAt),
+    confirmedAt: finite(row?.confirmedAt),
     sources: Object.freeze(Array.isArray(row?.sources) ? [...row.sources] : []),
   });
 }
@@ -515,8 +518,8 @@ function targetRoleRows(localStructureContext) {
 }
 
 function towardDeltaNatr(candles, targetPrice, side, currentNatrPct, bars) {
-  if (!(currentNatrPct > 0)) return null;
-  const rows = candles.slice(-Math.max(2, bars));
+  if (!(currentNatrPct > 0) || candles.length < bars) return null;
+  const rows = candles.slice(-bars);
   if (rows.length < 2) return null;
   const start = signedTargetCloseGapPct(rows[0], targetPrice, side);
   const end = signedTargetCloseGapPct(rows.at(-1), targetPrice, side);
@@ -529,8 +532,76 @@ function approachTargetResearchRow(candles, targetInfo, currentPrice, currentNat
   const side = target?.side;
   if (!(targetPrice > 0) || !["HIGH", "LOW"].includes(side)) return null;
 
-  const window = candles.slice(-lookbackBars);
-  if (window.length < 2) return null;
+  const requestedLookbackBars = Math.max(2, Math.round(Number(lookbackBars) || 12));
+  const confirmedAt = finite(target?.confirmedAt);
+  const originAt = finite(target?.originAt);
+  const causalFromAt = confirmedAt !== null ? confirmedAt : originAt;
+  const causalBasis = confirmedAt !== null
+    ? "CONFIRMED_AT"
+    : originAt !== null
+      ? "ORIGIN_AT_FALLBACK"
+      : "UNBOUNDED_NO_TARGET_TIME";
+  const validCandles = (Array.isArray(candles) ? candles : [])
+    .filter((candle) => researchCandleValid(candle) && finite(candle?.time) !== null)
+    .slice()
+    .sort((left, right) => finite(left?.time) - finite(right?.time));
+  const causalCandles = causalFromAt === null
+    ? validCandles
+    : validCandles.filter((candle) => finite(candle?.time) > causalFromAt);
+  const window = causalCandles.slice(-requestedLookbackBars);
+  const sampleBars = window.length;
+  const sampleState = sampleBars >= requestedLookbackBars
+    ? "READY"
+    : sampleBars >= 2
+      ? "LIMITED"
+      : "INSUFFICIENT";
+  const currentDistancePct = currentPrice > 0
+    ? Math.abs(targetPrice - currentPrice) / currentPrice * 100
+    : null;
+  const baseRow = {
+    side,
+    targetPrice,
+    roles: targetInfo.roles,
+    candidateState: target?.candidateState ?? "VISIBLE_MAP",
+    qualityScore: finite(target?.qualityScore),
+    relevanceScore: finite(target?.relevanceScore),
+    currentDistancePct: round(currentDistancePct, 4),
+    currentDistanceNatr: currentDistancePct !== null && currentNatrPct > 0
+      ? round(currentDistancePct / currentNatrPct, 3)
+      : null,
+    requestedLookbackBars,
+    causalBarsAvailable: causalCandles.length,
+    sampleBars,
+    sampleState,
+    causalFromAt,
+    causalBasis,
+    lookbackBars: sampleBars,
+  };
+
+  if (sampleBars < 2) {
+    return Object.freeze({
+      ...baseRow,
+      nearZoneNatr: 0.35,
+      startGapNatr: null,
+      endGapNatr: null,
+      towardDelta3Natr: null,
+      towardDelta6Natr: null,
+      towardDelta12Natr: null,
+      medianGapCompressionNatr: null,
+      progressionNatr: null,
+      progressionLabel: side === "HIGH" ? "HIGHER_FLOOR" : "LOWER_CEILING",
+      nearBars3: null,
+      nearBars6: null,
+      nearBarsWindow: null,
+      proximityGroups: null,
+      lastNearBarsAgo: null,
+      closeBeyondBars: null,
+      extremeBeyondBars: null,
+      rangeContractionRatio3v3: null,
+      researchOnly: true,
+    });
+  }
+
   const gapsNatr = window.map((candle) => {
     const gap = signedTargetCloseGapPct(candle, targetPrice, side);
     return gap === null || !(currentNatrPct > 0) ? null : gap / currentNatrPct;
@@ -558,7 +629,6 @@ function approachTargetResearchRow(candles, targetInfo, currentPrice, currentNat
     }
   }
 
-  const last6 = window.slice(-6);
   const recent3 = window.slice(-3);
   const prior3 = window.length >= 6 ? window.slice(-6, -3) : [];
   let progressionNatr = null;
@@ -589,22 +659,9 @@ function approachTargetResearchRow(candles, targetInfo, currentPrice, currentNat
     const extreme = relevantExtremePrice(candle, side);
     return side === "HIGH" ? extreme > targetPrice : extreme < targetPrice;
   }).length;
-  const currentDistancePct = currentPrice > 0
-    ? Math.abs(targetPrice - currentPrice) / currentPrice * 100
-    : null;
 
   return Object.freeze({
-    side,
-    targetPrice,
-    roles: targetInfo.roles,
-    candidateState: target?.candidateState ?? "VISIBLE_MAP",
-    qualityScore: finite(target?.qualityScore),
-    relevanceScore: finite(target?.relevanceScore),
-    currentDistancePct: round(currentDistancePct, 4),
-    currentDistanceNatr: currentDistancePct !== null && currentNatrPct > 0
-      ? round(currentDistancePct / currentNatrPct, 3)
-      : null,
-    lookbackBars: window.length,
+    ...baseRow,
     nearZoneNatr,
     startGapNatr: round(startGapNatr, 3),
     endGapNatr: round(endGapNatr, 3),
@@ -616,8 +673,8 @@ function approachTargetResearchRow(candles, targetInfo, currentPrice, currentNat
       : null,
     progressionNatr: round(progressionNatr, 3),
     progressionLabel: side === "HIGH" ? "HIGHER_FLOOR" : "LOWER_CEILING",
-    nearBars3: nearFlags.slice(-3).filter(Boolean).length,
-    nearBars6: nearFlags.slice(-6).filter(Boolean).length,
+    nearBars3: sampleBars >= 3 ? nearFlags.slice(-3).filter(Boolean).length : null,
+    nearBars6: sampleBars >= 6 ? nearFlags.slice(-6).filter(Boolean).length : null,
     nearBarsWindow: nearFlags.filter(Boolean).length,
     proximityGroups,
     lastNearBarsAgo,
@@ -670,7 +727,7 @@ export function buildApproachCompressionResearchContext(candles, localStructureC
   });
 }
 
-export const APPROACH_CONTEXT_RESEARCH_VERSION = "v6.3-path-shadow-2026-08";
+export const APPROACH_CONTEXT_RESEARCH_VERSION = "v6.3.1-causal-path-shadow-2026-08";
 
 export const LOCAL_STRUCTURE_RESEARCH_VERSION = "v6.2-relational-shadow-2026-08";
 

@@ -256,3 +256,88 @@ test("V6.3 keeps nearest and quality targets separate when structure points to d
   assert.deepEqual(context.targets.map((row) => row.roles[0]), ["NEAREST", "QUALITY"]);
   assert.equal(context.researchOnly, true);
 });
+
+
+
+test("V6.3.1 causal approach excludes pre-confirmation candles and reports sample sufficiency", () => {
+  const path = Array.from({ length: 8 }, (_, index) => {
+    const beforeConfirmation = index <= 4;
+    return {
+      time: index * STEP,
+      open: beforeConfirmation ? 105.2 : 100,
+      high: beforeConfirmation ? 106 : 101,
+      low: beforeConfirmation ? 104.8 : 99,
+      close: beforeConfirmation ? 105.5 : 100,
+    };
+  });
+  const confirmedAt = 5 * STEP - 1;
+  const target = {
+    id: "causal-high",
+    side: "HIGH",
+    price: 105,
+    candidateState: "SOURCE_QUALIFIED_HIDDEN",
+    qualityScore: 70,
+    relevanceScore: 50,
+    originAt: STEP,
+    confirmedAt,
+  };
+  const structure = {
+    currentPrice: 100,
+    currentNatrPct: 1,
+    nearestHigh: target,
+    strongestHigh: target,
+  };
+  const context = buildApproachCompressionResearchContext(path, structure, {
+    currentPrice: 100,
+    currentNatrPct: 1,
+    lookbackBars: 12,
+  });
+  const row = context.targets[0];
+  assert.equal(row.causalBasis, "CONFIRMED_AT");
+  assert.equal(row.causalFromAt, confirmedAt);
+  assert.equal(row.causalBarsAvailable, 3);
+  assert.equal(row.sampleBars, 3);
+  assert.equal(row.requestedLookbackBars, 12);
+  assert.equal(row.sampleState, "LIMITED");
+  assert.equal(row.nearBars3, 0);
+  assert.equal(row.nearBars6, null);
+  assert.equal(row.nearBarsWindow, 0);
+  assert.equal(row.proximityGroups, 0);
+  assert.equal(row.closeBeyondBars, 0);
+  assert.equal(row.extremeBeyondBars, 0);
+  assert.equal(row.towardDelta6Natr, null);
+  assert.equal(row.towardDelta12Natr, null);
+});
+
+test("V6.3.1 causal approach labels origin fallback and does not invent evidence with one bar", () => {
+  const path = [
+    { time: 0, open: 100, high: 101, low: 99, close: 100 },
+    { time: STEP, open: 100, high: 101, low: 99, close: 100 },
+    { time: 2 * STEP, open: 100, high: 101, low: 99, close: 100 },
+  ];
+  const target = {
+    id: "origin-fallback",
+    side: "HIGH",
+    price: 105,
+    candidateState: "VISIBLE_MAP",
+    qualityScore: 80,
+    relevanceScore: 40,
+    originAt: STEP,
+  };
+  const structure = { currentPrice: 100, currentNatrPct: 1, nearestHigh: target, strongestHigh: target };
+  const context = buildApproachCompressionResearchContext(path, structure, {
+    currentPrice: 100,
+    currentNatrPct: 1,
+    lookbackBars: 12,
+  });
+  const row = context.targets[0];
+  assert.equal(row.causalBasis, "ORIGIN_AT_FALLBACK");
+  assert.equal(row.causalFromAt, STEP);
+  assert.equal(row.sampleBars, 1);
+  assert.equal(row.sampleState, "INSUFFICIENT");
+  assert.equal(row.startGapNatr, null);
+  assert.equal(row.nearBarsWindow, null);
+  assert.equal(row.proximityGroups, null);
+  assert.equal(row.closeBeyondBars, null);
+  assert.equal(row.extremeBeyondBars, null);
+});
