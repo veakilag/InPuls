@@ -56,8 +56,20 @@ jobs:
             test/signal-lab-v7-tradable-structure-v5.test.js \
             test/signal-lab-v7-multi-timeframe-levels.test.js
 
-      - name: Run complete regression suite
-        run: npm test
+      - name: Run complete regression suite with diagnostic annotation
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee /tmp/v5-full-suite.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            details=$(grep -E "not ok|AssertionError|ERR_ASSERTION|actual:|expected:|failureType:|error:" /tmp/v5-full-suite.log | tail -n 24 | tr '\n' ' ' | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g')
+            if [ -z "$details" ]; then
+              details=$(tail -n 40 /tmp/v5-full-suite.log | tr '\n' ' ' | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g')
+            fi
+            echo "::error title=V5.2 full regression failure::$details"
+            exit "$rc"
+          fi
 
       - name: Commit verified V5.2
         run: |
