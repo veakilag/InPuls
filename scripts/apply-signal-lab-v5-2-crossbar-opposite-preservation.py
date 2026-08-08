@@ -114,10 +114,12 @@ test("new lower low mirrors cross-bar preservation for the highest opposite high
   subject.ingestCandle(candle(0, 100, 100, 100, 100));
   subject.ingestCandle(candle(1, 100, 100, 94, 95));
   subject.ingestCandle(candle(2, 95, 96, 90, 91));
-  subject.ingestCandle(candle(3, 91, 99, 91, 92));
+  // Keep the close below the 2% confirmation threshold so HIGH=99 remains an
+  // observed opposite candidate instead of confirming LOW=90 immediately.
+  subject.ingestCandle(candle(3, 91, 99, 91, 91));
   assert.equal(subject.snapshot().oppositeCandidate.price, 99);
 
-  const continuation = subject.ingestCandle(candle(4, 92, 94, 88, 89));
+  const continuation = subject.ingestCandle(candle(4, 91, 94, 88, 89));
   assert.equal(continuation.candidate.price, 88);
   assert.equal(continuation.oppositeCandidate.price, 99);
   assert.equal(continuation.oppositeCandidate.preservedAcrossContinuation, true);
