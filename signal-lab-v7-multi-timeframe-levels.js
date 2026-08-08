@@ -1099,6 +1099,27 @@ export function structuralLocalWorkingSetVisible(level, volatilityContext, candl
   return distanceBaseNatr <= policy.maxDistanceBaseNatr;
 }
 
+function structuralLevelTimeOnView(level, viewTimeframe) {
+  const path = Array.isArray(level?.refinementPath) ? level.refinementPath : [];
+  for (let index = path.length - 1; index >= 0; index -= 1) {
+    const step = path[index];
+    if (step?.timeframe !== viewTimeframe) continue;
+    const time = finite(step?.time);
+    if (time !== null) return time;
+  }
+  if (level?.refinedThroughTimeframe === viewTimeframe) {
+    const displayAt = finite(level?.displayAt);
+    if (displayAt !== null) return displayAt;
+  }
+  return finite(level?.nativeExtremeAt ?? level?.extremeAt);
+}
+
+function structuralLevelContainsTimeframe(level, timeframe) {
+  if (level?.sourceTimeframe === timeframe) return true;
+  const sources = Array.isArray(level?.sources) ? level.sources : [];
+  return sources.includes(timeframe);
+}
+
 export function filterLocalSameSideShadow(levels, viewTimeframe) {
   const source = Array.isArray(levels) ? levels.filter(Boolean) : [];
   const policy = LOCAL_WORKING_SET_POLICY[viewTimeframe];
@@ -1109,8 +1130,8 @@ export function filterLocalSameSideShadow(levels, viewTimeframe) {
   }
 
   const ordered = source.slice().sort((left, right) => {
-    const leftAt = finite(left?.nativeExtremeAt ?? left?.extremeAt) ?? Infinity;
-    const rightAt = finite(right?.nativeExtremeAt ?? right?.extremeAt) ?? Infinity;
+    const leftAt = structuralLevelTimeOnView(left, viewTimeframe) ?? Infinity;
+    const rightAt = structuralLevelTimeOnView(right, viewTimeframe) ?? Infinity;
     if (leftAt !== rightAt) return leftAt - rightAt;
     return String(left?.id ?? '').localeCompare(String(right?.id ?? ''));
   });
@@ -1124,18 +1145,21 @@ export function filterLocalSameSideShadow(levels, viewTimeframe) {
     const currentSources = Array.isArray(current.sources) ? current.sources : [current.sourceTimeframe].filter(Boolean);
     if (currentSources.length > 1) continue;
 
-    const currentAt = finite(current.nativeExtremeAt ?? current.extremeAt);
+    const currentAt = structuralLevelTimeOnView(current, viewTimeframe);
     const currentPrice = finite(current.price);
     if (currentAt === null || !(currentPrice > 0)) continue;
 
     for (let priorIndex = index - 1; priorIndex >= 0; priorIndex -= 1) {
       const prior = ordered[priorIndex];
-      const priorAt = finite(prior?.nativeExtremeAt ?? prior?.extremeAt);
+      const priorAt = structuralLevelTimeOnView(prior, viewTimeframe);
       if (priorAt === null) continue;
       if (currentAt - priorAt > maximumGapMs) break;
       if (prior?.active === false) continue;
       if (prior?.side !== current.side) break;
-      if (prior?.sourceTimeframe !== viewTimeframe) continue;
+      // V4.23: after clustering a valid native 1m pivot may be owned by a
+      // senior primary (for example 15m+1m). It still participates in local
+      // same-side shadow cleanup when the cluster contains this view timeframe.
+      if (!structuralLevelContainsTimeframe(prior, viewTimeframe)) continue;
 
       const priorPrice = finite(prior?.price);
       if (!(priorPrice > 0)) break;

@@ -43,3 +43,23 @@ test("V4.22 never hides x2 or confluence levels as shadows", () => {
   ], "1m");
   assert.deepEqual(result.map((row) => row.id), ["low-a", "low-x2", "low-confluence"]);
 });
+
+
+test("V4.23 uses the view-time refinement of a senior-owned confluence as the prior native pivot", () => {
+  const levels = [
+    {
+      ...level("senior-low", "LOW", 0.01813, 0),
+      sourceTimeframe: "15m",
+      sources: ["15m", "1m"],
+      refinementPath: [
+        { timeframe: "15m", time: 0 },
+        { timeframe: "1m", time: 8 * minute },
+      ],
+      refinedThroughTimeframe: "1m",
+      displayAt: 8 * minute,
+    },
+    level("shadow-low", "LOW", 0.023, 10),
+  ];
+  const result = filterLocalSameSideShadow(levels, "1m");
+  assert.deepEqual(result.map((row) => row.id), ["senior-low"]);
+});
