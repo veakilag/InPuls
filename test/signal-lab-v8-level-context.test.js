@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildLevelResearchContexts, buildLocalStructureResearchContext, mergeLevelResearchCandidatePool } from "../signal-lab-v8-level-context.js";
+import { buildApproachCompressionResearchContext, buildLevelResearchContexts, buildLocalStructureResearchContext, mergeLevelResearchCandidatePool } from "../signal-lab-v8-level-context.js";
 
 const STEP = 300_000;
 const candles = Array.from({ length: 40 }, (_, index) => ({
@@ -188,4 +188,71 @@ test("V6.2 exposes side-mismatch candidates without interpreting them as support
   assert.equal(row.counts.sideMismatch, 2);
   assert.equal(row.nearestBracket, null);
   assert.equal(row.sideMismatch.length, 2);
+});
+
+
+test("V6.3 HIGH approach measures higher floor and shrinking target gap symmetrically without a signal score", () => {
+  const path = Array.from({ length: 12 }, (_, index) => {
+    const close = 100 + index * 0.75;
+    return {
+      time: index * STEP,
+      open: close - 0.2,
+      high: close + (index >= 9 ? 1.2 : 0.8),
+      low: close - 1.0,
+      close,
+    };
+  });
+  const target = { id: "h", side: "HIGH", price: 109, candidateState: "SOURCE_QUALIFIED_HIDDEN", qualityScore: 60, relevanceScore: 40 };
+  const structure = { currentPrice: path.at(-1).close, currentNatrPct: 2, nearestHigh: target, strongestHigh: target };
+  const context = buildApproachCompressionResearchContext(path, structure, { currentNatrPct: 2, lookbackBars: 12 });
+  assert.equal(context.targets.length, 1);
+  const row = context.targets[0];
+  assert.deepEqual(row.roles, ["NEAREST", "QUALITY"]);
+  assert.ok(row.towardDelta12Natr > 0);
+  assert.ok(row.progressionNatr > 0);
+  assert.equal(row.progressionLabel, "HIGHER_FLOOR");
+  assert.ok(row.nearBars3 >= 1);
+  assert.equal(Object.prototype.hasOwnProperty.call(row, "score"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(row, "attackCount"), false);
+});
+
+test("V6.3 LOW approach mirrors HIGH logic with lower ceiling progression", () => {
+  const path = Array.from({ length: 12 }, (_, index) => {
+    const close = 100 - index * 0.75;
+    return {
+      time: index * STEP,
+      open: close + 0.2,
+      high: close + 1.0,
+      low: close - (index >= 9 ? 1.2 : 0.8),
+      close,
+    };
+  });
+  const target = { id: "l", side: "LOW", price: 91, candidateState: "SOURCE_QUALIFIED_HIDDEN", qualityScore: 55, relevanceScore: 35 };
+  const structure = { currentPrice: path.at(-1).close, currentNatrPct: 2, nearestLow: target, strongestLow: target };
+  const context = buildApproachCompressionResearchContext(path, structure, { currentNatrPct: 2, lookbackBars: 12 });
+  const row = context.targets[0];
+  assert.ok(row.towardDelta12Natr > 0);
+  assert.ok(row.progressionNatr > 0);
+  assert.equal(row.progressionLabel, "LOWER_CEILING");
+  assert.ok(row.nearBars3 >= 1);
+});
+
+test("V6.3 keeps nearest and quality targets separate when structure points to different levels", () => {
+  const path = Array.from({ length: 12 }, (_, index) => ({
+    time: index * STEP,
+    open: 100 + index * 0.1,
+    high: 101 + index * 0.1,
+    low: 99 + index * 0.1,
+    close: 100 + index * 0.1,
+  }));
+  const structure = {
+    currentPrice: path.at(-1).close,
+    currentNatrPct: 1.5,
+    nearestHigh: { id: "near", side: "HIGH", price: 102, candidateState: "SOURCE_QUALIFIED_HIDDEN", qualityScore: 20, relevanceScore: 50 },
+    strongestHigh: { id: "strong", side: "HIGH", price: 104, candidateState: "VISIBLE_MAP", qualityScore: 90, relevanceScore: 20 },
+  };
+  const context = buildApproachCompressionResearchContext(path, structure, { currentNatrPct: 1.5 });
+  assert.equal(context.targets.length, 2);
+  assert.deepEqual(context.targets.map((row) => row.roles[0]), ["NEAREST", "QUALITY"]);
+  assert.equal(context.researchOnly, true);
 });

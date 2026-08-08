@@ -13,7 +13,7 @@ import {
   visibleSourceTimeframes,
 } from "./signal-lab-v7-multi-timeframe-levels.js";
 import { binanceFuturesTickSize } from "./signal-lab-v7-binance-market-metadata.js";
-import { LEVEL_CONTEXT_RESEARCH_VERSION, LOCAL_STRUCTURE_RESEARCH_VERSION, buildLevelResearchContexts, buildLocalStructureResearchContext, mergeLevelResearchCandidatePool } from "./signal-lab-v8-level-context.js";
+import { APPROACH_CONTEXT_RESEARCH_VERSION, LEVEL_CONTEXT_RESEARCH_VERSION, LOCAL_STRUCTURE_RESEARCH_VERSION, buildApproachCompressionResearchContext, buildLevelResearchContexts, buildLocalStructureResearchContext, mergeLevelResearchCandidatePool } from "./signal-lab-v8-level-context.js";
 
 const KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
 const EXCHANGE_INFO_ENDPOINT = "https://fapi.binance.com/fapi/v1/exchangeInfo";
@@ -825,6 +825,38 @@ function formatLocalStructureResearchContext(row) {
   ];
 }
 
+function formatApproachResearchRow(row) {
+  const map = row?.candidateState === "VISIBLE_MAP" ? "VISIBLE" : "shadow";
+  const roles = Array.isArray(row?.roles) ? row.roles.join("+") : "?";
+  return [
+    `APPROACH ${row.side} ${roles}`,
+    `target=${debugNumber(row.targetPrice, row.targetPrice >= 1000 ? 1 : 6)}`,
+    `map=${map}`,
+    `Q=${row.qualityScore ?? "—"} R=${row.relevanceScore ?? "—"}`,
+    `dist=${debugNumber(row.currentDistancePct, 3)}%/${debugNumber(row.currentDistanceNatr, 2)}N`,
+    `gap=${debugNumber(row.startGapNatr, 2)}→${debugNumber(row.endGapNatr, 2)}N`,
+    `toward3/6/12=${debugNumber(row.towardDelta3Natr, 2)}/${debugNumber(row.towardDelta6Natr, 2)}/${debugNumber(row.towardDelta12Natr, 2)}N`,
+    `medianCompress=${debugNumber(row.medianGapCompressionNatr, 2)}N`,
+    `${row.progressionLabel === "HIGHER_FLOOR" ? "floorRise" : "ceilingDrop"}=${debugNumber(row.progressionNatr, 2)}N`,
+    `near3/6/${row.lookbackBars}=${row.nearBars3}/${row.nearBars6}/${row.nearBarsWindow}`,
+    `nearGroups=${row.proximityGroups}(not×N)`,
+    `lastNear=${row.lastNearBarsAgo ?? "—"}b`,
+    `closeBeyond=${row.closeBeyondBars}`,
+    `extremeBeyond=${row.extremeBeyondBars}(not PIERCED)`,
+    `range3v3=${debugNumber(row.rangeContractionRatio3v3, 2)}x`,
+  ].join(" | ");
+}
+
+function formatApproachResearchContext(row) {
+  if (!row || row.state === "UNKNOWN") return ["APPROACH CONTEXT | unavailable"];
+  return [
+    `APPROACH CONTEXT ${APPROACH_CONTEXT_RESEARCH_VERSION} · 5m PATH · RESEARCH ONLY · no breakout score`,
+    ...(Array.isArray(row.targets) && row.targets.length
+      ? row.targets.map(formatApproachResearchRow)
+      : ["APPROACH TARGETS | none"]),
+  ];
+}
+
 function formatLevelResearchContextRow(row) {
   const missing = Object.entries(row?.coverage ?? {})
     .filter(([, state]) => state !== "AVAILABLE")
@@ -1014,10 +1046,20 @@ function addDiagnosticPanel(state, levelMap) {
   });
   window.__INPULS_LOCAL_STRUCTURE_CONTEXT__ = localStructureContext;
   const localStructureLines = formatLocalStructureResearchContext(localStructureContext);
+  const structural5mCandles = state?.candlesByTimeframe?.["5m"] ?? [];
+  const structural5mVolatility = buildStructuralVolatilityContext(structural5mCandles);
+  const approachContext = buildApproachCompressionResearchContext(structural5mCandles, localStructureContext, {
+    currentPrice: localStructureContext.currentPrice,
+    currentNatrPct: structural5mVolatility.currentNatrPct ?? localStructureContext.currentNatrPct,
+    lookbackBars: 12,
+  });
+  window.__INPULS_APPROACH_CONTEXT__ = approachContext;
+  const approachLines = formatApproachResearchContext(approachContext);
   const candleTraceRows = [...buildCandleTraceRows(state)];
   panel.textContent = [
-    `DEBUG V6.2 LOCAL STRUCTURE · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
+    `DEBUG V6.3 APPROACH CONTEXT · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
     ...localStructureLines,
+    ...approachLines,
     `LEVEL CONTEXT ${LEVEL_CONTEXT_RESEARCH_VERSION} · RESEARCH ONLY · pool=${levelContextPool.length} visible=${levelContextRows.filter((row) => row.candidateState === "VISIBLE_MAP").length} shadow=${levelContextRows.filter((row) => row.candidateState !== "VISIBLE_MAP").length} · Q=structural geometry · R=0-5% current relevance`,
     ...levelContextRows.map(formatLevelResearchContextRow),
     `LEGACY V5.4 LEVEL DEBUG · rows ${localRows.length}`,
