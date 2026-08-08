@@ -755,6 +755,7 @@ export function normalizeStructuralLevel(extreme, sourceTimeframe, endAt, {
     side: extreme.side,
     price,
     extremeAt,
+    confirmedAt: finite(extreme.confirmedAt),
     nativeExtremeAt: extremeAt,
     displayAt: extremeAt,
     sourceTimeframe,

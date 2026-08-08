@@ -92,6 +92,24 @@ test("1m and 5m levels expire from the map after 30 days", () => {
   assert.ok(oldFourHour);
 });
 
+
+test("normalized structural level preserves confirmedAt for causal downstream research", () => {
+  const extremeAt = END - 20_000;
+  const confirmedAt = END - 11_000;
+  const level = normalizeStructuralLevel(extreme({
+    id: "confirmed-time",
+    side: "HIGH",
+    price: 101,
+    extremeAt,
+    confirmedAt,
+  }), "5m", END);
+
+  assert.ok(level);
+  assert.equal(level.extremeAt, extremeAt);
+  assert.equal(level.nativeExtremeAt, extremeAt);
+  assert.equal(level.confirmedAt, confirmedAt);
+});
+
 test("near levels keep the strongest native timeframe", () => {
   const clustered = clusterStructuralLevels([
     normalizeStructuralLevel(extreme({ id: "5m", price: 100.02, extremeAt: END - 1_000, attackCount: 3 }), "5m", END),
