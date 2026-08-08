@@ -95,3 +95,12 @@ Snapshot показывает:
 - Близкие экстремумы одного TF не схлопываются в один уровень. Близкий младший TF к старшему остаётся ownership/confluence старшего уровня.
 - Унаследованный старший уровень снимается на младшем TF только после двух последовательных закрытий за уровнем (`CHILD_TIMEFRAME_ACCEPTANCE`); одиночный wick/pierce не является финальным пробоем.
 - Detector/history и точный подсчёт атак ×N не изменены; V4.3 меняет только hierarchical map/calibration semantics.
+
+
+## V5.0 — tradable structure / trend-leg qualification
+
+BICO trader review exposed a separate product problem: on 1m/5m a smooth directional leg can contain many valid local swings, while only a subset are independently tradable liquidity levels. V5 keeps the detector/history recall-first and adds a working-map qualification layer.
+
+First rule: a continuation-side higher LOW or lower HIGH must reset at least 30% of the move from the previous qualified same-side level to the intervening leg extreme. Shallow stair-step pivots stay in event memory but do not become working-map rays. The anchor expires after 60 bars on 1m / 24 bars on 5m. Repeated attacks, senior ownership and multi-timeframe confluence bypass this filter.
+
+This is only V5.0. New lower LOW / higher HIGH cases are intentionally deferred to the next V-reversal / defence-base qualification stage instead of being hidden by an unvalidated rule.

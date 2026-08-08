@@ -95,6 +95,17 @@ export const LOCAL_WORKING_SET_POLICY = Object.freeze({
   "5m": Object.freeze({ maxDistanceBaseNatr: 6 }),
 });
 
+// V5.0: trader-reviewed BICO 1m/5m showed that a smooth directional leg can
+// generate many technically valid swing pivots that are not independently tradable
+// liquidity levels. Keep detector/history recall-first, but require a continuation-
+// side higher LOW / lower HIGH to reset a meaningful part of the preceding leg
+// before it is promoted to the working map. This is structural geometry, not a
+// price-prediction score. Repeated attacks and multi-TF confluence bypass it.
+export const LOCAL_TRADABLE_STRUCTURE_POLICY = Object.freeze({
+  "1m": Object.freeze({ minimumLegResetRatio: 0.30, maxAnchorBars: 60 }),
+  "5m": Object.freeze({ minimumLegResetRatio: 0.30, maxAnchorBars: 24 }),
+});
+
 // V4.7 calibration: trader review on BTC 5m showed that two shallow pauses
 // inside one rising impulse were incorrectly promoted to fresh LOW levels while
 // deeper swing bases were the intended structure. Keep event generation recall-
@@ -1174,6 +1185,170 @@ export function filterLocalSameSideShadow(levels, viewTimeframe) {
   return Object.freeze(source.filter((level) => !shadowedIds.has(level?.id)));
 }
 
+export function structuralTrendLegQualificationDecision(
+  level,
+  previousQualifiedSameSide,
+  viewTimeframe,
+  candles = [],
+) {
+  const policy = LOCAL_TRADABLE_STRUCTURE_POLICY[viewTimeframe];
+  if (!policy || !isLocalStructuralTimeframe(viewTimeframe)) {
+    return Object.freeze({ qualified: true, reason: "TREND_LEG_QUALIFICATION_NOT_APPLICABLE" });
+  }
+  if (!level || level.active === false || !["HIGH", "LOW"].includes(level.side)) {
+    return Object.freeze({ qualified: true, reason: "TREND_LEG_INACTIVE_OR_INVALID" });
+  }
+
+  const sources = Array.isArray(level?.sources)
+    ? level.sources
+    : [level?.sourceTimeframe].filter(Boolean);
+  const attackCount = Math.max(1, Math.round(Number(level?.attackCount) || 1));
+
+  // Senior ownership, multi-TF confluence and repeated defence are independent
+  // structural evidence. V5 must not erase them merely because a local leg is smooth.
+  if (level.sourceTimeframe !== viewTimeframe || sources.length > 1 || attackCount > 1) {
+    return Object.freeze({
+      qualified: true,
+      reason: attackCount > 1
+        ? "TREND_LEG_REPEATED_ATTACK_BYPASS"
+        : sources.length > 1
+          ? "TREND_LEG_CONFLUENCE_BYPASS"
+          : "TREND_LEG_SENIOR_BYPASS",
+    });
+  }
+
+  if (!previousQualifiedSameSide || previousQualifiedSameSide.side !== level.side) {
+    return Object.freeze({ qualified: true, reason: "TREND_LEG_NO_PRIOR_ANCHOR" });
+  }
+  if (!structuralLevelContainsTimeframe(previousQualifiedSameSide, viewTimeframe)) {
+    return Object.freeze({ qualified: true, reason: "TREND_LEG_PRIOR_NOT_ON_VIEW" });
+  }
+
+  const intervalMs = STRUCTURAL_TF_INTERVAL_MS[viewTimeframe];
+  const currentAt = structuralLevelTimeOnView(level, viewTimeframe);
+  const priorAt = structuralLevelTimeOnView(previousQualifiedSameSide, viewTimeframe);
+  const currentPrice = finite(level?.price);
+  const priorPrice = finite(previousQualifiedSameSide?.price);
+  if (!(intervalMs > 0) || currentAt === null || priorAt === null || currentAt <= priorAt
+    || !(currentPrice > 0) || !(priorPrice > 0)) {
+    return Object.freeze({ qualified: true, reason: "TREND_LEG_CONTEXT_INCOMPLETE" });
+  }
+
+  const anchorBars = (currentAt - priorAt) / intervalMs;
+  const maxAnchorBars = Math.max(1, Math.round(finite(policy.maxAnchorBars) ?? 1));
+  if (anchorBars > maxAnchorBars) {
+    return Object.freeze({
+      qualified: true,
+      reason: "TREND_LEG_ANCHOR_EXPIRED",
+      anchorBars,
+      maxAnchorBars,
+    });
+  }
+
+  // V5.0 intentionally targets continuation-side staircases only. A new lower LOW
+  // or higher HIGH is left for the next qualification stage (V-reversal/defence),
+  // rather than being guessed here.
+  const continuationSide = level.side === "LOW"
+    ? currentPrice > priorPrice
+    : currentPrice < priorPrice;
+  if (!continuationSide) {
+    return Object.freeze({
+      qualified: true,
+      reason: "TREND_LEG_NEW_PRICE_EXTREME_DEFERRED",
+      anchorBars,
+      maxAnchorBars,
+    });
+  }
+
+  const rows = (Array.isArray(candles) ? candles : [])
+    .map(validCandle)
+    .filter(Boolean)
+    .filter((row) => row.time > priorAt && row.time <= currentAt)
+    .sort((left, right) => left.time - right.time);
+  if (!rows.length) {
+    return Object.freeze({ qualified: true, reason: "TREND_LEG_CANDLES_UNAVAILABLE" });
+  }
+
+  let legExtreme = null;
+  let legMove = null;
+  let resetMove = null;
+  if (level.side === "LOW") {
+    legExtreme = Math.max(...rows.map((row) => row.high));
+    if (!(legExtreme > priorPrice)) {
+      return Object.freeze({ qualified: true, reason: "TREND_LEG_NO_ADVANCE" });
+    }
+    legMove = legExtreme - priorPrice;
+    resetMove = Math.max(0, legExtreme - currentPrice);
+  } else {
+    legExtreme = Math.min(...rows.map((row) => row.low));
+    if (!(legExtreme < priorPrice)) {
+      return Object.freeze({ qualified: true, reason: "TREND_LEG_NO_DECLINE" });
+    }
+    legMove = priorPrice - legExtreme;
+    resetMove = Math.max(0, currentPrice - legExtreme);
+  }
+
+  if (!(legMove > 0)) {
+    return Object.freeze({ qualified: true, reason: "TREND_LEG_ZERO_MOVE" });
+  }
+
+  const resetRatio = resetMove / legMove;
+  const minimumLegResetRatio = Math.max(
+    0,
+    Math.min(1, finite(policy.minimumLegResetRatio) ?? 0.30),
+  );
+  const qualified = resetRatio >= minimumLegResetRatio;
+  return Object.freeze({
+    qualified,
+    reason: qualified
+      ? "TREND_LEG_RESET_PASS"
+      : "TREND_LEG_SHALLOW_CONTINUATION_FILTERED",
+    side: level.side,
+    priorPrice,
+    currentPrice,
+    priorAt,
+    currentAt,
+    anchorBars,
+    maxAnchorBars,
+    legExtreme,
+    legMove,
+    resetMove,
+    resetRatio,
+    minimumLegResetRatio,
+  });
+}
+
+export function filterLocalTradableStructure(levels, viewTimeframe, candles = []) {
+  const source = Array.isArray(levels) ? levels.filter(Boolean) : [];
+  if (!LOCAL_TRADABLE_STRUCTURE_POLICY[viewTimeframe]) return Object.freeze([...source]);
+
+  const ordered = source.slice().sort((left, right) => {
+    const leftAt = structuralLevelTimeOnView(left, viewTimeframe) ?? Infinity;
+    const rightAt = structuralLevelTimeOnView(right, viewTimeframe) ?? Infinity;
+    if (leftAt !== rightAt) return leftAt - rightAt;
+    return String(left?.id ?? "").localeCompare(String(right?.id ?? ""));
+  });
+
+  const keptIds = new Set();
+  const lastQualifiedBySide = new Map();
+  for (const level of ordered) {
+    const previous = lastQualifiedBySide.get(level?.side) ?? null;
+    const decision = structuralTrendLegQualificationDecision(
+      level,
+      previous,
+      viewTimeframe,
+      candles,
+    );
+    if (!decision.qualified) continue;
+    if (level?.id) keptIds.add(level.id);
+    if (structuralLevelContainsTimeframe(level, viewTimeframe) && ["HIGH", "LOW"].includes(level?.side)) {
+      lastQualifiedBySide.set(level.side, level);
+    }
+  }
+
+  return Object.freeze(source.filter((level) => !level?.id || keptIds.has(level.id)));
+}
+
 function candleExtreme(candle, side) {
   return finite(side === "HIGH" ? candle?.high : candle?.low);
 }
@@ -1445,5 +1620,10 @@ export function buildHierarchicalStructuralLevelMap({
     { retainAsNativeFrontier: nativeFrontierIds.has(level?.id) },
   ));
   const shadowFilteredHierarchy = filterLocalSameSideShadow(workingHierarchy, viewTimeframe);
-  return Object.freeze(shadowFilteredHierarchy);
+  const tradableHierarchy = filterLocalTradableStructure(
+    shadowFilteredHierarchy,
+    viewTimeframe,
+    candlesByTimeframe?.[viewTimeframe] ?? [],
+  );
+  return Object.freeze(tradableHierarchy);
 }
