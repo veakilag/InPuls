@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildLevelResearchContexts, mergeLevelResearchCandidatePool } from "../signal-lab-v8-level-context.js";
+import { buildLevelResearchContexts, buildLocalStructureResearchContext, mergeLevelResearchCandidatePool } from "../signal-lab-v8-level-context.js";
 
 const STEP = 300_000;
 const candles = Array.from({ length: 40 }, (_, index) => ({
@@ -145,4 +145,47 @@ test("V6.1 research pool adds hidden source-qualified candidates without duplica
   assert.equal(pool.find((row) => row.id === "senior-primary")?.researchCandidateState, "VISIBLE_MAP");
   assert.equal(pool.find((row) => row.id === "hidden-near")?.researchCandidateState, "SOURCE_QUALIFIED_HIDDEN");
   assert.equal(pool.some((row) => row.id === "native-visible"), false);
+});
+
+
+test("V6.2 separates nearest execution bracket from strongest structural bracket", () => {
+  const contexts = [
+    { id: "low", side: "LOW", price: 98, currentPrice: 100, candidateState: "SHADOW_CANDIDATE", quality: { score: 45 }, relevance: { score: 36 } },
+    { id: "near-high", side: "HIGH", price: 101, currentPrice: 100, candidateState: "SHADOW_CANDIDATE", quality: { score: 20 }, relevance: { score: 48 } },
+    { id: "strong-high", side: "HIGH", price: 104, currentPrice: 100, candidateState: "VISIBLE_MAP", quality: { score: 90 }, relevance: { score: 12 } },
+  ];
+  const row = buildLocalStructureResearchContext(contexts, { currentPrice: 100, currentNatrPct: 2 });
+  assert.equal(row.nearestBracket.low.id, "low");
+  assert.equal(row.nearestBracket.high.id, "near-high");
+  assert.equal(row.strongestBracket.low.id, "low");
+  assert.equal(row.strongestBracket.high.id, "strong-high");
+  assert.equal(row.researchOnly, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(row, "score"), false);
+});
+
+test("V6.2 reports local density and ignores levels outside the 0-5% window", () => {
+  const contexts = [
+    { id: "h1", side: "HIGH", price: 100.5, currentPrice: 100, candidateState: "VISIBLE_MAP", quality: { score: 50 }, relevance: { score: 50 } },
+    { id: "l1", side: "LOW", price: 98.5, currentPrice: 100, candidateState: "SHADOW_CANDIDATE", quality: { score: 50 }, relevance: { score: 50 } },
+    { id: "far", side: "HIGH", price: 108, currentPrice: 100, candidateState: "VISIBLE_MAP", quality: { score: 100 }, relevance: { score: 0 } },
+  ];
+  const row = buildLocalStructureResearchContext(contexts, { currentPrice: 100, currentNatrPct: 1 });
+  assert.equal(row.counts.within1Pct, 1);
+  assert.equal(row.counts.within2Pct, 2);
+  assert.equal(row.counts.within5Pct, 2);
+  assert.equal(row.counts.visible, 1);
+  assert.equal(row.counts.shadow, 1);
+  assert.ok(row.nearestBracket.widthPct > 0);
+  assert.ok(row.nearestBracket.widthNatr > 0);
+});
+
+test("V6.2 exposes side-mismatch candidates without interpreting them as support/resistance", () => {
+  const contexts = [
+    { id: "low-above", side: "LOW", price: 101, currentPrice: 100, candidateState: "SHADOW_CANDIDATE", quality: { score: 40 }, relevance: { score: 40 } },
+    { id: "high-below", side: "HIGH", price: 99, currentPrice: 100, candidateState: "SHADOW_CANDIDATE", quality: { score: 40 }, relevance: { score: 40 } },
+  ];
+  const row = buildLocalStructureResearchContext(contexts, { currentPrice: 100, currentNatrPct: 1 });
+  assert.equal(row.counts.sideMismatch, 2);
+  assert.equal(row.nearestBracket, null);
+  assert.equal(row.sideMismatch.length, 2);
 });

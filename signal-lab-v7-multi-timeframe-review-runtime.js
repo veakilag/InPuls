@@ -13,7 +13,7 @@ import {
   visibleSourceTimeframes,
 } from "./signal-lab-v7-multi-timeframe-levels.js";
 import { binanceFuturesTickSize } from "./signal-lab-v7-binance-market-metadata.js";
-import { LEVEL_CONTEXT_RESEARCH_VERSION, buildLevelResearchContexts, mergeLevelResearchCandidatePool } from "./signal-lab-v8-level-context.js";
+import { LEVEL_CONTEXT_RESEARCH_VERSION, LOCAL_STRUCTURE_RESEARCH_VERSION, buildLevelResearchContexts, buildLocalStructureResearchContext, mergeLevelResearchCandidatePool } from "./signal-lab-v8-level-context.js";
 
 const KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
 const EXCHANGE_INFO_ENDPOINT = "https://fapi.binance.com/fapi/v1/exchangeInfo";
@@ -773,6 +773,58 @@ function buildLevelContextCandidatePool(state, levelMap) {
   return mergeLevelResearchCandidatePool(levelMap, hiddenCandidates);
 }
 
+function formatResearchBoundary(row) {
+  if (!row) return "—";
+  const map = row.candidateState === "VISIBLE_MAP" ? "VISIBLE" : "shadow";
+  return `${debugNumber(row.price, row.price >= 1000 ? 1 : 6)}(Q${row.qualityScore ?? "—"}/R${row.relevanceScore ?? "—"}/${map}/d${debugNumber(row.distancePct, 2)}%)`;
+}
+
+function formatResearchBracket(label, bracket) {
+  if (!bracket) return `${label} | unavailable`;
+  return [
+    label,
+    `LOW=${formatResearchBoundary(bracket.low)}`,
+    `HIGH=${formatResearchBoundary(bracket.high)}`,
+    `width=${debugNumber(bracket.widthPct, 3)}%/${debugNumber(bracket.widthNatr, 2)}N`,
+    `pos=${debugNumber(bracket.currentPosition === null ? null : bracket.currentPosition * 100, 1)}%`,
+    `inside=${bracket.containedLevels}`,
+    `map=${bracket.visibleLevels}V/${bracket.shadowLevels}S`,
+  ].join(" | ");
+}
+
+function formatResearchStack(label, rows) {
+  const source = Array.isArray(rows) ? rows : [];
+  if (!source.length) return `${label} | none`;
+  return `${label} | ${source.map(formatResearchBoundary).join(" ; ")}`;
+}
+
+function formatLocalStructureResearchContext(row) {
+  if (!row || row.state === "UNKNOWN") return ["LOCAL STRUCTURE | unavailable"];
+  const counts = row.counts ?? {};
+  return [
+    `LOCAL STRUCTURE ${LOCAL_STRUCTURE_RESEARCH_VERSION} · RESEARCH ONLY · relational, no signal score`,
+    [
+      "STRUCT WINDOW",
+      `current=${debugNumber(row.currentPrice, row.currentPrice >= 1000 ? 1 : 6)}`,
+      `natr=${debugNumber(row.currentNatrPct, 3)}%`,
+      `1%=${counts.within1Pct ?? 0}`,
+      `2%=${counts.within2Pct ?? 0}`,
+      `5%=${counts.within5Pct ?? 0}`,
+      `HIGH↑=${counts.highsAbove ?? 0}`,
+      `LOW↓=${counts.lowsBelow ?? 0}`,
+      `mismatch=${counts.sideMismatch ?? 0}`,
+      `map=${counts.visible ?? 0}V/${counts.shadow ?? 0}S`,
+      `highSpread=${debugNumber(row.highStackSpreadPct, 3)}%`,
+      `lowSpread=${debugNumber(row.lowStackSpreadPct, 3)}%`,
+    ].join(" | "),
+    formatResearchBracket("STRUCT NEAREST", row.nearestBracket),
+    formatResearchBracket("STRUCT QUALITY", row.strongestBracket),
+    formatResearchStack("STACK HIGH↑", row.highStack),
+    formatResearchStack("STACK LOW↓", row.lowStack),
+    formatResearchStack("SIDE MISMATCH", row.sideMismatch),
+  ];
+}
+
 function formatLevelResearchContextRow(row) {
   const missing = Object.entries(row?.coverage ?? {})
     .filter(([, state]) => state !== "AVAILABLE")
@@ -955,9 +1007,17 @@ function addDiagnosticPanel(state, levelMap) {
   })];
   window.__INPULS_LEVEL_CONTEXT_CANDIDATES__ = levelContextPool;
   window.__INPULS_LEVEL_CONTEXT__ = levelContextRows;
+  const viewVolatility = buildStructuralVolatilityContext(state?.candlesByTimeframe?.[state.viewTimeframe] ?? []);
+  const localStructureContext = buildLocalStructureResearchContext(levelContextRows, {
+    currentPrice: viewVolatility.currentPrice,
+    currentNatrPct: viewVolatility.currentNatrPct,
+  });
+  window.__INPULS_LOCAL_STRUCTURE_CONTEXT__ = localStructureContext;
+  const localStructureLines = formatLocalStructureResearchContext(localStructureContext);
   const candleTraceRows = [...buildCandleTraceRows(state)];
   panel.textContent = [
-    `DEBUG V6 LEVEL CONTEXT · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
+    `DEBUG V6.2 LOCAL STRUCTURE · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
+    ...localStructureLines,
     `LEVEL CONTEXT ${LEVEL_CONTEXT_RESEARCH_VERSION} · RESEARCH ONLY · pool=${levelContextPool.length} visible=${levelContextRows.filter((row) => row.candidateState === "VISIBLE_MAP").length} shadow=${levelContextRows.filter((row) => row.candidateState !== "VISIBLE_MAP").length} · Q=structural geometry · R=0-5% current relevance`,
     ...levelContextRows.map(formatLevelResearchContextRow),
     `LEGACY V5.4 LEVEL DEBUG · rows ${localRows.length}`,

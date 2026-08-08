@@ -310,4 +310,130 @@ export function buildLevelResearchContexts(levels, {
   }));
 }
 
+
+
+function researchBoundaryRow(row, currentPrice) {
+  if (!row) return null;
+  const price = finite(row?.price);
+  if (!(price > 0)) return null;
+  return Object.freeze({
+    id: row?.id ?? null,
+    side: row?.side ?? null,
+    price,
+    distancePct: round(priceDistancePct(price, currentPrice), 4),
+    qualityScore: finite(row?.quality?.score),
+    relevanceScore: finite(row?.relevance?.score),
+    candidateState: row?.candidateState ?? "VISIBLE_MAP",
+    sourceTimeframe: row?.sourceTimeframe ?? null,
+    sources: Object.freeze(Array.isArray(row?.sources) ? [...row.sources] : []),
+  });
+}
+
+function strongestResearchBoundary(rows, currentPrice) {
+  return (Array.isArray(rows) ? rows : [])
+    .slice()
+    .sort((left, right) => {
+      const qualityDelta = (finite(right?.quality?.score) ?? -1) - (finite(left?.quality?.score) ?? -1);
+      if (qualityDelta) return qualityDelta;
+      const relevanceDelta = (finite(right?.relevance?.score) ?? -1) - (finite(left?.relevance?.score) ?? -1);
+      if (relevanceDelta) return relevanceDelta;
+      return (priceDistancePct(left?.price, currentPrice) ?? Infinity)
+        - (priceDistancePct(right?.price, currentPrice) ?? Infinity);
+    })[0] ?? null;
+}
+
+function bracketMetrics(lowRow, highRow, sourceRows, currentPrice, currentNatrPct) {
+  const low = researchBoundaryRow(lowRow, currentPrice);
+  const high = researchBoundaryRow(highRow, currentPrice);
+  if (!low || !high || !(high.price > low.price) || !(currentPrice > 0)) return null;
+  const widthPct = (high.price - low.price) / currentPrice * 100;
+  const position = (currentPrice - low.price) / (high.price - low.price);
+  const contained = (Array.isArray(sourceRows) ? sourceRows : []).filter((row) => {
+    const price = finite(row?.price);
+    return price !== null && price >= low.price && price <= high.price;
+  });
+  return Object.freeze({
+    low,
+    high,
+    widthPct: round(widthPct, 4),
+    widthNatr: currentNatrPct > 0 ? round(widthPct / currentNatrPct, 3) : null,
+    currentPosition: round(position, 4),
+    containedLevels: contained.length,
+    visibleLevels: contained.filter((row) => row?.candidateState === "VISIBLE_MAP").length,
+    shadowLevels: contained.filter((row) => row?.candidateState !== "VISIBLE_MAP").length,
+  });
+}
+
+export function buildLocalStructureResearchContext(levelContexts, {
+  currentPrice = null,
+  currentNatrPct = null,
+} = {}) {
+  const all = (Array.isArray(levelContexts) ? levelContexts : [])
+    .filter((row) => row && finite(row?.price) > 0);
+  const resolvedCurrentPrice = finite(currentPrice)
+    ?? finite(all.find((row) => finite(row?.currentPrice) > 0)?.currentPrice);
+  const resolvedCurrentNatrPct = finite(currentNatrPct);
+  if (!(resolvedCurrentPrice > 0)) {
+    return Object.freeze({ state: "UNKNOWN", researchOnly: true });
+  }
+
+  const local = all.filter((row) => {
+    const distance = priceDistancePct(row?.price, resolvedCurrentPrice);
+    return distance !== null && distance <= FIVE_PERCENT;
+  });
+  const highsAbove = local.filter((row) => row?.side === "HIGH" && finite(row?.price) > resolvedCurrentPrice);
+  const lowsBelow = local.filter((row) => row?.side === "LOW" && finite(row?.price) < resolvedCurrentPrice);
+  const sideMismatch = local.filter((row) => (
+    (row?.side === "HIGH" && finite(row?.price) < resolvedCurrentPrice)
+    || (row?.side === "LOW" && finite(row?.price) > resolvedCurrentPrice)
+  ));
+
+  const nearestHigh = highsAbove.slice().sort((a, b) => Number(a.price) - Number(b.price))[0] ?? null;
+  const nearestLow = lowsBelow.slice().sort((a, b) => Number(b.price) - Number(a.price))[0] ?? null;
+  const strongestHigh = strongestResearchBoundary(highsAbove, resolvedCurrentPrice);
+  const strongestLow = strongestResearchBoundary(lowsBelow, resolvedCurrentPrice);
+  const within = (pct) => local.filter((row) => (priceDistancePct(row?.price, resolvedCurrentPrice) ?? Infinity) <= pct).length;
+  const highPrices = highsAbove.map((row) => finite(row?.price)).filter((value) => value > 0);
+  const lowPrices = lowsBelow.map((row) => finite(row?.price)).filter((value) => value > 0);
+  const spreadPct = (prices) => prices.length > 1
+    ? (Math.max(...prices) - Math.min(...prices)) / resolvedCurrentPrice * 100
+    : 0;
+  const stack = (rows) => Object.freeze(rows
+    .slice()
+    .sort((a, b) => (priceDistancePct(a?.price, resolvedCurrentPrice) ?? Infinity) - (priceDistancePct(b?.price, resolvedCurrentPrice) ?? Infinity))
+    .map((row) => researchBoundaryRow(row, resolvedCurrentPrice))
+    .filter(Boolean));
+
+  return Object.freeze({
+    state: local.length ? "LOCAL_STRUCTURE_AVAILABLE" : "EMPTY_LOCAL_WINDOW",
+    currentPrice: resolvedCurrentPrice,
+    currentNatrPct: round(resolvedCurrentNatrPct, 4),
+    windowPct: FIVE_PERCENT,
+    counts: Object.freeze({
+      within1Pct: within(1),
+      within2Pct: within(2),
+      within5Pct: local.length,
+      highsAbove: highsAbove.length,
+      lowsBelow: lowsBelow.length,
+      sideMismatch: sideMismatch.length,
+      visible: local.filter((row) => row?.candidateState === "VISIBLE_MAP").length,
+      shadow: local.filter((row) => row?.candidateState !== "VISIBLE_MAP").length,
+    }),
+    nearestBracket: bracketMetrics(nearestLow, nearestHigh, local, resolvedCurrentPrice, resolvedCurrentNatrPct),
+    strongestBracket: bracketMetrics(strongestLow, strongestHigh, local, resolvedCurrentPrice, resolvedCurrentNatrPct),
+    nearestLow: researchBoundaryRow(nearestLow, resolvedCurrentPrice),
+    nearestHigh: researchBoundaryRow(nearestHigh, resolvedCurrentPrice),
+    strongestLow: researchBoundaryRow(strongestLow, resolvedCurrentPrice),
+    strongestHigh: researchBoundaryRow(strongestHigh, resolvedCurrentPrice),
+    highStackSpreadPct: round(spreadPct(highPrices), 4),
+    lowStackSpreadPct: round(spreadPct(lowPrices), 4),
+    highStack: stack(highsAbove),
+    lowStack: stack(lowsBelow),
+    sideMismatch: stack(sideMismatch),
+    researchOnly: true,
+  });
+}
+
+export const LOCAL_STRUCTURE_RESEARCH_VERSION = "v6.2-relational-shadow-2026-08";
+
 export const LEVEL_CONTEXT_RESEARCH_VERSION = "v6.1-candidate-shadow-2026-08";
