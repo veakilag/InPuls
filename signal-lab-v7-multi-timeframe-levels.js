@@ -102,8 +102,8 @@ export const LOCAL_WORKING_SET_POLICY = Object.freeze({
 // before it is promoted to the working map. This is structural geometry, not a
 // price-prediction score. Repeated attacks and multi-TF confluence bypass it.
 export const LOCAL_TRADABLE_STRUCTURE_POLICY = Object.freeze({
-  "1m": Object.freeze({ minimumLegResetRatio: 0.30, maxAnchorBars: 60 }),
-  "5m": Object.freeze({ minimumLegResetRatio: 0.30, maxAnchorBars: 24 }),
+  "1m": Object.freeze({ minimumLegResetRatio: 0.30 }),
+  "5m": Object.freeze({ minimumLegResetRatio: 0.30 }),
 });
 
 // V4.7 calibration: trader review on BTC 5m showed that two shallow pauses
@@ -1234,16 +1234,11 @@ export function structuralTrendLegQualificationDecision(
     return Object.freeze({ qualified: true, reason: "TREND_LEG_CONTEXT_INCOMPLETE" });
   }
 
+  // V5.1: a directional leg does not expire because a fixed number of candles
+  // elapsed. The same-side structural anchor remains valid until price itself
+  // produces a meaningful reset/new structure. This prevents a long smooth trend
+  // from restarting the noise ladder every N bars.
   const anchorBars = (currentAt - priorAt) / intervalMs;
-  const maxAnchorBars = Math.max(1, Math.round(finite(policy.maxAnchorBars) ?? 1));
-  if (anchorBars > maxAnchorBars) {
-    return Object.freeze({
-      qualified: true,
-      reason: "TREND_LEG_ANCHOR_EXPIRED",
-      anchorBars,
-      maxAnchorBars,
-    });
-  }
 
   // V5.0 intentionally targets continuation-side staircases only. A new lower LOW
   // or higher HIGH is left for the next qualification stage (V-reversal/defence),
@@ -1256,7 +1251,6 @@ export function structuralTrendLegQualificationDecision(
       qualified: true,
       reason: "TREND_LEG_NEW_PRICE_EXTREME_DEFERRED",
       anchorBars,
-      maxAnchorBars,
     });
   }
 
@@ -1309,7 +1303,6 @@ export function structuralTrendLegQualificationDecision(
     priorAt,
     currentAt,
     anchorBars,
-    maxAnchorBars,
     legExtreme,
     legMove,
     resetMove,
@@ -1556,7 +1549,7 @@ export function buildHierarchicalStructuralLevelMap({
         { tickSize },
       ));
     }
-    const nativeCandidates = normalizedSourceLevels(
+    const rawNativeCandidates = normalizedSourceLevels(
       snapshot,
       sourceTimeframe,
       endAt,
@@ -1577,6 +1570,15 @@ export function buildHierarchicalStructuralLevelMap({
           volatilityContext,
         ).admitted;
       },
+    );
+
+    // V5.1: qualify each native source timeframe BEFORE hierarchy/clustering.
+    // A weak 5m continuation pivot must not become immune merely because it later
+    // clusters into a senior-owned/confluent level. Detector/history remain recall-first.
+    const nativeCandidates = filterLocalTradableStructure(
+      rawNativeCandidates,
+      sourceTimeframe,
+      childCandles,
     );
 
     // A lower-TF level near an inherited stronger level is confluence/refinement,
@@ -1620,10 +1622,7 @@ export function buildHierarchicalStructuralLevelMap({
     { retainAsNativeFrontier: nativeFrontierIds.has(level?.id) },
   ));
   const shadowFilteredHierarchy = filterLocalSameSideShadow(workingHierarchy, viewTimeframe);
-  const tradableHierarchy = filterLocalTradableStructure(
-    shadowFilteredHierarchy,
-    viewTimeframe,
-    candlesByTimeframe?.[viewTimeframe] ?? [],
-  );
-  return Object.freeze(tradableHierarchy);
+  // V5.1 qualification already happened on the native source timeframe before
+  // clustering. Do not re-run it here on senior-owned/confluent display objects.
+  return Object.freeze(shadowFilteredHierarchy);
 }

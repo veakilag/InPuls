@@ -93,12 +93,47 @@ test("V5 never suppresses repeated attacks or multi-TF confluence", () => {
   assert.deepEqual(result.map((row) => row.id), ["low-base", "low-x2", "low-confluence"]);
 });
 
-test("V5 expires an old same-side anchor instead of connecting unrelated regimes", () => {
+test("V5.1 keeps a same-side leg anchor alive across a long smooth trend", () => {
   const prior = level("low-old", "LOW", 100, 0);
   const current = level("low-new", "LOW", 109, 61);
   const decision = structuralTrendLegQualificationDecision(current, prior, "1m", [
-    candle(60, 110, 108), candle(61, 110, 109),
+    candle(30, 106, 103), candle(60, 110, 108), candle(61, 110, 109),
   ]);
-  assert.equal(decision.qualified, true);
-  assert.equal(decision.reason, "TREND_LEG_ANCHOR_EXPIRED");
+  assert.equal(decision.qualified, false);
+  assert.equal(decision.reason, "TREND_LEG_SHALLOW_CONTINUATION_FILTERED");
+  assert.equal(decision.anchorBars, 61);
+  assert.ok(decision.resetRatio < 0.30);
+});
+
+
+test("V5.1 filters a native 5m staircase before it can become hierarchy noise", () => {
+  const five = 5 * minute;
+  const native = (id, price, index) => ({
+    id,
+    side: "LOW",
+    price,
+    extremeAt: index * five,
+    nativeExtremeAt: index * five,
+    displayAt: index * five,
+    sourceTimeframe: "5m",
+    sources: ["5m"],
+    refinedThroughTimeframe: "5m",
+    refinementPath: [{ timeframe: "5m", time: index * five }],
+    active: true,
+    attackCount: 1,
+  });
+  const rows = [
+    { time: 1 * five, high: 104, low: 101, close: 103 },
+    { time: 2 * five, high: 108, low: 103, close: 107 },
+    { time: 3 * five, high: 110, low: 106, close: 109 },
+    { time: 4 * five, high: 110, low: 107, close: 109 },
+    { time: 5 * five, high: 110, low: 108, close: 109 },
+    { time: 6 * five, high: 111, low: 108.5, close: 110 },
+  ];
+  const result = filterLocalTradableStructure([
+    native("base", 100, 0),
+    native("step-1", 108, 5),
+    native("step-2", 108.5, 6),
+  ], "5m", rows);
+  assert.deepEqual(result.map((row) => row.id), ["base"]);
 });
