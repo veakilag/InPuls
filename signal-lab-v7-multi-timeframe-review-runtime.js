@@ -13,7 +13,7 @@ import {
   visibleSourceTimeframes,
 } from "./signal-lab-v7-multi-timeframe-levels.js";
 import { binanceFuturesTickSize } from "./signal-lab-v7-binance-market-metadata.js";
-import { APPROACH_CONTEXT_RESEARCH_VERSION, APPROACH_EVIDENCE_RESEARCH_VERSION, LEVEL_CONTEXT_RESEARCH_VERSION, LOCAL_STRUCTURE_RESEARCH_VERSION, buildApproachCompressionResearchContext, buildApproachEvidenceResearchContext, buildLevelResearchContexts, buildLocalStructureResearchContext, mergeLevelResearchCandidatePool } from "./signal-lab-v8-level-context.js";
+import { APPROACH_CONTEXT_RESEARCH_VERSION, APPROACH_EVIDENCE_RESEARCH_VERSION, LEVEL_CONTEXT_RESEARCH_VERSION, LOCAL_STRUCTURE_RESEARCH_VERSION, STACK_ROUTE_RESEARCH_VERSION, buildApproachCompressionResearchContext, buildApproachEvidenceResearchContext, buildLevelResearchContexts, buildLocalStructureResearchContext, buildStackRouteResearchContext, mergeLevelResearchCandidatePool } from "./signal-lab-v8-level-context.js";
 
 const KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
 const EXCHANGE_INFO_ENDPOINT = "https://fapi.binance.com/fapi/v1/exchangeInfo";
@@ -825,6 +825,36 @@ function formatLocalStructureResearchContext(row) {
   ];
 }
 
+
+function formatStackRouteSide(label, row) {
+  if (!row || !Array.isArray(row.levels) || !row.levels.length) return `ROUTE ${label} | none`;
+  const levels = row.levels.map((level) => {
+    const map = level.candidateState === "VISIBLE_MAP" ? "V" : "S";
+    return `L${level.index}:${debugNumber(level.price, level.price >= 1000 ? 1 : 6)}(${map},Q${level.qualityScore ?? "—"},R${level.relevanceScore ?? "—"},d${debugNumber(level.distanceNatr, 2)}N)`;
+  }).join(" ; ");
+  const gaps = row.gaps.length
+    ? row.gaps.map((gap) => `L${gap.fromIndex}→L${gap.toIndex}:${debugNumber(gap.gapPct, 3)}%/${debugNumber(gap.gapNatr, 2)}N`).join(" ; ")
+    : "none";
+  return [
+    `ROUTE ${label}`,
+    `levels=${row.levelCount}`,
+    `map=${row.visibleCount}V/${row.shadowCount}S`,
+    `current→L1=${debugNumber(row.currentToFirstPct, 3)}%/${debugNumber(row.currentToFirstNatr, 2)}N`,
+    `span=${debugNumber(row.spanToLastPct, 3)}%/${debugNumber(row.spanToLastNatr, 2)}N`,
+    `gaps=${gaps}`,
+    `ladder=${levels}`,
+  ].join(" | ");
+}
+
+function formatStackRouteResearchContext(row) {
+  if (!row || row.state === "UNKNOWN") return ["STACK ROUTE | unavailable"];
+  return [
+    `STACK ROUTE ${STACK_ROUTE_RESEARCH_VERSION} · RESEARCH ONLY · ordered levels, not cascade`,
+    formatStackRouteSide("HIGH↑", row.high),
+    formatStackRouteSide("LOW↓", row.low),
+  ];
+}
+
 function formatApproachResearchRow(row) {
   const map = row?.candidateState === "VISIBLE_MAP" ? "VISIBLE" : "shadow";
   const roles = Array.isArray(row?.roles) ? row.roles.join("+") : "?";
@@ -1079,6 +1109,9 @@ function addDiagnosticPanel(state, levelMap) {
   });
   window.__INPULS_LOCAL_STRUCTURE_CONTEXT__ = localStructureContext;
   const localStructureLines = formatLocalStructureResearchContext(localStructureContext);
+  const stackRouteContext = buildStackRouteResearchContext(localStructureContext);
+  window.__INPULS_STACK_ROUTE__ = stackRouteContext;
+  const stackRouteLines = formatStackRouteResearchContext(stackRouteContext);
   const structural5mCandles = state?.candlesByTimeframe?.["5m"] ?? [];
   const structural5mVolatility = buildStructuralVolatilityContext(structural5mCandles);
   const approachContext = buildApproachCompressionResearchContext(structural5mCandles, localStructureContext, {
@@ -1093,8 +1126,9 @@ function addDiagnosticPanel(state, levelMap) {
   const approachEvidenceLines = formatApproachEvidenceResearchContext(approachEvidenceContext);
   const candleTraceRows = [...buildCandleTraceRows(state)];
   panel.textContent = [
-    `DEBUG V6.3.1 CAUSAL APPROACH CONTEXT · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
+    `DEBUG V6.5 LEVEL LADDER + V6.4 EVIDENCE · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
     ...localStructureLines,
+    ...stackRouteLines,
     ...approachLines,
     ...approachEvidenceLines,
     `LEVEL CONTEXT ${LEVEL_CONTEXT_RESEARCH_VERSION} · RESEARCH ONLY · pool=${levelContextPool.length} visible=${levelContextRows.filter((row) => row.candidateState === "VISIBLE_MAP").length} shadow=${levelContextRows.filter((row) => row.candidateState !== "VISIBLE_MAP").length} · Q=structural geometry · R=0-5% current relevance`,

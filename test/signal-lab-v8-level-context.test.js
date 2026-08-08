@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildApproachCompressionResearchContext, buildApproachEvidenceResearchContext, buildLevelResearchContexts, buildLocalStructureResearchContext, mergeLevelResearchCandidatePool } from "../signal-lab-v8-level-context.js";
+import { buildApproachCompressionResearchContext, buildApproachEvidenceResearchContext, buildLevelResearchContexts, buildLocalStructureResearchContext, buildStackRouteResearchContext, mergeLevelResearchCandidatePool } from "../signal-lab-v8-level-context.js";
 
 const STEP = 300_000;
 const candles = Array.from({ length: 40 }, (_, index) => ({
@@ -412,4 +412,68 @@ test("V6.4 keeps early samples explicitly early and does not invent unavailable 
   assert.equal(row.readiness, "INSUFFICIENT");
   assert.deepEqual(row.facts, []);
   assert.equal(row.researchOnly, true);
+});
+
+
+
+test("V6.5 stack route preserves ordered barrier geometry without a score", () => {
+  const contexts = [
+    { id: "h1", side: "HIGH", price: 101, currentPrice: 100, candidateState: "SHADOW_CANDIDATE", quality: { score: 20 }, relevance: { score: 50 } },
+    { id: "h2", side: "HIGH", price: 103, currentPrice: 100, candidateState: "SHADOW_CANDIDATE", quality: { score: 40 }, relevance: { score: 30 } },
+    { id: "h3", side: "HIGH", price: 103.5, currentPrice: 100, candidateState: "VISIBLE_MAP", quality: { score: 90 }, relevance: { score: 20 } },
+    { id: "l1", side: "LOW", price: 98, currentPrice: 100, candidateState: "SHADOW_CANDIDATE", quality: { score: 30 }, relevance: { score: 35 } },
+  ];
+  const structure = buildLocalStructureResearchContext(contexts, { currentPrice: 100, currentNatrPct: 2 });
+  const route = buildStackRouteResearchContext(structure);
+  assert.equal(route.high.levelCount, 3);
+  assert.deepEqual(route.high.levels.map((row) => row.price), [101, 103, 103.5]);
+  assert.equal(route.high.currentToFirstNatr, 0.5);
+  assert.equal(route.high.gaps[0].gapNatr, 1);
+  assert.equal(route.high.gaps[1].gapNatr, 0.25);
+  assert.equal(route.high.spanToLastNatr, 1.75);
+  assert.equal(route.high.visibleCount, 1);
+  assert.equal(route.high.shadowCount, 2);
+  assert.equal(route.low.levelCount, 1);
+  assert.equal(Object.prototype.hasOwnProperty.call(route, "score"), false);
+  assert.equal(route.researchOnly, true);
+});
+
+test("V6.5 approach evidence covers every level in the local stack and merges roles", () => {
+  const path = Array.from({ length: 18 }, (_, index) => ({
+    time: index * STEP,
+    open: 100 + index * 0.05,
+    high: 100.8 + index * 0.05,
+    low: 99.2 + index * 0.05,
+    close: 100 + index * 0.05,
+  }));
+  const mk = (id, price, candidateState = "SOURCE_QUALIFIED_HIDDEN") => ({
+    id,
+    side: "HIGH",
+    price,
+    candidateState,
+    qualityScore: id === "h3" ? 90 : id === "h2" ? 40 : 20,
+    relevanceScore: id === "h1" ? 50 : 25,
+    originAt: STEP,
+    confirmedAt: 2 * STEP - 1,
+  });
+  const h1 = mk("h1", 101);
+  const h2 = mk("h2", 102);
+  const h3 = mk("h3", 103, "VISIBLE_MAP");
+  const structure = {
+    currentPrice: path.at(-1).close,
+    currentNatrPct: 1.5,
+    nearestHigh: h1,
+    strongestHigh: h3,
+    highStack: [h1, h2, h3],
+    lowStack: [],
+  };
+  const approach = buildApproachCompressionResearchContext(path, structure, { currentNatrPct: 1.5, lookbackBars: 12 });
+  assert.equal(approach.targets.length, 3);
+  const byPrice = new Map(approach.targets.map((row) => [row.targetPrice, row]));
+  assert.deepEqual(byPrice.get(101).roles, ["NEAREST", "STACK"]);
+  assert.deepEqual(byPrice.get(102).roles, ["STACK"]);
+  assert.deepEqual(byPrice.get(103).roles, ["QUALITY", "STACK"]);
+  const evidence = buildApproachEvidenceResearchContext(approach);
+  assert.equal(evidence.targets.length, 3);
+  assert.equal(evidence.targets.every((row) => row.researchOnly), true);
 });

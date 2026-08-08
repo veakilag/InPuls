@@ -438,6 +438,86 @@ export function buildLocalStructureResearchContext(levelContexts, {
 }
 
 
+function stackRouteSide(side, stackRows, currentPrice, currentNatrPct) {
+  const rows = (Array.isArray(stackRows) ? stackRows : [])
+    .filter((row) => row?.side === side && finite(row?.price) > 0)
+    .slice()
+    .sort((left, right) => {
+      const leftDistance = Math.abs(finite(left?.price) - currentPrice);
+      const rightDistance = Math.abs(finite(right?.price) - currentPrice);
+      return leftDistance - rightDistance;
+    });
+  const levelRows = rows.map((row, index) => {
+    const price = finite(row?.price);
+    const distancePct = currentPrice > 0 ? Math.abs(price - currentPrice) / currentPrice * 100 : null;
+    return Object.freeze({
+      index: index + 1,
+      id: row?.id ?? null,
+      side,
+      price,
+      candidateState: row?.candidateState ?? "VISIBLE_MAP",
+      qualityScore: finite(row?.qualityScore),
+      relevanceScore: finite(row?.relevanceScore),
+      distancePct: round(distancePct, 4),
+      distanceNatr: distancePct !== null && currentNatrPct > 0 ? round(distancePct / currentNatrPct, 3) : null,
+      confirmedAt: finite(row?.confirmedAt),
+      originAt: finite(row?.originAt),
+    });
+  });
+  const gaps = [];
+  for (let index = 1; index < levelRows.length; index += 1) {
+    const from = levelRows[index - 1];
+    const to = levelRows[index];
+    const gapPct = currentPrice > 0 ? Math.abs(to.price - from.price) / currentPrice * 100 : null;
+    gaps.push(Object.freeze({
+      fromIndex: from.index,
+      toIndex: to.index,
+      fromPrice: from.price,
+      toPrice: to.price,
+      gapPct: round(gapPct, 4),
+      gapNatr: gapPct !== null && currentNatrPct > 0 ? round(gapPct / currentNatrPct, 3) : null,
+    }));
+  }
+  const first = levelRows[0] ?? null;
+  const last = levelRows.at(-1) ?? null;
+  return Object.freeze({
+    side,
+    levels: Object.freeze(levelRows),
+    levelCount: levelRows.length,
+    visibleCount: levelRows.filter((row) => row.candidateState === "VISIBLE_MAP").length,
+    shadowCount: levelRows.filter((row) => row.candidateState !== "VISIBLE_MAP").length,
+    currentToFirstPct: first?.distancePct ?? null,
+    currentToFirstNatr: first?.distanceNatr ?? null,
+    spanToLastPct: last?.distancePct ?? null,
+    spanToLastNatr: last?.distanceNatr ?? null,
+    gaps: Object.freeze(gaps),
+  });
+}
+
+// V6.5 represents the ordered 0-5% route through structural candidates.
+// It deliberately does not call the route a cascade and does not score it.
+// The output is geometry only: current-to-first distance, inter-level gaps,
+// map visibility and ordered prices. Pattern semantics remain a later layer.
+export function buildStackRouteResearchContext(localStructureContext) {
+  const currentPrice = finite(localStructureContext?.currentPrice);
+  const currentNatrPct = finite(localStructureContext?.currentNatrPct);
+  if (!(currentPrice > 0)) {
+    return Object.freeze({ state: "UNKNOWN", researchOnly: true });
+  }
+  const high = stackRouteSide("HIGH", localStructureContext?.highStack, currentPrice, currentNatrPct);
+  const low = stackRouteSide("LOW", localStructureContext?.lowStack, currentPrice, currentNatrPct);
+  return Object.freeze({
+    state: high.levelCount || low.levelCount ? "STACK_ROUTE_AVAILABLE" : "EMPTY_STACK_ROUTE",
+    currentPrice,
+    currentNatrPct: round(currentNatrPct, 4),
+    windowPct: finite(localStructureContext?.windowPct) ?? FIVE_PERCENT,
+    high,
+    low,
+    researchOnly: true,
+  });
+}
+
+
 function researchMedian(values) {
   const rows = (Array.isArray(values) ? values : [])
     .map(finite)
@@ -498,6 +578,12 @@ function targetRoleRows(localStructureContext) {
     ["NEAREST", localStructureContext?.nearestLow],
     ["QUALITY", localStructureContext?.strongestLow],
   ];
+  for (const row of Array.isArray(localStructureContext?.highStack) ? localStructureContext.highStack : []) {
+    source.push(["STACK", row]);
+  }
+  for (const row of Array.isArray(localStructureContext?.lowStack) ? localStructureContext.lowStack : []) {
+    source.push(["STACK", row]);
+  }
   const map = new Map();
   for (const [role, row] of source) {
     const price = finite(row?.price);
@@ -821,6 +907,8 @@ export function buildApproachEvidenceResearchContext(approachContext) {
     researchOnly: true,
   });
 }
+
+export const STACK_ROUTE_RESEARCH_VERSION = "v6.5-level-ladder-shadow-2026-08";
 
 export const APPROACH_EVIDENCE_RESEARCH_VERSION = "v6.4-approach-evidence-shadow-2026-08";
 
