@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>InPuls · Structural Extremes Stage 1 Review</title>
+    <link rel="stylesheet" href="./owner-signal-lab-structural-extremes-review.css" />
+  </head>
+  <body>
+    <main class="review-shell">
+      <header class="review-header">
+        <div>
+          <p class="eyebrow">SIGNAL LAB · ИЗОЛИРОВАННАЯ КАЛИБРОВКА</p>
+          <h1>Структурные экстремумы · этап 1</h1>
+          <p>Новая карта не подключена к боевым пробоям и каскадам.</p>
+        </div>
+        <a href="./owner-signal-lab-v3.html">Вернуться в Signal Lab</a>
+      </header>
+
+      <section class="controls" aria-label="Параметры проверки">
+        <label>Монета <input id="symbol" value="BTCUSDT" maxlength="20" /></label>
+        <label>Конец периода <input id="end-at" type="datetime-local" /></label>
+        <button id="load" type="button">Загрузить историю</button>
+        <label class="toggle"><input id="show-extremes" type="checkbox" checked /> Структурные экстремумы</label>
+        <label class="toggle"><input id="show-history" type="checkbox" /> История снятых</label>
+        <label class="toggle"><input id="show-candidate" type="checkbox" /> Candidate</label>
+      </section>
+
+      <nav class="timeframes" aria-label="Таймфрейм">
+        <button type="button" data-timeframe="1m">1м</button>
+        <button type="button" data-timeframe="5m">5м</button>
+        <button type="button" data-timeframe="15m">15м</button>
+        <button type="button" data-timeframe="1h" class="is-active">1ч</button>
+        <button type="button" data-timeframe="4h">4ч</button>
+        <button type="button" data-timeframe="1d">1д</button>
+      </nav>
+
+      <section class="summary-grid">
+        <article><span>Источник</span><strong id="source">—</strong></article>
+        <article><span>Покрытие</span><strong id="coverage">—</strong></article>
+        <article><span>Свечи</span><strong id="candles-count">—</strong></article>
+        <article><span>Направление</span><strong id="direction">—</strong></article>
+        <article><span>Активные</span><strong id="active-count">—</strong></article>
+        <article><span>Подтверждённые</span><strong id="history-count">—</strong></article>
+      </section>
+
+      <p id="status" class="status">Готов к загрузке.</p>
+
+      <section class="chart-panel">
+        <canvas id="chart" aria-label="График структурных экстремумов"></canvas>
+        <div id="tooltip" class="tooltip" hidden></div>
+      </section>
+
+      <section class="diagnostics">
+        <article>
+          <h2>Текущее состояние детектора</h2>
+          <pre id="current-diagnostic">—</pre>
+        </article>
+        <article>
+          <h2>Подтверждённые экстремумы</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Сторона</th><th>Цена</th><th>extremeAt</th><th>confirmedAt</th>
+                  <th>Swing</th><th>Разворот</th><th>Порог</th><th>ATR</th><th>Статус</th><th>×N</th>
+                </tr>
+              </thead>
+              <tbody id="extreme-rows"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+    </main>
+    <script type="module" src="./owner-signal-lab-structural-extremes-review-entry.js"></script>
+  </body>
+</html>

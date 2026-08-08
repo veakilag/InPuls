@@ -1,0 +1,191 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { buildLevelResearchContexts, buildLocalStructureResearchContext, mergeLevelResearchCandidatePool } from "../signal-lab-v8-level-context.js";
+
+const STEP = 300_000;
+const candles = Array.from({ length: 40 }, (_, index) => ({
+  time: index * STEP,
+  closeTime: (index + 1) * STEP - 1,
+  open: 100 + index * 0.05,
+  high: 101 + index * 0.05,
+  low: 99 + index * 0.05,
+  close: 100 + index * 0.05,
+  volume: 1,
+  closed: true,
+}));
+
+const base = {
+  side: "HIGH",
+  sourceTimeframe: "5m",
+  sources: ["5m"],
+  confluenceCount: 1,
+  attackCount: 1,
+  active: true,
+  extremeAt: 10 * STEP,
+  nativeExtremeAt: 10 * STEP,
+  swingAmplitudePct: 4,
+  confirmingReversalPct: 2,
+};
+
+test("V6 relevance is higher for a closer level and exposes the 0-5% working window", () => {
+  const levels = [
+    { ...base, id: "near", price: 102 },
+    { ...base, id: "far", price: 115, extremeAt: 8 * STEP, nativeExtremeAt: 8 * STEP },
+  ];
+  const rows = buildLevelResearchContexts(levels, {
+    candlesByTimeframe: { "5m": candles },
+    viewTimeframe: "5m",
+    endAt: 40 * STEP - 1,
+    currentPrice: 100,
+  });
+  const near = rows.find((row) => row.id === "near");
+  const far = rows.find((row) => row.id === "far");
+  assert.ok(near.relevance.score > far.relevance.score);
+  assert.equal(near.relevance.inFivePercentWindow, true);
+  assert.equal(far.relevance.inFivePercentWindow, false);
+});
+
+test("V6 repeated attacks and confluence add relevance evidence without changing structure history", () => {
+  const plain = { ...base, id: "plain", price: 102 };
+  const validated = {
+    ...base,
+    id: "validated",
+    price: 102.1,
+    attackCount: 3,
+    sources: ["5m", "15m", "1h"],
+    confluenceCount: 3,
+  };
+  const rows = buildLevelResearchContexts([plain, validated], {
+    candlesByTimeframe: { "5m": candles },
+    viewTimeframe: "5m",
+    endAt: 40 * STEP - 1,
+    currentPrice: 100,
+  });
+  const a = rows.find((row) => row.id === "plain");
+  const b = rows.find((row) => row.id === "validated");
+  assert.ok(b.relevance.score > a.relevance.score);
+  assert.equal(b.relevance.attackComponent, 100);
+  assert.equal(b.relevance.confluenceComponent, 100);
+});
+
+test("V6 exposes density, own-timeframe age, time boundaries and missing market-data coverage", () => {
+  const rows = buildLevelResearchContexts([
+    { ...base, id: "a", price: 101 },
+    { ...base, id: "b", price: 103, extremeAt: 20 * STEP, nativeExtremeAt: 20 * STEP },
+    { ...base, id: "c", price: 120, extremeAt: 30 * STEP, nativeExtremeAt: 30 * STEP },
+  ], {
+    candlesByTimeframe: { "5m": candles },
+    viewTimeframe: "5m",
+    endAt: 40 * STEP - 1,
+    currentPrice: 100,
+  });
+  const a = rows.find((row) => row.id === "a");
+  assert.equal(a.relevance.neighborsWithin5PctOfLevel, 1);
+  assert.equal(a.relevance.activeLevelsWithin5PctOfCurrent, 2);
+  assert.ok(a.ageBars > 20);
+  assert.ok(a.timeContext["30m"]);
+  assert.equal(a.coverage.orderBookSizes, "UNAVAILABLE");
+  assert.equal(a.coverage.marketMemory, "UNAVAILABLE");
+  assert.equal(a.researchOnly, true);
+});
+
+test("V6 quality is normalized only from available structural geometry and stays research-only", () => {
+  const strong = { ...base, id: "strong", price: 103, swingAmplitudePct: 8, confirmingReversalPct: 4 };
+  const weak = { ...base, id: "weak", price: 104, swingAmplitudePct: 0.5, confirmingReversalPct: 0.2 };
+  const rows = buildLevelResearchContexts([strong, weak], {
+    candlesByTimeframe: { "5m": candles },
+    viewTimeframe: "5m",
+    endAt: 40 * STEP - 1,
+    currentPrice: 100,
+  });
+  const strongRow = rows.find((row) => row.id === "strong");
+  const weakRow = rows.find((row) => row.id === "weak");
+  assert.ok(strongRow.quality.score > weakRow.quality.score);
+  assert.equal(strongRow.quality.state, "RESEARCH_ONLY");
+});
+
+
+test("V6.1 far-away confluence and attacks do not manufacture current relevance outside 5%", () => {
+  const farStrong = {
+    ...base,
+    id: "far-strong",
+    price: 120,
+    attackCount: 5,
+    sources: ["5m", "15m", "1h"],
+    confluenceCount: 3,
+  };
+  const [row] = buildLevelResearchContexts([farStrong], {
+    candlesByTimeframe: { "5m": candles },
+    viewTimeframe: "5m",
+    endAt: 40 * STEP - 1,
+    currentPrice: 100,
+  });
+  assert.equal(row.relevance.inFivePercentWindow, false);
+  assert.equal(row.relevance.score, 0);
+  assert.equal(row.relevance.attackComponent, 100);
+  assert.equal(row.relevance.confluenceComponent, 100);
+});
+
+test("V6.1 research pool adds hidden source-qualified candidates without duplicating visible members", () => {
+  const visible = [{
+    ...base,
+    id: "senior-primary",
+    memberIds: ["native-visible"],
+    price: 102,
+    sources: ["15m", "5m"],
+    sourceTimeframe: "15m",
+  }];
+  const hidden = [
+    { ...base, id: "native-visible", price: 102 },
+    { ...base, id: "hidden-near", price: 101 },
+  ];
+  const pool = mergeLevelResearchCandidatePool(visible, hidden);
+  assert.equal(pool.length, 2);
+  assert.equal(pool.find((row) => row.id === "senior-primary")?.researchCandidateState, "VISIBLE_MAP");
+  assert.equal(pool.find((row) => row.id === "hidden-near")?.researchCandidateState, "SOURCE_QUALIFIED_HIDDEN");
+  assert.equal(pool.some((row) => row.id === "native-visible"), false);
+});
+
+
+test("V6.2 separates nearest execution bracket from strongest structural bracket", () => {
+  const contexts = [
+    { id: "low", side: "LOW", price: 98, currentPrice: 100, candidateState: "SHADOW_CANDIDATE", quality: { score: 45 }, relevance: { score: 36 } },
+    { id: "near-high", side: "HIGH", price: 101, currentPrice: 100, candidateState: "SHADOW_CANDIDATE", quality: { score: 20 }, relevance: { score: 48 } },
+    { id: "strong-high", side: "HIGH", price: 104, currentPrice: 100, candidateState: "VISIBLE_MAP", quality: { score: 90 }, relevance: { score: 12 } },
+  ];
+  const row = buildLocalStructureResearchContext(contexts, { currentPrice: 100, currentNatrPct: 2 });
+  assert.equal(row.nearestBracket.low.id, "low");
+  assert.equal(row.nearestBracket.high.id, "near-high");
+  assert.equal(row.strongestBracket.low.id, "low");
+  assert.equal(row.strongestBracket.high.id, "strong-high");
+  assert.equal(row.researchOnly, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(row, "score"), false);
+});
+
+test("V6.2 reports local density and ignores levels outside the 0-5% window", () => {
+  const contexts = [
+    { id: "h1", side: "HIGH", price: 100.5, currentPrice: 100, candidateState: "VISIBLE_MAP", quality: { score: 50 }, relevance: { score: 50 } },
+    { id: "l1", side: "LOW", price: 98.5, currentPrice: 100, candidateState: "SHADOW_CANDIDATE", quality: { score: 50 }, relevance: { score: 50 } },
+    { id: "far", side: "HIGH", price: 108, currentPrice: 100, candidateState: "VISIBLE_MAP", quality: { score: 100 }, relevance: { score: 0 } },
+  ];
+  const row = buildLocalStructureResearchContext(contexts, { currentPrice: 100, currentNatrPct: 1 });
+  assert.equal(row.counts.within1Pct, 1);
+  assert.equal(row.counts.within2Pct, 2);
+  assert.equal(row.counts.within5Pct, 2);
+  assert.equal(row.counts.visible, 1);
+  assert.equal(row.counts.shadow, 1);
+  assert.ok(row.nearestBracket.widthPct > 0);
+  assert.ok(row.nearestBracket.widthNatr > 0);
+});
+
+test("V6.2 exposes side-mismatch candidates without interpreting them as support/resistance", () => {
+  const contexts = [
+    { id: "low-above", side: "LOW", price: 101, currentPrice: 100, candidateState: "SHADOW_CANDIDATE", quality: { score: 40 }, relevance: { score: 40 } },
+    { id: "high-below", side: "HIGH", price: 99, currentPrice: 100, candidateState: "SHADOW_CANDIDATE", quality: { score: 40 }, relevance: { score: 40 } },
+  ];
+  const row = buildLocalStructureResearchContext(contexts, { currentPrice: 100, currentNatrPct: 1 });
+  assert.equal(row.counts.sideMismatch, 2);
+  assert.equal(row.nearestBracket, null);
+  assert.equal(row.sideMismatch.length, 2);
+});
