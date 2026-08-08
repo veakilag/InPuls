@@ -87,6 +87,10 @@ export const LOCAL_WORKING_SET_POLICY = Object.freeze({
     // unresolved micro turn. Keep it in event/history memory, but do not draw
     // it on the working map until two later 1m candles are fully available.
     minimumRightBars: 2,
+    // V4.22: a weaker same-side native 1m pivot formed within two bars of a
+    // more extreme already-visible pivot, with no visible opposite pivot in
+    // between, is a shadow duplicate rather than a new working-map level.
+    sameSideShadowBars: 2,
   }),
   "5m": Object.freeze({ maxDistanceBaseNatr: 6 }),
 });
@@ -1095,6 +1099,57 @@ export function structuralLocalWorkingSetVisible(level, volatilityContext, candl
   return distanceBaseNatr <= policy.maxDistanceBaseNatr;
 }
 
+export function filterLocalSameSideShadow(levels, viewTimeframe) {
+  const source = Array.isArray(levels) ? levels.filter(Boolean) : [];
+  const policy = LOCAL_WORKING_SET_POLICY[viewTimeframe];
+  const shadowBars = Math.max(0, Math.round(finite(policy?.sameSideShadowBars) ?? 0));
+  const intervalMs = STRUCTURAL_TF_INTERVAL_MS[viewTimeframe];
+  if (!(shadowBars > 0) || !(intervalMs > 0) || !isLocalStructuralTimeframe(viewTimeframe)) {
+    return Object.freeze([...source]);
+  }
+
+  const ordered = source.slice().sort((left, right) => {
+    const leftAt = finite(left?.nativeExtremeAt ?? left?.extremeAt) ?? Infinity;
+    const rightAt = finite(right?.nativeExtremeAt ?? right?.extremeAt) ?? Infinity;
+    if (leftAt !== rightAt) return leftAt - rightAt;
+    return String(left?.id ?? '').localeCompare(String(right?.id ?? ''));
+  });
+  const maximumGapMs = shadowBars * intervalMs;
+  const shadowedIds = new Set();
+
+  for (let index = 0; index < ordered.length; index += 1) {
+    const current = ordered[index];
+    if (!current || current.active === false || current.sourceTimeframe !== viewTimeframe) continue;
+    if ((Number(current.attackCount) || 1) > 1) continue;
+    const currentSources = Array.isArray(current.sources) ? current.sources : [current.sourceTimeframe].filter(Boolean);
+    if (currentSources.length > 1) continue;
+
+    const currentAt = finite(current.nativeExtremeAt ?? current.extremeAt);
+    const currentPrice = finite(current.price);
+    if (currentAt === null || !(currentPrice > 0)) continue;
+
+    for (let priorIndex = index - 1; priorIndex >= 0; priorIndex -= 1) {
+      const prior = ordered[priorIndex];
+      const priorAt = finite(prior?.nativeExtremeAt ?? prior?.extremeAt);
+      if (priorAt === null) continue;
+      if (currentAt - priorAt > maximumGapMs) break;
+      if (prior?.active === false) continue;
+      if (prior?.side !== current.side) break;
+      if (prior?.sourceTimeframe !== viewTimeframe) continue;
+
+      const priorPrice = finite(prior?.price);
+      if (!(priorPrice > 0)) break;
+      const priorMoreExtreme = current.side === 'HIGH'
+        ? priorPrice > currentPrice
+        : priorPrice < currentPrice;
+      if (priorMoreExtreme && current?.id) shadowedIds.add(current.id);
+      break;
+    }
+  }
+
+  return Object.freeze(source.filter((level) => !shadowedIds.has(level?.id)));
+}
+
 function candleExtreme(candle, side) {
   return finite(side === "HIGH" ? candle?.high : candle?.low);
 }
@@ -1365,5 +1420,6 @@ export function buildHierarchicalStructuralLevelMap({
     candlesByTimeframe?.[level?.sourceTimeframe] ?? [],
     { retainAsNativeFrontier: nativeFrontierIds.has(level?.id) },
   ));
-  return Object.freeze(workingHierarchy);
+  const shadowFilteredHierarchy = filterLocalSameSideShadow(workingHierarchy, viewTimeframe);
+  return Object.freeze(shadowFilteredHierarchy);
 }
