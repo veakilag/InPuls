@@ -13,6 +13,7 @@ import {
   visibleSourceTimeframes,
 } from "./signal-lab-v7-multi-timeframe-levels.js";
 import { binanceFuturesTickSize } from "./signal-lab-v7-binance-market-metadata.js";
+import { LEVEL_CONTEXT_RESEARCH_VERSION, buildLevelResearchContexts } from "./signal-lab-v8-level-context.js";
 
 const KLINES_ENDPOINT = "https://fapi.binance.com/fapi/v1/klines";
 const EXCHANGE_INFO_ENDPOINT = "https://fapi.binance.com/fapi/v1/exchangeInfo";
@@ -732,6 +733,41 @@ function buildCandleTraceRows(state) {
     })));
 }
 
+
+function formatBoundaryContext(timeContext) {
+  const labels = ["5m", "15m", "30m", "1h", "4h", "1d"];
+  return labels.map((label) => {
+    const row = timeContext?.[label];
+    if (!row) return `${label}:—`;
+    const near = row.nearBoundary ? "!" : "";
+    return `${label}:${debugNumber(row.remainingMinutes, row.remainingMinutes < 1 ? 2 : 1)}m${near}`;
+  }).join(" ");
+}
+
+function formatLevelResearchContextRow(row) {
+  const missing = Object.entries(row?.coverage ?? {})
+    .filter(([, state]) => state !== "AVAILABLE")
+    .map(([key]) => key)
+    .join(",");
+  const sources = Array.isArray(row?.sources) ? row.sources.join("+") : row?.sourceTimeframe ?? "?";
+  return [
+    `CTX ${row.side} ${sources} ${debugNumber(row.price, row.price >= 1000 ? 1 : 6)}`,
+    `Q=${row.quality?.score ?? "—"}`,
+    `R=${row.relevance?.score ?? "—"}`,
+    `dist=${debugNumber(row.relevance?.distancePct, 3)}%`,
+    `range5=${row.relevance?.inFivePercentWindow ? "YES" : "no"}`,
+    `×${row.attackCount}`,
+    `conf=${row.confluenceCount}`,
+    `density=${row.relevance?.neighborsWithin5PctOfLevel ?? "—"}/${row.relevance?.activeLevelsWithin5PctOfCurrent ?? "—"}`,
+    `age=${debugNumber(row.ageBars, 1)}b`,
+    `swing=${debugNumber(row.quality?.swingNatr, 2)}N`,
+    `rev=${debugNumber(row.quality?.reversalNatr, 2)}N`,
+    `v=${row.quality?.vShape ? `${debugNumber(row.quality.vShape.immediateBalanceNatr, 2)}/${debugNumber(row.quality.vShape.sustainedBalanceNatr, 2)}N def${row.quality.vShape.defenseReturns}` : "—"}`,
+    `boundary=${formatBoundaryContext(row.timeContext)}`,
+    `missing=${missing || "none"}`,
+  ].join(" | ");
+}
+
 function formatCandleTraceRow(row) {
   const at = row.time === null ? "—" : new Date(row.time).toISOString().slice(11, 16);
   const digits = Math.max(row.open ?? 0, row.high ?? 0, row.low ?? 0, row.close ?? 0) >= 1000 ? 1 : 6;
@@ -881,9 +917,18 @@ function addDiagnosticPanel(state, levelMap) {
   const rawNativeRows = [...buildRawNativeDiagnosticRows(state)];
   const v5SourceRows = [...buildV5SourceQualificationDiagnosticRows(state, levelMap)];
   const vShapeRows = [...buildVShapeShadowDiagnosticRows(state, levelMap)];
+  const levelContextRows = [...buildLevelResearchContexts(levelMap, {
+    candlesByTimeframe: state.candlesByTimeframe,
+    viewTimeframe: state.viewTimeframe,
+    endAt: state.endAt,
+  })];
+  window.__INPULS_LEVEL_CONTEXT__ = levelContextRows;
   const candleTraceRows = [...buildCandleTraceRows(state)];
   panel.textContent = [
-    `DEBUG V5.4 V-ANCHOR · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
+    `DEBUG V6 LEVEL CONTEXT · ${state.viewTimeframe} · STATE=READY · visible local levels ${localRows.length}`,
+    `LEVEL CONTEXT ${LEVEL_CONTEXT_RESEARCH_VERSION} · RESEARCH ONLY · Q=structural geometry · R=price/structure relevance only`,
+    ...levelContextRows.map(formatLevelResearchContextRow),
+    `LEGACY V5.4 LEVEL DEBUG · rows ${localRows.length}`,
     ...localRows.map(formatDiagnosticRow),
     `V-SHAPE SHADOW DEBUG · rows ${vShapeRows.length}`,
     ...vShapeRows.map(formatVShapeShadowDiagnosticRow),
