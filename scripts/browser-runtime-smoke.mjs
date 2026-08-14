@@ -9,11 +9,12 @@ const chromeBinary = process.env.CHROME_BIN || "google-chrome";
 const port = 9222 + Math.floor(Math.random() * 500);
 const profile = `/tmp/inpuls-chrome-${process.pid}`;
 const chrome = spawn(chromeBinary, [
-  "--headless=new",
+  "--headless",
   "--no-sandbox",
   "--disable-gpu",
   "--disable-dev-shm-usage",
   "--disable-background-networking",
+  "--remote-debugging-address=127.0.0.1",
   `--remote-debugging-port=${port}`,
   `--user-data-dir=${profile}`,
   "about:blank",
@@ -32,7 +33,7 @@ async function fetchJson(url, options) {
 
 async function waitForDebugger() {
   let lastError;
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
     try {
       return await fetchJson(`http://127.0.0.1:${port}/json/version`);
     } catch (error) {
