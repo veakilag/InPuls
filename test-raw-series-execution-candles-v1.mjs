@@ -2,14 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-// SERIES is a raw execution contract; AGG remains an independent display mode.
+// SERIES is a directional execution contract; AGG remains an independent display mode.
 import {
   createFootprintAccumulator,
   footprintIntervalHistory,
   ingestFootprintTrades,
   normalizeFlowTrade,
-} from "./orderbook-flow-workspace.js?v=26-121-indigo-market-workspace-v1";
-import { aggregateTapeSeries } from "./orderbook.js?v=26-121-indigo-market-workspace-v1";
+} from "./orderbook-flow-workspace.js?v=26-122-configurable-market-headers-v1";
+import { aggregateTapeSeries } from "./orderbook.js?v=26-122-configurable-market-headers-v1";
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -50,7 +50,7 @@ test("footprint OHLC uses execution time rather than receive/display time", () =
   assert.equal(candle?.closePrice, 100);
 });
 
-test("worker and main keep SERIES on a dedicated raw-only channel", () => {
+test("SERIES prefers shadow raw but remains live on the stable visual tape", () => {
   const worker = read("./orderbook-worker.js");
   const main = read("./orderbook.js");
   assert.match(worker, /ingestSeriesRawTrade\(trade\)/);
@@ -62,9 +62,9 @@ test("worker and main keep SERIES on a dedicated raw-only channel", () => {
   assert.match(worker, /seriesReplace/);
   assert.match(worker, /seriesSource: this\.seriesRawHealthy \? "raw" : "warming"/);
   assert.match(main, /const tapeSeriesTradesBySymbol = new Map\(\)/);
-  assert.match(main, /const seriesRawReady = state\.seriesSource === "raw" && Boolean\(seriesStored\?\.length\)/);
-  assert.match(main, /const seriesInput = seriesRawReady \? seriesStored : \[\]/);
-  assert.doesNotMatch(main, /seriesRawReady \? seriesStored : aggregationInput/);
+  assert.match(main, /const shadowRawReady = state\.seriesSource === "raw" && Boolean\(seriesStored\?\.length\)/);
+  assert.match(main, /const seriesInput = shadowRawReady \? seriesStored : stored/);
+  assert.doesNotMatch(main, /Жду непрерывный RAW @trade/);
   assert.match(main, /state\.seriesRenderSource = seriesRenderSource/);
   assert.match(main, /state\.seriesSourceBuckets = aggregateTapeSeries\(seriesInput\)/);
 });

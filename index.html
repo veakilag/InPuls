@@ -9,17 +9,20 @@
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="26-121-indigo-market-workspace-v1" />
-    <link rel="stylesheet" href="./styles.css?v=26-121-indigo-market-workspace-v1" />
-    <link rel="stylesheet" href="./event-radar-beta.css?v=26-121-indigo-market-workspace-v1" />
-    <link rel="stylesheet" href="./workspace-v2.css?v=26-121-indigo-market-workspace-v1" />
+    <meta name="inpuls-build" content="26-122-configurable-market-headers-v1" />
+    <link rel="stylesheet" href="./styles.css?v=26-122-configurable-market-headers-v1" />
+    <link rel="stylesheet" href="./event-radar-beta.css?v=26-122-configurable-market-headers-v1" />
+    <link rel="stylesheet" href="./workspace-v2.css?v=26-122-configurable-market-headers-v1" />
     <title>InPuls — в ритме рынка</title>
   </head>
   <body>
     <div class="noise" aria-hidden="true"></div>
     <header class="topbar">
       <a class="brand" href="./" aria-label="InPuls — главная">
-        <img class="brand-logo" src="./assets/inpuls-logo.svg" alt="" width="282" height="348" />
+        <svg class="brand-logo" viewBox="0 0 282 348" role="img" aria-label="InPuls">
+          <path class="brand-logo-body" d="M241.511 204.223H280.617L274.266 224.223H149.266L155.616 204.223H220.312L172.436 68.0273L84.5488 342.297L50.1094 224.223H1.29688L7.64844 204.223H77.2969L70.9453 224.223H70.9434L85.4463 273.95L171.56 5.22266L241.511 204.223Z" />
+          <path class="brand-logo-signal" pathLength="100" d="M7 214h70l8 60L172 5l70 209h33" />
+        </svg>
         <strong class="brand-name">InPuls</strong>
         <span class="sr-only">SCREENER <small>v23</small></span>
       </a>
@@ -28,6 +31,9 @@
         <div id="inplay-coins" class="inplay-coins"><span class="inplay-loading">Собираю активные монеты…</span></div>
       </div>
       <div class="topbar-actions" aria-label="Основные действия">
+        <div id="global-timeframes" class="global-timeframes" role="group" aria-label="Таймфрейм всех графиков">
+          <button data-global-interval="1m" type="button">1м</button><button data-global-interval="5m" type="button">5м</button><button data-global-interval="15m" type="button">15м</button><button data-global-interval="1h" type="button">1ч</button>
+        </div>
         <span class="clock-dock" data-clock-dock aria-label="База часов">
           <time id="clock" class="clock" tabindex="0">--:--:--</time>
         </span>
@@ -69,16 +75,9 @@
             <div class="chart-symbol-block">
               <div class="chart-quote">
                 <h2 id="chart-symbol">BTC/USDT</h2>
-                <span id="chart-change" class="tone-neutral">—</span>
               </div>
             </div>
-            <div class="chart-metrics" aria-label="Метрики выбранной монеты">
-              <span title="Оборот за 24 часа в валюте котировки USDT"><b>О24</b><strong id="metric-turnover">—</strong></span>
-              <span><b>NATR 1</b><strong id="metric-natr-1m">—</strong></span>
-              <span><b>NATR 5</b><strong id="metric-natr-5m">—</strong></span>
-              <span><b>F</b><strong id="metric-funding">—</strong><em id="metric-funding-time">—</em></span>
-              <span title="Корреляция минутных доходностей с BTC"><b>C</b><strong id="metric-correlation">—</strong></span>
-            </div>
+            <div class="chart-metrics" data-chart-metrics aria-label="Настраиваемые метрики выбранной монеты"></div>
             <div class="chart-controls">
               <div class="control-line">
                 <div class="timeframes timeframe-picker" role="group" aria-label="Таймфрейм графика">
@@ -108,7 +107,7 @@
                 <button data-drawing-tool="rectangle" type="button" title="Прямоугольник" aria-label="Прямоугольник">▭</button>
                 <button data-drawing-tool="ray" type="button" title="Луч" aria-label="Луч">→</button>
                 <button data-drawing-tool="freehand" type="button" title="Рисование" aria-label="Рисование">∿</button>
-                <button data-drawing-tool="alert" type="button" title="Alert" aria-label="Alert">!</button>
+                <button data-drawing-tool="alert" type="button" title="Ценовой алерт" aria-label="Ценовой алерт"><svg class="drawing-tool-icon alert-bell-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10a5 5 0 0 1 10 0v4l2 2H5l2-2v-4Z"/><path d="M10 19h4M12 7v4m0 2v.2"/></svg></button>
                 <button class="chart-magnet-toggle" data-chart-magnet type="button" title="Магнит к OHLC" aria-label="Магнит к OHLC" aria-pressed="true"><svg class="drawing-tool-icon magnet-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v9a6 6 0 0 0 12 0V3h-4v9a2 2 0 0 1-4 0V3H6Z"/><path d="M6 7h4m4 0h4"/></svg></button>
                 <button class="drawing-clear-button" type="button" title="Очистить все рисунки" aria-label="Очистить все рисунки">⌫</button>
                 <button id="volume-toggle" class="volume-toggle" type="button" title="Скрыть или показать объём" aria-pressed="true">V</button>
@@ -129,6 +128,7 @@
           <div class="radar-command-bar">
             <label class="radar-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><input id="radar-search" type="search" autocomplete="off" placeholder="Монета" aria-label="Поиск монеты" /></label>
             <button id="radar-filters-toggle" class="radar-filters-toggle" type="button" aria-expanded="false" aria-controls="radar-filter-panel"><span>Фильтры</span><b id="radar-filter-count">0</b></button>
+            <button id="radar-columns-toggle" class="radar-columns-toggle" type="button" aria-expanded="false" aria-controls="radar-columns-panel" title="Настроить столбцы">Столбцы</button>
             <button id="radar-volume-window" class="radar-volume-window" type="button" title="Период изменения скользящего оборота">VΔ 1м</button>
             <button class="panel-close core-panel-close radar-core-close" data-close-core="radar" type="button" title="Закрыть список" aria-label="Закрыть список">×</button>
           </div>
@@ -141,17 +141,10 @@
             <label><span>Funding</span><div><select data-column-filter-operator="fundingRate" aria-label="Условие Funding"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="fundingRate" type="number" step="any" placeholder="%" /></div></label>
             <label><span>Корреляция</span><div><select data-column-filter-operator="correlation" aria-label="Условие корреляции"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="correlation" type="number" step="any" placeholder="0.8" /></div></label>
             <label><span>Рост 24ч</span><div><select data-column-filter-operator="change24h" aria-label="Условие роста"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="change24h" type="number" step="any" placeholder="%" /></div></label>
+            <label><span>Сделки 24ч</span><div><select data-column-filter-operator="trades24h" aria-label="Условие количества сделок"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="trades24h" type="number" step="any" placeholder="100000" /></div></label>
           </div>
-          <div class="top-columns" aria-label="Сортировка монет">
-            <button data-top-sort="symbol" type="button">Монета <i>↕</i><span class="column-resizer" data-column-index="0"></span></button>
-            <button data-top-sort="quoteVolume24h" type="button" title="Оборот за 24 часа в USDT">О24 <i>↓</i><span class="column-resizer" data-column-index="1"></span></button>
-            <button data-top-sort="volumeVelocity" type="button" title="Изменение скользящего оборота"><span data-volume-column-label>VΔ 1м</span> <i>↕</i><span class="column-resizer" data-column-index="2"></span></button>
-            <button data-top-sort="natr1m" type="button">NATR 1 <i>↕</i><span class="column-resizer" data-column-index="3"></span></button>
-            <button data-top-sort="natr5m" type="button">NATR 5 <i>↕</i><span class="column-resizer" data-column-index="4"></span></button>
-            <button data-top-sort="fundingRate" type="button">F <i>↕</i><span class="column-resizer" data-column-index="5"></span></button>
-            <button data-top-sort="correlation" type="button">C <i>↕</i><span class="column-resizer" data-column-index="6"></span></button>
-            <button data-top-sort="change24h" type="button" title="Рост за 24 часа">Рост <i>↕</i></button>
-          </div>
+          <div id="radar-columns-panel" class="radar-columns-panel" aria-label="Настройка столбцов" hidden></div>
+          <div class="top-columns" aria-label="Сортировка монет"></div>
           <div id="top-list" class="top-list" aria-live="polite">
             <div class="top-placeholder">Собираю лидеров рынка…</div>
           </div>
@@ -322,9 +315,9 @@
 
     <div id="alert-toast" class="alert-toast" role="status" aria-live="assertive" hidden></div>
     <script src="./runtime-boot-recovery.js?v=26-99-tape-priority-comfort-v1"></script>
-    <script src="./install-cta.js?v=26-121-indigo-market-workspace-v1"></script>
-    <script type="module" src="./canvas-comfort-preview.js?v=26-121-indigo-market-workspace-v1"></script>
-    <script type="module" src="./event-radar-beta.js?v=26-121-indigo-market-workspace-v1"></script>
-    <script type="module" src="./app.js?v=26-121-indigo-market-workspace-v1"></script>
+    <script src="./install-cta.js?v=26-122-configurable-market-headers-v1"></script>
+    <script type="module" src="./canvas-comfort-preview.js?v=26-122-configurable-market-headers-v1"></script>
+    <script type="module" src="./event-radar-beta.js?v=26-122-configurable-market-headers-v1"></script>
+    <script type="module" src="./app.js?v=26-122-configurable-market-headers-v1"></script>
   </body>
 </html>

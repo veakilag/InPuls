@@ -17,10 +17,11 @@ test("header exposes exactly four command buttons in requested order", () => {
   assert.match(header, /data-clock-dock/);
 });
 
-test("supplied logo and compact brand are used", () => {
+test("compact brand keeps the supplied shape and adds a traveling signal", () => {
   const html = read("./index.html");
   const logo = read("./assets/inpuls-logo.svg");
-  assert.match(html, /src="\.\/assets\/inpuls-logo\.svg"/);
+  assert.match(html, /<svg class="brand-logo"/);
+  assert.match(html, /class="brand-logo-signal"/);
   assert.match(html, /class="brand-name">InPuls</);
   assert.match(logo, /linearGradient id="inpuls-gradient"/);
   assert.match(logo, /#7C83FF/);

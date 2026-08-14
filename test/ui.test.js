@@ -9,7 +9,7 @@ test("browser entry points keep user version v23 and identify the current releas
     source("index.html"), source("app.js"), source("sw.js"), source("refresh.html"), source("VERSION.txt"),
   ]);
   for (const text of [html, app, worker, refresh, version]) assert.doesNotMatch(text, /(?:v|build=|\?v=)22\b/);
-  assert.match(html, /inpuls-build" content="26-121-indigo-market-workspace-v1"/);
+  assert.match(html, /inpuls-build" content="26-122-configurable-market-headers-v1"/);
   assert.match(worker, /inpuls-26-91-runtime-boot-cache-feed-v1/);
   assert.match(html, /SCREENER <small>v23<\/small>/);
   assert.match(version, /^InPuls v23/m);
@@ -86,7 +86,7 @@ test("browser entry points carry a restrictive CSP and reset scripts stay extern
 
 test("Service Worker removes retired app-shell caches and stays network-only", async () => {
   const worker = await source("sw.js");
-  assert.match(worker, /26-121-indigo-market-workspace-v1/);
+  assert.match(worker, /26-122-configurable-market-headers-v1/);
   assert.match(worker, /await caches\.keys\(\)/);
   assert.match(worker, /key === CACHE \|\| key\.startsWith\("inpuls-"\)/);
   assert.match(worker, /\.map\(\(key\) => caches\.delete\(key\)\)/);
@@ -148,7 +148,7 @@ test("event radar beta is isolated from the three existing discovery blocks", as
     source("index.html"), source("app.js"), source("sw.js"), source("event-radar-beta.js"), source("event-radar-beta.css"),
   ]);
   assert.match(html, /id="event-radar-beta-toggle"/);
-  assert.match(html, /event-radar-beta\.js\?v=26-121-indigo-market-workspace-v1/);
+  assert.match(html, /event-radar-beta\.js\?v=26-122-configurable-market-headers-v1/);
   assert.match(app, /inpuls:event-radar-update/);
   assert.match(app, /inpuls:event-radar-select/);
   assert.match(app, /openOrderBookForSymbol\(symbol\)/);

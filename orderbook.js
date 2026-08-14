@@ -6,10 +6,10 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-121-indigo-market-workspace-v1";
+import "./orderbook-flow-workspace.js?v=26-122-configurable-market-headers-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
-import { normalizeOrderBookMarketKey } from "./orderbook-market-key.js?v=26-121-indigo-market-workspace-v1";
+import { normalizeOrderBookMarketKey } from "./orderbook-market-key.js?v=26-122-configurable-market-headers-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
 
 export function applyDepthUpdates(levels, updates) {
@@ -1458,7 +1458,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-121-indigo-market-workspace-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-122-configurable-market-headers-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -2760,18 +2760,18 @@ function syncTapeModeButton(button, state) {
   if (!button) return;
   const mode = normalizeTapeMode(state.mode);
   const aggregationSource = state.aggregationSource === "raw" ? "@trade RAW" : "@aggTrade fallback";
-  const seriesReady = state.seriesRenderSource === "raw";
+  const seriesReady = state.seriesRenderSource !== "warming";
   button.textContent = mode === "series" ? "СЕРИЯ" : mode.toUpperCase();
   button.dataset.mode = mode;
   button.dataset.aggregationSource = state.aggregationSource === "raw" ? "raw" : "agg";
-  button.dataset.seriesSource = seriesReady ? "raw" : "warming";
+  button.dataset.seriesSource = seriesReady ? state.seriesRenderSource : "warming";
   button.classList.toggle("is-active", mode !== "raw");
   button.setAttribute("aria-pressed", String(mode !== "raw"));
   button.setAttribute("aria-label", `Режим ленты ${button.textContent}. Нажмите для переключения.`);
   if (mode === "series") {
     button.title = seriesReady
-      ? `СЕРИЯ RAW ≤${TAPE_SERIES_MAX_GAP_MS} мс: непрерывный агрессивный покупатель или продавец. Первая встречная рыночная сделка немедленно закрывает серию.`
-      : "СЕРИЯ строится только из отдельных RAW @trade. Ждём непрерывный поток без пропусков.";
+      ? `СЕРИЯ ≤${TAPE_SERIES_MAX_GAP_MS} мс: только однонаправленные исполнения. Первая встречная сделка немедленно закрывает серию.`
+      : "СЕРИЯ ждёт первое однонаправленное исполнение.";
   } else if (mode === "agg") {
     button.title = `AGG 0 мс · ${aggregationSource}: объединяются последовательные исполнения с одинаковым биржевым временем и направлением.`;
   } else {
@@ -4078,10 +4078,13 @@ function paintTapeSurface(context, rect) {
 function refreshTapeRenderModel(state, symbol, stored, aggregationStored = stored, seriesStored = []) {
   const version = Number(tapeDataVersionBySymbol.get(symbol)) || 0;
   const aggregationInput = aggregationStored?.length ? aggregationStored : stored;
-  const seriesRawReady = state.seriesSource === "raw" && Boolean(seriesStored?.length);
-  const seriesRenderSource = seriesRawReady ? "raw" : "warming";
-  const seriesInput = seriesRawReady ? seriesStored : [];
-  const modelKey = [symbol, version, seriesRenderSource, "raw-directional-series-500"].join(":");
+  // Binance Futures does not guarantee a separate @trade stream on every
+  // transport. Keep the stricter shadow stream when it is healthy, otherwise
+  // build the exact same directional series from the stable visual executions.
+  const shadowRawReady = state.seriesSource === "raw" && Boolean(seriesStored?.length);
+  const seriesRenderSource = shadowRawReady ? "shadow-raw" : stored?.length ? "tape" : "warming";
+  const seriesInput = shadowRawReady ? seriesStored : stored;
+  const modelKey = [symbol, version, seriesRenderSource, "directional-series-500"].join(":");
   state.seriesRenderSource = seriesRenderSource;
   if (state.renderModelKey === modelKey) return;
   state.renderModelKey = modelKey;
@@ -4522,9 +4525,7 @@ function drawTapeCard(card) {
       state.mode === "agg"
         ? "Жду агрегированную сделку…"
         : state.mode === "series"
-          ? (state.seriesRenderSource === "raw"
-            ? "Жду агрессивную серию RAW…"
-            : "Жду непрерывный RAW @trade для серии…")
+          ? "Жду однонаправленную серию сделок…"
           : "Жду сделку…",
     );
     state.hasFrame = true;

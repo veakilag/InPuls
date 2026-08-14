@@ -2,13 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 // Regression contract: execution, visual and interval clocks stay independent.
-import { tapeVisualTime } from "./orderbook.js?v=26-121-indigo-market-workspace-v1";
+import { tapeVisualTime } from "./orderbook.js?v=26-122-configurable-market-headers-v1";
 import {
   createFootprintAccumulator,
   footprintIntervalSnapshot,
   ingestFootprintTrades,
   stableFootprintPriceStep,
-} from "./orderbook-flow-workspace.js?v=26-121-indigo-market-workspace-v1";
+} from "./orderbook-flow-workspace.js?v=26-122-configurable-market-headers-v1";
 
 test("Tape visual time uses calibrated receive time", () => {
   assert.equal(tapeVisualTime(10_000, 10_150, 200), 10_350);

@@ -54,6 +54,7 @@ export class SymbolState {
     this.high24h = null;
     this.low24h = null;
     this.quoteVolume24h = 0;
+    this.trades24h = null;
     this.quoteVolumeHistory = [];
     this.lastQuoteVolume24h = null;
     this.lastVolumeTimestamp = null;
@@ -80,6 +81,8 @@ export class SymbolState {
     this.open24h = Number(ticker.o) || this.open24h;
     this.high24h = Number(ticker.h) || this.high24h;
     this.low24h = Number(ticker.l) || this.low24h;
+    const trades24h = Number(ticker.n);
+    if (Number.isFinite(trades24h) && trades24h >= 0) this.trades24h = trades24h;
     this.lastUpdate = now;
     const minute = Math.floor(now / 60_000) * 60_000;
     const minuteCandle = this.minuteCandles.at(-1);
@@ -313,6 +316,7 @@ export class SymbolState {
       change5m,
       change24h: percentChange(this.price, this.open24h),
       quoteVolume24h: this.quoteVolume24h,
+      trades24h: this.trades24h,
       volumeDelta1m,
       volumeDelta5m,
       turnoverPerMinute,

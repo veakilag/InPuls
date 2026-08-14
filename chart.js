@@ -824,7 +824,7 @@ export class CandlestickChart {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
 
-    const margins = { left: 12, right: 72, top: 18, bottom: 28 };
+    const margins = { left: 10, right: width < 520 ? 48 : 54, top: 14, bottom: 20 };
     const showVolume = this.volumeVisible && height >= 170;
     const plotWidth = width - margins.left - margins.right;
     const priceBottom = height - margins.bottom;
@@ -990,10 +990,12 @@ export class CandlestickChart {
   #drawSessionMarkers(ctx, margins, height) {
     if (this.candles.length < 2) return;
     const start = Math.max(1, Math.floor(this.viewStart));
-    const end = Math.min(this.candles.length - 1, Math.ceil(this.viewStart + this.visibleCount));
+    // #timeAtIndex extrapolates beyond the last candle, so sessions remain
+    // visible in the future half of a centered chart as well as in history.
+    const end = Math.min(start + 5000, Math.ceil(this.viewStart + this.visibleCount));
     for (let index = start; index <= end; index += 1) {
-      const previous = this.candles[index - 1].time;
-      const current = this.candles[index].time;
+      const previous = this.#timeAtIndex(index - 1);
+      const current = this.#timeAtIndex(index);
       const events = sessionEvents(previous, current, this.timeZone);
       for (const event of events) {
         if (event.label === "D" || !this.sessionsVisible) continue;

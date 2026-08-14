@@ -8,7 +8,7 @@ import {
   materializeTapeSeries,
   nextTapeMode,
   normalizeTapeMode,
-} from "./orderbook.js?v=26-121-indigo-market-workspace-v1";
+} from "./orderbook.js?v=26-122-configurable-market-headers-v1";
 
 function trade(id, time, side, price, quote) {
   return {
