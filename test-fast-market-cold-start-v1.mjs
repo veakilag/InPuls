@@ -8,6 +8,7 @@ import {
 } from "./binance-stream-routing.js";
 
 const source = fs.readFileSync(new URL("./binance-stream-routing.js", import.meta.url), "utf8");
+const app = fs.readFileSync(new URL("./app.js", import.meta.url), "utf8");
 
 test("full-market bootstrap only targets the Binance core miniTicker stream", () => {
   assert.equal(isBinanceCoreMiniTickerUrl("wss://fstream.binance.com/market/stream?streams=!miniTicker@arr"), true);
@@ -26,6 +27,7 @@ test("REST rows become one valid miniTicker market batch", () => {
       lowPrice: "62000",
       volume: "100",
       quoteVolume: "6400000",
+      count: 2_345_678,
       closeTime: 123456,
     },
     { symbol: "INVALID", lastPrice: "1" },
@@ -33,6 +35,7 @@ test("REST rows become one valid miniTicker market batch", () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0].s, "BTCUSDT");
   assert.equal(rows[0].e, "24hrMiniTicker");
+  assert.equal(rows[0].n, 2_345_678);
 });
 
 test("history warmup waits for the base list and then advances in bounded batches", () => {
@@ -49,9 +52,10 @@ test("market bootstrap uses sequential fallback instead of three duplicate downl
 });
 
 test("browser shim is bounded and does not touch user storage", () => {
+  assert.match(app, /binance-stream-routing\.js\?v=26-123-chart-polish-v2/);
   assert.match(source, /class InPulsFastStartWebSocket extends NativeWebSocket/);
   assert.match(source, /new MessageEvent\("message"/);
-  assert.match(source, /snapshot\.filter\(\(ticker\) => !seenSymbols\.has\(ticker\.s\)\)/);
+  assert.match(source, /!seenSymbols\.has\(ticker\.s\) \|\| Number\.isFinite\(Number\(ticker\.n\)\)/);
   assert.match(source, /nativeSetTimeout\(restore, 30_000\)/);
   assert.doesNotMatch(source, /localStorage\.clear|sessionStorage\.clear|indexedDB\.deleteDatabase/);
 });

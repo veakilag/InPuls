@@ -60,6 +60,7 @@ export class SymbolState {
     this.lastVolumeTimestamp = null;
     this.volumeFast = 0;
     this.volumeSlow = 0;
+    this.quoteVolumeRate = 0;
     this.history = [];
     this.minuteCandles = [];
     this.minuteCandleLimit = 100;
@@ -108,6 +109,9 @@ export class SymbolState {
       if (this.lastQuoteVolume24h !== null && this.lastVolumeTimestamp !== null) {
         const elapsedSeconds = Math.max(0.2, (now - this.lastVolumeTimestamp) / 1000);
         const delta = quoteVolume - this.lastQuoteVolume24h;
+        const signedRate = delta / elapsedSeconds;
+        const velocityAlpha = 1 - Math.exp(-elapsedSeconds / 12);
+        this.quoteVolumeRate += velocityAlpha * (signedRate - this.quoteVolumeRate);
         const rate = delta > 0 ? delta / elapsedSeconds : 0;
         const fastAlpha = 1 - Math.exp(-elapsedSeconds / 5);
         const slowAlpha = 1 - Math.exp(-elapsedSeconds / 45);
@@ -320,6 +324,7 @@ export class SymbolState {
       volumeDelta1m,
       volumeDelta5m,
       turnoverPerMinute,
+      quoteVolumeRate: this.quoteVolumeRate,
       volumeBoost,
       range60s,
       range5m,

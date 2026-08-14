@@ -110,6 +110,9 @@ export function normalizeBinanceRestMiniTicker(ticker, now = Date.now()) {
     l: ticker.lowPrice ?? ticker.l,
     v: ticker.volume ?? ticker.v,
     q: ticker.quoteVolume ?? ticker.q,
+    // REST exposes this as `count`; full WebSocket ticker uses `n`.
+    // miniTicker has neither, so preserve the REST value on SymbolState.
+    n: ticker.count ?? ticker.n,
   };
   return isCoreMiniTickerPacket([normalized]) ? normalized : null;
 }
@@ -220,15 +223,17 @@ function installFastMarketBootstrap() {
         for (const symbol of extractCoreMiniTickerSymbols(event.data)) seenSymbols.add(symbol);
       });
 
-      const injectMissingSnapshot = (snapshot) => {
+      const injectMarketSnapshot = (snapshot) => {
         if (!opened || injected || !Array.isArray(snapshot) || !snapshot.length) return;
         injected = true;
-        const missing = snapshot.filter((ticker) => !seenSymbols.has(ticker.s));
-        if (!missing.length) return;
+        // Send missing symbols and the enriched REST rows carrying fields absent
+        // from miniTicker (notably the 24h trade count).
+        const enriched = snapshot.filter((ticker) => !seenSymbols.has(ticker.s) || Number.isFinite(Number(ticker.n)));
+        if (!enriched.length) return;
         dispatchingBootstrap = true;
         try {
           this.dispatchEvent(new MessageEvent("message", {
-            data: JSON.stringify(missing),
+            data: JSON.stringify(enriched),
           }));
         } finally {
           dispatchingBootstrap = false;
@@ -237,10 +242,10 @@ function installFastMarketBootstrap() {
 
       this.addEventListener("open", () => {
         opened = true;
-        snapshotPromise.then(injectMissingSnapshot);
+        snapshotPromise.then(injectMarketSnapshot);
       }, { once: true });
 
-      if (opened) snapshotPromise.then(injectMissingSnapshot);
+      if (opened) snapshotPromise.then(injectMarketSnapshot);
     }
   }
 
