@@ -7,9 +7,9 @@ import {
   formatCompactUsd,
   isUsdtPerpetualSymbol,
   normalizeUsdtPerpetualSymbol,
-} from "./engine.js?v=26-121-indigo-market-workspace-v1";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-121-indigo-market-workspace-v1";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-121-indigo-market-workspace-v1";
+} from "./engine.js?v=26-122-configurable-market-headers-v1";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-122-configurable-market-headers-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-122-configurable-market-headers-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -19,11 +19,12 @@ import {
   MarketwideSizeScanner,
   detectMarketwideCascade,
 } from "./market-pattern-scanner.js?v=marketwide-patterns-v1";
-import { panelsOverlap, resizeTiledWorkspace, WORKSPACE_COLS, WORKSPACE_ROWS } from "./workspace-layout.js?v=26-121-indigo-market-workspace-v1";
+import { panelsOverlap, resizeTiledWorkspace, WORKSPACE_COLS, WORKSPACE_ROWS } from "./workspace-layout.js?v=26-122-configurable-market-headers-v1";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
   favorites: "inpuls-favorites-v1",
+  favoriteColors: "inpuls-favorite-colors-v1",
   sound: "inpuls-sound-v1",
   chart: "inpuls-chart-v2",
   timeZone: "inpuls-timezone-v1",
@@ -37,6 +38,7 @@ const STORAGE_KEYS = {
   radarColumns: "inpuls-radar-columns-v3",
   radarFilters: "inpuls-radar-filters-v3",
   radarVolumeWindow: "inpuls-radar-volume-window-v1",
+  radarVisibleMetrics: "inpuls-radar-visible-metrics-v1",
   inplay: "inpuls-inplay-v2",
   selectedSymbol: "inpuls-selected-symbol-v1",
   topSort: "inpuls-radar-sort-v1",
@@ -49,6 +51,18 @@ const DEFAULT_INPLAY = Object.freeze({ minV24: 100, minNatr1: null, minNatr5: nu
 const EMPTY_RADAR_FILTERS = Object.freeze([]);
 const CHART_INTERVALS = Object.freeze(["1s", "5s", "15s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "12h", "1d", "3d", "1w", "1M"]);
 const DEFAULT_FAVORITE_TIMEFRAMES = Object.freeze(["1m", "5m", "15m"]);
+const FAVORITE_COLORS = Object.freeze(["amber", "cyan", "violet", "green"]);
+const DEFAULT_RADAR_METRICS = Object.freeze(["quoteVolume24h", "change24h", "volumeVelocity", "natr1m", "natr5m", "correlation", "trades24h"]);
+const RADAR_METRICS = Object.freeze([
+  { key: "quoteVolume24h", label: "О24", name: "Объём 24ч", title: "Оборот за 24 часа в USDT" },
+  { key: "change24h", label: "Δ24", name: "Изменение цены 24ч", title: "Изменение цены за 24 часа", tone: true },
+  { key: "volumeVelocity", label: "VΔ", name: "Изменение объёма", title: "Приток/отток оборота за выбранное окно", tone: true },
+  { key: "natr1m", label: "N1", name: "NATR 1м", title: "Нормализованный ATR на 1 минуте" },
+  { key: "natr5m", label: "N5", name: "NATR 5м", title: "Нормализованный ATR на 5 минутах" },
+  { key: "fundingRate", label: "F", name: "Funding", title: "Ставка финансирования", tone: true },
+  { key: "correlation", label: "BTC", name: "Корреляция с BTC", title: "Корреляция минутных доходностей с BTC" },
+  { key: "trades24h", label: "T24", name: "Сделки 24ч", title: "Количество сделок за 24 часа" },
+]);
 const SIGNAL_TYPES = new Set([
   "liquidation_cascade",
   "knife",
@@ -72,6 +86,23 @@ function normalizeSymbolList(value) {
 
 function normalizeInPlay(value) {
   return { ...DEFAULT_INPLAY, ...(value && typeof value === "object" && !Array.isArray(value) ? value : {}) };
+}
+
+function normalizeRadarMetrics(value) {
+  const allowed = new Set(RADAR_METRICS.map((metric) => metric.key));
+  const selected = [...new Set((Array.isArray(value) ? value : DEFAULT_RADAR_METRICS).filter((key) => allowed.has(key)))];
+  return selected.length ? selected : [...DEFAULT_RADAR_METRICS];
+}
+
+function normalizeFavoriteColors(value, favorites = []) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const colors = {};
+  for (const symbol of favorites) colors[symbol] = FAVORITE_COLORS.includes(source[symbol]) ? source[symbol] : "amber";
+  for (const [symbol, color] of Object.entries(source)) {
+    const normalized = normalizeUsdtPerpetualSymbol(symbol);
+    if (normalized && FAVORITE_COLORS.includes(color)) colors[normalized] = color;
+  }
+  return colors;
 }
 
 const DEFAULT_WORKSPACE = {
@@ -102,11 +133,13 @@ const savedChart = loadJson(STORAGE_KEYS.chart, { interval: "1m", range: "1h" })
 const savedSelectedSymbol = initialNavigation.symbol
   || normalizeUsdtPerpetualSymbol(localStorage.getItem(STORAGE_KEYS.selectedSymbol))
   || "BTCUSDT";
+const savedFavorites = normalizeSymbolList(loadJson(STORAGE_KEYS.favorites, []));
 
 const state = {
   symbols: new Map(),
   settings: loadJson(STORAGE_KEYS.settings, DEFAULT_SETTINGS),
-  favorites: new Set(normalizeSymbolList(loadJson(STORAGE_KEYS.favorites, []))),
+  favorites: new Set(savedFavorites),
+  favoriteColors: normalizeFavoriteColors(loadJson(STORAGE_KEYS.favoriteColors, {}), savedFavorites),
   soundEnabled: loadJson(STORAGE_KEYS.sound, false),
   filter: "all",
   search: "",
@@ -131,6 +164,7 @@ const state = {
   workspace: loadWorkspaceSettings(),
   radarColumns: loadJson(STORAGE_KEYS.radarColumns, [1.35, 1, 1, 1, 1, .82, .82, 1]),
   radarFilters: loadJson(STORAGE_KEYS.radarFilters, EMPTY_RADAR_FILTERS),
+  radarVisibleMetrics: normalizeRadarMetrics(loadJson(STORAGE_KEYS.radarVisibleMetrics, DEFAULT_RADAR_METRICS)),
   radarVolumeWindowMs: Number(localStorage.getItem(STORAGE_KEYS.radarVolumeWindow)) === 300_000 ? 300_000 : 60_000,
   inplay: normalizeInPlay(loadJson(STORAGE_KEYS.inplay, DEFAULT_INPLAY)),
   favoriteTimeframes: [...new Set(loadJson(STORAGE_KEYS.favoriteTimeframes, DEFAULT_FAVORITE_TIMEFRAMES).filter((interval) => CHART_INTERVALS.includes(interval)))].sort((left, right) => CHART_INTERVALS.indexOf(left) - CHART_INTERVALS.indexOf(right)),
@@ -142,6 +176,7 @@ const els = {
   statusText: document.querySelector("#connection-text"),
   clock: document.querySelector("#clock"),
   clockDock: document.querySelector("[data-clock-dock]"),
+  globalTimeframes: document.querySelector("#global-timeframes"),
   comfortSlider: document.querySelector("#comfort-slider"),
   timeZoneOpen: document.querySelector("#timezone-open"),
   timeZoneCity: document.querySelector("#timezone-city"),
@@ -186,7 +221,7 @@ const els = {
   priceChart: document.querySelector("#price-chart"),
   chartTooltip: document.querySelector("#chart-tooltip"),
   chartSymbol: document.querySelector("#chart-symbol"),
-  chartChange: document.querySelector("#chart-change"),
+  chartMetrics: document.querySelector(".primary-chart [data-chart-metrics]"),
   chartStatus: document.querySelector("#chart-status"),
   timeframeButtons: [...document.querySelectorAll("[data-interval]")],
   rangeButtons: [...document.querySelectorAll("[data-range]")],
@@ -194,13 +229,15 @@ const els = {
   timeframeMenu: document.querySelector("#timeframe-menu"),
   timeframeFavorites: document.querySelector("#timeframe-favorites"),
   topList: document.querySelector("#top-list"),
-  topSortButtons: [...document.querySelectorAll("[data-top-sort]")],
+  topColumns: document.querySelector(".top-columns"),
   radarSearch: document.querySelector("#radar-search"),
   radarFilterInputs: [...document.querySelectorAll("[data-column-filter]")],
   radarFilterOperators: [...document.querySelectorAll("[data-column-filter-operator]")],
   radarFilterReset: document.querySelector("#radar-filter-reset"),
   radarFilterPanel: document.querySelector("#radar-filter-panel"),
   radarFiltersToggle: document.querySelector("#radar-filters-toggle"),
+  radarColumnsToggle: document.querySelector("#radar-columns-toggle"),
+  radarColumnsPanel: document.querySelector("#radar-columns-panel"),
   radarFilterCount: document.querySelector("#radar-filter-count"),
   radarVolumeWindow: document.querySelector("#radar-volume-window"),
   columnResizers: [...document.querySelectorAll("[data-column-index]")],
@@ -215,12 +252,6 @@ const els = {
   addPanelButtons: [...document.querySelectorAll("[data-add-panel]")],
   chartPickerSearch: document.querySelector("#chart-picker-search"),
   chartPickerList: document.querySelector("#chart-picker-list"),
-  metricTurnover: document.querySelector("#metric-turnover"),
-  metricFunding: document.querySelector("#metric-funding"),
-  metricFundingTime: document.querySelector("#metric-funding-time"),
-  metricNatr1m: document.querySelector("#metric-natr-1m"),
-  metricNatr5m: document.querySelector("#metric-natr-5m"),
-  metricCorrelation: document.querySelector("#metric-correlation"),
   volumeToggle: document.querySelector("#volume-toggle"),
   sessionToggle: document.querySelector("#session-toggle"),
   fontScale: document.querySelector("#font-scale"),
@@ -969,7 +1000,31 @@ function selectInterval(interval) {
   els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === interval));
   els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === state.chartRange));
   renderTimeframePickers();
+  syncGlobalTimeframes();
   klineFeed.select(state.selectedChartSymbol, interval, state.chartRange);
+}
+
+function syncGlobalTimeframes() {
+  if (!els.globalTimeframes) return;
+  const intervals = [state.chartInterval, ...[...extraCharts.values()].map((panel) => panel.model.interval)];
+  const shared = intervals.every((interval) => interval === intervals[0]) ? intervals[0] : null;
+  for (const button of els.globalTimeframes.querySelectorAll("[data-global-interval]")) {
+    button.classList.toggle("is-active", button.dataset.globalInterval === shared);
+    button.setAttribute("aria-pressed", String(button.dataset.globalInterval === shared));
+  }
+}
+
+function selectGlobalInterval(interval) {
+  if (!CHART_INTERVALS.includes(interval)) return;
+  selectInterval(interval);
+  for (const panel of extraCharts.values()) {
+    panel.chart.lockPriceDomain();
+    panel.model.interval = interval;
+    panel.feed.select(panel.model.symbol, interval, intervalRange(interval));
+    renderTimeframePicker(panel.element.querySelector(".timeframe-picker"));
+  }
+  persistWorkspace();
+  syncGlobalTimeframes();
 }
 
 function selectRange(range) {
@@ -1266,6 +1321,7 @@ function createRow(item) {
 
   const favorite = row.querySelector(".favorite-button");
   favorite.classList.toggle("is-active", state.favorites.has(item.symbol));
+  favorite.dataset.color = state.favoriteColors[item.symbol] || "none";
   favorite.setAttribute("aria-label", `${state.favorites.has(item.symbol) ? "Убрать" : "Добавить"} ${item.symbol} ${state.favorites.has(item.symbol) ? "из" : "в"} избранное`);
   favorite.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -1347,6 +1403,10 @@ function renderTopList(metrics) {
   const { key, direction } = state.topSort;
   const multiplier = direction === "asc" ? 1 : -1;
   candidates.sort((left, right) => {
+    if (key === "favorite") {
+      const rank = (item) => FAVORITE_COLORS.indexOf(state.favoriteColors[item.symbol]) + 1;
+      return (rank(left) - rank(right)) * multiplier || left.symbol.localeCompare(right.symbol);
+    }
     if (key === "symbol") return left.symbol.localeCompare(right.symbol) * multiplier;
     const a = Number(left[key]);
     const b = Number(right[key]);
@@ -1355,7 +1415,7 @@ function renderTopList(metrics) {
     if (!Number.isFinite(b)) return -1;
     return (a - b) * multiplier || left.symbol.localeCompare(right.symbol);
   });
-  for (const button of els.topSortButtons) {
+  for (const button of els.topColumns.querySelectorAll("[data-top-sort]")) {
     const active = button.dataset.topSort === key;
     button.classList.toggle("is-active", active);
     button.dataset.direction = active ? direction : "";
@@ -1385,13 +1445,27 @@ function renderTopList(metrics) {
 
   const fragment = document.createDocumentFragment();
   candidates.forEach((item) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "top-item";
-    button.draggable = true;
-    button.dataset.symbol = item.symbol;
-    button.classList.toggle("is-selected", item.symbol === state.selectedChartSymbol);
-    button.setAttribute("aria-label", `Открыть график ${item.symbol}`);
+    const row = document.createElement("div");
+    row.className = "top-item";
+    row.draggable = true;
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.dataset.symbol = item.symbol;
+    row.classList.toggle("is-selected", item.symbol === state.selectedChartSymbol);
+    row.setAttribute("aria-label", `Открыть график ${item.symbol}`);
+
+    const favorite = document.createElement("button");
+    favorite.type = "button";
+    favorite.className = "radar-favorite";
+    const favoriteColor = state.favoriteColors[item.symbol] || "none";
+    favorite.dataset.color = favoriteColor;
+    favorite.textContent = favoriteColor === "none" ? "☆" : "★";
+    favorite.title = "Цветная метка: нажимай, чтобы сменить цвет";
+    favorite.setAttribute("aria-label", `Изменить цвет избранного ${item.symbol}`);
+    favorite.addEventListener("click", (event) => {
+      event.stopPropagation();
+      cycleFavoriteColor(item.symbol);
+    });
 
     const identity = document.createElement("span");
     identity.className = "top-identity";
@@ -1404,23 +1478,21 @@ function renderTopList(metrics) {
       cell.className = className;
       return cell;
     };
-    button.append(
-      identity,
-      valueCell("quoteVolume24h"),
-      valueCell("volumeVelocity", toneClass(item.volumeVelocity)),
-      valueCell("natr1m"),
-      valueCell("natr5m"),
-      valueCell("fundingRate", toneClass(item.fundingRate)),
-      valueCell("correlation", "tone-neutral correlation-value"),
-      valueCell("change24h", toneClass(item.change24h)),
-    );
-    button.addEventListener("dragstart", (event) => {
+    const metricCells = state.radarVisibleMetrics.map((metricKey) => {
+      const metric = RADAR_METRICS.find((candidate) => candidate.key === metricKey);
+      return valueCell(metricKey, metric?.tone ? toneClass(item[metricKey]) : metricKey === "correlation" ? "tone-neutral correlation-value" : "top-metric");
+    });
+    row.append(favorite, identity, ...metricCells);
+    row.addEventListener("dragstart", (event) => {
       event.dataTransfer.effectAllowed = "copy";
       event.dataTransfer.setData("text/inpuls-symbol", item.symbol);
       event.dataTransfer.setData("text/plain", item.symbol);
     });
-    button.addEventListener("click", () => selectChartSymbol(item.symbol));
-    fragment.append(button);
+    row.addEventListener("click", () => selectChartSymbol(item.symbol));
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") selectChartSymbol(item.symbol);
+    });
+    fragment.append(row);
   });
   els.topList.replaceChildren(fragment);
   updateExtraChartMetrics(metrics);
@@ -1447,6 +1519,55 @@ function syncRadarToolbar() {
   if (els.radarVolumeWindow) els.radarVolumeWindow.textContent = `VΔ ${minutes}м`;
   document.querySelectorAll("[data-volume-column-label]").forEach((node) => { node.textContent = `VΔ ${minutes}м`; });
   document.querySelectorAll("[data-volume-filter-label]").forEach((node) => { node.textContent = `VΔ ${minutes}м, $M`; });
+}
+
+function radarGridTemplate() {
+  return `24px minmax(66px,1.35fr) repeat(${state.radarVisibleMetrics.length},minmax(50px,1fr))`;
+}
+
+function renderRadarColumns() {
+  document.querySelector(".top-card")?.style.setProperty("--radar-template", radarGridTemplate());
+  const header = document.createDocumentFragment();
+  const addSort = (key, label, title = "") => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.topSort = key;
+    button.title = title;
+    button.innerHTML = `${escapeHtml(label)} <i>↕</i>`;
+    header.append(button);
+  };
+  addSort("favorite", "★", "Сортировать по цветным меткам");
+  addSort("symbol", "Монета", "Сортировать по тикеру");
+  for (const key of state.radarVisibleMetrics) {
+    const metric = RADAR_METRICS.find((item) => item.key === key);
+    addSort(key, key === "volumeVelocity" ? `VΔ ${state.radarVolumeWindowMs === 300_000 ? 5 : 1}м` : metric.label, metric.title);
+  }
+  els.topColumns.replaceChildren(header);
+
+  const controls = document.createDocumentFragment();
+  const heading = document.createElement("div");
+  heading.className = "radar-columns-heading";
+  heading.innerHTML = "<strong>Столбцы и метрики графиков</strong><span>Тикер закреплён. Выбор применяется и к шапкам графиков.</span>";
+  controls.append(heading);
+  for (const metric of RADAR_METRICS) {
+    const label = document.createElement("label");
+    const checked = state.radarVisibleMetrics.includes(metric.key);
+    label.innerHTML = `<input type="checkbox" value="${metric.key}" ${checked ? "checked" : ""}><span><b>${metric.label}</b>${metric.name}</span>`;
+    label.querySelector("input").addEventListener("change", (event) => {
+      const next = event.currentTarget.checked
+        ? [...state.radarVisibleMetrics, metric.key]
+        : state.radarVisibleMetrics.filter((key) => key !== metric.key);
+      state.radarVisibleMetrics = normalizeRadarMetrics(next);
+      localStorage.setItem(STORAGE_KEYS.radarVisibleMetrics, JSON.stringify(state.radarVisibleMetrics));
+      renderRadarColumns();
+      renderTopList(state.lastMetrics);
+      renderChartMetrics();
+      updateExtraChartMetrics(state.lastMetrics);
+    });
+    controls.append(label);
+  }
+  els.radarColumnsPanel.replaceChildren(controls);
+  document.querySelectorAll(".top-item").forEach((row) => row.style.setProperty("--radar-template", radarGridTemplate()));
 }
 
 function resetRadarFilters() {
@@ -1483,7 +1604,17 @@ function formatRadarMetric(item, metric) {
   if (metric === "volumeVelocity") return Number.isFinite(value) ? `${value > 0 ? "+" : ""}${formatCompactUsd(value)}` : "—";
   if (metric === "fundingRate") return Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${(value * 100).toFixed(3)}%` : "—";
   if (metric === "correlation") return Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${value.toFixed(2)}` : "—";
+  if (metric === "trades24h") return Number.isFinite(value) ? formatCompactCount(value) : "—";
   return Number.isFinite(value) ? `${value.toFixed(2)}%` : "—";
+}
+
+function formatCompactCount(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  if (number >= 1_000_000_000) return `${(number / 1_000_000_000).toFixed(number >= 10_000_000_000 ? 0 : 1)}B`;
+  if (number >= 1_000_000) return `${(number / 1_000_000).toFixed(number >= 10_000_000 ? 0 : 1)}M`;
+  if (number >= 1_000) return `${(number / 1_000).toFixed(number >= 10_000 ? 0 : 1)}K`;
+  return Math.round(number).toLocaleString("ru-RU");
 }
 
 function clampPanel(model, fallback, minimum = { w: 10, h: 6 }) {
@@ -1888,7 +2019,7 @@ function mountExtraChart(model) {
   article.innerHTML = `
     <header class="chart-heading">
       <div class="chart-quote"><h2>${escapeHtml(model.symbol.replace("USDT", ""))}/USDT</h2></div>
-      <div class="chart-metrics"><span title="Оборот за 24 часа в USDT"><b>О24</b><strong data-mini-metric="quoteVolume24h">—</strong></span><span><b>NATR 1</b><strong data-mini-metric="natr1m">—</strong></span><span><b>NATR 5</b><strong data-mini-metric="natr5m">—</strong></span><span><b>F</b><strong data-mini-metric="fundingRate">—</strong></span><span><b>C</b><strong data-mini-metric="correlation">—</strong></span></div>
+      <div class="chart-metrics" data-chart-metrics aria-label="Настраиваемые метрики монеты"></div>
       <div class="chart-controls"><div class="timeframes timeframe-picker">
         <div class="timeframe-favorites" aria-label="Избранные таймфреймы"></div>
         <button class="timeframe-more timeframe-menu-toggle" data-mini-timeframe-toggle type="button" aria-expanded="false" title="Все таймфреймы">ТФ ›</button>
@@ -1899,7 +2030,7 @@ function mountExtraChart(model) {
     </header>
     <div class="chart-tools-curtain">
       <div class="chart-toolbox"><button class="drawing-tools-toggle" type="button" title="Открыть инструменты" aria-expanded="false"><span aria-hidden="true"></span></button><div class="drawing-tools-menu">
-        <button data-drawing-tool="trend" type="button" title="Отрезок">╱</button><button data-drawing-tool="horizontal" type="button" title="Горизонталь">─</button><button data-drawing-tool="ruler" type="button" title="Линейка"><svg class="drawing-tool-icon ruler-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15 15 4l5 5L9 20H4v-5Z"/><path d="m12 7 2 2m-5 1 2 2m-5 1 2 2"/></svg></button><button data-drawing-tool="rectangle" type="button" title="Прямоугольник">▭</button><button data-drawing-tool="ray" type="button" title="Луч">→</button><button data-drawing-tool="freehand" type="button" title="Рисование">∿</button><button data-drawing-tool="alert" type="button" title="Alert">!</button>
+        <button data-drawing-tool="trend" type="button" title="Отрезок">╱</button><button data-drawing-tool="horizontal" type="button" title="Горизонталь">─</button><button data-drawing-tool="ruler" type="button" title="Линейка"><svg class="drawing-tool-icon ruler-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15 15 4l5 5L9 20H4v-5Z"/><path d="m12 7 2 2m-5 1 2 2m-5 1 2 2"/></svg></button><button data-drawing-tool="rectangle" type="button" title="Прямоугольник">▭</button><button data-drawing-tool="ray" type="button" title="Луч">→</button><button data-drawing-tool="freehand" type="button" title="Рисование">∿</button><button data-drawing-tool="alert" type="button" title="Ценовой алерт"><svg class="drawing-tool-icon alert-bell-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10a5 5 0 0 1 10 0v4l2 2H5l2-2v-4Z"/><path d="M10 19h4M12 7v4m0 2v.2"/></svg></button>
         <button class="chart-magnet-toggle" data-chart-magnet type="button" title="Магнит к OHLC" aria-label="Магнит к OHLC" aria-pressed="true"><svg class="drawing-tool-icon magnet-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v9a6 6 0 0 0 12 0V3h-4v9a2 2 0 0 1-4 0V3H6Z"/><path d="M6 7h4m4 0h4"/></svg></button><button class="drawing-clear-button" type="button" title="Очистить всё">⌫</button><button class="volume-toggle" data-mini-volume type="button" title="Объём">V</button><button class="session-toggle" data-mini-session type="button" title="Сессии">S</button>
       </div></div>
     </div>
@@ -1926,6 +2057,7 @@ function mountExtraChart(model) {
     onStatus() {},
   });
   extraCharts.set(model.id, panel);
+  renderMetricStrip(article.querySelector("[data-chart-metrics]"), state.lastMetrics.find((item) => item.symbol === model.symbol));
   bindChartToolbox(article, chart);
   article.querySelector(".chart-quote h2").title = "Нажми, чтобы скопировать тикер";
   article.querySelector(".chart-quote h2").addEventListener("click", (event) => {
@@ -1937,6 +2069,7 @@ function mountExtraChart(model) {
     model.interval = interval;
     persistWorkspace();
     panel.feed.select(model.symbol, model.interval, intervalRange(model.interval));
+    syncGlobalTimeframes();
   });
   bindTimeframeVisibility(article, () => model.timeframesVisible, (visible) => {
     model.timeframesVisible = visible;
@@ -2827,10 +2960,28 @@ function removeOrderBook(id) {
 function updateExtraChartMetrics(metrics) {
   for (const panel of extraCharts.values()) {
     const item = metrics.find((candidate) => candidate.symbol === panel.model.symbol);
-    panel.element.querySelectorAll("[data-mini-metric]").forEach((cell) => {
-      cell.textContent = item ? formatRadarMetric(item, cell.dataset.miniMetric) : "—";
-    });
+    renderMetricStrip(panel.element.querySelector("[data-chart-metrics]"), item);
   }
+}
+
+function renderMetricStrip(container, item) {
+  if (!container) return;
+  const fragment = document.createDocumentFragment();
+  for (const key of state.radarVisibleMetrics) {
+    const metric = RADAR_METRICS.find((candidate) => candidate.key === key);
+    if (!metric) continue;
+    const chip = document.createElement("span");
+    chip.dataset.metric = key;
+    chip.title = metric.title;
+    const label = document.createElement("b");
+    label.textContent = key === "volumeVelocity" ? `VΔ${state.radarVolumeWindowMs === 300_000 ? 5 : 1}` : metric.label;
+    const value = document.createElement("strong");
+    value.textContent = item ? formatRadarMetric(item, key) : "—";
+    if (metric.tone && item) value.className = toneClass(item[key]);
+    chip.append(label, value);
+    fragment.append(chip);
+  }
+  container.replaceChildren(fragment);
 }
 
 function renderChartPicker() {
@@ -2851,16 +3002,7 @@ function renderChartPicker() {
 }
 
 function updateChartHeader(metrics = state.lastMetrics) {
-  const item = metrics.find((candidate) => candidate.symbol === state.selectedChartSymbol);
-  const lastCandle = state.chartCandles.at(-1);
-  const change = Number.isFinite(item?.change1m)
-    ? item.change1m
-    : lastCandle?.open
-      ? ((lastCandle.close - lastCandle.open) / lastCandle.open) * 100
-      : null;
   els.chartSymbol.textContent = `${state.selectedChartSymbol.replace("USDT", "")}/USDT`;
-  els.chartChange.textContent = formatChange(change);
-  els.chartChange.className = toneClass(change);
   renderChartMetrics();
 }
 
@@ -2925,15 +3067,14 @@ async function loadChartStats(symbol) {
 function renderChartMetrics() {
   const item = state.lastMetrics.find((candidate) => candidate.symbol === state.selectedChartSymbol);
   const stats = state.chartStats;
-  els.metricTurnover.textContent = formatCompactUsd(item?.quoteVolume24h);
-  els.metricFunding.textContent = Number.isFinite(stats.fundingRate) ? `${stats.fundingRate >= 0 ? "+" : ""}${(stats.fundingRate * 100).toFixed(4)}%` : "—";
-  els.metricFunding.className = Number.isFinite(stats.fundingRate) ? toneClass(stats.fundingRate) : "";
-  const remaining = Number.isFinite(stats.nextFundingTime) ? Math.max(0, stats.nextFundingTime - Date.now()) : null;
-  els.metricFundingTime.textContent = remaining === null ? "—" : `${String(Math.floor(remaining / 3_600_000)).padStart(2, "0")}:${String(Math.floor((remaining % 3_600_000) / 60_000)).padStart(2, "0")}`;
-  els.metricNatr1m.textContent = Number.isFinite(stats.natr1m) ? `${stats.natr1m.toFixed(2)}%` : "—";
-  els.metricNatr5m.textContent = Number.isFinite(stats.natr5m) ? `${stats.natr5m.toFixed(2)}%` : "—";
-  els.metricCorrelation.textContent = Number.isFinite(stats.correlation) ? `${stats.correlation >= 0 ? "+" : ""}${stats.correlation.toFixed(2)}` : "—";
-  els.metricCorrelation.className = "tone-neutral correlation-value";
+  const enriched = item ? {
+    ...item,
+    fundingRate: Number.isFinite(stats.fundingRate) ? stats.fundingRate : item.fundingRate,
+    natr1m: Number.isFinite(stats.natr1m) ? stats.natr1m : item.natr1m,
+    natr5m: Number.isFinite(stats.natr5m) ? stats.natr5m : item.natr5m,
+    correlation: Number.isFinite(stats.correlation) ? stats.correlation : item.correlation,
+  } : null;
+  renderMetricStrip(els.chartMetrics, enriched);
 }
 
 function updateAlerts(metrics, now) {
@@ -3093,8 +3234,29 @@ function updateTrackedSymbols() {
 }
 
 function toggleFavorite(symbol) {
-  if (state.favorites.has(symbol)) state.favorites.delete(symbol);
-  else state.favorites.add(symbol);
+  if (state.favorites.has(symbol)) {
+    state.favorites.delete(symbol);
+    delete state.favoriteColors[symbol];
+  } else {
+    state.favorites.add(symbol);
+    state.favoriteColors[symbol] = "amber";
+  }
+  localStorage.setItem(STORAGE_KEYS.favorites, JSON.stringify([...state.favorites]));
+  localStorage.setItem(STORAGE_KEYS.favoriteColors, JSON.stringify(state.favoriteColors));
+  render();
+}
+
+function cycleFavoriteColor(symbol) {
+  const current = state.favoriteColors[symbol];
+  const nextIndex = current ? FAVORITE_COLORS.indexOf(current) + 1 : 0;
+  if (nextIndex >= FAVORITE_COLORS.length) {
+    delete state.favoriteColors[symbol];
+    state.favorites.delete(symbol);
+  } else {
+    state.favoriteColors[symbol] = FAVORITE_COLORS[nextIndex];
+    state.favorites.add(symbol);
+  }
+  localStorage.setItem(STORAGE_KEYS.favoriteColors, JSON.stringify(state.favoriteColors));
   localStorage.setItem(STORAGE_KEYS.favorites, JSON.stringify([...state.favorites]));
   render();
 }
@@ -3408,11 +3570,13 @@ function bindEvents() {
   normalizeWorkspace();
   persistWorkspace();
   applyRadarColumns();
+  renderRadarColumns();
   for (const model of state.workspace.extras) {
     if (model.type === "orderbook") mountOrderBook(model);
     else mountExtraChart(model);
   }
   applyWorkspaceLayout();
+  syncGlobalTimeframes();
   window.addEventListener("inpuls:event-radar-select", (event) => {
     const symbol = normalizeUsdtPerpetualSymbol(event.detail?.symbol);
     if (!symbol) return;
@@ -3440,12 +3604,27 @@ function bindEvents() {
     const open = els.radarFilterPanel.hidden;
     els.radarFilterPanel.hidden = !open;
     els.radarFiltersToggle.setAttribute("aria-expanded", String(open));
+    if (open) {
+      els.radarColumnsPanel.hidden = true;
+      els.radarColumnsToggle?.setAttribute("aria-expanded", "false");
+    }
+  });
+  els.radarColumnsToggle?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = els.radarColumnsPanel.hidden;
+    els.radarColumnsPanel.hidden = !open;
+    els.radarColumnsToggle.setAttribute("aria-expanded", String(open));
+    if (open) {
+      els.radarFilterPanel.hidden = true;
+      els.radarFiltersToggle?.setAttribute("aria-expanded", "false");
+    }
   });
   els.radarVolumeWindow?.addEventListener("click", (event) => {
     event.stopPropagation();
     state.radarVolumeWindowMs = state.radarVolumeWindowMs === 60_000 ? 300_000 : 60_000;
     localStorage.setItem(STORAGE_KEYS.radarVolumeWindow, String(state.radarVolumeWindowMs));
     syncRadarToolbar();
+    renderRadarColumns();
     render();
   });
   for (const input of els.radarFilterInputs) input.addEventListener("change", () => updateColumnFilter(input.dataset.columnFilter));
@@ -3630,8 +3809,9 @@ function bindEvents() {
     });
   }
 
-  for (const button of els.topSortButtons) {
-    button.addEventListener("click", () => {
+  els.topColumns.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-top-sort]");
+    if (!button) return;
       const key = button.dataset.topSort;
       state.topSort = {
         key,
@@ -3639,8 +3819,11 @@ function bindEvents() {
       };
       localStorage.setItem(STORAGE_KEYS.topSort, JSON.stringify(state.topSort));
       renderTopList(state.lastMetrics);
-    });
-  }
+  });
+  els.globalTimeframes?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-global-interval]");
+    if (button) selectGlobalInterval(button.dataset.globalInterval);
+  });
   setupTimeframePicker(document.querySelector(".primary-chart .timeframe-picker"), () => state.chartInterval, selectInterval);
   document.addEventListener("click", (event) => {
     if (event.target.closest(".timeframe-picker")) return;
@@ -3912,7 +4095,7 @@ updateClock(new Date(binanceClock.now()));
 scheduleClockTick();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-121-indigo-market-workspace-v1";
+const INPULS_RUNTIME_BUILD = "26-122-configurable-market-headers-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
