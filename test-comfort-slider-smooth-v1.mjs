@@ -210,8 +210,8 @@ test("release applies the complete palette and heavy visual modules once", () =>
 });
 
 test("Tape-priority comfort build ships fresh cache keys", () => {
-  assert.match(index, /styles\.css\?v=26-118-tape-cluster-market-key-v1/);
+  assert.match(index, /styles\.css\?v=26-120-burgundy-workspace-v1/);
   assert.match(index, /runtime-boot-recovery\.js\?v=26-99-tape-priority-comfort-v1/);
   assert.match(index, /install-cta\.js\?v=comfort-tape-priority-v1/);
-  assert.match(index, /app\.js\?v=26-118-tape-cluster-market-key-v1/);
+  assert.match(index, /app\.js\?v=26-120-burgundy-workspace-v1/);
 });

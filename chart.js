@@ -510,23 +510,24 @@ export class CandlestickChart {
     this.draftDrawing = null;
     this.drawingGesture = null;
     this.magnetHeld = false;
+    this.magnetEnabled = true;
     this.drawingSnap = false;
     this.centerLatest = true;
     this.onAlert = onAlert;
     this.onToolChange = null;
     this.fontScale = 1;
     this.theme = {
-      background: "#070605",
-      bullFill: "#ddd2c2",
-      bullStroke: "#ddd2c2",
-      bearFill: "#15120f",
-      bearStroke: "#8c8175",
-      grid: "#4a4037",
-      text: "#8e8174",
-      crosshair: "#a99a8c",
-      crosshairFill: "#5e4968",
-      crosshairText: "#eee5d9",
-      session: "#8b5f9f",
+      background: "#0c0b0d",
+      bullFill: "#58c5a4",
+      bullStroke: "#58c5a4",
+      bearFill: "#231a1e",
+      bearStroke: "#d86878",
+      grid: "#3b3337",
+      text: "#91858b",
+      crosshair: "#a5989e",
+      crosshairFill: "#302329",
+      crosshairText: "#faf7f8",
+      session: "#c05273",
     };
     this.drag = null;
     this.renderFrame = null;
@@ -615,12 +616,19 @@ export class CandlestickChart {
 
   #shouldSnap(event) {
     return Boolean(
-      this.magnetHeld
+      this.magnetEnabled
+      || this.magnetHeld
       || event?.ctrlKey
       || event?.metaKey
       || event?.getModifierState?.("Control")
       || event?.getModifierState?.("Meta"),
     );
+  }
+
+  setMagnetEnabled(enabled) {
+    this.magnetEnabled = Boolean(enabled);
+    this.onToolChange?.(this.activeTool);
+    this.#requestRender();
   }
 
   setTool(tool) {
@@ -818,10 +826,10 @@ export class CandlestickChart {
 
     const margins = { left: 12, right: 72, top: 18, bottom: 28 };
     const showVolume = this.volumeVisible && height >= 170;
-    const volumeHeight = showVolume ? Math.max(28, Math.round(height * 0.18)) : 0;
     const plotWidth = width - margins.left - margins.right;
-    const priceBottom = height - margins.bottom - volumeHeight - (showVolume ? 14 : 0);
+    const priceBottom = height - margins.bottom;
     const plotHeight = priceBottom - margins.top;
+    const volumeHeight = showVolume ? Math.max(34, Math.round(plotHeight * 0.24)) : 0;
     const requested = this.meta?.targetCandles ?? this.candles.length;
     const defaultVisible = Math.max(20, Math.min(Math.floor(plotWidth / 2), requested, this.candles.length));
     if (!this.visibleCount && this.candles.length) this.visibleCount = defaultVisible;
@@ -833,7 +841,7 @@ export class CandlestickChart {
     const sliceEnd = Math.min(this.candles.length, Math.ceil(this.viewStart + this.visibleCount));
     const visible = this.candles.slice(sliceStart, sliceEnd);
 
-    this.#drawBackground(ctx, width, height, margins, priceBottom, volumeHeight);
+    this.#drawBackground(ctx, width, height);
     if (!visible.length) {
       ctx.fillStyle = this.theme.text;
       ctx.font = this.#font(11);
@@ -877,6 +885,27 @@ export class CandlestickChart {
       this.#drawSessionMarkers(ctx, margins, height);
     }
 
+    if (showVolume) {
+      const volumeAreaTop = priceBottom - volumeHeight;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(margins.left, volumeAreaTop, plotWidth, volumeHeight);
+      ctx.clip();
+      displayCandles.forEach((candle, sourceOffset) => {
+        const globalIndex = sliceStart + sourceOffset;
+        const x = margins.left + (candleCenterSlot(globalIndex) - this.viewStart) * step;
+        const bodyWidth = Math.max(1, Math.min(8, step * 0.68));
+        const up = candle.close >= candle.open;
+        const volumeTop = priceBottom - (candle.volume / maxVolume) * volumeHeight;
+        ctx.globalAlpha = up ? .18 : .13;
+        ctx.fillStyle = up ? this.theme.bullFill : this.theme.bearStroke;
+        ctx.shadowColor = up ? this.theme.bullStroke : this.theme.bearStroke;
+        ctx.shadowBlur = 4;
+        ctx.fillRect(x - bodyWidth / 2, volumeTop, bodyWidth, priceBottom - volumeTop);
+      });
+      ctx.restore();
+    }
+
     ctx.save();
     ctx.beginPath();
     ctx.rect(margins.left, margins.top, plotWidth, plotHeight);
@@ -904,26 +933,6 @@ export class CandlestickChart {
     });
     ctx.restore();
 
-    if (showVolume) {
-      const volumeAreaTop = priceBottom + 14;
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(margins.left, volumeAreaTop, plotWidth, Math.max(0, height - margins.bottom - volumeAreaTop));
-      ctx.clip();
-      displayCandles.forEach((candle, sourceOffset) => {
-        const globalIndex = sliceStart + sourceOffset;
-        const x = margins.left + (candleCenterSlot(globalIndex) - this.viewStart) * step;
-        const bodyWidth = Math.max(1, Math.min(8, step * 0.68));
-        const up = candle.close >= candle.open;
-        const volumeTop = height - margins.bottom - (candle.volume / maxVolume) * volumeHeight;
-        ctx.globalAlpha = up ? .3 : .2;
-        ctx.fillStyle = up ? this.theme.bullFill : this.theme.bearStroke;
-        ctx.fillRect(x - bodyWidth / 2, volumeTop, bodyWidth, height - margins.bottom - volumeTop);
-      });
-      ctx.restore();
-      ctx.globalAlpha = 1;
-    }
-
     this.layout = { visible, margins, step, plotWidth, plotHeight, priceBottom, width, height, startIndex: this.viewStart, minPrice, maxPrice };
     const current = this.candles.at(-1);
     if (current) this.#drawLastPrice(ctx, width, margins, y(current.close), current.close, current.close >= current.open, margins.top, priceBottom);
@@ -932,16 +941,9 @@ export class CandlestickChart {
     if (this.hoverX !== null && this.hoverY !== null) this.#drawCrosshair(ctx);
   }
 
-  #drawBackground(ctx, width, height, margins, priceBottom, volumeHeight) {
+  #drawBackground(ctx, width, height) {
     ctx.fillStyle = this.theme.background;
     ctx.fillRect(0, 0, width, height);
-    if (volumeHeight > 0) {
-      ctx.strokeStyle = "rgba(180,180,180,.12)";
-      ctx.beginPath();
-      ctx.moveTo(margins.left, priceBottom + 14);
-      ctx.lineTo(width - margins.right, priceBottom + 14);
-      ctx.stroke();
-    }
   }
 
   #drawPriceGrid(ctx, width, margins, minPrice, maxPrice, y, plotHeight) {
