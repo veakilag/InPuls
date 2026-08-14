@@ -25,6 +25,6 @@ test("drag and wheel use lightweight rendering and restore detail", () => {
 });
 
 test("release pages request the optimized chart build", () => {
-  assert.match(app, /chart\.js\?v=26-120-burgundy-workspace-v1/);
-  assert.match(index, /app\.js\?v=26-120-burgundy-workspace-v1/);
+  assert.match(app, /chart\.js\?v=26-121-indigo-market-workspace-v1/);
+  assert.match(index, /app\.js\?v=26-121-indigo-market-workspace-v1/);
 });

@@ -55,7 +55,7 @@ test("chart cockpit lives in the header and drops a tool curtain", () => {
   assert.match(app, /loadJson\("inpuls-workspace-v4", null\)/);
   assert.match(css, /repeat\(48,/);
   assert.match(css, /repeat\(24,/);
-  assert.match(css, /--accent: #a13a58/);
+  assert.match(css, /--accent: #7c83ff/);
   assert.match(chart, /this\.magnetEnabled = true/);
   assert.match(chart, /const priceBottom = height - margins\.bottom;/);
   assert.doesNotMatch(chart, /priceBottom \+ 14/);

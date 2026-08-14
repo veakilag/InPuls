@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; manifest-src 'self'; worker-src 'self'; connect-src 'self' https://fapi.binance.com https://fapi1.binance.com https://fapi2.binance.com https://api.binance.com https://api1.binance.com https://api2.binance.com wss://fstream.binance.com wss://stream.binance.com:9443" />
     <meta name="referrer" content="no-referrer" />
-    <meta name="theme-color" content="#111013" />
+    <meta name="theme-color" content="#0b0d12" />
     <meta name="description" content="Личный бесплатный скринер Binance Futures для скальпинга" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <meta name="inpuls-build" content="26-120-burgundy-workspace-v1" />
-    <link rel="stylesheet" href="./styles.css?v=26-120-burgundy-workspace-v1" />
-    <link rel="stylesheet" href="./event-radar-beta.css?v=event-radar-beta-v1" />
-    <link rel="stylesheet" href="./workspace-v2.css?v=26-120-burgundy-workspace-v1" />
+    <meta name="inpuls-build" content="26-121-indigo-market-workspace-v1" />
+    <link rel="stylesheet" href="./styles.css?v=26-121-indigo-market-workspace-v1" />
+    <link rel="stylesheet" href="./event-radar-beta.css?v=26-121-indigo-market-workspace-v1" />
+    <link rel="stylesheet" href="./workspace-v2.css?v=26-121-indigo-market-workspace-v1" />
     <title>InPuls — в ритме рынка</title>
   </head>
   <body>
@@ -66,11 +66,9 @@
       <section id="market-focus" class="market-focus" aria-label="График и лидеры рынка">
         <article class="chart-card primary-chart" data-panel="chart" data-panel-id="primary">
           <header class="chart-heading">
-            <span class="panel-grip" title="Основной график">⠿</span>
             <div class="chart-symbol-block">
               <div class="chart-quote">
                 <h2 id="chart-symbol">BTC/USDT</h2>
-                <strong id="chart-price">—</strong>
                 <span id="chart-change" class="tone-neutral">—</span>
               </div>
             </div>
@@ -111,7 +109,7 @@
                 <button data-drawing-tool="ray" type="button" title="Луч" aria-label="Луч">→</button>
                 <button data-drawing-tool="freehand" type="button" title="Рисование" aria-label="Рисование">∿</button>
                 <button data-drawing-tool="alert" type="button" title="Alert" aria-label="Alert">!</button>
-                <button class="chart-magnet-toggle" data-chart-magnet type="button" title="Магнит к OHLC" aria-label="Магнит к OHLC" aria-pressed="true">⌁</button>
+                <button class="chart-magnet-toggle" data-chart-magnet type="button" title="Магнит к OHLC" aria-label="Магнит к OHLC" aria-pressed="true"><svg class="drawing-tool-icon magnet-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v9a6 6 0 0 0 12 0V3h-4v9a2 2 0 0 1-4 0V3H6Z"/><path d="M6 7h4m4 0h4"/></svg></button>
                 <button class="drawing-clear-button" type="button" title="Очистить все рисунки" aria-label="Очистить все рисунки">⌫</button>
                 <button id="volume-toggle" class="volume-toggle" type="button" title="Скрыть или показать объём" aria-pressed="true">V</button>
                 <button id="session-toggle" class="session-toggle" type="button" title="Скрыть или показать торговые сессии" aria-pressed="true">S</button>
@@ -128,25 +126,31 @@
         </article>
 
         <aside class="top-card" data-panel="radar" data-panel-id="radar">
-          <div class="column-filters" aria-label="Фильтры показателей">
-            <button id="radar-filter-reset" class="column-filter-reset" type="button" title="Сбросить все фильтры">×</button>
-            <label><select data-column-filter-operator="quoteVolume24h" aria-label="Условие оборота 24ч"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="quoteVolume24h" type="number" step="any" placeholder="О24 $M" /></label>
-            <label><select data-column-filter-operator="natr1m" aria-label="Условие NATR 1"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="natr1m" type="number" step="any" placeholder="NATR 1" /></label>
-            <label><select data-column-filter-operator="natr5m" aria-label="Условие NATR 5"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="natr5m" type="number" step="any" placeholder="NATR 5" /></label>
-            <label><select data-column-filter-operator="fundingRate" aria-label="Условие Funding"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="fundingRate" type="number" step="any" placeholder="F %" /></label>
-            <label><select data-column-filter-operator="correlation" aria-label="Условие корреляции"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="correlation" type="number" step="any" placeholder="C" /></label>
-            <label><select data-column-filter-operator="change24h" aria-label="Условие роста"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="change24h" type="number" step="any" placeholder="Рост %" /></label>
+          <div class="radar-command-bar">
+            <label class="radar-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><input id="radar-search" type="search" autocomplete="off" placeholder="Монета" aria-label="Поиск монеты" /></label>
+            <button id="radar-filters-toggle" class="radar-filters-toggle" type="button" aria-expanded="false" aria-controls="radar-filter-panel"><span>Фильтры</span><b id="radar-filter-count">0</b></button>
+            <button id="radar-volume-window" class="radar-volume-window" type="button" title="Период изменения скользящего оборота">VΔ 1м</button>
+            <button class="panel-close core-panel-close radar-core-close" data-close-core="radar" type="button" title="Закрыть список" aria-label="Закрыть список">×</button>
+          </div>
+          <div id="radar-filter-panel" class="column-filters" aria-label="Фильтры показателей" hidden>
+            <div class="radar-filter-heading"><strong>Условия отбора</strong><span>О24 и VΔ вводятся в млн USDT</span><button id="radar-filter-reset" class="column-filter-reset" type="button">Сбросить</button></div>
+            <label><span>О24, $M</span><div><select data-column-filter-operator="quoteVolume24h" aria-label="Условие оборота 24ч"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="quoteVolume24h" type="number" step="any" placeholder="10" /></div></label>
+            <label><span data-volume-filter-label>VΔ 1м, $M</span><div><select data-column-filter-operator="volumeVelocity" aria-label="Условие изменения объёма"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="volumeVelocity" type="number" step="any" placeholder="0.1" /></div></label>
+            <label><span>NATR 1</span><div><select data-column-filter-operator="natr1m" aria-label="Условие NATR 1"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="natr1m" type="number" step="any" placeholder="%" /></div></label>
+            <label><span>NATR 5</span><div><select data-column-filter-operator="natr5m" aria-label="Условие NATR 5"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="natr5m" type="number" step="any" placeholder="%" /></div></label>
+            <label><span>Funding</span><div><select data-column-filter-operator="fundingRate" aria-label="Условие Funding"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="fundingRate" type="number" step="any" placeholder="%" /></div></label>
+            <label><span>Корреляция</span><div><select data-column-filter-operator="correlation" aria-label="Условие корреляции"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="correlation" type="number" step="any" placeholder="0.8" /></div></label>
+            <label><span>Рост 24ч</span><div><select data-column-filter-operator="change24h" aria-label="Условие роста"><option value="gte">≥</option><option value="lte">≤</option></select><input data-column-filter="change24h" type="number" step="any" placeholder="%" /></div></label>
           </div>
           <div class="top-columns" aria-label="Сортировка монет">
-            <span class="panel-grip radar-grip" title="Радар монет">⠿</span>
-            <label class="radar-search"><input id="radar-search" type="search" autocomplete="off" placeholder="Поиск" aria-label="Поиск монеты" /><span class="column-resizer" data-column-index="0"></span></label>
+            <button data-top-sort="symbol" type="button">Монета <i>↕</i><span class="column-resizer" data-column-index="0"></span></button>
             <button data-top-sort="quoteVolume24h" type="button" title="Оборот за 24 часа в USDT">О24 <i>↓</i><span class="column-resizer" data-column-index="1"></span></button>
-            <button data-top-sort="natr1m" type="button">NATR 1 <i>↕</i><span class="column-resizer" data-column-index="2"></span></button>
-            <button data-top-sort="natr5m" type="button">NATR 5 <i>↕</i><span class="column-resizer" data-column-index="3"></span></button>
-            <button data-top-sort="fundingRate" type="button">F <i>↕</i><span class="column-resizer" data-column-index="4"></span></button>
-            <button data-top-sort="correlation" type="button">C <i>↕</i><span class="column-resizer" data-column-index="5"></span></button>
-            <button data-top-sort="change24h" type="button" title="Рост за 24 часа">РОСТ <i>↕</i></button>
-            <button class="panel-close core-panel-close radar-core-close" data-close-core="radar" type="button" title="Закрыть список" aria-label="Закрыть список">×</button>
+            <button data-top-sort="volumeVelocity" type="button" title="Изменение скользящего оборота"><span data-volume-column-label>VΔ 1м</span> <i>↕</i><span class="column-resizer" data-column-index="2"></span></button>
+            <button data-top-sort="natr1m" type="button">NATR 1 <i>↕</i><span class="column-resizer" data-column-index="3"></span></button>
+            <button data-top-sort="natr5m" type="button">NATR 5 <i>↕</i><span class="column-resizer" data-column-index="4"></span></button>
+            <button data-top-sort="fundingRate" type="button">F <i>↕</i><span class="column-resizer" data-column-index="5"></span></button>
+            <button data-top-sort="correlation" type="button">C <i>↕</i><span class="column-resizer" data-column-index="6"></span></button>
+            <button data-top-sort="change24h" type="button" title="Рост за 24 часа">Рост <i>↕</i></button>
           </div>
           <div id="top-list" class="top-list" aria-live="polite">
             <div class="top-placeholder">Собираю лидеров рынка…</div>
@@ -168,7 +172,6 @@
 
       <section class="workspace-panel" data-panel="scanner" data-panel-id="scanner">
         <div class="toolbar">
-          <span class="panel-grip scanner-grip" title="Переместить скринер">⠿</span>
           <strong class="activity-name">АКТИВНОСТЬ</strong>
           <div class="filters" role="group" aria-label="Фильтр сигналов">
             <button class="filter-button is-active" data-filter="all" type="button">Все</button>
@@ -319,9 +322,9 @@
 
     <div id="alert-toast" class="alert-toast" role="status" aria-live="assertive" hidden></div>
     <script src="./runtime-boot-recovery.js?v=26-99-tape-priority-comfort-v1"></script>
-    <script src="./install-cta.js?v=comfort-tape-priority-v1"></script>
-    <script type="module" src="./canvas-comfort-preview.js?v=26-120-burgundy-workspace-v1"></script>
-    <script type="module" src="./event-radar-beta.js?v=event-radar-beta-v1"></script>
-    <script type="module" src="./app.js?v=26-120-burgundy-workspace-v1"></script>
+    <script src="./install-cta.js?v=26-121-indigo-market-workspace-v1"></script>
+    <script type="module" src="./canvas-comfort-preview.js?v=26-121-indigo-market-workspace-v1"></script>
+    <script type="module" src="./event-radar-beta.js?v=26-121-indigo-market-workspace-v1"></script>
+    <script type="module" src="./app.js?v=26-121-indigo-market-workspace-v1"></script>
   </body>
 </html>

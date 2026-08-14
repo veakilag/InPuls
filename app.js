@@ -7,9 +7,9 @@ import {
   formatCompactUsd,
   isUsdtPerpetualSymbol,
   normalizeUsdtPerpetualSymbol,
-} from "./engine.js?v=26-65-structured-signal-collection-v1";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-120-burgundy-workspace-v1";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-120-burgundy-workspace-v1";
+} from "./engine.js?v=26-121-indigo-market-workspace-v1";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-121-indigo-market-workspace-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-121-indigo-market-workspace-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -19,7 +19,7 @@ import {
   MarketwideSizeScanner,
   detectMarketwideCascade,
 } from "./market-pattern-scanner.js?v=marketwide-patterns-v1";
-import { panelsOverlap, resizeTiledWorkspace, WORKSPACE_COLS, WORKSPACE_ROWS } from "./workspace-layout.js?v=26-120-burgundy-workspace-v1";
+import { panelsOverlap, resizeTiledWorkspace, WORKSPACE_COLS, WORKSPACE_ROWS } from "./workspace-layout.js?v=26-121-indigo-market-workspace-v1";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -34,8 +34,9 @@ const STORAGE_KEYS = {
   comfort: "inpuls-comfort-v1",
   fontScale: "inpuls-font-scale-v1",
   workspace: "inpuls-workspace-v5",
-  radarColumns: "inpuls-radar-columns-v2",
-  radarFilters: "inpuls-radar-filters-v2",
+  radarColumns: "inpuls-radar-columns-v3",
+  radarFilters: "inpuls-radar-filters-v3",
+  radarVolumeWindow: "inpuls-radar-volume-window-v1",
   inplay: "inpuls-inplay-v2",
   selectedSymbol: "inpuls-selected-symbol-v1",
   topSort: "inpuls-radar-sort-v1",
@@ -128,8 +129,9 @@ const state = {
   fontScale: Number(localStorage.getItem(STORAGE_KEYS.fontScale) ?? 100),
   radarSearch: "",
   workspace: loadWorkspaceSettings(),
-  radarColumns: loadJson(STORAGE_KEYS.radarColumns, [1.35, 1, 1, 1, .85, .85, 1]),
+  radarColumns: loadJson(STORAGE_KEYS.radarColumns, [1.35, 1, 1, 1, 1, .82, .82, 1]),
   radarFilters: loadJson(STORAGE_KEYS.radarFilters, EMPTY_RADAR_FILTERS),
+  radarVolumeWindowMs: Number(localStorage.getItem(STORAGE_KEYS.radarVolumeWindow)) === 300_000 ? 300_000 : 60_000,
   inplay: normalizeInPlay(loadJson(STORAGE_KEYS.inplay, DEFAULT_INPLAY)),
   favoriteTimeframes: [...new Set(loadJson(STORAGE_KEYS.favoriteTimeframes, DEFAULT_FAVORITE_TIMEFRAMES).filter((interval) => CHART_INTERVALS.includes(interval)))].sort((left, right) => CHART_INTERVALS.indexOf(left) - CHART_INTERVALS.indexOf(right)),
   inplayOrder: normalizeSymbolList(loadJson(STORAGE_KEYS.inplayOrder, [])),
@@ -184,7 +186,6 @@ const els = {
   priceChart: document.querySelector("#price-chart"),
   chartTooltip: document.querySelector("#chart-tooltip"),
   chartSymbol: document.querySelector("#chart-symbol"),
-  chartPrice: document.querySelector("#chart-price"),
   chartChange: document.querySelector("#chart-change"),
   chartStatus: document.querySelector("#chart-status"),
   timeframeButtons: [...document.querySelectorAll("[data-interval]")],
@@ -198,6 +199,10 @@ const els = {
   radarFilterInputs: [...document.querySelectorAll("[data-column-filter]")],
   radarFilterOperators: [...document.querySelectorAll("[data-column-filter-operator]")],
   radarFilterReset: document.querySelector("#radar-filter-reset"),
+  radarFilterPanel: document.querySelector("#radar-filter-panel"),
+  radarFiltersToggle: document.querySelector("#radar-filters-toggle"),
+  radarFilterCount: document.querySelector("#radar-filter-count"),
+  radarVolumeWindow: document.querySelector("#radar-volume-window"),
   columnResizers: [...document.querySelectorAll("[data-column-index]")],
   radarResizer: document.querySelector("#radar-resizer"),
   radarResizerNw: document.querySelector("#radar-resizer-nw"),
@@ -673,26 +678,26 @@ function mixColor(left, right, amount) {
 function buildComfortTheme(rawValue) {
   const value = Math.max(0, Math.min(100, Number(rawValue) || 0));
   const amount = value / 100;
-  const turquoise = "#58c5a4";
-  const cyan = "#a13a58";
-  const blue = "#8393a5";
-  const violet = "#c05273";
-  const red = "#d86878";
+  const turquoise = "#4fd1a5";
+  const cyan = "#7c83ff";
+  const blue = "#70b7ff";
+  const violet = "#9b82ff";
+  const red = "#f2788b";
   const palette = {
-    bg: mixColor("#29282b", "#09090b", amount),
-    panel: mixColor("#343237", "#151417", amount),
-    panel2: mixColor("#403d42", "#1d1b1f", amount),
-    line: mixColor("#756970", "#392f34", amount),
-    text: mixColor("#faf7f8", "#e6e0e2", amount),
-    muted: mixColor("#c7bec2", "#91858b", amount),
-    chart: mixColor("#242226", "#0c0b0d", amount),
+    bg: mixColor("#262a34", "#080a0f", amount),
+    panel: mixColor("#303641", "#11141b", amount),
+    panel2: mixColor("#3a4250", "#181c26", amount),
+    line: mixColor("#667086", "#293040", amount),
+    text: mixColor("#fbfbfd", "#e9ecf5", amount),
+    muted: mixColor("#c2c8d5", "#8992a8", amount),
+    chart: mixColor("#222732", "#07090e", amount),
     bull: turquoise,
-    bear: mixColor("#51464b", "#231a1e", amount),
+    bear: mixColor("#4e4650", "#25191f", amount),
     bearStroke: red,
-    grid: mixColor("#756b70", "#3b3337", amount),
-    crosshair: mixColor("#e4dde0", "#a5989e", amount),
-    crosshairFill: mixColor("#69525b", "#302329", amount),
-    crosshairText: "#faf7f8",
+    grid: mixColor("#687186", "#303746", amount),
+    crosshair: mixColor("#e4e7f0", "#9ba4b8", amount),
+    crosshairFill: mixColor("#596174", "#252b38", amount),
+    crosshairText: "#fbfbfd",
   };
   return { value, amount, turquoise, cyan, blue, violet, red, palette };
 }
@@ -880,7 +885,10 @@ function renderTimeframePicker(root) {
   });
   const favorites = root.querySelector(".timeframe-favorites");
   if (!favorites) return;
-  favorites.replaceChildren(...state.favoriteTimeframes.map((interval) => {
+  const visibleIntervals = state.favoriteTimeframes.includes(current)
+    ? state.favoriteTimeframes
+    : [current, ...state.favoriteTimeframes];
+  favorites.replaceChildren(...visibleIntervals.map((interval) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `timeframe-favorite-button${interval === current ? " is-active" : ""}`;
@@ -991,6 +999,7 @@ function getMetrics(now = Date.now()) {
   return metrics
     .map((item) => ({
       ...item,
+      volumeVelocity: state.radarVolumeWindowMs === 300_000 ? item.volumeDelta5m : item.volumeDelta1m,
       correlation: item.symbol === "BTCUSDT" ? 1 : pearsonCorrelation(item.minuteReturns, bitcoinReturns),
     }))
     .sort((a, b) => {
@@ -1329,9 +1338,7 @@ function renderTopList(metrics) {
   let candidates = metrics.filter((item) => {
     if (state.radarSearch && !item.symbol.toLowerCase().includes(state.radarSearch)) return false;
     return (Array.isArray(state.radarFilters) ? state.radarFilters : []).every((rule) => {
-      let value = Number(item[rule.metric]);
-      if (rule.metric === "quoteVolume24h") value /= 1_000_000;
-      if (rule.metric === "fundingRate") value *= 100;
+      const value = Number(item[rule.metric]);
       if (!Number.isFinite(value)) return false;
       const target = Number(rule.value);
       return rule.operator === "lte" ? value <= target : rule.operator === "lt" ? value < target : rule.operator === "gt" ? value > target : value >= target;
@@ -1360,7 +1367,18 @@ function renderTopList(metrics) {
   if (!candidates.length) {
     const placeholder = document.createElement("div");
     placeholder.className = "top-placeholder";
-    placeholder.textContent = state.lastMetrics.length ? "По этому фильтру пока нет монет" : "Собираю лидеров рынка…";
+    const message = document.createElement("strong");
+    message.textContent = state.lastMetrics.length ? "Нет монет по текущим условиям" : "Собираю лидеров рынка…";
+    placeholder.append(message);
+    if (state.lastMetrics.length && state.radarFilters.length) {
+      const hint = document.createElement("span");
+      hint.textContent = "Проверь единицы фильтра или сбрось условия";
+      const reset = document.createElement("button");
+      reset.type = "button";
+      reset.textContent = "Сбросить фильтры";
+      reset.addEventListener("click", resetRadarFilters);
+      placeholder.append(hint, reset);
+    }
     els.topList.replaceChildren(placeholder);
     return;
   }
@@ -1389,6 +1407,7 @@ function renderTopList(metrics) {
     button.append(
       identity,
       valueCell("quoteVolume24h"),
+      valueCell("volumeVelocity", toneClass(item.volumeVelocity)),
       valueCell("natr1m"),
       valueCell("natr5m"),
       valueCell("fundingRate", toneClass(item.fundingRate)),
@@ -1418,6 +1437,23 @@ function syncRadarFilterUi() {
     const rule = state.radarFilters.find((item) => item.metric === select.dataset.columnFilterOperator);
     select.value = rule?.operator === "lte" ? "lte" : "gte";
   }
+  syncRadarToolbar();
+}
+
+function syncRadarToolbar() {
+  const minutes = state.radarVolumeWindowMs === 300_000 ? 5 : 1;
+  if (els.radarFilterCount) els.radarFilterCount.textContent = String(state.radarFilters.length);
+  if (els.radarFiltersToggle) els.radarFiltersToggle.classList.toggle("has-active-filters", state.radarFilters.length > 0);
+  if (els.radarVolumeWindow) els.radarVolumeWindow.textContent = `VΔ ${minutes}м`;
+  document.querySelectorAll("[data-volume-column-label]").forEach((node) => { node.textContent = `VΔ ${minutes}м`; });
+  document.querySelectorAll("[data-volume-filter-label]").forEach((node) => { node.textContent = `VΔ ${minutes}м, $M`; });
+}
+
+function resetRadarFilters() {
+  state.radarFilters = [];
+  localStorage.setItem(STORAGE_KEYS.radarFilters, "[]");
+  syncRadarFilterUi();
+  renderTopList(state.lastMetrics);
 }
 
 function updateColumnFilter(metric) {
@@ -1430,13 +1466,13 @@ function updateColumnFilter(metric) {
 }
 
 function radarFilterRawValue(metric, value) {
-  if (metric === "quoteVolume24h") return value * 1_000_000;
+  if (metric === "quoteVolume24h" || metric === "volumeVelocity") return value * 1_000_000;
   if (metric === "fundingRate") return value / 100;
   return value;
 }
 
 function radarFilterDisplayValue(metric, value) {
-  if (metric === "quoteVolume24h") return value / 1_000_000;
+  if (metric === "quoteVolume24h" || metric === "volumeVelocity") return value / 1_000_000;
   if (metric === "fundingRate") return value * 100;
   return value;
 }
@@ -1444,6 +1480,7 @@ function radarFilterDisplayValue(metric, value) {
 function formatRadarMetric(item, metric) {
   const value = item[metric];
   if (metric === "quoteVolume24h") return formatCompactUsd(value);
+  if (metric === "volumeVelocity") return Number.isFinite(value) ? `${value > 0 ? "+" : ""}${formatCompactUsd(value)}` : "—";
   if (metric === "fundingRate") return Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${(value * 100).toFixed(3)}%` : "—";
   if (metric === "correlation") return Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${value.toFixed(2)}` : "—";
   return Number.isFinite(value) ? `${value.toFixed(2)}%` : "—";
@@ -1573,7 +1610,7 @@ function findNearestFreePosition(model, targetX, targetY) {
 }
 
 function applyRadarColumns() {
-  if (!Array.isArray(state.radarColumns) || state.radarColumns.length !== 7) state.radarColumns = [1.35, 1, 1, 1, .85, .85, 1];
+  if (!Array.isArray(state.radarColumns) || state.radarColumns.length !== 8) state.radarColumns = [1.35, 1, 1, 1, 1, .82, .82, 1];
   state.radarColumns.forEach((value, index) => els.marketFocus.style.setProperty(`--radar-col-${index + 1}`, `${Math.max(.45, Number(value) || 1)}fr`));
 }
 
@@ -1823,7 +1860,7 @@ function bindChartToolbox(root, chart, persistSessions = false) {
   drawingButtons.forEach((button) => button.addEventListener("click", () => {
     chart.setTool(chart.activeTool === button.dataset.drawingTool ? null : button.dataset.drawingTool);
     if (button.dataset.drawingTool === "alert" && globalThis.Notification?.permission === "default") Notification.requestPermission().catch(() => {});
-    setOpen(false);
+    setOpen(true);
     sync();
   }));
   clearButton?.addEventListener("click", () => chart.clearDrawings());
@@ -1850,8 +1887,7 @@ function mountExtraChart(model) {
   article.dataset.panelId = model.id;
   article.innerHTML = `
     <header class="chart-heading">
-      <span class="panel-grip" title="Дополнительный график">⠿</span>
-      <div class="chart-quote"><h2>${escapeHtml(model.symbol.replace("USDT", ""))}/USDT</h2><strong data-mini-price>—</strong></div>
+      <div class="chart-quote"><h2>${escapeHtml(model.symbol.replace("USDT", ""))}/USDT</h2></div>
       <div class="chart-metrics"><span title="Оборот за 24 часа в USDT"><b>О24</b><strong data-mini-metric="quoteVolume24h">—</strong></span><span><b>NATR 1</b><strong data-mini-metric="natr1m">—</strong></span><span><b>NATR 5</b><strong data-mini-metric="natr5m">—</strong></span><span><b>F</b><strong data-mini-metric="fundingRate">—</strong></span><span><b>C</b><strong data-mini-metric="correlation">—</strong></span></div>
       <div class="chart-controls"><div class="timeframes timeframe-picker">
         <div class="timeframe-favorites" aria-label="Избранные таймфреймы"></div>
@@ -1864,7 +1900,7 @@ function mountExtraChart(model) {
     <div class="chart-tools-curtain">
       <div class="chart-toolbox"><button class="drawing-tools-toggle" type="button" title="Открыть инструменты" aria-expanded="false"><span aria-hidden="true"></span></button><div class="drawing-tools-menu">
         <button data-drawing-tool="trend" type="button" title="Отрезок">╱</button><button data-drawing-tool="horizontal" type="button" title="Горизонталь">─</button><button data-drawing-tool="ruler" type="button" title="Линейка"><svg class="drawing-tool-icon ruler-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15 15 4l5 5L9 20H4v-5Z"/><path d="m12 7 2 2m-5 1 2 2m-5 1 2 2"/></svg></button><button data-drawing-tool="rectangle" type="button" title="Прямоугольник">▭</button><button data-drawing-tool="ray" type="button" title="Луч">→</button><button data-drawing-tool="freehand" type="button" title="Рисование">∿</button><button data-drawing-tool="alert" type="button" title="Alert">!</button>
-        <button class="chart-magnet-toggle" data-chart-magnet type="button" title="Магнит к OHLC" aria-pressed="true">⌁</button><button class="drawing-clear-button" type="button" title="Очистить всё">⌫</button><button class="volume-toggle" data-mini-volume type="button" title="Объём">V</button><button class="session-toggle" data-mini-session type="button" title="Сессии">S</button>
+        <button class="chart-magnet-toggle" data-chart-magnet type="button" title="Магнит к OHLC" aria-label="Магнит к OHLC" aria-pressed="true"><svg class="drawing-tool-icon magnet-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v9a6 6 0 0 0 12 0V3h-4v9a2 2 0 0 1-4 0V3H6Z"/><path d="M6 7h4m4 0h4"/></svg></button><button class="drawing-clear-button" type="button" title="Очистить всё">⌫</button><button class="volume-toggle" data-mini-volume type="button" title="Объём">V</button><button class="session-toggle" data-mini-session type="button" title="Сессии">S</button>
       </div></div>
     </div>
     <div class="chart-stage">
@@ -1886,12 +1922,6 @@ function mountExtraChart(model) {
   panel.feed = new KlineFeed({
     onData: (candles, meta) => {
       chart.setData(candles, meta);
-      const currentPrice = Number(candles.at(-1)?.close);
-      const priceNode = article.querySelector("[data-mini-price]");
-      if (priceNode && Number.isFinite(currentPrice)) {
-        const nextText = formatPrice(currentPrice);
-        if (priceNode.textContent !== nextText) priceNode.textContent = nextText;
-      }
     },
     onStatus() {},
   });
@@ -1992,7 +2022,7 @@ function focusOrderBookPanel(panel) {
   panel.element.scrollIntoView({ behavior: "smooth", block: "center" });
   panel.element.animate?.(
     [
-      { boxShadow: "0 0 0 1px rgba(66,217,177,.7), 0 0 28px rgba(66,217,177,.2)" },
+      { boxShadow: "0 0 0 1px rgba(124,131,255,.74), 0 0 28px rgba(124,131,255,.22)" },
       { boxShadow: "" },
     ],
     { duration: 1_100, easing: "ease-out" },
@@ -2021,8 +2051,7 @@ function selectOrderBookPanelSymbol(panel, symbol) {
   article.querySelector(".trade-flow-nodes").innerHTML = '<div class="orderbook-empty">Жду сделки…</div>';
   article.querySelector(".trade-flow-detail").hidden = true;
   article.querySelector(".orderbook-rows").innerHTML = '<div class="orderbook-empty">Загружаю глубину Binance…</div>';
-  const marketLabel = model.market === "spot" ? "SPOT" : "FUTURES";
-  article.querySelector("h2").textContent = `${normalizedSymbol.replace("USDT", "")}/USDT · ${marketLabel}`;
+  article.querySelector("h2").textContent = `${normalizedSymbol.replace("USDT", "")}/USDT`;
   persistWorkspace();
   panel.feed.select(normalizedSymbol);
   if (model.market !== "spot") {
@@ -2116,8 +2145,8 @@ function mountOrderBook(model) {
   const marketLabel = model.market === "spot" ? "SPOT" : "FUTURES";
   article.innerHTML = `
     <header class="orderbook-heading">
-      <span class="panel-grip" title="Переместить стакан">⠿</span>
-      <h2 data-book-ticker title="Нажми, чтобы скопировать тикер">${escapeHtml(model.symbol.replace("USDT", ""))}/USDT · ${marketLabel}</h2>
+      <h2 data-book-ticker title="Нажми, чтобы скопировать тикер">${escapeHtml(model.symbol.replace("USDT", ""))}/USDT</h2>
+      <span class="book-market-badge">${marketLabel}</span>
       <span class="book-status">Синхронизация</span>
       ${model.market === "spot" ? "" : '<button class="book-spot-toggle" data-book-spot type="button" disabled title="Проверяю наличие Binance Spot">SPOT</button>'}
       <div class="book-highlight-controls" aria-label="Подсветка крупных сайзов">
@@ -2798,7 +2827,6 @@ function removeOrderBook(id) {
 function updateExtraChartMetrics(metrics) {
   for (const panel of extraCharts.values()) {
     const item = metrics.find((candidate) => candidate.symbol === panel.model.symbol);
-    panel.element.querySelector("[data-mini-price]").textContent = formatPrice(item?.price);
     panel.element.querySelectorAll("[data-mini-metric]").forEach((cell) => {
       cell.textContent = item ? formatRadarMetric(item, cell.dataset.miniMetric) : "—";
     });
@@ -2825,14 +2853,12 @@ function renderChartPicker() {
 function updateChartHeader(metrics = state.lastMetrics) {
   const item = metrics.find((candidate) => candidate.symbol === state.selectedChartSymbol);
   const lastCandle = state.chartCandles.at(-1);
-  const price = item?.price ?? lastCandle?.close;
   const change = Number.isFinite(item?.change1m)
     ? item.change1m
     : lastCandle?.open
       ? ((lastCandle.close - lastCandle.open) / lastCandle.open) * 100
       : null;
   els.chartSymbol.textContent = `${state.selectedChartSymbol.replace("USDT", "")}/USDT`;
-  els.chartPrice.textContent = formatPrice(price);
   els.chartChange.textContent = formatChange(change);
   els.chartChange.className = toneClass(change);
   renderChartMetrics();
@@ -2917,7 +2943,8 @@ function updateAlerts(metrics, now) {
     if (!symbol || now - symbol.lastAlertAt < 45_000) continue;
     symbol.lastAlertAt = now;
     state.alerts.push({ time: now, symbol: metricsItem.symbol, type: metricsItem.primarySignal.type });
-    if (state.soundEnabled) playAlert(metricsItem.primarySignal.direction, metricsItem.score);
+    // Market scanner signals stay silent: dozens of symbols can cross a score
+    // threshold at once. Sound is reserved for explicit chart price alerts.
   }
   state.alerts = state.alerts.filter((item) => item.time >= now - 10 * 60_000);
 }
@@ -3129,21 +3156,6 @@ function loadJson(key, fallback) {
 }
 
 let audioContext;
-function playAlert(direction, score) {
-  audioContext ||= new AudioContext();
-  const oscillator = audioContext.createOscillator();
-  const gain = audioContext.createGain();
-  oscillator.type = "sine";
-  oscillator.frequency.setValueAtTime(direction === "up" ? 720 : 420, audioContext.currentTime);
-  oscillator.frequency.exponentialRampToValueAtTime(direction === "up" ? 1050 : 260, audioContext.currentTime + 0.12);
-  gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
-  gain.gain.exponentialRampToValueAtTime(Math.min(0.16, score / 600), audioContext.currentTime + 0.015);
-  gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.18);
-  oscillator.connect(gain).connect(audioContext.destination);
-  oscillator.start();
-  oscillator.stop(audioContext.currentTime + 0.2);
-}
-
 function playAttentionAlert() {
   audioContext ||= new AudioContext();
   if (audioContext.state === "suspended") audioContext.resume().catch(() => {});
@@ -3423,14 +3435,22 @@ function bindEvents() {
     renderTopList(state.lastMetrics);
   });
   syncRadarFilterUi();
+  els.radarFiltersToggle?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = els.radarFilterPanel.hidden;
+    els.radarFilterPanel.hidden = !open;
+    els.radarFiltersToggle.setAttribute("aria-expanded", String(open));
+  });
+  els.radarVolumeWindow?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    state.radarVolumeWindowMs = state.radarVolumeWindowMs === 60_000 ? 300_000 : 60_000;
+    localStorage.setItem(STORAGE_KEYS.radarVolumeWindow, String(state.radarVolumeWindowMs));
+    syncRadarToolbar();
+    render();
+  });
   for (const input of els.radarFilterInputs) input.addEventListener("change", () => updateColumnFilter(input.dataset.columnFilter));
   for (const select of els.radarFilterOperators) select.addEventListener("change", () => updateColumnFilter(select.dataset.columnFilterOperator));
-  els.radarFilterReset.addEventListener("click", () => {
-    state.radarFilters = [];
-    localStorage.setItem(STORAGE_KEYS.radarFilters, "[]");
-    syncRadarFilterUi();
-    renderTopList(state.lastMetrics);
-  });
+  els.radarFilterReset.addEventListener("click", resetRadarFilters);
   for (const handle of els.columnResizers) {
     handle.addEventListener("click", (event) => {
       event.preventDefault();
@@ -3474,7 +3494,7 @@ function bindEvents() {
   installPanelEdgeResizers(document.querySelector(".top-card"), state.workspace.radar);
   installPanelEdgeResizers(document.querySelector(".workspace-panel"), state.workspace.scanner);
   bindPanelDrag(document.querySelector(".primary-chart .chart-heading"), state.workspace.primary);
-  bindPanelDrag(document.querySelector(".top-card .top-columns"), state.workspace.radar);
+  bindPanelDrag(document.querySelector(".top-card .radar-command-bar"), state.workspace.radar);
   bindPanelDrag(document.querySelector(".workspace-panel .toolbar"), state.workspace.scanner);
   for (const button of els.coreCloseButtons) button.addEventListener("click", () => hideCorePanel(button.dataset.closeCore));
   for (const button of els.restorePanelButtons) button.addEventListener("click", () => restoreCorePanel(button.dataset.restorePanel));
@@ -3579,14 +3599,22 @@ function bindEvents() {
     syncSessionButton();
   });
 
-  els.soundButton.classList.toggle("is-active", state.soundEnabled);
-  els.soundButton.querySelector("span").textContent = state.soundEnabled ? "Звук включён" : "Звук выключен";
+  const syncSoundButton = () => {
+    els.soundButton.classList.toggle("is-active", state.soundEnabled);
+    els.soundButton.querySelector("span").textContent = state.soundEnabled ? "Звук ценовых алертов включён" : "Звук выключен";
+    els.soundButton.title = state.soundEnabled ? "Выключить звук ценовых алертов" : "Включить звук ценовых алертов";
+    els.soundButton.setAttribute("aria-label", els.soundButton.title);
+  };
+  syncSoundButton();
   els.soundButton.addEventListener("click", async () => {
     state.soundEnabled = !state.soundEnabled;
     localStorage.setItem(STORAGE_KEYS.sound, JSON.stringify(state.soundEnabled));
-    els.soundButton.classList.toggle("is-active", state.soundEnabled);
-    els.soundButton.querySelector("span").textContent = state.soundEnabled ? "Звук включён" : "Звук выключен";
-    if (state.soundEnabled) playAlert("up", 55);
+    syncSoundButton();
+    if (state.soundEnabled) {
+      audioContext ||= new AudioContext();
+      if (audioContext.state === "suspended") await audioContext.resume().catch(() => {});
+      showToast("Звук включён только для ценовых алертов");
+    }
   });
 
   els.search.addEventListener("input", () => {
@@ -3713,17 +3741,18 @@ function updateClock(date = new Date(binanceClock.now())) {
     els.clock.textContent = nextText;
   }
   const clockState = binanceClock.snapshot();
+  const dragInstruction = " · перетащи за время; двойной клик — вернуть";
   els.clock.dataset.source = clockState.status;
   if (clockState.status === "live") {
     const rtt = Number.isFinite(clockState.rttMs) ? Math.round(clockState.rttMs) : null;
     const offset = Number.isFinite(clockState.offsetMs) ? Math.round(clockState.offsetMs) : null;
-    els.clock.title = `Время Binance Futures · ${rtt === null ? "RTT —" : `RTT ${rtt} мс`} · ${offset === null ? "поправка —" : `поправка ${offset >= 0 ? "+" : ""}${offset} мс`}`;
+    els.clock.title = `Время Binance Futures · ${rtt === null ? "RTT —" : `RTT ${rtt} мс`} · ${offset === null ? "поправка —" : `поправка ${offset >= 0 ? "+" : ""}${offset} мс`}${dragInstruction}`;
   } else if (clockState.status === "syncing") {
-    els.clock.title = "Синхронизация времени с Binance Futures…";
+    els.clock.title = `Синхронизация времени с Binance Futures…${dragInstruction}`;
   } else if (clockState.status === "stale") {
-    els.clock.title = "Время Binance Futures · калибровка устарела, выполняется повторная синхронизация";
+    els.clock.title = `Время Binance Futures · калибровка устарела, выполняется повторная синхронизация${dragInstruction}`;
   } else {
-    els.clock.title = "Локальное резервное время · Binance Futures пока недоступен";
+    els.clock.title = `Локальное резервное время · Binance Futures пока недоступен${dragInstruction}`;
   }
   updateTimeZoneClocks(date);
 }
@@ -3786,6 +3815,7 @@ function enableClockDrag() {
     floating = true;
     lastPosition = next;
     if (clock.parentElement !== document.body) document.body.append(clock);
+    dock.querySelectorAll("time").forEach((node) => { if (node !== clock) node.remove(); });
     dock.classList.add("is-clock-away");
     clock.dataset.floating = "true";
     clock.style.position = "fixed";
@@ -3810,7 +3840,6 @@ function enableClockDrag() {
 
   clock.style.touchAction = "none";
   clock.style.cursor = "grab";
-  clock.title = `${clock.title || "Время Binance Futures"} · перетащи, двойной клик — вернуть в шапку`;
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.clockPosition) || "null");
     if (saved && typeof saved === "object") applyFloating(saved, false);
@@ -3883,7 +3912,7 @@ updateClock(new Date(binanceClock.now()));
 scheduleClockTick();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-120-burgundy-workspace-v1";
+const INPULS_RUNTIME_BUILD = "26-121-indigo-market-workspace-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

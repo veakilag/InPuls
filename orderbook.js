@@ -6,10 +6,10 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-120-burgundy-workspace-v1";
+import "./orderbook-flow-workspace.js?v=26-121-indigo-market-workspace-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
-import { normalizeOrderBookMarketKey } from "./orderbook-market-key.js?v=26-120-burgundy-workspace-v1";
+import { normalizeOrderBookMarketKey } from "./orderbook-market-key.js?v=26-121-indigo-market-workspace-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
 
 export function applyDepthUpdates(levels, updates) {
@@ -1458,7 +1458,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-120-burgundy-workspace-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-121-indigo-market-workspace-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1893,16 +1893,16 @@ const ORDERBOOK_RUNTIME_STYLE_ID = "inpuls-orderbook-runtime-26-91-runtime-boot-
 const TAPE_EVENT_NAME = "inpuls:tape-data";
 const BOOK_DATA_EVENT_NAME = "inpuls:book-data";
 const FLOW_LAYER_VISIBILITY_EVENT = "inpuls:flow-layer-visibility";
-const TAPE_MAX_STORED = 4_000;
+const TAPE_MAX_STORED = 60_000;
 const TAPE_MAX_RAW_VISIBLE = TAPE_MAX_STORED;
 const TAPE_MAX_AGG_VISIBLE = 1_000;
-const TAPE_RETENTION_MS = 2 * 60_000;
+const TAPE_RETENTION_MS = 5 * 60_000;
 const TAPE_LIVE_EDGE_GUTTER_PX = 10;
 const TAPE_SECOND_MS = 1_000;
 const TAPE_LIVE_EDGE_LEAD_MS = 0;
 const TAPE_MIN_SECOND_WIDTH = 22;
 const TAPE_MIN_SECONDS = 12;
-const TAPE_MAX_SECONDS = 45;
+const TAPE_MAX_SECONDS = 100;
 const TAPE_TIMELINE_MIN_LABEL_GAP_PX = 42;
 const TAPE_PRICE_VIEWPORT_TAU_MS = 90;
 const TAPE_CLOCK_CORRECTION_TAU_MS = 120;
@@ -2219,9 +2219,9 @@ export function installOrderBookStyles() {
       background: rgba(66, 225, 173, .09);
     }
     .orderbook-card .inpuls-tape-mode[data-mode="series"] {
-      color: #d8b3ff;
-      border-color: rgba(170, 134, 255, .52);
-      background: rgba(170, 134, 255, .11);
+      color: color-mix(in srgb, var(--accent) 72%, var(--text));
+      border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+      background: color-mix(in srgb, var(--accent) 11%, transparent);
     }
     .orderbook-card .inpuls-agg-step {
       width: 22px;
@@ -2300,7 +2300,7 @@ export function installOrderBookStyles() {
     .orderbook-card .book-pane-title [data-book-scale] {
       flex: 0 0 auto;
       margin-left: auto;
-      color: var(--accent, #9d6cff);
+      color: var(--accent, #7c83ff);
       text-align: right;
       font-weight: 800;
     }
@@ -2764,14 +2764,14 @@ function syncTapeModeButton(button, state) {
   button.textContent = mode === "series" ? "СЕРИЯ" : mode.toUpperCase();
   button.dataset.mode = mode;
   button.dataset.aggregationSource = state.aggregationSource === "raw" ? "raw" : "agg";
-  button.dataset.seriesSource = seriesReady ? "raw" : "agg";
+  button.dataset.seriesSource = seriesReady ? "raw" : "warming";
   button.classList.toggle("is-active", mode !== "raw");
   button.setAttribute("aria-pressed", String(mode !== "raw"));
   button.setAttribute("aria-label", `Режим ленты ${button.textContent}. Нажмите для переключения.`);
   if (mode === "series") {
     button.title = seriesReady
       ? `СЕРИЯ RAW ≤${TAPE_SERIES_MAX_GAP_MS} мс: непрерывный агрессивный покупатель или продавец. Первая встречная рыночная сделка немедленно закрывает серию.`
-      : `СЕРИЯ AGG ≤${TAPE_SERIES_MAX_GAP_MS} мс: стабильный fallback по taker-агрессору. При подтверждённом непрерывном @trade источник автоматически переключается на RAW.`;
+      : "СЕРИЯ строится только из отдельных RAW @trade. Ждём непрерывный поток без пропусков.";
   } else if (mode === "agg") {
     button.title = `AGG 0 мс · ${aggregationSource}: объединяются последовательные исполнения с одинаковым биржевым временем и направлением.`;
   } else {
@@ -4079,9 +4079,9 @@ function refreshTapeRenderModel(state, symbol, stored, aggregationStored = store
   const version = Number(tapeDataVersionBySymbol.get(symbol)) || 0;
   const aggregationInput = aggregationStored?.length ? aggregationStored : stored;
   const seriesRawReady = state.seriesSource === "raw" && Boolean(seriesStored?.length);
-  const seriesRenderSource = seriesRawReady ? "raw" : "agg";
-  const seriesInput = seriesRawReady ? seriesStored : aggregationInput;
-  const modelKey = [symbol, version, seriesRenderSource, "zero-ms-series-fallback-500"].join(":");
+  const seriesRenderSource = seriesRawReady ? "raw" : "warming";
+  const seriesInput = seriesRawReady ? seriesStored : [];
+  const modelKey = [symbol, version, seriesRenderSource, "raw-directional-series-500"].join(":");
   state.seriesRenderSource = seriesRenderSource;
   if (state.renderModelKey === modelKey) return;
   state.renderModelKey = modelKey;
@@ -4524,7 +4524,7 @@ function drawTapeCard(card) {
         : state.mode === "series"
           ? (state.seriesRenderSource === "raw"
             ? "Жду агрессивную серию RAW…"
-            : "Жду агрессивную серию · источник AGG…")
+            : "Жду непрерывный RAW @trade для серии…")
           : "Жду сделку…",
     );
     state.hasFrame = true;
@@ -4898,11 +4898,17 @@ function mergeTapeHistory(current, incoming, replace = false) {
     .map(normalizeTapeTrade)
     .filter(Boolean)
     .sort((left, right) => right.time - left.time);
+  const newestTime = Math.max(
+    Number(normalizedIncoming[0]?.time) || 0,
+    Number(current?.[0]?.time) || 0,
+  );
+  const retentionStart = newestTime - TAPE_RETENTION_MS;
 
   if (replace) {
     const seen = new Set();
     return normalizedIncoming
       .filter((trade) => {
+        if (trade.time < retentionStart) return false;
         const key = tapeTradeKey(trade);
         if (seen.has(key)) return false;
         seen.add(key);
@@ -4937,6 +4943,7 @@ function mergeTapeHistory(current, incoming, replace = false) {
     if (takeIncoming) incomingIndex += 1;
     else currentIndex += 1;
     if (!trade) continue;
+    if (trade.time < retentionStart) break;
 
     const key = tapeTradeKey(trade);
     if (seen.has(key)) continue;

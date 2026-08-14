@@ -8,8 +8,8 @@ import {
   footprintIntervalHistory,
   ingestFootprintTrades,
   normalizeFlowTrade,
-} from "./orderbook-flow-workspace.js?v=26-120-burgundy-workspace-v1";
-import { aggregateTapeSeries } from "./orderbook.js?v=26-120-burgundy-workspace-v1";
+} from "./orderbook-flow-workspace.js?v=26-121-indigo-market-workspace-v1";
+import { aggregateTapeSeries } from "./orderbook.js?v=26-121-indigo-market-workspace-v1";
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -63,7 +63,8 @@ test("worker and main keep SERIES on a dedicated raw-only channel", () => {
   assert.match(worker, /seriesSource: this\.seriesRawHealthy \? "raw" : "warming"/);
   assert.match(main, /const tapeSeriesTradesBySymbol = new Map\(\)/);
   assert.match(main, /const seriesRawReady = state\.seriesSource === "raw" && Boolean\(seriesStored\?\.length\)/);
-  assert.match(main, /const seriesInput = seriesRawReady \? seriesStored : aggregationInput/);
+  assert.match(main, /const seriesInput = seriesRawReady \? seriesStored : \[\]/);
+  assert.doesNotMatch(main, /seriesRawReady \? seriesStored : aggregationInput/);
   assert.match(main, /state\.seriesRenderSource = seriesRenderSource/);
   assert.match(main, /state\.seriesSourceBuckets = aggregateTapeSeries\(seriesInput\)/);
 });

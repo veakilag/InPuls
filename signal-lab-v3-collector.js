@@ -4,7 +4,7 @@ import {
   filterUsdtPerpetualTicker,
   isUsdtPerpetualSymbol,
   normalizeUsdtPerpetualSymbol,
-} from "./engine.js?v=26-65-structured-signal-collection-v1";
+} from "./engine.js?v=26-121-indigo-market-workspace-v1";
 import {
   CandidateEpisodeTracker,
   candidateWatchScore,
