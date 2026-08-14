@@ -40,6 +40,6 @@ test("clock work avoids hidden timezone scans and cached modules are refreshed",
   assert.doesNotMatch(app, /let lastHeaderClockText|let clockTickTimer/);
   assert.match(app, /updateClock\.lastText/);
   assert.match(app, /scheduleClockTick\.timer/);
-  assert.match(html, /app\.js\?v=26-118-tape-cluster-market-key-v1/);
-  assert.match(app, /chart\.js\?v=26-118-tape-cluster-market-key-v1/);
+  assert.match(html, /app\.js\?v=26-120-burgundy-workspace-v1/);
+  assert.match(app, /chart\.js\?v=26-120-burgundy-workspace-v1/);
 });

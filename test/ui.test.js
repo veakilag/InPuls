@@ -9,7 +9,7 @@ test("browser entry points keep user version v23 and identify the current releas
     source("index.html"), source("app.js"), source("sw.js"), source("refresh.html"), source("VERSION.txt"),
   ]);
   for (const text of [html, app, worker, refresh, version]) assert.doesNotMatch(text, /(?:v|build=|\?v=)22\b/);
-  assert.match(html, /inpuls-build" content="26-118-tape-cluster-market-key-v1"/);
+  assert.match(html, /inpuls-build" content="26-120-burgundy-workspace-v1"/);
   assert.match(worker, /inpuls-26-91-runtime-boot-cache-feed-v1/);
   assert.match(html, /SCREENER <small>v23<\/small>/);
   assert.match(version, /^InPuls v23/m);
@@ -86,7 +86,7 @@ test("browser entry points carry a restrictive CSP and reset scripts stay extern
 
 test("Service Worker removes retired app-shell caches and stays network-only", async () => {
   const worker = await source("sw.js");
-  assert.match(worker, /26-118-tape-cluster-market-key-v1/);
+  assert.match(worker, /26-120-burgundy-workspace-v1/);
   assert.match(worker, /await caches\.keys\(\)/);
   assert.match(worker, /key === CACHE \|\| key\.startsWith\("inpuls-"\)/);
   assert.match(worker, /\.map\(\(key\) => caches\.delete\(key\)\)/);
@@ -106,14 +106,15 @@ test("chart pointer work is coalesced through animation frames and first-anchor 
   assert.match(chart, /resetView\(\)/);
 });
 
-test("small panels keep compact menus and smaller resize corners", async () => {
-  const [app, css] = await Promise.all([source("app.js"), source("styles.css")]);
-  assert.match(css, /\.chart-resizer, \.panel-resizer \{ width: 12px; height: 12px; \}/);
+test("small panels keep compact menus and gain precise square resize edges", async () => {
+  const [app, css, workspaceCss] = await Promise.all([source("app.js"), source("styles.css"), source("workspace-v2.css")]);
+  assert.match(workspaceCss, /\.panel-edge-resizer/);
+  assert.match(workspaceCss, /\.chart-resizer,[\s\S]*width: 9px;/);
   assert.match(css, /\.chart-toolbox\.opens-sideways/);
   assert.match(css, /@container \(max-width: 360px\)/);
   assert.match(css, /@container \(max-width: 210px\)/);
   assert.match(app, /model\.type === "orderbook" && element\?\.classList\.contains\("is-flow-hidden"\)/);
-  assert.match(app, /return \{ w: 2, h: 2 \};/);
+  assert.match(app, /return \{ w: 4, h: 4 \};/);
 });
 
 test("brightness control keeps fixed accents and morphs from sun to moon", async () => {
@@ -125,9 +126,9 @@ test("brightness control keeps fixed accents and morphs from sun to moon", async
   assert.match(html, /class="comfort-moon"/);
   assert.match(app, /root\.style\.setProperty\("--comfort-position"/);
   assert.match(app, /root\.style\.setProperty\("--comfort-moon-opacity"/);
-  assert.match(app, /const turquoise = "#42d9b1"/);
-  assert.match(app, /const blue = "#65b7ff"/);
-  assert.match(app, /const violet = "#aa86ff"/);
+  assert.match(app, /const turquoise = "#58c5a4"/);
+  assert.match(app, /const cyan = "#a13a58"/);
+  assert.match(app, /const violet = "#c05273"/);
   assert.match(css, /linear-gradient\(90deg,#c8cdd2 0%,#737b84 46%,#242930 100%\)/);
 });
 

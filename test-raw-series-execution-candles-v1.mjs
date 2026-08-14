@@ -8,8 +8,8 @@ import {
   footprintIntervalHistory,
   ingestFootprintTrades,
   normalizeFlowTrade,
-} from "./orderbook-flow-workspace.js?v=26-118-tape-cluster-market-key-v1";
-import { aggregateTapeSeries } from "./orderbook.js?v=26-118-tape-cluster-market-key-v1";
+} from "./orderbook-flow-workspace.js?v=26-120-burgundy-workspace-v1";
+import { aggregateTapeSeries } from "./orderbook.js?v=26-120-burgundy-workspace-v1";
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 

@@ -54,6 +54,6 @@ test("book data refreshes density ages only for visible matching cards", () => {
 });
 
 test("isolated Tape build ships through fresh module keys", () => {
-  assert.match(app, /orderbook\.js\?v=26-118-tape-cluster-market-key-v1/);
-  assert.match(index, /app\.js\?v=26-118-tape-cluster-market-key-v1/);
+  assert.match(app, /orderbook\.js\?v=26-120-burgundy-workspace-v1/);
+  assert.match(index, /app\.js\?v=26-120-burgundy-workspace-v1/);
 });

@@ -8,8 +8,8 @@ import {
   isUsdtPerpetualSymbol,
   normalizeUsdtPerpetualSymbol,
 } from "./engine.js?v=26-65-structured-signal-collection-v1";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-118-tape-cluster-market-key-v1";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-118-tape-cluster-market-key-v1";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-120-burgundy-workspace-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-120-burgundy-workspace-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -19,6 +19,7 @@ import {
   MarketwideSizeScanner,
   detectMarketwideCascade,
 } from "./market-pattern-scanner.js?v=marketwide-patterns-v1";
+import { panelsOverlap, resizeTiledWorkspace, WORKSPACE_COLS, WORKSPACE_ROWS } from "./workspace-layout.js?v=26-120-burgundy-workspace-v1";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -29,9 +30,10 @@ const STORAGE_KEYS = {
   timeZoneCity: "inpuls-timezone-city-v1",
   volume: "inpuls-volume-v1",
   sessions: "inpuls-sessions-v1",
+  timeframesVisible: "inpuls-timeframes-visible-v1",
   comfort: "inpuls-comfort-v1",
   fontScale: "inpuls-font-scale-v1",
-  workspace: "inpuls-workspace-v4",
+  workspace: "inpuls-workspace-v5",
   radarColumns: "inpuls-radar-columns-v2",
   radarFilters: "inpuls-radar-filters-v2",
   inplay: "inpuls-inplay-v2",
@@ -72,11 +74,27 @@ function normalizeInPlay(value) {
 }
 
 const DEFAULT_WORKSPACE = {
-  primary: { id: "primary", type: "chart", x: 0, y: 0, w: 18, h: 9 },
-  radar: { id: "radar", type: "radar", x: 18, y: 0, w: 6, h: 9 },
-  scanner: { id: "scanner", type: "scanner", x: 0, y: 9, w: 24, h: 3 },
+  primary: { id: "primary", type: "chart", x: 0, y: 0, w: 36, h: 18 },
+  radar: { id: "radar", type: "radar", x: 36, y: 0, w: 12, h: 18 },
+  scanner: { id: "scanner", type: "scanner", x: 0, y: 18, w: 48, h: 6 },
   extras: [],
 };
+
+function loadWorkspaceSettings() {
+  const current = loadJson(STORAGE_KEYS.workspace, null);
+  if (current && typeof current === "object") return current;
+  const legacy = loadJson("inpuls-workspace-v4", null);
+  if (!legacy || typeof legacy !== "object") return DEFAULT_WORKSPACE;
+  const scalePanel = (panel) => panel && typeof panel === "object"
+    ? { ...panel, x: Number(panel.x || 0) * 2, y: Number(panel.y || 0) * 2, w: Number(panel.w || 1) * 2, h: Number(panel.h || 1) * 2 }
+    : panel;
+  return {
+    primary: scalePanel(legacy.primary) ?? DEFAULT_WORKSPACE.primary,
+    radar: scalePanel(legacy.radar) ?? DEFAULT_WORKSPACE.radar,
+    scanner: scalePanel(legacy.scanner) ?? DEFAULT_WORKSPACE.scanner,
+    extras: Array.isArray(legacy.extras) ? legacy.extras.map(scalePanel) : [],
+  };
+}
 
 const initialNavigation = parseInPulsNavigation(window.location.search);
 const savedChart = loadJson(STORAGE_KEYS.chart, { interval: "1m", range: "1h" });
@@ -105,10 +123,11 @@ const state = {
   selectedTimeZoneCity: localStorage.getItem(STORAGE_KEYS.timeZoneCity) || "Москва",
   volumeVisible: loadJson(STORAGE_KEYS.volume, true),
   sessionsVisible: loadJson(STORAGE_KEYS.sessions, true),
+  timeframesVisible: loadJson(STORAGE_KEYS.timeframesVisible, true),
   comfort: Number(localStorage.getItem(STORAGE_KEYS.comfort) ?? 55),
   fontScale: Number(localStorage.getItem(STORAGE_KEYS.fontScale) ?? 100),
   radarSearch: "",
-  workspace: loadJson(STORAGE_KEYS.workspace, DEFAULT_WORKSPACE),
+  workspace: loadWorkspaceSettings(),
   radarColumns: loadJson(STORAGE_KEYS.radarColumns, [1.35, 1, 1, 1, .85, .85, 1]),
   radarFilters: loadJson(STORAGE_KEYS.radarFilters, EMPTY_RADAR_FILTERS),
   inplay: normalizeInPlay(loadJson(STORAGE_KEYS.inplay, DEFAULT_INPLAY)),
@@ -654,26 +673,26 @@ function mixColor(left, right, amount) {
 function buildComfortTheme(rawValue) {
   const value = Math.max(0, Math.min(100, Number(rawValue) || 0));
   const amount = value / 100;
-  const turquoise = "#42d9b1";
-  const cyan = "#42d9cf";
-  const blue = "#65b7ff";
-  const violet = "#aa86ff";
-  const red = "#ff7181";
+  const turquoise = "#58c5a4";
+  const cyan = "#a13a58";
+  const blue = "#8393a5";
+  const violet = "#c05273";
+  const red = "#d86878";
   const palette = {
-    bg: mixColor("#24272c", "#080a0d", amount),
-    panel: mixColor("#2d3137", "#111419", amount),
-    panel2: mixColor("#383d44", "#181c22", amount),
-    line: mixColor("#656d76", "#303740", amount),
-    text: mixColor("#f7f9fa", "#e2e7eb", amount),
-    muted: mixColor("#c0c6cc", "#87919b", amount),
-    chart: mixColor("#1f2227", "#090b0e", amount),
+    bg: mixColor("#29282b", "#09090b", amount),
+    panel: mixColor("#343237", "#151417", amount),
+    panel2: mixColor("#403d42", "#1d1b1f", amount),
+    line: mixColor("#756970", "#392f34", amount),
+    text: mixColor("#faf7f8", "#e6e0e2", amount),
+    muted: mixColor("#c7bec2", "#91858b", amount),
+    chart: mixColor("#242226", "#0c0b0d", amount),
     bull: turquoise,
-    bear: mixColor("#454b52", "#1b1f25", amount),
+    bear: mixColor("#51464b", "#231a1e", amount),
     bearStroke: red,
-    grid: mixColor("#727981", "#3a424b", amount),
-    crosshair: mixColor("#e0e4e7", "#9aa4ad", amount),
-    crosshairFill: mixColor("#505861", "#252b32", amount),
-    crosshairText: "#f7f9fa",
+    grid: mixColor("#756b70", "#3b3337", amount),
+    crosshair: mixColor("#e4dde0", "#a5989e", amount),
+    crosshairFill: mixColor("#69525b", "#302329", amount),
+    crosshairText: "#faf7f8",
   };
   return { value, amount, turquoise, cyan, blue, violet, red, palette };
 }
@@ -1430,10 +1449,7 @@ function formatRadarMetric(item, metric) {
   return Number.isFinite(value) ? `${value.toFixed(2)}%` : "—";
 }
 
-const WORKSPACE_COLS = 24;
-const WORKSPACE_ROWS = 12;
-
-function clampPanel(model, fallback, minimum = { w: 5, h: 3 }) {
+function clampPanel(model, fallback, minimum = { w: 10, h: 6 }) {
   const next = { ...fallback, ...(model && typeof model === "object" ? model : {}) };
   next.id = String(next.id || fallback.id);
   next.type = next.type || fallback.type;
@@ -1448,9 +1464,9 @@ function clampPanel(model, fallback, minimum = { w: 5, h: 3 }) {
 function normalizeWorkspace() {
   const raw = state.workspace && typeof state.workspace === "object" ? state.workspace : {};
   const workspace = {
-    primary: clampPanel(raw.primary, DEFAULT_WORKSPACE.primary, { w: 3, h: 2 }),
-    radar: clampPanel(raw.radar, DEFAULT_WORKSPACE.radar, { w: 3, h: 2 }),
-    scanner: clampPanel(raw.scanner, DEFAULT_WORKSPACE.scanner, { w: 5, h: 2 }),
+    primary: clampPanel(raw.primary, DEFAULT_WORKSPACE.primary, { w: 6, h: 4 }),
+    radar: clampPanel(raw.radar, DEFAULT_WORKSPACE.radar, { w: 6, h: 4 }),
+    scanner: clampPanel(raw.scanner, DEFAULT_WORKSPACE.scanner, { w: 10, h: 4 }),
     extras: [],
   };
   const sourceExtras = Array.isArray(raw.extras) ? raw.extras : [];
@@ -1458,12 +1474,13 @@ function normalizeWorkspace() {
     const symbol = normalizeUsdtPerpetualSymbol(source?.symbol);
     if (!source?.id || !symbol) continue;
     const type = source.type === "orderbook" ? "orderbook" : "chart";
-    const fallback = { id: String(source.id), type, symbol, market: source.market === "spot" ? "spot" : "futures", spotOf: source.spotOf || null, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, bookScaleIndex: source.bookScaleIndex ?? 3, bookCentered: source.bookCentered !== false, tapePercent: source.tapePercent ?? 48, tradeMinQuote: source.tradeMinQuote ?? 0, tradeWindowMs: source.tradeWindowMs ?? 60_000, clustersVisible: Boolean(source.clustersVisible), highlightMode: source.highlightMode === "manual" ? "manual" : "auto", highlightMinQuote: source.highlightMinQuote ?? 100000, x: 0, y: 0, w: type === "orderbook" ? 6 : 8, h: 6 };
-    const item = clampPanel(source, fallback, { w: 3, h: 2 });
+    const fallback = { id: String(source.id), type, symbol, market: source.market === "spot" ? "spot" : "futures", spotOf: source.spotOf || null, interval: source.interval || state.chartInterval, volumeVisible: source.volumeVisible ?? state.volumeVisible, sessionsVisible: source.sessionsVisible ?? state.sessionsVisible, timeframesVisible: source.timeframesVisible ?? true, bookScaleIndex: source.bookScaleIndex ?? 3, bookCentered: source.bookCentered !== false, tapePercent: source.tapePercent ?? 48, tradeMinQuote: source.tradeMinQuote ?? 0, tradeWindowMs: source.tradeWindowMs ?? 60_000, clustersVisible: Boolean(source.clustersVisible), highlightMode: source.highlightMode === "manual" ? "manual" : "auto", highlightMinQuote: source.highlightMinQuote ?? 100000, x: 0, y: 0, w: type === "orderbook" ? 12 : 16, h: 12 };
+    const item = clampPanel(source, fallback, { w: 6, h: 4 });
     item.symbol = symbol;
     item.interval = source.interval || state.chartInterval;
     item.volumeVisible = source.volumeVisible ?? state.volumeVisible;
     item.sessionsVisible = source.sessionsVisible ?? state.sessionsVisible;
+    item.timeframesVisible = source.timeframesVisible ?? true;
     item.bookScaleIndex = Math.max(0, Math.min(
       maximumBookScaleIndex(),
       Number.isFinite(Number(source.bookScaleIndex))
@@ -1494,17 +1511,13 @@ function workspacePanels(workspace = state.workspace) {
   return [workspace.primary, workspace.radar, workspace.scanner, ...(workspace.extras ?? [])].filter((panel) => panel && !panel.hidden);
 }
 
-function panelsOverlap(left, right) {
-  return left.x < right.x + right.w && left.x + left.w > right.x && left.y < right.y + right.h && left.y + left.h > right.y;
-}
-
 function canPlacePanel(candidate, workspace = state.workspace, ignoreId = candidate.id) {
   if (!candidate || candidate.x < 0 || candidate.y < 0 || candidate.w < 1 || candidate.h < 1) return false;
   if (candidate.x + candidate.w > WORKSPACE_COLS || candidate.y + candidate.h > WORKSPACE_ROWS) return false;
   return workspacePanels(workspace).every((panel) => panel.id === ignoreId || !panelsOverlap(candidate, panel));
 }
 
-function findFreeSlot(width = 6, height = 4) {
+function findFreeSlot(width = 12, height = 8) {
   const w = Math.min(WORKSPACE_COLS, width);
   const h = Math.min(WORKSPACE_ROWS, height);
   for (let y = 0; y <= WORKSPACE_ROWS - h; y += 1) {
@@ -1593,11 +1606,11 @@ function applyWorkspaceLayout() {
 }
 
 function minimumPanelGridSize(model, element) {
-  if (model.type === "scanner") return { w: 5, h: 2 };
+  if (model.type === "scanner") return { w: 10, h: 4 };
   if (model.type === "orderbook" && element?.classList.contains("is-flow-hidden")) {
-    return { w: 2, h: 2 };
+    return { w: 4, h: 4 };
   }
-  return { w: 3, h: 2 };
+  return { w: 6, h: 4 };
 }
 
 function bindGridResizer(handle, model, chart, direction = "se") {
@@ -1651,10 +1664,72 @@ function bindGridResizer(handle, model, chart, direction = "se") {
   });
 }
 
+function bindPanelEdgeResizer(handle, model) {
+  if (!handle) return;
+  const edge = handle.dataset.edge;
+  handle.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    handle.setPointerCapture(event.pointerId);
+    els.marketFocus.classList.add("is-resizing-panel");
+    const rect = els.marketFocus.getBoundingClientRect();
+    const columnUnit = Math.max(5, (rect.width + 2) / WORKSPACE_COLS);
+    const rowUnit = Math.max(6, (rect.height + 2) / WORKSPACE_ROWS);
+    const startPointer = edge === "e" || edge === "w" ? event.clientX : event.clientY;
+    const initial = workspacePanels().map((panel) => ({ ...panel }));
+    let appliedDelta = 0;
+    const minimumFor = (panel) => minimumPanelGridSize(
+      panel,
+      document.querySelector(`[data-panel-id="${CSS.escape(panel.id)}"]`),
+    );
+    const move = (moveEvent) => {
+      const pointer = edge === "e" || edge === "w" ? moveEvent.clientX : moveEvent.clientY;
+      const unit = edge === "e" || edge === "w" ? columnUnit : rowUnit;
+      const delta = Math.round((pointer - startPointer) / unit);
+      if (delta === appliedDelta) return;
+      const next = resizeTiledWorkspace(initial, model.id, edge, delta, minimumFor);
+      if (!next) return;
+      for (const candidate of next) {
+        const live = workspacePanels().find((panel) => panel.id === candidate.id);
+        if (!live) continue;
+        live.x = candidate.x;
+        live.y = candidate.y;
+        live.w = candidate.w;
+        live.h = candidate.h;
+      }
+      appliedDelta = delta;
+      applyWorkspaceLayout();
+    };
+    const stop = () => {
+      els.marketFocus.classList.remove("is-resizing-panel");
+      persistWorkspace();
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", stop);
+      handle.removeEventListener("pointercancel", stop);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", stop);
+    handle.addEventListener("pointercancel", stop);
+  });
+}
+
+function installPanelEdgeResizers(element, model) {
+  if (!element || element.querySelector(".panel-edge-resizer")) return;
+  for (const edge of ["n", "e", "s", "w"]) {
+    const handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = `panel-edge-resizer panel-edge-resizer-${edge}`;
+    handle.dataset.edge = edge;
+    handle.setAttribute("aria-label", `Изменить размер окна: ${edge}`);
+    element.append(handle);
+    bindPanelEdgeResizer(handle, model);
+  }
+}
+
 function bindPanelDrag(handle, model) {
   if (!handle) return;
   handle.addEventListener("pointerdown", (event) => {
-    if (event.target.closest("button, input, select, a, .panel-resizer, .column-resizer")) return;
+    if (event.target.closest("button, input, select, a, .panel-resizer, .panel-edge-resizer, .column-resizer")) return;
     event.preventDefault();
     event.stopPropagation();
     handle.setPointerCapture(event.pointerId);
@@ -1689,11 +1764,30 @@ function intervalRange(interval) {
   return { "1s": "4h", "5s": "1d", "15s": "7d" }[interval] || "1h";
 }
 
+function bindTimeframeVisibility(root, readVisible, writeVisible) {
+  const button = root.querySelector("[data-timeframe-visibility]");
+  if (!button) return;
+  const sync = () => {
+    const visible = Boolean(readVisible());
+    root.classList.toggle("are-timeframes-hidden", !visible);
+    button.setAttribute("aria-pressed", String(visible));
+    button.title = visible ? "Скрыть таймфреймы" : "Показать таймфреймы";
+    button.setAttribute("aria-label", button.title);
+  };
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    writeVisible(!readVisible());
+    sync();
+  });
+  sync();
+}
+
 function bindChartToolbox(root, chart, persistSessions = false) {
   const toggle = root.querySelector(".drawing-tools-toggle");
   const menu = root.querySelector(".drawing-tools-menu");
   if (!toggle || !menu) return;
   const drawingButtons = [...menu.querySelectorAll("[data-drawing-tool]")];
+  const magnetButton = menu.querySelector("[data-chart-magnet]");
   const sessionButton = menu.querySelector("[data-session-toggle]");
   const clearButton = root.querySelector(".drawing-clear-button");
   menu.hidden = false;
@@ -1713,6 +1807,8 @@ function bindChartToolbox(root, chart, persistSessions = false) {
   const sync = () => {
     toggle.classList.toggle("is-active", menu.classList.contains("is-open") || Boolean(chart.activeTool));
     drawingButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.drawingTool === chart.activeTool));
+    magnetButton?.classList.toggle("is-active", chart.magnetEnabled);
+    magnetButton?.setAttribute("aria-pressed", String(chart.magnetEnabled));
     sessionButton?.classList.toggle("is-off", !chart.sessionsVisible);
     if (sessionButton) {
       sessionButton.textContent = "◫";
@@ -1731,6 +1827,10 @@ function bindChartToolbox(root, chart, persistSessions = false) {
     sync();
   }));
   clearButton?.addEventListener("click", () => chart.clearDrawings());
+  magnetButton?.addEventListener("click", () => {
+    chart.setMagnetEnabled(!chart.magnetEnabled);
+    sync();
+  });
   sessionButton?.addEventListener("click", () => {
     chart.setSessionsVisible(!chart.sessionsVisible);
     if (persistSessions) {
@@ -1752,22 +1852,22 @@ function mountExtraChart(model) {
     <header class="chart-heading">
       <span class="panel-grip" title="Дополнительный график">⠿</span>
       <div class="chart-quote"><h2>${escapeHtml(model.symbol.replace("USDT", ""))}/USDT</h2><strong data-mini-price>—</strong></div>
+      <div class="chart-metrics"><span title="Оборот за 24 часа в USDT"><b>О24</b><strong data-mini-metric="quoteVolume24h">—</strong></span><span><b>NATR 1</b><strong data-mini-metric="natr1m">—</strong></span><span><b>NATR 5</b><strong data-mini-metric="natr5m">—</strong></span><span><b>F</b><strong data-mini-metric="fundingRate">—</strong></span><span><b>C</b><strong data-mini-metric="correlation">—</strong></span></div>
       <div class="chart-controls"><div class="timeframes timeframe-picker">
         <div class="timeframe-favorites" aria-label="Избранные таймфреймы"></div>
         <button class="timeframe-more timeframe-menu-toggle" data-mini-timeframe-toggle type="button" aria-expanded="false" title="Все таймфреймы">ТФ ›</button>
         <div class="timeframe-menu" data-mini-timeframe-menu>${timeframeMenuMarkup(model.interval)}</div>
       </div></div>
+      <button class="chart-timeframe-visibility" data-timeframe-visibility type="button" title="Скрыть таймфреймы" aria-label="Скрыть таймфреймы" aria-pressed="true">ТФ</button>
       <button class="mini-chart-close panel-close" type="button" title="Закрыть график">×</button>
     </header>
+    <div class="chart-tools-curtain">
+      <div class="chart-toolbox"><button class="drawing-tools-toggle" type="button" title="Открыть инструменты" aria-expanded="false"><span aria-hidden="true"></span></button><div class="drawing-tools-menu">
+        <button data-drawing-tool="trend" type="button" title="Отрезок">╱</button><button data-drawing-tool="horizontal" type="button" title="Горизонталь">─</button><button data-drawing-tool="ruler" type="button" title="Линейка"><svg class="drawing-tool-icon ruler-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15 15 4l5 5L9 20H4v-5Z"/><path d="m12 7 2 2m-5 1 2 2m-5 1 2 2"/></svg></button><button data-drawing-tool="rectangle" type="button" title="Прямоугольник">▭</button><button data-drawing-tool="ray" type="button" title="Луч">→</button><button data-drawing-tool="freehand" type="button" title="Рисование">∿</button><button data-drawing-tool="alert" type="button" title="Alert">!</button>
+        <button class="chart-magnet-toggle" data-chart-magnet type="button" title="Магнит к OHLC" aria-pressed="true">⌁</button><button class="drawing-clear-button" type="button" title="Очистить всё">⌫</button><button class="volume-toggle" data-mini-volume type="button" title="Объём">V</button><button class="session-toggle" data-mini-session type="button" title="Сессии">S</button>
+      </div></div>
+    </div>
     <div class="chart-stage">
-      <div class="chart-metrics"><span title="Оборот за 24 часа в USDT"><b>О24</b><strong data-mini-metric="quoteVolume24h">—</strong></span><span><b>NATR 1</b><strong data-mini-metric="natr1m">—</strong></span><span><b>NATR 5</b><strong data-mini-metric="natr5m">—</strong></span><span><b>F</b><strong data-mini-metric="fundingRate">—</strong></span><span><b>C</b><strong data-mini-metric="correlation">—</strong></span>
-        <div class="chart-metric-controls">
-          <div class="chart-toolbox"><button class="drawing-tools-toggle" type="button" title="Инструменты рисования" aria-expanded="false">✎</button><div class="drawing-tools-menu">
-            <button data-drawing-tool="trend" type="button" title="Отрезок">╱</button><button data-drawing-tool="horizontal" type="button" title="Горизонталь">─</button><button data-drawing-tool="ruler" type="button" title="Линейка">↕</button><button data-drawing-tool="rectangle" type="button" title="Прямоугольник">▭</button><button data-drawing-tool="ray" type="button" title="Луч">→</button><button data-drawing-tool="freehand" type="button" title="Рисование">∿</button><button data-drawing-tool="alert" type="button" title="Alert">!</button>
-          </div><button class="drawing-clear-button" type="button" title="Очистить всё">⌫</button></div>
-          <button class="volume-toggle" data-mini-volume type="button" title="Объём">V</button><button class="session-toggle" data-mini-session type="button" title="Сессии">S</button>
-        </div>
-      </div>
       <canvas aria-label="Дополнительный свечной график"></canvas><div class="chart-tooltip" hidden></div>
       <button class="chart-resizer" type="button" aria-label="Изменить размер графика"></button>
     </div>
@@ -1808,6 +1908,10 @@ function mountExtraChart(model) {
     persistWorkspace();
     panel.feed.select(model.symbol, model.interval, intervalRange(model.interval));
   });
+  bindTimeframeVisibility(article, () => model.timeframesVisible, (visible) => {
+    model.timeframesVisible = visible;
+    persistWorkspace();
+  });
   const volumeButton = article.querySelector("[data-mini-volume]");
   const sessionButton = article.querySelector("[data-mini-session]");
   const syncMiniSettings = () => {
@@ -1822,6 +1926,7 @@ function mountExtraChart(model) {
   article.querySelector(".mini-chart-close").addEventListener("click", () => removeExtraChart(model.id));
   bindGridResizer(article.querySelector(".chart-resizer"), model, chart);
   bindGridResizer(article.querySelector(".panel-resizer-nw"), model, chart, "nw");
+  installPanelEdgeResizers(article, model);
   bindPanelDrag(article.querySelector(".chart-heading"), model);
   article.addEventListener("dragover", (event) => {
     if (event.dataTransfer.types.includes("text/inpuls-symbol")) event.preventDefault();
@@ -1845,7 +1950,7 @@ function createExtraPanel(symbol, type = "chart", options = {}) {
   const preferredCandidate = preferred ? { ...preferred } : null;
   const slot = preferredCandidate && canPlacePanel(preferredCandidate, state.workspace)
     ? preferredCandidate
-    : (findFreeSlot(type === "orderbook" ? 6 : 8, 6) ?? findFreeSlot(4, 3) ?? findFreeSlot(3, 2));
+    : (findFreeSlot(type === "orderbook" ? 12 : 16, 12) ?? findFreeSlot(8, 6) ?? findFreeSlot(6, 4));
   if (!slot) return false;
   const model = {
     id: `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1856,6 +1961,7 @@ function createExtraPanel(symbol, type = "chart", options = {}) {
     interval: state.chartInterval,
     volumeVisible: state.volumeVisible,
     sessionsVisible: state.sessionsVisible,
+    timeframesVisible: true,
     bookScaleIndex: 3,
     bookCentered: true,
     tapePercent: 48,
@@ -1977,7 +2083,7 @@ function hideCorePanel(id) {
 function restoreCorePanel(id) {
   const model = state.workspace[id];
   if (!model?.hidden) return;
-  const minimum = model.type === "scanner" ? { w: 5, h: 2 } : { w: 3, h: 2 };
+  const minimum = model.type === "scanner" ? { w: 10, h: 4 } : { w: 6, h: 4 };
   const slot = findFreeSlot(model.w, model.h) ?? findFreeSlot(minimum.w, minimum.h);
   if (!slot) {
     showToast("На рабочем поле пока нет места");
@@ -2097,6 +2203,7 @@ function mountOrderBook(model) {
   article.querySelector(".panel-close").addEventListener("click", () => removeOrderBook(model.id));
   bindGridResizer(article.querySelector(".panel-resizer"), model);
   bindGridResizer(article.querySelector(".panel-resizer-nw"), model, null, "nw");
+  installPanelEdgeResizers(article, model);
   bindPanelDrag(article.querySelector(".orderbook-heading"), model);
   const clearDropState = () => article.classList.remove("is-symbol-drop-target");
   article.addEventListener("dragenter", (event) => {
@@ -3363,6 +3470,9 @@ function bindEvents() {
   bindGridResizer(els.radarResizerNw, state.workspace.radar, null, "nw");
   bindGridResizer(els.scannerResizer, state.workspace.scanner);
   bindGridResizer(els.scannerResizerNw, state.workspace.scanner, null, "nw");
+  installPanelEdgeResizers(document.querySelector(".primary-chart"), state.workspace.primary);
+  installPanelEdgeResizers(document.querySelector(".top-card"), state.workspace.radar);
+  installPanelEdgeResizers(document.querySelector(".workspace-panel"), state.workspace.scanner);
   bindPanelDrag(document.querySelector(".primary-chart .chart-heading"), state.workspace.primary);
   bindPanelDrag(document.querySelector(".top-card .top-columns"), state.workspace.radar);
   bindPanelDrag(document.querySelector(".workspace-panel .toolbar"), state.workspace.scanner);
@@ -3393,6 +3503,10 @@ function bindEvents() {
   bindTimeZonePicker();
   bindChartToolbox(document.querySelector(".primary-chart"), priceChart, true);
   const primaryChartPanel = document.querySelector(".primary-chart");
+  bindTimeframeVisibility(primaryChartPanel, () => state.timeframesVisible, (visible) => {
+    state.timeframesVisible = visible;
+    localStorage.setItem(STORAGE_KEYS.timeframesVisible, JSON.stringify(visible));
+  });
   primaryChartPanel.addEventListener("dragover", (event) => {
     if (event.dataTransfer.types.includes("text/inpuls-symbol")) event.preventDefault();
   });
@@ -3769,7 +3883,7 @@ updateClock(new Date(binanceClock.now()));
 scheduleClockTick();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-118-tape-cluster-market-key-v1";
+const INPULS_RUNTIME_BUILD = "26-120-burgundy-workspace-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
