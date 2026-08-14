@@ -22,14 +22,14 @@ test("footprint aggregates exact prices by the current ladder step", () => {
   assert.equal(first.sellQuote, 80);
 });
 
-test("Tape never exposes more than two minutes", () => {
-  assert.equal(tapeSecondsForScale(4_000, 300), 120);
+test("Tape can expose the retained five-minute window", () => {
+  assert.equal(tapeSecondsForScale(4_000, 300), 300);
 });
 
 test("Tape ships a right-side NOW line and a precise slider", () => {
   const source = read("./orderbook.js");
   assert.match(source, /NOW · LIVE/);
-  assert.match(source, /TAPE_RETENTION_MS = 2 \* 60_000/);
+  assert.match(source, /TAPE_RETENTION_MS = 5 \* 60_000/);
   assert.match(source, /data-inpuls-tape-time-scale[^>]+step="1"/);
   assert.doesNotMatch(source, /data-inpuls-tape-time-scale-value/);
   assert.match(source, /width: 118px/);

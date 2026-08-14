@@ -517,17 +517,17 @@ export class CandlestickChart {
     this.onToolChange = null;
     this.fontScale = 1;
     this.theme = {
-      background: "#0c0b0d",
-      bullFill: "#58c5a4",
-      bullStroke: "#58c5a4",
-      bearFill: "#231a1e",
-      bearStroke: "#d86878",
-      grid: "#3b3337",
-      text: "#91858b",
-      crosshair: "#a5989e",
-      crosshairFill: "#302329",
-      crosshairText: "#faf7f8",
-      session: "#c05273",
+      background: "#07090e",
+      bullFill: "#4fd1a5",
+      bullStroke: "#4fd1a5",
+      bearFill: "#25191f",
+      bearStroke: "#f2788b",
+      grid: "#303746",
+      text: "#8992a8",
+      crosshair: "#9ba4b8",
+      crosshairFill: "#252b38",
+      crosshairText: "#fbfbfd",
+      session: "#7c83ff",
     };
     this.drag = null;
     this.renderFrame = null;
@@ -1135,8 +1135,8 @@ export class CandlestickChart {
     if (!this.layout || !this.annotations.length) return;
     const { margins, plotWidth, plotHeight, priceBottom, minPrice, maxPrice } = this.layout;
     const tones = {
-      accent: "#43e1c2",
-      blue: "#64b8ff",
+      accent: "#7c83ff",
+      blue: "#70b7ff",
       warning: "#f1bf62",
       danger: "#f27d86",
       success: "#5fe0a7",

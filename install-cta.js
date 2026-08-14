@@ -167,14 +167,14 @@
     const dialog = document.createElement("dialog");
     dialog.id = "pwa-install-dialog";
     dialog.setAttribute("aria-labelledby", "pwa-install-dialog-title");
-    dialog.style.cssText = "width:min(480px,calc(100vw - 32px));padding:0;border:1px solid rgba(79,255,176,.35);border-radius:16px;background:#12171b;color:#eefbf5;box-shadow:0 24px 80px rgba(0,0,0,.58);";
+    dialog.style.cssText = "width:min(480px,calc(100vw - 32px));padding:0;border:1px solid rgba(124,131,255,.42);border-radius:0;background:#12151c;color:#eef0f7;box-shadow:0 24px 80px rgba(0,0,0,.58);";
 
     const card = document.createElement("section");
     card.style.cssText = "padding:24px;display:grid;gap:14px;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;";
 
     const badge = document.createElement("span");
     badge.dataset.role = "badge";
-    badge.style.cssText = "width:max-content;padding:6px 9px;border-radius:999px;background:rgba(46,214,142,.12);border:1px solid rgba(79,255,176,.3);color:#70f5b8;font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;";
+    badge.style.cssText = "width:max-content;padding:6px 9px;border-radius:0;background:rgba(124,131,255,.12);border:1px solid rgba(124,131,255,.34);color:#b7bcff;font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;";
 
     const title = document.createElement("h2");
     title.id = "pwa-install-dialog-title";
@@ -183,11 +183,11 @@
 
     const message = document.createElement("p");
     message.dataset.role = "message";
-    message.style.cssText = "margin:0;color:#d4dfda;font-size:15px;line-height:1.55;";
+    message.style.cssText = "margin:0;color:#d7dbea;font-size:15px;line-height:1.55;";
 
     const detail = document.createElement("p");
     detail.dataset.role = "detail";
-    detail.style.cssText = "margin:0;padding:12px 14px;border-radius:11px;background:rgba(255,255,255,.035);color:#9eb0a8;font-size:13px;line-height:1.5;";
+    detail.style.cssText = "margin:0;padding:12px 14px;border-radius:0;background:rgba(255,255,255,.035);color:#969eb3;font-size:13px;line-height:1.5;";
 
     const actions = document.createElement("div");
     actions.style.cssText = "display:flex;justify-content:flex-end;padding-top:4px;";
@@ -195,7 +195,7 @@
     const closeButton = document.createElement("button");
     closeButton.type = "button";
     closeButton.textContent = "Понятно";
-    closeButton.style.cssText = "min-height:40px;padding:0 18px;border:1px solid rgba(79,255,176,.45);border-radius:10px;background:rgba(46,214,142,.15);color:#caffdf;font:700 13px/1 system-ui,sans-serif;cursor:pointer;";
+    closeButton.style.cssText = "min-height:40px;padding:0 18px;border:1px solid rgba(124,131,255,.5);border-radius:0;background:rgba(124,131,255,.15);color:#eef0ff;font:700 13px/1 system-ui,sans-serif;cursor:pointer;";
     closeButton.addEventListener("click", () => dialog.close());
 
     actions.append(closeButton);

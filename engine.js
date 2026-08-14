@@ -54,6 +54,7 @@ export class SymbolState {
     this.high24h = null;
     this.low24h = null;
     this.quoteVolume24h = 0;
+    this.quoteVolumeHistory = [];
     this.lastQuoteVolume24h = null;
     this.lastVolumeTimestamp = null;
     this.volumeFast = 0;
@@ -113,6 +114,15 @@ export class SymbolState {
       this.quoteVolume24h = quoteVolume;
       this.lastQuoteVolume24h = quoteVolume;
       this.lastVolumeTimestamp = now;
+      const lastVolumePoint = this.quoteVolumeHistory.at(-1);
+      if (!lastVolumePoint || now - lastVolumePoint.t >= 5_000) {
+        this.quoteVolumeHistory.push({ t: now, value: quoteVolume });
+      } else {
+        lastVolumePoint.value = quoteVolume;
+      }
+      while (this.quoteVolumeHistory.length > 1 && this.quoteVolumeHistory[0].t < now - 6 * 60_000) {
+        this.quoteVolumeHistory.shift();
+      }
     }
   }
 
@@ -257,6 +267,21 @@ export class SymbolState {
     return { longs, shorts, total: longs + shorts };
   }
 
+  quoteVolumeDelta(windowMs, now = Date.now()) {
+    const duration = Math.max(1_000, Number(windowMs) || 0);
+    const target = now - duration;
+    let baseline = null;
+    for (let index = this.quoteVolumeHistory.length - 1; index >= 0; index -= 1) {
+      const point = this.quoteVolumeHistory[index];
+      if (point.t <= target) {
+        baseline = point;
+        break;
+      }
+    }
+    if (!baseline || !Number.isFinite(this.quoteVolume24h)) return null;
+    return this.quoteVolume24h - baseline.value;
+  }
+
   metrics(settings = DEFAULT_SETTINGS, now = Date.now()) {
     const warmupSeconds = Math.max(0, (now - this.createdAt) / 1000);
     const change15s = this.priceChange(15_000, now);
@@ -270,6 +295,8 @@ export class SymbolState {
       ? clamp(this.volumeFast / this.volumeSlow, 0, 99)
       : null;
     const turnoverPerMinute = this.volumeFast * 60;
+    const volumeDelta1m = this.quoteVolumeDelta(60_000, now);
+    const volumeDelta5m = this.quoteVolumeDelta(5 * 60_000, now);
     const natr1m = natrFromCandles(this.minuteCandles);
     const natr5m = natrFromCandles(aggregateMinuteCandles(this.minuteCandles, 5));
     const minuteReturns = this.minuteCandles.slice(1).map((candle, index) => {
@@ -286,6 +313,8 @@ export class SymbolState {
       change5m,
       change24h: percentChange(this.price, this.open24h),
       quoteVolume24h: this.quoteVolume24h,
+      volumeDelta1m,
+      volumeDelta5m,
       turnoverPerMinute,
       volumeBoost,
       range60s,

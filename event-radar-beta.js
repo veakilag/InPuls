@@ -227,7 +227,6 @@ class EventRadarBetaWidget {
     panel.setAttribute("aria-label", "Событийный радар BETA");
     panel.innerHTML = `
       <header class="event-radar-beta__heading">
-        <span class="event-radar-beta__grip" aria-hidden="true">⠿</span>
         <div><strong>СОБЫТИЙНЫЙ РАДАР</strong><small>BETA · старые блоки не заменяет</small></div>
         <span class="event-radar-beta__new" hidden></span>
         <button data-event-freeze type="button" title="Заморозить список">ПАУЗА</button>

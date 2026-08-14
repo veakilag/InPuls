@@ -22,7 +22,8 @@ test("supplied logo and compact brand are used", () => {
   const logo = read("./assets/inpuls-logo.svg");
   assert.match(html, /src="\.\/assets\/inpuls-logo\.svg"/);
   assert.match(html, /class="brand-name">InPuls</);
-  assert.match(logo, /fill="#6904DE"/);
+  assert.match(logo, /linearGradient id="inpuls-gradient"/);
+  assert.match(logo, /#7C83FF/);
 });
 
 test("clock can float and magnetically return to its dock", () => {
