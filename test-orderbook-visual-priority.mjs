@@ -129,10 +129,10 @@ test("trade count is not shown above Tape", () => {
 });
 
 test("visual priority ships one consistent runtime", () => {
-  assert.match(index, /26-117-chart-interaction-performance-v1/);
-  assert.match(app, /orderbook\.js\?v=26-117-chart-interaction-performance-v1/);
-  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-117-chart-interaction-performance-v1/);
-  assert.match(sw, /app\.js\?v=26-117-chart-interaction-performance-v1/);
-  assert.match(sw, /orderbook\.js\?v=26-117-chart-interaction-performance-v1/);
-  assert.match(sw, /orderbook-flow-workspace\.js\?v=26-117-chart-interaction-performance-v1/);
+  assert.match(index, /26-118-tape-cluster-market-key-v1/);
+  assert.match(app, /orderbook\.js\?v=26-118-tape-cluster-market-key-v1/);
+  assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-118-tape-cluster-market-key-v1/);
+  assert.match(sw, /app\.js\?v=26-118-tape-cluster-market-key-v1/);
+  assert.match(sw, /orderbook\.js\?v=26-118-tape-cluster-market-key-v1/);
+  assert.match(sw, /orderbook-flow-workspace\.js\?v=26-118-tape-cluster-market-key-v1/);
 });
