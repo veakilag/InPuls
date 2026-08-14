@@ -8,7 +8,7 @@ import {
   materializeTapeSeries,
   nextTapeMode,
   normalizeTapeMode,
-} from "./orderbook.js?v=26-117-chart-interaction-performance-v1";
+} from "./orderbook.js?v=26-118-tape-cluster-market-key-v1";
 
 function trade(id, time, side, price, quote) {
   return {

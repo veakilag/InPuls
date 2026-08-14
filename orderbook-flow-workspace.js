@@ -1,4 +1,5 @@
 import { binanceClock } from "./binance-clock.js?v=26-102-tape-live-edge-minute-boundary-v1";
+import { normalizeOrderBookMarketKey } from "./orderbook-market-key.js?v=26-118-tape-cluster-market-key-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 
 export const FLOW_WORKSPACE = Object.freeze({
@@ -632,7 +633,7 @@ function cardSymbol(card) {
   );
   const pair = text.split("·")[0].replace("/", "").trim().toUpperCase();
   const market = card?.dataset?.market === "spot" ? "spot" : "futures";
-  return pair.endsWith("USDT") ? `${market}:${pair}` : null;
+  return normalizeOrderBookMarketKey(pair, market);
 }
 
 function parseNumber(text) {
@@ -1544,8 +1545,8 @@ function renderCard(card, state) {
 
 function acceptTape(event) {
   const detail = event?.detail;
-  const symbol = String(detail?.symbol ?? "").toUpperCase();
-  if (!symbol.endsWith("USDT")) return;
+  const symbol = normalizeOrderBookMarketKey(detail?.symbol, detail?.market);
+  if (!symbol) return;
   if (!detail?.replace && !detail?.live) return;
   const incoming = detail?.live && Array.isArray(detail?.trades) ? detail.trades : [];
   const accumulator = footprintBySymbol.get(symbol) ?? createFootprintAccumulator();
@@ -1572,9 +1573,9 @@ function acceptTape(event) {
 }
 
 function acceptBookStatus(event) {
-  const symbol = String(event?.detail?.symbol ?? "").toUpperCase();
+  const symbol = normalizeOrderBookMarketKey(event?.detail?.symbol, event?.detail?.market);
   const status = event?.detail?.status;
-  if (!symbol.endsWith("USDT") || !status) return;
+  if (!symbol || !status) return;
   statusBySymbol.set(symbol, status);
   document.querySelectorAll(".orderbook-card").forEach((card) => {
     if (cardSymbol(card) === symbol) requestDraw(card);

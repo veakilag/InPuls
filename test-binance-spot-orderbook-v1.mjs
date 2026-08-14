@@ -15,10 +15,11 @@ test("Binance Spot uses independent market-qualified Worker feeds", () => {
   assert.match(runtime, /market: this\.market/);
   assert.match(worker, /post\(\s*"tape",\s*this\.symbol,\s*\{\s*market: this\.market,\s*replace: false,\s*live: true,/s);
   assert.match(runtime, /detail: \{ symbol: key, market, status \}/);
+  assert.match(runtime, /normalizeOrderBookMarketKey\(detail\?\.symbol, detail\?\.market\)/);
 });
 
 test("Spot tape hotfix invalidates the full browser runtime chain", () => {
-  const build = "26-117-chart-interaction-performance-v1";
+  const build = "26-118-tape-cluster-market-key-v1";
   const index = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   const serviceWorker = readFileSync(new URL("./sw.js", import.meta.url), "utf8");
   assert.match(index, new RegExp(`app\\.js\\?v=${build}`));
@@ -28,6 +29,7 @@ test("Spot tape hotfix invalidates the full browser runtime chain", () => {
   for (const asset of ["app.js", "orderbook.js", "orderbook-worker.js"]) {
     assert.match(serviceWorker, new RegExp(`${asset.replace(".", "\\.")}\\?v=${build}`));
   }
+  assert.match(serviceWorker, new RegExp(`orderbook-market-key\\.js\\?v=${build}`));
 });
 
 test("Spot depth and trades use official Spot endpoints", () => {

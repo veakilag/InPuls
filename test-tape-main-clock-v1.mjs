@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 // One shared UI clock must align Tape and footprint with NOW · LIVE.
-import { tapeDisplayTimeFromReceipt } from "./orderbook.js?v=26-117-chart-interaction-performance-v1";
-import { flowDisplayTimeFromReceipt } from "./orderbook-flow-workspace.js?v=26-117-chart-interaction-performance-v1";
+import { tapeDisplayTimeFromReceipt } from "./orderbook.js?v=26-118-tape-cluster-market-key-v1";
+import { flowDisplayTimeFromReceipt } from "./orderbook-flow-workspace.js?v=26-118-tape-cluster-market-key-v1";
 
 test("Tape and footprint share the main Binance clock", () => {
   const localNow = 1_000_000;

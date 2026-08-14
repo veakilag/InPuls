@@ -25,6 +25,6 @@ test("drag and wheel use lightweight rendering and restore detail", () => {
 });
 
 test("release pages request the optimized chart build", () => {
-  assert.match(app, /chart\.js\?v=26-117-chart-interaction-performance-v1/);
-  assert.match(index, /app\.js\?v=26-117-chart-interaction-performance-v1/);
+  assert.match(app, /chart\.js\?v=26-118-tape-cluster-market-key-v1/);
+  assert.match(index, /app\.js\?v=26-118-tape-cluster-market-key-v1/);
 });

@@ -6,9 +6,10 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-117-chart-interaction-performance-v1";
+import "./orderbook-flow-workspace.js?v=26-118-tape-cluster-market-key-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
+import { normalizeOrderBookMarketKey } from "./orderbook-market-key.js?v=26-118-tape-cluster-market-key-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
 
 export function applyDepthUpdates(levels, updates) {
@@ -1457,7 +1458,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-117-chart-interaction-performance-v1", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-118-tape-cluster-market-key-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -2038,7 +2039,7 @@ function cardSymbol(card) {
   const title = String(card.querySelector("[data-book-ticker]")?.textContent ?? card.querySelector("h2")?.textContent ?? "");
   const pair = title.split("·")[0].trim().replace("/", "").toUpperCase();
   const market = card?.dataset?.market === "spot" ? "spot" : "futures";
-  return pair.endsWith("USDT") ? `${market}:${pair}` : null;
+  return normalizeOrderBookMarketKey(pair, market);
 }
 
 export function installOrderBookStyles() {
@@ -3221,9 +3222,9 @@ function scheduleLiquidityForSymbol(symbol) {
 }
 
 function acceptBookData(event) {
-  const symbol = String(event?.detail?.symbol ?? "").toUpperCase();
+  const symbol = normalizeOrderBookMarketKey(event?.detail?.symbol, event?.detail?.market);
   const data = event?.detail?.data;
-  if (!symbol.endsWith("USDT") || !data) return;
+  if (!symbol || !data) return;
   latestBookDataBySymbol.set(symbol, data);
   scheduleLiquidityForSymbol(symbol);
   requestAnimationFrame(function refreshVisibleDensityAgesAfterBookData() {
@@ -3240,9 +3241,9 @@ function acceptBookData(event) {
 }
 
 function acceptBookStatus(event) {
-  const symbol = String(event?.detail?.symbol ?? "").toUpperCase();
+  const symbol = normalizeOrderBookMarketKey(event?.detail?.symbol, event?.detail?.market);
   const status = event?.detail?.status;
-  if (!symbol.endsWith("USDT") || !status) return;
+  if (!symbol || !status) return;
   bookStatusBySymbol.set(symbol, status);
   document.querySelectorAll(".orderbook-card").forEach((card) => {
     if (cardSymbol(card) === symbol) scheduleTapeDraw(true, card);
@@ -5092,8 +5093,8 @@ function drainTapeIngest() {
 
 function acceptTapeData(event) {
   const detail = event?.detail;
-  const symbol = String(detail?.symbol ?? "").toUpperCase();
-  if (!symbol.endsWith("USDT")) return;
+  const symbol = normalizeOrderBookMarketKey(detail?.symbol, detail?.market);
+  if (!symbol) return;
   if (!detail?.replace && !detail?.seriesReplace && !detail?.live) return;
   const carriesData = Boolean(detail?.live || detail?.replace || detail?.seriesReplace);
   const incoming = carriesData && Array.isArray(detail?.trades)
