@@ -44,6 +44,21 @@ test("SymbolState calculates 15 second move", () => {
   assert.equal(metrics.volumeBoost, null, "volume acceleration stays muted during warm-up");
 });
 
+test("ticker metrics expose trade count and a signed live volume estimate", () => {
+  const start = 1_700_000_000_000;
+  const symbol = new SymbolState("TESTUSDT", start);
+  symbol.updateTicker({ c: "100", q: "1000000", n: 12_345, E: start }, start);
+  symbol.updateTicker({ c: "100", q: "1060000", E: start + 10_000 }, start + 10_000);
+  const metrics = symbol.metrics(DEFAULT_SETTINGS, start + 10_000);
+  assert.equal(metrics.trades24h, 12_345);
+  assert.ok(metrics.quoteVolumeRate > 0);
+
+  const outflow = new SymbolState("DOWNUSDT", start);
+  outflow.updateTicker({ c: "100", q: "1000000", E: start }, start);
+  outflow.updateTicker({ c: "100", q: "940000", E: start + 10_000 }, start + 10_000);
+  assert.ok(outflow.metrics(DEFAULT_SETTINGS, start + 10_000).quoteVolumeRate < 0);
+});
+
 test("book ticker updates the live midpoint without waiting for mini ticker", () => {
   const start = 1_700_000_000_000;
   const symbol = new SymbolState("TESTUSDT", start);

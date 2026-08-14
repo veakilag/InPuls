@@ -1,5 +1,5 @@
 import { binanceClock } from "./binance-clock.js?v=26-102-tape-live-edge-minute-boundary-v1";
-import { normalizeOrderBookMarketKey } from "./orderbook-market-key.js?v=26-122-configurable-market-headers-v1";
+import { normalizeOrderBookMarketKey } from "./orderbook-market-key.js?v=26-123-chart-polish-v2";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 
 export const FLOW_WORKSPACE = Object.freeze({

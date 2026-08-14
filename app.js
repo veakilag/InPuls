@@ -1,4 +1,4 @@
-import { buildBinanceChannelStreams, buildBinanceChannelTransports, isBinanceSubscriptionError, isCoreMiniTickerPacket, nextBinanceTransportIndex, normalizeBinanceRestMiniTicker } from "./binance-stream-routing.js?v=26-91-runtime-boot-cache-feed-v1";
+import { buildBinanceChannelStreams, buildBinanceChannelTransports, isBinanceSubscriptionError, isCoreMiniTickerPacket, nextBinanceTransportIndex, normalizeBinanceRestMiniTicker } from "./binance-stream-routing.js?v=26-123-chart-polish-v2";
 import { binanceClock } from "./binance-clock.js?v=26-102-tape-live-edge-minute-boundary-v1";
 import {
   DEFAULT_SETTINGS,
@@ -7,9 +7,9 @@ import {
   formatCompactUsd,
   isUsdtPerpetualSymbol,
   normalizeUsdtPerpetualSymbol,
-} from "./engine.js?v=26-122-configurable-market-headers-v1";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-122-configurable-market-headers-v1";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-122-configurable-market-headers-v1";
+} from "./engine.js?v=26-123-chart-polish-v2";
+import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-123-chart-polish-v2";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-123-chart-polish-v2";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -19,7 +19,7 @@ import {
   MarketwideSizeScanner,
   detectMarketwideCascade,
 } from "./market-pattern-scanner.js?v=marketwide-patterns-v1";
-import { panelsOverlap, resizeTiledWorkspace, WORKSPACE_COLS, WORKSPACE_ROWS } from "./workspace-layout.js?v=26-122-configurable-market-headers-v1";
+import { panelsOverlap, resizeTiledWorkspace, WORKSPACE_COLS, WORKSPACE_ROWS } from "./workspace-layout.js?v=26-123-chart-polish-v2";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -1054,7 +1054,8 @@ function getMetrics(now = Date.now()) {
   return metrics
     .map((item) => ({
       ...item,
-      volumeVelocity: state.radarVolumeWindowMs === 300_000 ? item.volumeDelta5m : item.volumeDelta1m,
+      volumeVelocity: (state.radarVolumeWindowMs === 300_000 ? item.volumeDelta5m : item.volumeDelta1m)
+        ?? (Number.isFinite(item.quoteVolumeRate) ? item.quoteVolumeRate * state.radarVolumeWindowMs / 1000 : null),
       correlation: item.symbol === "BTCUSDT" ? 1 : pearsonCorrelation(item.minuteReturns, bitcoinReturns),
     }))
     .sort((a, b) => {
@@ -1522,7 +1523,7 @@ function syncRadarToolbar() {
 }
 
 function radarGridTemplate() {
-  return `24px minmax(66px,1.35fr) repeat(${state.radarVisibleMetrics.length},minmax(50px,1fr))`;
+  return `30px minmax(66px,1.35fr) repeat(${state.radarVisibleMetrics.length},minmax(50px,1fr))`;
 }
 
 function renderRadarColumns() {
@@ -2972,13 +2973,13 @@ function renderMetricStrip(container, item) {
     if (!metric) continue;
     const chip = document.createElement("span");
     chip.dataset.metric = key;
-    chip.title = metric.title;
-    const label = document.createElement("b");
-    label.textContent = key === "volumeVelocity" ? `VΔ${state.radarVolumeWindowMs === 300_000 ? 5 : 1}` : metric.label;
     const value = document.createElement("strong");
     value.textContent = item ? formatRadarMetric(item, key) : "—";
     if (metric.tone && item) value.className = toneClass(item[key]);
-    chip.append(label, value);
+    const period = key === "volumeVelocity" ? ` (${state.radarVolumeWindowMs === 300_000 ? 5 : 1}м)` : "";
+    value.title = `${metric.name}${period}: ${value.textContent}. ${metric.title}`;
+    value.setAttribute("aria-label", `${metric.name}${period}: ${value.textContent}`);
+    chip.append(value);
     fragment.append(chip);
   }
   container.replaceChildren(fragment);
@@ -4095,7 +4096,7 @@ updateClock(new Date(binanceClock.now()));
 scheduleClockTick();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-122-configurable-market-headers-v1";
+const INPULS_RUNTIME_BUILD = "26-123-chart-polish-v2";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

@@ -6,6 +6,21 @@ const AGG_TRADES_REST = "https://fapi.binance.com/fapi/v1/aggTrades";
 const RANGE_MS = { "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000, "7d": 604_800_000, "30d": 2_592_000_000, "90d": 7_776_000_000, "365d": 31_536_000_000 };
 const INTERVAL_MS = { "1s": 1_000, "5s": 5_000, "15s": 15_000, "1m": 60_000, "3m": 180_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000, "1h": 3_600_000, "2h": 7_200_000, "4h": 14_400_000, "12h": 43_200_000, "1d": 86_400_000, "3d": 259_200_000, "1w": 604_800_000, "1M": 2_592_000_000 };
 
+export function candleCountdown(candle, interval, now = Date.now()) {
+  const duration = INTERVAL_MS[interval] ?? 60_000;
+  const closeTime = Number.isFinite(Number(candle?.closeTime))
+    ? Number(candle.closeTime) + 1
+    : Number(candle?.time) + duration;
+  if (!Number.isFinite(closeTime)) return "--:--";
+  const totalSeconds = Math.max(0, Math.ceil((closeTime - Number(now)) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+    : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 export function parseRestKline(row) {
   return {
     time: Number(row[0]),
@@ -562,6 +577,9 @@ export class CandlestickChart {
       if (event.key === "Control" || event.key === "Meta") this.magnetHeld = false;
     };
     this.blurHandler = () => { this.magnetHeld = false; };
+    this.countdownTimer = setInterval(() => {
+      if (this.candles.length && document.visibilityState !== "hidden") this.#requestRender();
+    }, 1_000);
     window.addEventListener("keydown", this.keyHandler, true);
     window.addEventListener("keyup", this.keyUpHandler, true);
     window.addEventListener("blur", this.blurHandler);
@@ -634,6 +652,7 @@ export class CandlestickChart {
   setTool(tool) {
     const allowed = new Set(["trend", "horizontal", "ruler", "rectangle", "ray", "freehand", "alert"]);
     this.activeTool = allowed.has(tool) ? tool : null;
+    if (this.activeTool) this.magnetEnabled = true;
     this.draftDrawing = null;
     this.drawingGesture = null;
     this.drawingSnap = false;
@@ -742,6 +761,7 @@ export class CandlestickChart {
     if (this.renderFrame !== null) cancelAnimationFrame(this.renderFrame);
     clearTimeout(this.viewportPersistTimer);
     clearTimeout(this.wheelIdleTimer);
+    clearInterval(this.countdownTimer);
     this.renderFrame = null;
     this.viewportPersistTimer = null;
     this.wheelIdleTimer = null;
@@ -935,7 +955,17 @@ export class CandlestickChart {
 
     this.layout = { visible, margins, step, plotWidth, plotHeight, priceBottom, width, height, startIndex: this.viewStart, minPrice, maxPrice };
     const current = this.candles.at(-1);
-    if (current) this.#drawLastPrice(ctx, width, margins, y(current.close), current.close, current.close >= current.open, margins.top, priceBottom);
+    if (current) this.#drawLastPrice(
+      ctx,
+      width,
+      margins,
+      y(current.close),
+      current.close,
+      current.close >= current.open,
+      margins.top,
+      priceBottom,
+      candleCountdown(current, this.meta?.interval, binanceClock.now()),
+    );
     this.#drawAnnotations(ctx, !interactionLite);
     this.#drawDrawings(ctx);
     if (this.hoverX !== null && this.hoverY !== null) this.#drawCrosshair(ctx);
@@ -1047,9 +1077,9 @@ export class CandlestickChart {
     return low + (timestamp - this.candles[low].time) / span;
   }
 
-  #drawLastPrice(ctx, width, margins, lineY, price, up, top, bottom) {
+  #drawLastPrice(ctx, width, margins, lineY, price, up, top, bottom, countdown) {
     const color = up ? this.theme.bullFill : this.theme.bearFill;
-    const visibleY = Math.max(top + 9, Math.min(bottom - 9, lineY));
+    const visibleY = Math.max(top + 9, Math.min(bottom - 22, lineY));
     ctx.save();
     ctx.setLineDash([4, 4]);
     ctx.strokeStyle = up ? this.theme.bullStroke : this.theme.bearStroke;
@@ -1071,6 +1101,15 @@ export class CandlestickChart {
     ctx.font = this.#font(9, true);
     ctx.textAlign = "center";
     ctx.fillText(formatChartPrice(price), width - margins.right / 2, visibleY + 3);
+    ctx.fillStyle = this.theme.crosshairFill;
+    ctx.fillRect(width - margins.right, visibleY + 9, margins.right, 13);
+    ctx.strokeStyle = up ? this.theme.bullStroke : this.theme.bearStroke;
+    ctx.globalAlpha = .72;
+    ctx.strokeRect(width - margins.right + .5, visibleY + 9.5, margins.right - 1, 12);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = this.theme.crosshairText;
+    ctx.font = this.#font(7, true);
+    ctx.fillText(countdown, width - margins.right / 2, visibleY + 19);
   }
 
   #pointAt(x, y, snap = false) {

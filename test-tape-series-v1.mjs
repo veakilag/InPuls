@@ -8,7 +8,7 @@ import {
   materializeTapeSeries,
   nextTapeMode,
   normalizeTapeMode,
-} from "./orderbook.js?v=26-122-configurable-market-headers-v1";
+} from "./orderbook.js?v=26-123-chart-polish-v2";
 
 function trade(id, time, side, price, quote) {
   return {

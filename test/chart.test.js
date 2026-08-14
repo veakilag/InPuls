@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { aggregateCandles, calculateNatr, candleCenterSlot, candleIndexAtSlot, drawingPercentChange, KlineFeed, maximumVisibleCandles, nicePriceStep, niceTimeTickStep, parseRestKline, parseStreamKline, pearsonCorrelation, preserveViewFraction, scaleFromDrag, sessionLabels, snapPointToCandle, snapPriceToCandle, upsertCandle, visibleCountFromDrag } from "../chart.js";
+import { aggregateCandles, calculateNatr, candleCenterSlot, candleCountdown, candleIndexAtSlot, drawingPercentChange, KlineFeed, maximumVisibleCandles, nicePriceStep, niceTimeTickStep, parseRestKline, parseStreamKline, pearsonCorrelation, preserveViewFraction, scaleFromDrag, sessionLabels, snapPointToCandle, snapPriceToCandle, upsertCandle, visibleCountFromDrag } from "../chart.js";
 
 test("REST kline is normalized", () => {
   const candle = parseRestKline([1000, "10", "12", "9", "11", "25", 1999]);
@@ -20,6 +20,12 @@ test("stream kline is normalized", () => {
   const candle = parseStreamKline({ k: { t: 1000, o: "10", h: "12", l: "9", c: "11", v: "25", T: 1999, x: false } });
   assert.equal(candle.close, 11);
   assert.equal(candle.closed, false);
+});
+
+test("current price label countdown follows the candle close", () => {
+  assert.equal(candleCountdown({ time: 0, closeTime: 59_999 }, "1m", 45_000), "00:15");
+  assert.equal(candleCountdown({ time: 0 }, "1h", 3_599_000), "00:01");
+  assert.equal(candleCountdown({ time: 0 }, "4h", 1_000), "03:59:59");
 });
 
 test("live update replaces an open candle", () => {

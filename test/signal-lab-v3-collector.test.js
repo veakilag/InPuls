@@ -36,7 +36,7 @@ test("Signal Lab V3 reports LIVE only after a real miniTicker packet", () => {
 
 test("Signal Lab V3 owner page exposes truthful live diagnostics and evidence replay", () => {
   assert.equal(ownerHtml.includes('name="robots" content="noindex,nofollow,noarchive"'), true);
-  assert.equal(ownerHtml.includes("26-122-configurable-market-headers-v1"), true);
+  assert.equal(ownerHtml.includes("26-123-chart-polish-v2"), true);
   assert.equal(ownerRuntime.includes('syncing: "синхронизация"'), true);
   assert.equal(ownerRuntime.includes("miniTicker"), true);
   assert.equal(ownerRuntime.includes("aggTradePackets"), true);

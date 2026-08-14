@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 // Arrival-time rendering must not overwrite the original execution timestamp.
-import { normalizeFlowTrade } from "./orderbook-flow-workspace.js?v=26-122-configurable-market-headers-v1";
+import { normalizeFlowTrade } from "./orderbook-flow-workspace.js?v=26-123-chart-polish-v2";
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 

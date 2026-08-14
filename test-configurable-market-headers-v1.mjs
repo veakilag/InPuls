@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { SymbolState } from "./engine.js?v=26-122-configurable-market-headers-v1";
+import { SymbolState } from "./engine.js?v=26-123-chart-polish-v2";
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -35,9 +35,19 @@ test("one header control applies a timeframe to every chart", () => {
   const html = read("./index.html");
   const app = read("./app.js");
   assert.match(html, /id="global-timeframes"[\s\S]*data-global-interval="1m"[\s\S]*data-clock-dock/);
+  for (const interval of ["1m", "5m", "15m", "1h", "4h", "1d"]) {
+    assert.match(html, new RegExp(`data-global-interval="${interval}"`));
+  }
   assert.match(app, /function selectGlobalInterval\(interval\)/);
   assert.match(app, /for \(const panel of extraCharts\.values\(\)\)/);
   assert.match(app, /panel\.feed\.select\(panel\.model\.symbol, interval, intervalRange\(interval\)\)/);
+});
+
+test("chart metric chips show values only and explain themselves on hover", () => {
+  const app = read("./app.js");
+  assert.match(app, /value\.title = `\$\{metric\.name\}/);
+  assert.doesNotMatch(app, /chip\.append\(label, value\)/);
+  assert.match(app, /chip\.append\(value\)/);
 });
 
 test("chart chrome is compact and future sessions use extrapolated slots", () => {
@@ -46,6 +56,7 @@ test("chart chrome is compact and future sessions use extrapolated slots", () =>
   assert.match(chart, /right: width < 520 \? 48 : 54/);
   assert.match(chart, /bottom: 20/);
   assert.match(chart, /const current = this\.#timeAtIndex\(index\)/);
+  assert.match(chart, /candleCountdown\(current, this\.meta\?\.interval, binanceClock\.now\(\)\)/);
   assert.match(css, /chart-tools-curtain \{ top: 28px !important; \}/);
   assert.match(css, /grid-template-rows: 29px/);
 });

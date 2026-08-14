@@ -9,7 +9,7 @@ import {
 } from "./binance-stream-routing.js";
 
 const APP_BUILD = "26-99-tape-priority-comfort-v1";
-const STABLE_SW_BUILD = "26-122-configurable-market-headers-v1";
+const STABLE_SW_BUILD = "26-123-chart-polish-v2";
 const app = fs.readFileSync(new URL("./app.js", import.meta.url), "utf8");
 const index = fs.readFileSync(new URL("./index.html", import.meta.url), "utf8");
 const sw = fs.readFileSync(new URL("./sw.js", import.meta.url), "utf8");
@@ -62,9 +62,11 @@ const restTicker = normalizeBinanceRestMiniTicker({
   lowPrice: "62000",
   volume: "100",
   quoteVolume: "6400000",
+  count: 2_345_678,
   closeTime: 123456,
 });
 assert.equal(restTicker?.e, "24hrMiniTicker");
+assert.equal(restTicker?.n, 2_345_678);
 assert.ok(isCoreMiniTickerPacket([restTicker]));
 
 console.log("runtime boot/network-only-sw/feed contracts passed");
