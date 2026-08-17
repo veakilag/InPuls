@@ -52,7 +52,7 @@ test("market bootstrap uses sequential fallback instead of three duplicate downl
 });
 
 test("browser shim is bounded and does not touch user storage", () => {
-  assert.match(app, /binance-stream-routing\.js\?v=26-123-chart-polish-v2/);
+  assert.match(app, /binance-stream-routing\.js\?v=26-124-multi-exchange-v1/);
   assert.match(source, /class InPulsFastStartWebSocket extends NativeWebSocket/);
   assert.match(source, /new MessageEvent\("message"/);
   assert.match(source, /!seenSymbols\.has\(ticker\.s\) \|\| Number\.isFinite\(Number\(ticker\.n\)\)/);

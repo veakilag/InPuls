@@ -1,5 +1,5 @@
 import { binanceClock } from "./binance-clock.js?v=26-102-tape-live-edge-minute-boundary-v1";
-import { normalizeOrderBookMarketKey } from "./orderbook-market-key.js?v=26-123-chart-polish-v2";
+import { normalizeOrderBookMarketKey } from "./orderbook-market-key.js?v=26-124-multi-exchange-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 
 export const FLOW_WORKSPACE = Object.freeze({
@@ -633,7 +633,8 @@ function cardSymbol(card) {
   );
   const pair = text.split("·")[0].replace("/", "").trim().toUpperCase();
   const market = card?.dataset?.market === "spot" ? "spot" : "futures";
-  return normalizeOrderBookMarketKey(pair, market);
+  const exchange = String(card?.dataset?.exchange || "binance").trim().toLowerCase();
+  return normalizeOrderBookMarketKey(exchange === "binance" ? `${market}:${pair}` : `${exchange}:${market}:${pair}`, market);
 }
 
 function parseNumber(text) {

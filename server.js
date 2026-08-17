@@ -18,7 +18,7 @@ export const CONTENT_SECURITY_POLICY = [
   "font-src 'self'",
   "manifest-src 'self'",
   "worker-src 'self'",
-  "connect-src 'self' https://fapi.binance.com https://fapi1.binance.com https://fapi2.binance.com https://api.binance.com https://api1.binance.com https://api2.binance.com wss://fstream.binance.com wss://stream.binance.com:9443",
+  "connect-src 'self' https://fapi.binance.com https://fapi1.binance.com https://fapi2.binance.com https://api.binance.com https://api1.binance.com https://api2.binance.com https://api.bybit.com https://www.okx.com https://api.bitget.com https://api.gateio.ws https://api.hyperliquid.xyz wss://fstream.binance.com wss://stream.binance.com:9443 wss://stream.bybit.com wss://ws.okx.com:8443 wss://ws.bitget.com wss://api.gateio.ws wss://fx-ws.gateio.ws wss://api.hyperliquid.xyz",
 ].join("; ");
 
 export const SECURITY_HEADERS = Object.freeze({

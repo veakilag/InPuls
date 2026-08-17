@@ -11,13 +11,14 @@ test("market-qualified order-book keys keep market lowercase and symbol uppercas
   assert.equal(normalizeOrderBookMarketKey("FUTURES:akeusdt"), "futures:AKEUSDT");
   assert.equal(normalizeOrderBookMarketKey("spot:Ake/Usdt"), "spot:AKEUSDT");
   assert.equal(normalizeOrderBookMarketKey("akeusdt", "SPOT"), "spot:AKEUSDT");
+  assert.equal(normalizeOrderBookMarketKey("okx:FUTURES:akeusdt"), "okx:futures:AKEUSDT");
   assert.equal(normalizeOrderBookMarketKey("AKEBTC", "futures"), null);
 });
 
 test("Tape and footprint consumers normalize the same Worker event key as their card", () => {
-  assert.match(runtime, /function cardSymbol\(card\)[\s\S]*return normalizeOrderBookMarketKey\(pair, market\);/);
+  assert.match(runtime, /function cardSymbol\(card\)[\s\S]*normalizeOrderBookMarketKey\(exchange === "binance"/);
   assert.match(runtime, /function acceptTapeData\(event\)[\s\S]*normalizeOrderBookMarketKey\(detail\?\.symbol, detail\?\.market\);/);
-  assert.match(workspace, /function cardSymbol\(card\)[\s\S]*return normalizeOrderBookMarketKey\(pair, market\);/);
+  assert.match(workspace, /function cardSymbol\(card\)[\s\S]*normalizeOrderBookMarketKey\(exchange === "binance"/);
   assert.match(workspace, /function acceptTape\(event\)[\s\S]*normalizeOrderBookMarketKey\(detail\?\.symbol, detail\?\.market\);/);
 });
 

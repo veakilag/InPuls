@@ -1,4 +1,4 @@
-import { buildBinanceChannelStreams, buildBinanceChannelTransports, isBinanceSubscriptionError, isCoreMiniTickerPacket, nextBinanceTransportIndex, normalizeBinanceRestMiniTicker } from "./binance-stream-routing.js?v=26-123-chart-polish-v2";
+import { buildBinanceChannelStreams, buildBinanceChannelTransports, isBinanceSubscriptionError, isCoreMiniTickerPacket, nextBinanceTransportIndex, normalizeBinanceRestMiniTicker } from "./binance-stream-routing.js?v=26-124-multi-exchange-v1";
 import { binanceClock } from "./binance-clock.js?v=26-102-tape-live-edge-minute-boundary-v1";
 import {
   DEFAULT_SETTINGS,
@@ -7,9 +7,9 @@ import {
   formatCompactUsd,
   isUsdtPerpetualSymbol,
   normalizeUsdtPerpetualSymbol,
-} from "./engine.js?v=26-123-chart-polish-v2";
-import { calculateNatr, CandlestickChart, KlineFeed, parseRestKline, pearsonCorrelation } from "./chart.js?v=26-123-chart-polish-v2";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-123-chart-polish-v2";
+} from "./engine.js?v=26-124-multi-exchange-v1";
+import { calculateNatr, CandlestickChart, KlineFeed, pearsonCorrelation } from "./chart.js?v=26-124-multi-exchange-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-124-multi-exchange-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -19,7 +19,16 @@ import {
   MarketwideSizeScanner,
   detectMarketwideCascade,
 } from "./market-pattern-scanner.js?v=marketwide-patterns-v1";
-import { panelsOverlap, resizeTiledWorkspace, WORKSPACE_COLS, WORKSPACE_ROWS } from "./workspace-layout.js?v=26-123-chart-polish-v2";
+import { panelsOverlap, resizeTiledWorkspace, WORKSPACE_COLS, WORKSPACE_ROWS } from "./workspace-layout.js?v=26-124-multi-exchange-v1";
+import {
+  EXCHANGES,
+  marketSourceLabel,
+  nextExchange,
+  normalizeExchange,
+  normalizeMarket,
+} from "./exchange-registry.js?v=26-124-multi-exchange-v1";
+import { fetchExchangeCandles } from "./exchange-market-data.js?v=26-124-multi-exchange-v1";
+import { ExchangeRadarFeed, fetchExchangeTickers } from "./exchange-radar-feed.js?v=26-124-multi-exchange-v1";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -106,26 +115,48 @@ function normalizeFavoriteColors(value, favorites = []) {
 }
 
 const DEFAULT_WORKSPACE = {
-  primary: { id: "primary", type: "chart", x: 0, y: 0, w: 36, h: 18 },
+  primary: { id: "primary", type: "chart", exchange: "binance", market: "futures", x: 0, y: 0, w: 36, h: 18 },
   radar: { id: "radar", type: "radar", x: 36, y: 0, w: 12, h: 18 },
   scanner: { id: "scanner", type: "scanner", x: 0, y: 18, w: 48, h: 6 },
   extras: [],
 };
 
+function normalizePanelSource(panel, fallback = {}) {
+  if (!panel || typeof panel !== "object") return panel;
+  return {
+    ...panel,
+    exchange: normalizeExchange(panel.exchange ?? fallback.exchange),
+    market: normalizeMarket(panel.market ?? fallback.market),
+  };
+}
+
+function normalizeWorkspaceSources(workspace) {
+  if (!workspace || typeof workspace !== "object") return DEFAULT_WORKSPACE;
+  return {
+    ...workspace,
+    primary: normalizePanelSource(workspace.primary ?? DEFAULT_WORKSPACE.primary, DEFAULT_WORKSPACE.primary),
+    radar: normalizePanelSource(workspace.radar ?? DEFAULT_WORKSPACE.radar, { exchange: "binance", market: "futures" }),
+    scanner: workspace.scanner ?? DEFAULT_WORKSPACE.scanner,
+    extras: Array.isArray(workspace.extras)
+      ? workspace.extras.map((panel) => normalizePanelSource(panel, { exchange: "binance", market: "futures" }))
+      : [],
+  };
+}
+
 function loadWorkspaceSettings() {
   const current = loadJson(STORAGE_KEYS.workspace, null);
-  if (current && typeof current === "object") return current;
+  if (current && typeof current === "object") return normalizeWorkspaceSources(current);
   const legacy = loadJson("inpuls-workspace-v4", null);
   if (!legacy || typeof legacy !== "object") return DEFAULT_WORKSPACE;
   const scalePanel = (panel) => panel && typeof panel === "object"
     ? { ...panel, x: Number(panel.x || 0) * 2, y: Number(panel.y || 0) * 2, w: Number(panel.w || 1) * 2, h: Number(panel.h || 1) * 2 }
     : panel;
-  return {
+  return normalizeWorkspaceSources({
     primary: scalePanel(legacy.primary) ?? DEFAULT_WORKSPACE.primary,
     radar: scalePanel(legacy.radar) ?? DEFAULT_WORKSPACE.radar,
     scanner: scalePanel(legacy.scanner) ?? DEFAULT_WORKSPACE.scanner,
     extras: Array.isArray(legacy.extras) ? legacy.extras.map(scalePanel) : [],
-  };
+  });
 }
 
 const initialNavigation = parseInPulsNavigation(window.location.search);
@@ -551,6 +582,14 @@ function scheduleRender() {
 }
 const radarHistoryLoaded = new Set();
 const radarHistoryLoading = new Set();
+const exchangeSymbolMaps = new Map();
+const radarSourceKey = (sourceValue = state.workspace.radar) => `${normalizeExchange(sourceValue.exchange)}:${normalizeMarket(sourceValue.market)}`;
+const symbolMapForSource = (sourceValue = state.workspace.radar) => {
+  const key = radarSourceKey(sourceValue);
+  if (key === "binance:futures") return state.symbols;
+  if (!exchangeSymbolMaps.has(key)) exchangeSymbolMaps.set(key, new Map());
+  return exchangeSymbolMaps.get(key);
+};
 const extraCharts = new Map();
 const orderBookPanels = new Map();
 const orderBookAutoThresholds = new Map();
@@ -682,7 +721,12 @@ priceChart.setVolumeVisible(state.volumeVisible);
 priceChart.setSessionsVisible(state.sessionsVisible);
 applyFontScale(state.fontScale);
 applyComfort(state.comfort);
+const primaryChartSource = () => ({
+  exchange: normalizeExchange(state.workspace.primary.exchange),
+  market: normalizeMarket(state.workspace.primary.market),
+});
 const klineFeed = new KlineFeed({
+  ...primaryChartSource(),
   onData(candles, meta) {
     state.chartCandles = candles;
     priceChart.setData(candles, meta);
@@ -693,6 +737,12 @@ const klineFeed = new KlineFeed({
     els.chartStatus.dataset.status = status;
     els.chartStatus.replaceChildren(document.createElement("i"), document.createTextNode(text));
   },
+});
+const syncPrimarySourceControls = bindWidgetMarketSource(document.querySelector(".primary-chart"), state.workspace.primary, () => {
+  state.chartCandles = [];
+  klineFeed.select(state.selectedChartSymbol, state.chartInterval, state.chartRange, primaryChartSource());
+  loadChartStats(state.selectedChartSymbol, primaryChartSource());
+  renderChartMetrics();
 });
 
 function persistChartSettings() {
@@ -1001,7 +1051,7 @@ function selectInterval(interval) {
   els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === state.chartRange));
   renderTimeframePickers();
   syncGlobalTimeframes();
-  klineFeed.select(state.selectedChartSymbol, interval, state.chartRange);
+  klineFeed.select(state.selectedChartSymbol, interval, state.chartRange, primaryChartSource());
 }
 
 function syncGlobalTimeframes() {
@@ -1020,7 +1070,7 @@ function selectGlobalInterval(interval) {
   for (const panel of extraCharts.values()) {
     panel.chart.lockPriceDomain();
     panel.model.interval = interval;
-    panel.feed.select(panel.model.symbol, interval, intervalRange(interval));
+    panel.feed.select(panel.model.symbol, interval, intervalRange(interval), panel.model);
     renderTimeframePicker(panel.element.querySelector(".timeframe-picker"));
   }
   persistWorkspace();
@@ -1037,7 +1087,7 @@ function selectRange(range) {
   els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === range));
   els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === state.chartInterval));
   renderTimeframePickers();
-  klineFeed.select(state.selectedChartSymbol, state.chartInterval, range);
+  klineFeed.select(state.selectedChartSymbol, state.chartInterval, range, primaryChartSource());
 }
 
 function getSymbol(symbol, now) {
@@ -1047,8 +1097,8 @@ function getSymbol(symbol, now) {
   return state.symbols.get(normalized);
 }
 
-function getMetrics(now = Date.now()) {
-  const metrics = [...state.symbols.values()]
+function metricsForSymbolMap(symbols, now = Date.now()) {
+  const metrics = [...symbols.values()]
     .map((item) => item.metrics(state.settings, now));
   const bitcoinReturns = metrics.find((item) => item.symbol === "BTCUSDT")?.minuteReturns ?? [];
   return metrics
@@ -1064,10 +1114,27 @@ function getMetrics(now = Date.now()) {
     });
 }
 
+function getMetrics(now = Date.now()) {
+  return metricsForSymbolMap(state.symbols, now);
+}
+
+function getMetricsForSource(sourceValue, now = Date.now()) {
+  return metricsForSymbolMap(symbolMapForSource(sourceValue), now);
+}
+
+function getRadarMetrics(now = Date.now()) {
+  return getMetricsForSource(state.workspace.radar, now);
+}
+
 function latestOrderBookForSignalMemory(symbol) {
   let latest = null;
   for (const panel of orderBookPanels.values()) {
-    if (panel?.model?.symbol !== symbol || !panel.latest) continue;
+    if (
+      panel?.model?.symbol !== symbol
+      || normalizeExchange(panel?.model?.exchange) !== "binance"
+      || normalizeMarket(panel?.model?.market) !== "futures"
+      || !panel.latest
+    ) continue;
     if (
       !latest
       || Number(panel.latest.eventTime) > Number(latest.eventTime)
@@ -1152,40 +1219,96 @@ function collectSignalMemoryFromFeed(now = Date.now()) {
 }
 
 async function warmupRadarHistory() {
-  const ranked = state.lastMetrics.slice().sort((left, right) => right.quoteVolume24h - left.quoteVolume24h);
+  const source = {
+    exchange: normalizeExchange(state.workspace.radar.exchange),
+    market: normalizeMarket(state.workspace.radar.market),
+  };
+  const sourceKey = radarSourceKey(source);
+  const symbolsMap = symbolMapForSource(source);
+  const ranked = getMetricsForSource(source).sort((left, right) => right.quoteVolume24h - left.quoteVolume24h);
   const symbols = [...new Set(["BTCUSDT", ...ranked.map((item) => item.symbol)])]
-    .filter((symbol) => state.symbols.has(symbol) && !radarHistoryLoaded.has(symbol) && !radarHistoryLoading.has(symbol))
+    .filter((symbol) => {
+      const historyKey = `${sourceKey}:${symbol}`;
+      return symbolsMap.has(symbol) && !radarHistoryLoaded.has(historyKey) && !radarHistoryLoading.has(historyKey);
+    })
     .slice(0, 6);
   if (!symbols.length) return;
   await Promise.all(symbols.map(async (symbol) => {
-    radarHistoryLoading.add(symbol);
+    const historyKey = `${sourceKey}:${symbol}`;
+    radarHistoryLoading.add(historyKey);
     try {
-      const query = new URLSearchParams({ symbol, interval: "1m", limit: "90" });
-      const response = await fetch(`https://fapi.binance.com/fapi/v1/klines?${query}`, { cache: "no-store" });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const rows = await response.json();
-      getSymbol(symbol)?.hydrateMinuteCandles(rows.map(parseRestKline));
-      radarHistoryLoaded.add(symbol);
+      const rows = await fetchExchangeCandles({ ...source, symbol }, "1m", 100);
+      if (radarSourceKey(state.workspace.radar) !== sourceKey) return;
+      symbolsMap.get(symbol)?.hydrateMinuteCandles(rows);
+      radarHistoryLoaded.add(historyKey);
+      scheduleRender();
     } catch {
       // Retry later without blocking the live market feed.
     } finally {
-      radarHistoryLoading.delete(symbol);
+      radarHistoryLoading.delete(historyKey);
     }
   }));
+}
+
+function ingestRadarSnapshot(rows, sourceValue) {
+  const source = {
+    exchange: normalizeExchange(sourceValue.exchange),
+    market: normalizeMarket(sourceValue.market),
+  };
+  const sourceKey = radarSourceKey(source);
+  const symbolsMap = symbolMapForSource(source);
+  const received = new Set();
+  for (const ticker of rows) {
+    const symbol = normalizeUsdtPerpetualSymbol(ticker?.s);
+    if (!symbol) continue;
+    received.add(symbol);
+    if (!symbolsMap.has(symbol)) symbolsMap.set(symbol, new SymbolState(symbol, Number(ticker.E) || Date.now()));
+    const symbolState = symbolsMap.get(symbol);
+    symbolState.updateTicker(ticker);
+    if (Number.isFinite(Number(ticker.r)) || Number.isFinite(Number(ticker.T))) symbolState.updateFunding(ticker);
+  }
+  for (const symbol of symbolsMap.keys()) {
+    if (!received.has(symbol)) symbolsMap.delete(symbol);
+  }
+  if (radarSourceKey(state.workspace.radar) !== sourceKey) return;
+  scheduleRender();
+  warmupRadarHistory();
+}
+
+const radarFeed = new ExchangeRadarFeed({
+  onSnapshot: ingestRadarSnapshot,
+  onStatus({ state: status, text: statusText }) {
+    const button = document.querySelector("[data-radar-exchange]");
+    if (!button) return;
+    button.dataset.status = status;
+    button.title = `${marketSourceLabel(state.workspace.radar)} · ${statusText}`;
+  },
+});
+
+function selectRadarSource() {
+  const source = {
+    exchange: normalizeExchange(state.workspace.radar.exchange),
+    market: normalizeMarket(state.workspace.radar.market),
+  };
+  if (radarSourceKey(source) === "binance:futures") radarFeed.destroy();
+  else radarFeed.select(source);
+  state.lastMetrics = [];
+  render();
 }
 
 function render() {
   const renderStartedAt = observability.enabled ? performance.now() : 0;
   let phaseStartedAt = renderStartedAt;
   const now = Date.now();
-  const marketwideMetrics = getMetrics(now);
+  const activeRadarSourceKey = radarSourceKey(state.workspace.radar);
+  const marketwideMetrics = getRadarMetrics(now);
   const metrics = marketwideMetrics.filter(
     (item) => item.quoteVolume24h >= state.settings.minTurnover24h,
   );
   state.lastMetrics = metrics;
   const eventRadarMetrics = metrics.map((item) => {
-    const marketwideSignals = marketSizeScanner.signalsFor(item.symbol, now);
-    const cascade = detectMarketwideCascade(item);
+    const marketwideSignals = activeRadarSourceKey === "binance:futures" ? marketSizeScanner.signalsFor(item.symbol, now) : [];
+    const cascade = activeRadarSourceKey === "binance:futures" ? detectMarketwideCascade(item) : null;
     return {
       ...item,
       signals: [
@@ -1196,9 +1319,15 @@ function render() {
     };
   });
   window.dispatchEvent(new CustomEvent("inpuls:event-radar-update", {
-    detail: { metrics: eventRadarMetrics, now, favorites: [...state.favorites] },
+    detail: {
+      metrics: eventRadarMetrics,
+      now,
+      favorites: [...state.favorites],
+      exchange: state.workspace.radar.exchange,
+      market: state.workspace.radar.market,
+    },
   }));
-  updateAlerts(metrics, now);
+  if (activeRadarSourceKey === "binance:futures") updateAlerts(metrics, now);
   if (observability.enabled) {
     observability.record("app.render.metrics", performance.now() - phaseStartedAt, {
       symbols: metrics.length,
@@ -1281,11 +1410,12 @@ function renderInPlay(metrics) {
     button.title = `${symbol} · V24 ${formatCompactUsd(item?.quoteVolume24h)}`;
     const change = item?.change24h;
     button.innerHTML = `<strong>${escapeHtml(symbol.replace("USDT", ""))}</strong><span class="${Number.isFinite(change) ? toneClass(change) : "tone-neutral"}">${formatChange(change)}</span>`;
-    button.addEventListener("click", () => selectChartSymbol(symbol));
+    button.addEventListener("click", () => selectChartSymbolFromSource(symbol, state.workspace.radar));
     button.addEventListener("dragstart", (event) => {
       event.dataTransfer.effectAllowed = "copy";
       event.dataTransfer.setData("text/inpuls-symbol", symbol);
       event.dataTransfer.setData("text/plain", symbol);
+      writeMarketSourceTransfer(event.dataTransfer, state.workspace.radar);
     });
     fragment.append(button);
   }
@@ -1384,7 +1514,7 @@ function renderSummary(metrics, now) {
   }
   if (els.hotCount) els.hotCount.textContent = metrics.filter((item) => item.score >= state.settings.alertScore).length;
   if (els.alertCount) els.alertCount.textContent = state.alerts.filter((item) => item.time >= now - 60_000).length;
-  if (els.trackedCount) els.trackedCount.textContent = state.symbols.size;
+  if (els.trackedCount) els.trackedCount.textContent = symbolMapForSource(state.workspace.radar).size;
 
   const oldest = metrics.reduce((min, item) => Math.max(min, item.warmupSeconds), 0);
   els.warmup.hidden = oldest >= 300;
@@ -1488,10 +1618,11 @@ function renderTopList(metrics) {
       event.dataTransfer.effectAllowed = "copy";
       event.dataTransfer.setData("text/inpuls-symbol", item.symbol);
       event.dataTransfer.setData("text/plain", item.symbol);
+      writeMarketSourceTransfer(event.dataTransfer, state.workspace.radar);
     });
-    row.addEventListener("click", () => selectChartSymbol(item.symbol));
+    row.addEventListener("click", () => selectChartSymbolFromSource(item.symbol, state.workspace.radar));
     row.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") selectChartSymbol(item.symbol);
+      if (event.key === "Enter" || event.key === " ") selectChartSymbolFromSource(item.symbol, state.workspace.radar);
     });
     fragment.append(row);
   });
@@ -1933,6 +2064,68 @@ function intervalRange(interval) {
   return { "1s": "4h", "5s": "1d", "15s": "7d" }[interval] || "1h";
 }
 
+const MARKET_SOURCE_TRANSFER = "application/x-inpuls-market-source";
+
+function writeMarketSourceTransfer(dataTransfer, sourceValue) {
+  if (!dataTransfer) return;
+  dataTransfer.setData(MARKET_SOURCE_TRANSFER, JSON.stringify({
+    exchange: normalizeExchange(sourceValue?.exchange),
+    market: normalizeMarket(sourceValue?.market),
+  }));
+}
+
+function readMarketSourceTransfer(dataTransfer, fallback = primaryChartSource()) {
+  try {
+    const parsed = JSON.parse(dataTransfer?.getData(MARKET_SOURCE_TRANSFER) || "null");
+    if (parsed && typeof parsed === "object") return {
+      exchange: normalizeExchange(parsed.exchange),
+      market: normalizeMarket(parsed.market),
+    };
+  } catch {}
+  return {
+    exchange: normalizeExchange(fallback.exchange),
+    market: normalizeMarket(fallback.market),
+  };
+}
+
+function bindWidgetMarketSource(root, model, onChange) {
+  const exchangeButton = root?.querySelector?.("[data-chart-exchange], [data-book-exchange], [data-radar-exchange]");
+  const marketButton = root?.querySelector?.("[data-chart-market], [data-book-market], [data-radar-market]");
+  const sync = () => {
+    model.exchange = normalizeExchange(model.exchange);
+    model.market = normalizeMarket(model.market);
+    const exchangeLabel = EXCHANGES[model.exchange]?.label ?? model.exchange.toUpperCase();
+    if (exchangeButton) {
+      exchangeButton.textContent = exchangeLabel;
+      exchangeButton.title = `${marketSourceLabel(model)} · нажми для следующей биржи; Shift — назад`;
+      exchangeButton.dataset.exchange = model.exchange;
+    }
+    if (marketButton) {
+      marketButton.textContent = model.market === "spot" ? "SPOT" : "FUTURES";
+      marketButton.title = `Рынок: ${model.market === "spot" ? "спот" : "бессрочные фьючерсы"}`;
+      marketButton.dataset.market = model.market;
+    }
+    root.dataset.exchange = model.exchange;
+    root.dataset.market = model.market;
+  };
+  exchangeButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    model.exchange = nextExchange(model.exchange, event.shiftKey ? -1 : 1);
+    sync();
+    persistWorkspace();
+    onChange?.({ exchange: model.exchange, market: model.market });
+  });
+  marketButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    model.market = model.market === "spot" ? "futures" : "spot";
+    sync();
+    persistWorkspace();
+    onChange?.({ exchange: model.exchange, market: model.market });
+  });
+  sync();
+  return sync;
+}
+
 function bindTimeframeVisibility(root, readVisible, writeVisible) {
   const button = root.querySelector("[data-timeframe-visibility]");
   if (!button) return;
@@ -2019,7 +2212,11 @@ function mountExtraChart(model) {
   article.dataset.panelId = model.id;
   article.innerHTML = `
     <header class="chart-heading">
-      <div class="chart-quote"><h2>${escapeHtml(model.symbol.replace("USDT", ""))}/USDT</h2></div>
+      <div class="chart-symbol-block">
+        <div class="chart-quote"><h2>${escapeHtml(model.symbol.replace("USDT", ""))}/USDT</h2></div>
+        <button class="widget-source-button" data-chart-exchange type="button" title="Сменить биржу">${EXCHANGES[normalizeExchange(model.exchange)].label}</button>
+        <button class="widget-market-button" data-chart-market type="button" title="Сменить рынок">${normalizeMarket(model.market) === "spot" ? "SPOT" : "FUTURES"}</button>
+      </div>
       <div class="chart-metrics" data-chart-metrics aria-label="Настраиваемые метрики монеты"></div>
       <div class="chart-controls"><div class="timeframes timeframe-picker">
         <div class="timeframe-favorites" aria-label="Избранные таймфреймы"></div>
@@ -2052,13 +2249,18 @@ function mountExtraChart(model) {
   if (activeChartTheme) chart.setTheme(activeChartTheme);
   const panel = { model, element: article, chart, feed: null };
   panel.feed = new KlineFeed({
+    exchange: model.exchange,
+    market: model.market,
     onData: (candles, meta) => {
       chart.setData(candles, meta);
     },
     onStatus() {},
   });
   extraCharts.set(model.id, panel);
-  renderMetricStrip(article.querySelector("[data-chart-metrics]"), state.lastMetrics.find((item) => item.symbol === model.symbol));
+  const syncChartSourceControls = bindWidgetMarketSource(article, model, () => {
+    panel.feed.select(model.symbol, model.interval, intervalRange(model.interval), model);
+  });
+  renderMetricStrip(article.querySelector("[data-chart-metrics]"), getMetricsForSource(model).find((item) => item.symbol === model.symbol));
   bindChartToolbox(article, chart);
   article.querySelector(".chart-quote h2").title = "Нажми, чтобы скопировать тикер";
   article.querySelector(".chart-quote h2").addEventListener("click", (event) => {
@@ -2069,7 +2271,7 @@ function mountExtraChart(model) {
     chart.lockPriceDomain();
     model.interval = interval;
     persistWorkspace();
-    panel.feed.select(model.symbol, model.interval, intervalRange(model.interval));
+    panel.feed.select(model.symbol, model.interval, intervalRange(model.interval), model);
     syncGlobalTimeframes();
   });
   bindTimeframeVisibility(article, () => model.timeframesVisible, (visible) => {
@@ -2099,12 +2301,14 @@ function mountExtraChart(model) {
     const symbol = normalizeUsdtPerpetualSymbol(event.dataTransfer.getData("text/inpuls-symbol"));
     if (!symbol) return;
     event.preventDefault();
+    Object.assign(model, readMarketSourceTransfer(event.dataTransfer, model));
+    syncChartSourceControls();
     model.symbol = symbol;
     article.querySelector("h2").textContent = `${symbol.replace("USDT", "")}/USDT`;
     persistWorkspace();
-    panel.feed.select(symbol, model.interval, intervalRange(model.interval));
+    panel.feed.select(symbol, model.interval, intervalRange(model.interval), model);
   });
-  panel.feed.select(model.symbol, model.interval, intervalRange(model.interval));
+  panel.feed.select(model.symbol, model.interval, intervalRange(model.interval), model);
 }
 
 function createExtraPanel(symbol, type = "chart", options = {}) {
@@ -2120,7 +2324,8 @@ function createExtraPanel(symbol, type = "chart", options = {}) {
     id: `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     type,
     symbol: normalizedSymbol,
-    market: options.market === "spot" ? "spot" : "futures",
+    exchange: normalizeExchange(options.exchange ?? state.workspace.primary.exchange),
+    market: normalizeMarket(options.market ?? state.workspace.primary.market),
     spotOf: options.spotOf || null,
     interval: state.chartInterval,
     volumeVisible: state.volumeVisible,
@@ -2184,11 +2389,11 @@ function selectOrderBookPanelSymbol(panel, symbol) {
   article.querySelector(".book-hover-percent").hidden = true;
   article.querySelector(".trade-flow-nodes").innerHTML = '<div class="orderbook-empty">Жду сделки…</div>';
   article.querySelector(".trade-flow-detail").hidden = true;
-  article.querySelector(".orderbook-rows").innerHTML = '<div class="orderbook-empty">Загружаю глубину Binance…</div>';
+  article.querySelector(".orderbook-rows").innerHTML = `<div class="orderbook-empty">Загружаю глубину ${EXCHANGES[normalizeExchange(model.exchange)].label}…</div>`;
   article.querySelector("h2").textContent = `${normalizedSymbol.replace("USDT", "")}/USDT`;
   persistWorkspace();
   panel.feed.select(normalizedSymbol);
-  if (model.market !== "spot") {
+  if (model.exchange === "binance" && model.market !== "spot") {
     const companion = [...orderBookPanels.values()].find((item) => item.model.spotOf === model.id);
     if (companion) removeOrderBook(companion.model.id);
     const spotButton = article.querySelector("[data-book-spot]");
@@ -2211,22 +2416,32 @@ function selectOrderBookPanelSymbol(panel, symbol) {
   return true;
 }
 
-function openOrderBookForSymbol(symbol) {
+function openOrderBookForSymbol(symbol, sourceValue = primaryChartSource()) {
   const normalizedSymbol = normalizeUsdtPerpetualSymbol(symbol);
   if (!normalizedSymbol) return false;
+  const source = {
+    exchange: normalizeExchange(sourceValue.exchange),
+    market: normalizeMarket(sourceValue.market),
+  };
   const existing = [...orderBookPanels.values()]
-    .find((panel) => panel.model.symbol === normalizedSymbol);
+    .find((panel) => panel.model.symbol === normalizedSymbol
+      && normalizeExchange(panel.model.exchange) === source.exchange
+      && normalizeMarket(panel.model.market) === source.market);
   if (existing) {
     focusOrderBookPanel(existing);
     return true;
   }
-  if (createExtraPanel(normalizedSymbol, "orderbook")) {
+  if (createExtraPanel(normalizedSymbol, "orderbook", source)) {
     const created = [...orderBookPanels.values()]
-      .find((panel) => panel.model.symbol === normalizedSymbol);
+      .find((panel) => panel.model.symbol === normalizedSymbol
+        && normalizeExchange(panel.model.exchange) === source.exchange
+        && normalizeMarket(panel.model.market) === source.market);
     focusOrderBookPanel(created);
     return true;
   }
-  const reusable = orderBookPanels.values().next().value;
+  const reusable = [...orderBookPanels.values()].find((panel) =>
+    normalizeExchange(panel.model.exchange) === source.exchange
+    && normalizeMarket(panel.model.market) === source.market);
   if (reusable && selectOrderBookPanelSymbol(reusable, normalizedSymbol)) {
     focusOrderBookPanel(reusable);
     return true;
@@ -2275,12 +2490,16 @@ function mountOrderBook(model) {
   article.className = "orderbook-card";
   article.dataset.panel = "orderbook";
   article.dataset.panelId = model.id;
+  model.exchange = normalizeExchange(model.exchange);
+  model.market = normalizeMarket(model.market);
+  article.dataset.exchange = model.exchange;
   article.dataset.market = model.market === "spot" ? "spot" : "futures";
   const marketLabel = model.market === "spot" ? "SPOT" : "FUTURES";
   article.innerHTML = `
     <header class="orderbook-heading">
       <h2 data-book-ticker title="Нажми, чтобы скопировать тикер">${escapeHtml(model.symbol.replace("USDT", ""))}/USDT</h2>
-      <span class="book-market-badge">${marketLabel}</span>
+      <button class="widget-source-button" data-book-exchange type="button" title="Сменить биржу">${EXCHANGES[model.exchange].label}</button>
+      <button class="book-market-badge widget-market-button" data-book-market type="button" title="Сменить рынок">${marketLabel}</button>
       <span class="book-status">Синхронизация</span>
       ${model.market === "spot" ? "" : '<button class="book-spot-toggle" data-book-spot type="button" disabled title="Проверяю наличие Binance Spot">SPOT</button>'}
       <div class="book-highlight-controls" aria-label="Подсветка крупных сайзов">
@@ -2304,7 +2523,7 @@ function mountOrderBook(model) {
       <button class="book-splitter" type="button" aria-label="Изменить ширину ленты сделок" title="Потяни влево или вправо"></button>
       <section class="orderbook-ladder" aria-label="Стакан заявок">
         <div class="book-pane-title"><span>САЙЗ</span><span data-book-scale>${bookScaleLabel(model.bookScaleIndex)}</span><span>ЦЕНА</span></div>
-        <div class="orderbook-rows"><div class="orderbook-empty">Загружаю глубину Binance…</div></div>
+        <div class="orderbook-rows"><div class="orderbook-empty">Загружаю глубину ${EXCHANGES[model.exchange].label}…</div></div>
       </section>
       <span class="book-wheel-hint">Колесо · глубина · Ctrl + колесо — шаг</span>
       <button class="panel-resizer" type="button" aria-label="Изменить размер стакана"></button>
@@ -2313,21 +2532,39 @@ function mountOrderBook(model) {
     <button class="panel-resizer panel-resizer-nw" type="button" aria-label="Изменить размер стакана из левого верхнего угла"></button>`;
   els.marketFocus.insertBefore(article, els.addChartTile);
   const panel = { model, element: article, feed: null, latest: null, centerFrame: null, viewCenter: null, priceStep: null, baseTick: null, autoCentering: false, autoScaleIndex: null, autoScaleUntil: 0, calmSince: 0, priceTrail: [], manualScrollAnchorPrice: null, manualScrollUntil: 0, selectedTradePathKey: null, tradeOffsetMs: 0, tradePriceDomain: null, tradeDomainKey: null, depthFitted: false };
-  panel.feed = new OrderBookFeed({
-    market: model.market,
-    onData(data) {
-      panel.latest = data;
-      scheduleOrderBookRender(panel);
-    },
-    onStatus({ state: status, text }) {
-      const label = article.querySelector(".book-status");
-      label.textContent = text;
-      label.classList.toggle("is-live", status === "online");
-    },
-  });
+  const connectPanelFeed = () => {
+    panel.feed?.destroy();
+    panel.latest = null;
+    panel.viewCenter = null;
+    panel.baseTick = null;
+    article.querySelector(".orderbook-rows").innerHTML = `<div class="orderbook-empty">Загружаю глубину ${EXCHANGES[normalizeExchange(model.exchange)].label}…</div>`;
+    panel.feed = new OrderBookFeed({
+      exchange: model.exchange,
+      market: model.market,
+      onData(data) {
+        panel.latest = data;
+        scheduleOrderBookRender(panel);
+      },
+      onStatus({ state: status, text }) {
+        const label = article.querySelector(".book-status");
+        label.textContent = text;
+        label.classList.toggle("is-live", status === "online");
+      },
+    });
+    panel.feed.select(model.symbol);
+  };
   orderBookPanels.set(model.id, panel);
+  const syncBookSourceControls = bindWidgetMarketSource(article, model, () => {
+    model.spotOf = null;
+    article.dataset.exchange = model.exchange;
+    article.dataset.market = model.market;
+    const companionButton = article.querySelector("[data-book-spot]");
+    if (companionButton) companionButton.hidden = model.exchange !== "binance" || model.market === "spot";
+    connectPanelFeed();
+  });
   const spotButton = article.querySelector("[data-book-spot]");
-  if (spotButton) {
+  if (spotButton) spotButton.hidden = model.exchange !== "binance" || model.market === "spot";
+  if (spotButton && model.exchange === "binance") {
     const syncSpotButton = () => {
       const companion = [...orderBookPanels.values()].find((item) => item.model.spotOf === model.id);
       spotButton.classList.toggle("is-active", Boolean(companion));
@@ -2355,7 +2592,7 @@ function mountOrderBook(model) {
         showToast("Справа недостаточно места для Spot — освободи соседние ячейки");
         return;
       }
-      createExtraPanel(model.symbol, "orderbook", { market: "spot", spotOf: model.id, preferredSlot });
+      createExtraPanel(model.symbol, "orderbook", { exchange: model.exchange, market: "spot", spotOf: model.id, preferredSlot });
       syncSpotButton();
     });
   }
@@ -2386,6 +2623,11 @@ function mountOrderBook(model) {
     event.preventDefault();
     event.stopPropagation();
     clearDropState();
+    const nextSource = readMarketSourceTransfer(event.dataTransfer, model);
+    const sourceChanged = radarSourceKey(nextSource) !== radarSourceKey(model);
+    Object.assign(model, nextSource);
+    syncBookSourceControls();
+    if (sourceChanged) connectPanelFeed();
     selectOrderBookPanelSymbol(panel, symbol);
   }, true);
   document.addEventListener("dragend", clearDropState);
@@ -2608,7 +2850,7 @@ function mountOrderBook(model) {
     if (panel.latest) scheduleOrderBookRender(panel, true);
   }, { capture: true, passive: false });
   syncCenterButton();
-  panel.feed.select(model.symbol);
+  connectPanelFeed();
 }
 
 function renderOrderBook(panel, data) {
@@ -2958,9 +3200,9 @@ function removeOrderBook(id) {
   applyWorkspaceLayout();
 }
 
-function updateExtraChartMetrics(metrics) {
+function updateExtraChartMetrics() {
   for (const panel of extraCharts.values()) {
-    const item = metrics.find((candidate) => candidate.symbol === panel.model.symbol);
+    const item = getMetricsForSource(panel.model).find((candidate) => candidate.symbol === panel.model.symbol);
     renderMetricStrip(panel.element.querySelector("[data-chart-metrics]"), item);
   }
 }
@@ -2987,7 +3229,7 @@ function renderMetricStrip(container, item) {
 
 function renderChartPicker() {
   const query = els.chartPickerSearch.value.trim().toLowerCase();
-  const universe = [...state.symbols.values()].map((item) => item.metrics(state.settings));
+  const universe = getMetricsForSource(primaryChartSource());
   const candidates = universe.filter((item) => !query || item.symbol.toLowerCase().includes(query)).sort((left, right) => right.quoteVolume24h - left.quoteVolume24h).slice(0, 180);
   const fragment = document.createDocumentFragment();
   for (const item of candidates) {
@@ -3007,6 +3249,27 @@ function updateChartHeader(metrics = state.lastMetrics) {
   renderChartMetrics();
 }
 
+function selectChartSymbolFromSource(symbol, sourceValue, scrollToChart = false) {
+  const source = {
+    exchange: normalizeExchange(sourceValue?.exchange),
+    market: normalizeMarket(sourceValue?.market),
+  };
+  const sourceChanged = radarSourceKey(state.workspace.primary) !== radarSourceKey(source);
+  const symbolChanged = normalizeUsdtPerpetualSymbol(symbol) !== state.selectedChartSymbol;
+  if (sourceChanged) {
+    state.workspace.primary.exchange = source.exchange;
+    state.workspace.primary.market = source.market;
+    syncPrimarySourceControls();
+    persistWorkspace();
+    state.chartCandles = [];
+  }
+  selectChartSymbol(symbol, scrollToChart);
+  if (sourceChanged && !symbolChanged) {
+    klineFeed.select(state.selectedChartSymbol, state.chartInterval, state.chartRange, primaryChartSource());
+    loadChartStats(state.selectedChartSymbol, primaryChartSource());
+  }
+}
+
 function selectChartSymbol(symbol, scrollToChart = false) {
   const normalizedSymbol = normalizeUsdtPerpetualSymbol(symbol);
   if (!normalizedSymbol) return;
@@ -3016,48 +3279,64 @@ function selectChartSymbol(symbol, scrollToChart = false) {
   updateChartHeader();
   renderTopList(state.lastMetrics);
   els.tableBody.querySelectorAll("tr").forEach((row) => row.classList.toggle("is-selected", row.dataset.symbol === normalizedSymbol));
-  if (changed || !state.chartCandles.length) klineFeed.select(normalizedSymbol, state.chartInterval, state.chartRange);
-  if (changed) loadChartStats(normalizedSymbol);
+  if (changed || !state.chartCandles.length) klineFeed.select(normalizedSymbol, state.chartInterval, state.chartRange, primaryChartSource());
+  if (changed) loadChartStats(normalizedSymbol, primaryChartSource());
   if (scrollToChart) els.marketFocus.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-async function loadChartStats(symbol) {
+async function loadChartStats(symbol, sourceValue = primaryChartSource()) {
   const requestedSymbol = symbol;
+  const requestedSource = `${normalizeExchange(sourceValue.exchange)}:${normalizeMarket(sourceValue.market)}`;
   state.chartStats = { fundingRate: null, nextFundingTime: null, natr1m: null, natr5m: null, correlation: null };
   renderChartMetrics();
   try {
-    const marketUrl = (pathname, parameters) => {
-      const url = new URL(pathname, "https://fapi.binance.com");
-      url.search = new URLSearchParams(parameters).toString();
-      return url;
+    const source = {
+      exchange: normalizeExchange(sourceValue.exchange),
+      market: normalizeMarket(sourceValue.market),
     };
-    const klineQuery = (pair, interval) => marketUrl("/fapi/v1/klines", { symbol: pair, interval, limit: "120" });
-    const [premiumResponse, minuteResponse, fiveMinuteResponse, bitcoinResponse] = await Promise.all([
-      fetch(marketUrl("/fapi/v1/premiumIndex", { symbol }), { cache: "no-store" }),
-      fetch(klineQuery(symbol, "1m"), { cache: "no-store" }),
-      fetch(klineQuery(symbol, "5m"), { cache: "no-store" }),
-      symbol === "BTCUSDT" ? Promise.resolve(null) : fetch(klineQuery("BTCUSDT", "1m"), { cache: "no-store" }),
+    const [minuteCandles, fiveMinuteCandles, bitcoinCandles, tickers] = await Promise.all([
+      fetchExchangeCandles({ ...source, symbol }, "1m", 120),
+      fetchExchangeCandles({ ...source, symbol }, "5m", 120),
+      symbol === "BTCUSDT" ? Promise.resolve(null) : fetchExchangeCandles({ ...source, symbol: "BTCUSDT" }, "1m", 120),
+      fetchExchangeTickers(source).catch(() => []),
     ]);
-    if (![premiumResponse, minuteResponse, fiveMinuteResponse].every((response) => response?.ok) || (bitcoinResponse && !bitcoinResponse.ok)) throw new Error("Market metrics unavailable");
-    const [premium, minuteRows, fiveMinuteRows, bitcoinRows] = await Promise.all([
-      premiumResponse.json(), minuteResponse.json(), fiveMinuteResponse.json(), bitcoinResponse ? bitcoinResponse.json() : Promise.resolve(null),
-    ]);
-    const minuteCandles = minuteRows.map(parseRestKline);
-    const fiveMinuteCandles = fiveMinuteRows.map(parseRestKline);
-    getSymbol(symbol)?.hydrateMinuteCandles(minuteCandles);
-    radarHistoryLoaded.add(symbol);
-    if (bitcoinRows) {
-      getSymbol("BTCUSDT")?.hydrateMinuteCandles(bitcoinRows.map(parseRestKline));
-      radarHistoryLoaded.add("BTCUSDT");
+    let fundingRate = null;
+    let nextFundingTime = null;
+    if (source.exchange === "binance" && source.market === "futures") {
+      const response = await fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${encodeURIComponent(symbol)}`, { cache: "no-store" });
+      if (response.ok) {
+        const premium = await response.json();
+        fundingRate = Number(premium.lastFundingRate);
+        nextFundingTime = Number(premium.nextFundingTime);
+      }
     }
-    if (state.selectedChartSymbol !== requestedSymbol) return;
+    const sourceMap = symbolMapForSource(source);
+    for (const ticker of tickers) {
+      const tickerSymbol = normalizeUsdtPerpetualSymbol(ticker.s);
+      if (!tickerSymbol || ![symbol, "BTCUSDT"].includes(tickerSymbol)) continue;
+      if (!sourceMap.has(tickerSymbol)) sourceMap.set(tickerSymbol, new SymbolState(tickerSymbol, Number(ticker.E) || Date.now()));
+      sourceMap.get(tickerSymbol).updateTicker(ticker);
+      if (Number.isFinite(Number(ticker.r)) || Number.isFinite(Number(ticker.T))) sourceMap.get(tickerSymbol).updateFunding(ticker);
+    }
+    if (!sourceMap.has(symbol)) sourceMap.set(symbol, new SymbolState(symbol));
+    sourceMap.get(symbol).hydrateMinuteCandles(minuteCandles);
+    radarHistoryLoaded.add(`${requestedSource}:${symbol}`);
+    if (bitcoinCandles) {
+      if (!sourceMap.has("BTCUSDT")) sourceMap.set("BTCUSDT", new SymbolState("BTCUSDT"));
+      sourceMap.get("BTCUSDT").hydrateMinuteCandles(bitcoinCandles);
+      radarHistoryLoaded.add(`${requestedSource}:BTCUSDT`);
+    }
+    if (
+      state.selectedChartSymbol !== requestedSymbol
+      || `${primaryChartSource().exchange}:${primaryChartSource().market}` !== requestedSource
+    ) return;
     const returns = (candles) => candles.slice(1).map((candle, index) => (candle.close - candles[index].close) / candles[index].close);
     state.chartStats = {
-      fundingRate: Number(premium.lastFundingRate),
-      nextFundingTime: Number(premium.nextFundingTime),
+      fundingRate,
+      nextFundingTime,
       natr1m: calculateNatr(minuteCandles),
       natr5m: calculateNatr(fiveMinuteCandles),
-      correlation: symbol === "BTCUSDT" ? 1 : pearsonCorrelation(returns(minuteCandles), returns(bitcoinRows.map(parseRestKline))),
+      correlation: symbol === "BTCUSDT" ? 1 : pearsonCorrelation(returns(minuteCandles), returns(bitcoinCandles ?? [])),
     };
   } catch {
     // Keep the chart usable if one auxiliary public endpoint is unavailable.
@@ -3066,7 +3345,7 @@ async function loadChartStats(symbol) {
 }
 
 function renderChartMetrics() {
-  const item = state.lastMetrics.find((candidate) => candidate.symbol === state.selectedChartSymbol);
+  const item = getMetricsForSource(primaryChartSource()).find((candidate) => candidate.symbol === state.selectedChartSymbol);
   const stats = state.chartStats;
   const enriched = item ? {
     ...item,
@@ -3098,7 +3377,7 @@ function renderDetail(symbol) {
   const template = document.createElement("template");
   template.innerHTML = `
     <div class="detail-heading">
-      <div><span class="eyebrow">Binance Futures</span><h2 data-detail-symbol></h2></div>
+      <div><span class="eyebrow">${escapeHtml(marketSourceLabel(state.workspace.radar))}</span><h2 data-detail-symbol></h2></div>
       <div class="detail-price"><span data-detail-price></span> <span data-detail-change></span></div>
     </div>
     <div class="detail-chart" data-detail-chart></div>
@@ -3572,6 +3851,7 @@ function bindEvents() {
   persistWorkspace();
   applyRadarColumns();
   renderRadarColumns();
+  bindWidgetMarketSource(document.querySelector(".top-card"), state.workspace.radar, selectRadarSource);
   for (const model of state.workspace.extras) {
     if (model.type === "orderbook") mountOrderBook(model);
     else mountExtraChart(model);
@@ -3581,8 +3861,12 @@ function bindEvents() {
   window.addEventListener("inpuls:event-radar-select", (event) => {
     const symbol = normalizeUsdtPerpetualSymbol(event.detail?.symbol);
     if (!symbol) return;
-    selectChartSymbol(symbol, true);
-    if (event.detail?.openOrderBook !== false) openOrderBookForSymbol(symbol);
+    const source = {
+      exchange: normalizeExchange(event.detail?.exchange ?? state.workspace.radar.exchange),
+      market: normalizeMarket(event.detail?.market ?? state.workspace.radar.market),
+    };
+    selectChartSymbolFromSource(symbol, source, true);
+    if (event.detail?.openOrderBook !== false) openOrderBookForSymbol(symbol, source);
   });
   window.addEventListener("inpuls:event-radar-favorite", (event) => {
     const symbol = normalizeUsdtPerpetualSymbol(event.detail?.symbol);
@@ -3695,7 +3979,11 @@ function bindEvents() {
     button.addEventListener("drop", (event) => {
       event.preventDefault();
       button.classList.remove("is-drop-target");
-      createExtraPanel(event.dataTransfer.getData("text/inpuls-symbol"), button.dataset.addPanel);
+      createExtraPanel(
+        event.dataTransfer.getData("text/inpuls-symbol"),
+        button.dataset.addPanel,
+        readMarketSourceTransfer(event.dataTransfer),
+      );
     });
   }
   els.addChartClose.addEventListener("click", () => els.addChartDialog.close());
@@ -3714,7 +4002,7 @@ function bindEvents() {
     const symbol = normalizeUsdtPerpetualSymbol(event.dataTransfer.getData("text/inpuls-symbol"));
     if (!symbol) return;
     event.preventDefault();
-    selectChartSymbol(symbol);
+    selectChartSymbolFromSource(symbol, readMarketSourceTransfer(event.dataTransfer));
   });
   els.chartSymbol.title = "Нажми, чтобы скопировать тикер";
   els.chartSymbol.addEventListener("click", () => copyTicker(state.selectedChartSymbol));
@@ -3904,11 +4192,12 @@ if (initialNavigation.symbol) {
   }
 }
 feed.connect();
+selectRadarSource();
 els.timeframeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.interval === state.chartInterval));
 els.rangeButtons.forEach((item) => item.classList.toggle("is-active", item.dataset.range === state.chartRange));
 renderTimeframePickers();
-klineFeed.select(state.selectedChartSymbol, state.chartInterval, state.chartRange);
-loadChartStats(state.selectedChartSymbol);
+klineFeed.select(state.selectedChartSymbol, state.chartInterval, state.chartRange, primaryChartSource());
+loadChartStats(state.selectedChartSymbol, primaryChartSource());
 // Rendering is event-driven. A fixed full-app rebuild on each exact second
 // caused a visible main-thread stall in every open chart.
 setInterval(updateTrackedSymbols, 15_000);
@@ -4096,7 +4385,7 @@ updateClock(new Date(binanceClock.now()));
 scheduleClockTick();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-123-chart-polish-v2";
+const INPULS_RUNTIME_BUILD = "26-124-multi-exchange-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

@@ -4,7 +4,7 @@ import {
   filterUsdtPerpetualTicker,
   isUsdtPerpetualSymbol,
   normalizeUsdtPerpetualSymbol,
-} from "./engine.js?v=26-123-chart-polish-v2";
+} from "./engine.js?v=26-124-multi-exchange-v1";
 import {
   CandidateEpisodeTracker,
   candidateWatchScore,
