@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { SymbolState } from "./engine.js?v=26-123-chart-polish-v2";
+import { SymbolState } from "./engine.js?v=26-124-multi-exchange-v1";
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -40,7 +40,7 @@ test("one header control applies a timeframe to every chart", () => {
   }
   assert.match(app, /function selectGlobalInterval\(interval\)/);
   assert.match(app, /for \(const panel of extraCharts\.values\(\)\)/);
-  assert.match(app, /panel\.feed\.select\(panel\.model\.symbol, interval, intervalRange\(interval\)\)/);
+  assert.match(app, /panel\.feed\.select\(panel\.model\.symbol, interval, intervalRange\(interval\), panel\.model\)/);
 });
 
 test("chart metric chips show values only and explain themselves on hover", () => {

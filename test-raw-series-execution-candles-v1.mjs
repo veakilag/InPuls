@@ -8,8 +8,8 @@ import {
   footprintIntervalHistory,
   ingestFootprintTrades,
   normalizeFlowTrade,
-} from "./orderbook-flow-workspace.js?v=26-123-chart-polish-v2";
-import { aggregateTapeSeries } from "./orderbook.js?v=26-123-chart-polish-v2";
+} from "./orderbook-flow-workspace.js?v=26-124-multi-exchange-v1";
+import { aggregateTapeSeries } from "./orderbook.js?v=26-124-multi-exchange-v1";
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 

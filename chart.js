@@ -1,4 +1,13 @@
 import { binanceClock } from "./binance-clock.js?v=26-102-tape-live-edge-minute-boundary-v1";
+import {
+  buildCandleStream,
+  buildTradeStream,
+  fetchExchangeCandles,
+} from "./exchange-market-data.js?v=26-124-multi-exchange-v1";
+import {
+  marketSource,
+  marketSourceKey,
+} from "./exchange-registry.js?v=26-124-multi-exchange-v1";
 
 const MARKET_WS = "wss://fstream.binance.com/market/ws";
 const KLINES_REST = "https://fapi.binance.com/fapi/v1/klines";
@@ -233,10 +242,13 @@ class SecondHistoryStore {
 const secondHistoryStore = new SecondHistoryStore();
 
 export class KlineFeed {
-  constructor({ onData, onStatus }) {
+  constructor({ onData, onStatus, exchange = "binance", market = "futures" }) {
     this.onData = onData;
     this.onStatus = onStatus;
     this.symbol = null;
+    this.exchange = exchange;
+    this.market = market;
+    this.sourceKey = null;
     this.interval = null;
     this.candles = [];
     this.socket = null;
@@ -254,21 +266,30 @@ export class KlineFeed {
     binanceClock.addEventListener("statechange", this.clockStateHandler);
   }
 
-  async select(symbol, interval = "1m", range = "1h") {
-    if (symbol === this.symbol && interval === this.interval && range === this.range && this.socket) return;
+  async select(symbol, interval = "1m", range = "1h", sourceValue = null) {
+    const source = marketSource({
+      exchange: sourceValue?.exchange ?? this.exchange,
+      market: sourceValue?.market ?? this.market,
+      symbol,
+    });
+    const nextSourceKey = marketSourceKey(source);
+    if (nextSourceKey === this.sourceKey && interval === this.interval && range === this.range && this.socket) return;
     if (this.symbol && this.interval && this.candles.length) {
-      this.seriesCache.set(`${this.symbol}:${this.interval}`, this.candles.slice(-(this.interval.endsWith("s") ? 30_000 : 1500)));
+      this.seriesCache.set(`${this.sourceKey}:${this.interval}`, this.candles.slice(-(this.interval.endsWith("s") ? 30_000 : 1500)));
     }
     this.symbol = symbol;
+    this.exchange = source.exchange;
+    this.market = source.market;
+    this.sourceKey = nextSourceKey;
     this.interval = interval;
     this.range = range;
-    const cacheKey = `${symbol}:${interval}`;
+    const cacheKey = `${this.sourceKey}:${interval}`;
     this.candles = this.seriesCache.get(cacheKey)?.slice() ?? [];
     this.generation += 1;
     const generation = this.generation;
     this.#cleanup();
-    this.onStatus({ state: "loading", text: `Загружаю ${symbol} · ${interval}` });
-    this.onData(this.candles, { symbol, interval, range, targetCandles: this.candles.length || undefined });
+    this.onStatus({ state: "loading", text: `Загружаю ${source.exchange.toUpperCase()} · ${symbol} · ${interval}` });
+    this.onData(this.candles, { ...source, interval, range, targetCandles: this.candles.length || undefined });
 
     this.abortController = new AbortController();
     try {
@@ -280,21 +301,29 @@ export class KlineFeed {
         if (generation !== this.generation) return;
         if (saved.length) {
           this.candles = mergeCandles(saved.filter(isValidCandle), this.candles).slice(-30_000);
-          this.onData(this.candles, { symbol, interval, range, targetCandles, historySource: "device" });
+          this.onData(this.candles, { ...source, interval, range, targetCandles, historySource: "device" });
           this.onStatus({ state: "loading", text: `История устройства: ${this.candles.length.toLocaleString("ru-RU")} свечей` });
         }
-        loadedCandles = await this.#fetchSecondCandles(symbol, INTERVAL_MS[interval], Math.min(30_000, targetCandles), generation);
+        loadedCandles = source.exchange === "binance"
+          ? await this.#fetchSecondCandles(symbol, INTERVAL_MS[interval], Math.min(30_000, targetCandles), generation)
+          : [];
       } else {
-        const query = new URLSearchParams({ symbol, interval, limit: "1500" });
-        const response = await fetch(`${KLINES_REST}?${query}`, { signal: this.abortController.signal, cache: "no-store" });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const rows = await response.json();
-        loadedCandles = rows.map(parseRestKline).filter(isValidCandle);
+        if (source.exchange === "binance" && source.market === "futures") {
+          const query = new URLSearchParams({ symbol, interval, limit: "1500" });
+          const response = await fetch(`${KLINES_REST}?${query}`, { signal: this.abortController.signal, cache: "no-store" });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const rows = await response.json();
+          loadedCandles = rows.map(parseRestKline).filter(isValidCandle);
+        } else {
+          loadedCandles = await fetchExchangeCandles(source, interval, 1_500, {
+            signal: this.abortController.signal,
+          });
+        }
       }
       if (generation !== this.generation) return;
       this.candles = mergeCandles(loadedCandles, this.candles).slice(-(secondsMode ? 30_000 : 1500));
       this.seriesCache.set(cacheKey, this.candles.slice());
-      this.onData(this.candles, { symbol, interval, range, targetCandles });
+      this.onData(this.candles, { ...source, interval, range, targetCandles });
       if (secondsMode) this.#scheduleSecondHistorySave();
     } catch (error) {
       if (error.name !== "AbortError" && generation === this.generation) {
@@ -317,7 +346,10 @@ export class KlineFeed {
     const fetchPage = async (endTime) => {
       const query = new URLSearchParams({ symbol, limit: "1000" });
       if (Number.isFinite(endTime)) query.set("endTime", String(Math.floor(endTime)));
-      const response = await fetch(`${AGG_TRADES_REST}?${query}`, { signal: this.abortController.signal, cache: "no-store" });
+      const endpoint = this.market === "spot"
+        ? "https://api.binance.com/api/v3/aggTrades"
+        : AGG_TRADES_REST;
+      const response = await fetch(`${endpoint}?${query}`, { signal: this.abortController.signal, cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.json();
     };
@@ -343,7 +375,7 @@ export class KlineFeed {
   #scheduleSecondHistorySave() {
     if (!this.interval?.endsWith("s") || !this.symbol) return;
     clearTimeout(this.historyFlushTimer);
-    const key = `${this.symbol}:${this.interval}`;
+    const key = `${this.sourceKey}:${this.interval}`;
     this.historyFlushTimer = setTimeout(() => secondHistoryStore.set(key, this.candles), 900);
   }
 
@@ -373,7 +405,7 @@ export class KlineFeed {
       this.cacheFlushTimer = null;
       if (!this.symbol || !this.interval) return;
       const limit = this.interval.endsWith("s") ? 30_000 : 1_500;
-      this.seriesCache.set(`${this.symbol}:${this.interval}`, this.candles.slice(-limit));
+      this.seriesCache.set(`${this.sourceKey}:${this.interval}`, this.candles.slice(-limit));
     }, 250);
   }
 
@@ -421,13 +453,21 @@ export class KlineFeed {
     if (changed) {
       this.#scheduleSeriesCacheFlush();
       this.#scheduleLiveEmit({
+        exchange: this.exchange,
+        market: this.market,
         symbol: this.symbol,
         interval: this.interval,
         range: this.range,
         provisionalBoundary: true,
       });
       globalThis.dispatchEvent?.(new CustomEvent("inpuls:kline-boundary", {
-        detail: { symbol: this.symbol, interval: this.interval, time: currentBucket },
+        detail: {
+          exchange: this.exchange,
+          market: this.market,
+          symbol: this.symbol,
+          interval: this.interval,
+          time: currentBucket,
+        },
       }));
     }
     this.#scheduleBoundaryTick(generation);
@@ -439,42 +479,77 @@ export class KlineFeed {
     binanceClock.removeEventListener("statechange", this.clockStateHandler);
   }
 
-  #connect(generation) {
+  async #connect(generation) {
     const secondsMode = this.interval.endsWith("s");
-    const stream = secondsMode ? `${this.symbol.toLowerCase()}@aggTrade` : `${this.symbol.toLowerCase()}@kline_${this.interval}`;
-    this.socket = new WebSocket(`${MARKET_WS}/${stream}`);
-    this.socket.addEventListener("open", () => {
-      if (generation === this.generation) this.onStatus({ state: "online", text: "Свечи онлайн" });
+    let descriptor;
+    try {
+      const source = { exchange: this.exchange, market: this.market, symbol: this.symbol };
+      descriptor = secondsMode
+        ? await buildTradeStream(source, { signal: this.abortController?.signal })
+        : await buildCandleStream(source, this.interval, { signal: this.abortController?.signal });
+    } catch {
+      if (generation === this.generation) {
+        this.onStatus({ state: "warning", text: `Поток ${this.exchange.toUpperCase()} недоступен` });
+        this.reconnectTimer = setTimeout(() => this.#connect(generation), 1_800);
+      }
+      return;
+    }
+    if (generation !== this.generation) return;
+    let socket;
+    try { socket = new WebSocket(descriptor.url); } catch {
+      this.reconnectTimer = setTimeout(() => this.#connect(generation), 1_800);
+      return;
+    }
+    this.socket = socket;
+    socket.addEventListener("open", () => {
+      if (generation !== this.generation || socket !== this.socket) return;
+      descriptor.open(socket);
+      this.onStatus({ state: "online", text: `${this.exchange.toUpperCase()} · свечи онлайн` });
     });
-    this.socket.addEventListener("message", (message) => {
-      if (generation !== this.generation) return;
+    socket.addEventListener("message", (message) => {
+      if (generation !== this.generation || socket !== this.socket) return;
       try {
         const payload = JSON.parse(message.data);
-        const data = payload.data ?? payload;
-        const candle = secondsMode ? tradeToCandle(data, INTERVAL_MS[this.interval]) : parseStreamKline(data);
-        if (!isValidCandle(candle)) return;
-        if (secondsMode && this.candles.at(-1)?.time === candle.time) {
-          const last = this.candles.at(-1);
-          candle.open = last.open;
-          candle.high = Math.max(last.high, candle.high);
-          candle.low = Math.min(last.low, candle.low);
-          candle.volume += last.volume;
+        const rows = descriptor.parse(payload);
+        for (const row of rows ?? []) {
+          const candle = secondsMode
+            ? tradeToCandle({ T: row.time, p: row.price, q: row.quantity }, INTERVAL_MS[this.interval])
+            : row;
+          if (!isValidCandle(candle)) continue;
+          if (secondsMode && this.candles.at(-1)?.time === candle.time) {
+            const last = this.candles.at(-1);
+            candle.open = last.open;
+            candle.high = Math.max(last.high, candle.high);
+            candle.low = Math.min(last.low, candle.low);
+            candle.volume += last.volume;
+          }
+          upsertLiveCandleInPlace(this.candles, candle, secondsMode ? 30_000 : 1_500);
         }
-        upsertLiveCandleInPlace(this.candles, candle, secondsMode ? 30_000 : 1_500);
+        if (!(rows ?? []).length) return;
         this.#scheduleSeriesCacheFlush();
-        this.#scheduleLiveEmit({ symbol: this.symbol, interval: this.interval, range: this.range });
+        this.#scheduleLiveEmit({
+          exchange: this.exchange,
+          market: this.market,
+          symbol: this.symbol,
+          interval: this.interval,
+          range: this.range,
+        });
         if (secondsMode) this.#scheduleSecondHistorySave();
       } catch {
         // Ignore one malformed market message and keep the stream alive.
       }
     });
-    this.socket.addEventListener("close", () => {
-      if (generation !== this.generation) return;
-      this.onStatus({ state: "warning", text: "Переподключаю свечи…" });
+    socket.addEventListener("close", () => {
+      if (generation !== this.generation || socket !== this.socket) return;
+      this.socket = null;
+      this.onStatus({ state: "warning", text: `Переподключаю ${this.exchange.toUpperCase()}…` });
       this.reconnectTimer = setTimeout(() => this.#connect(generation), 1800);
     });
-    this.socket.addEventListener("error", () => {
-      if (generation === this.generation) this.onStatus({ state: "warning", text: "Ошибка потока свечей" });
+    socket.addEventListener("error", () => {
+      if (generation === this.generation && socket === this.socket) {
+        this.onStatus({ state: "warning", text: `Ошибка потока ${this.exchange.toUpperCase()}` });
+        try { socket.close(); } catch {}
+      }
     });
   }
 

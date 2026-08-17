@@ -543,6 +543,45 @@ body { background: #0b0d12; }
   white-space: nowrap;
 }
 .orderbook-heading .book-status.is-live { color: var(--green); }
+
+.chart-symbol-block {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  overflow: hidden;
+}
+.widget-source-button,
+.widget-market-button {
+  min-width: 0;
+  height: 18px;
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
+  border-radius: 0;
+  color: color-mix(in srgb, var(--accent) 72%, var(--text));
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel-2));
+  font: 800 calc(5.8 * var(--font-scale))/1 Arial, sans-serif;
+  letter-spacing: .035em;
+  white-space: nowrap;
+}
+.widget-source-button:hover,
+.widget-market-button:hover {
+  border-color: var(--accent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel-2));
+}
+.widget-source-button[data-exchange="bybit"] { color: #f4b45f; }
+.widget-source-button[data-exchange="okx"] { color: #d8dde9; }
+.widget-source-button[data-exchange="bitget"] { color: #54d8cf; }
+.widget-source-button[data-exchange="gate"] { color: #62a8ff; }
+.widget-source-button[data-exchange="hyperliquid"] { color: #69e1bd; }
+.widget-market-button[data-market="spot"] { color: var(--green); }
+
+@container (max-width: 520px) {
+  .widget-source-button { max-width: 44px; overflow: hidden; text-overflow: clip; padding-inline: 2px; }
+  .widget-market-button { max-width: 34px; overflow: hidden; padding-inline: 2px; }
+}
 .orderbook-card .book-pane-title {
   min-height: 26px;
   padding-inline: 4px !important;
@@ -735,7 +774,9 @@ body .orderbook-card .book-ladder-row strong {
   .chart-card .chart-metrics b { display: none; }
 }
 
-.radar-command-bar { grid-template-columns: minmax(78px,1fr) auto auto auto 24px; }
+.radar-command-bar { grid-template-columns: minmax(62px,1fr) auto auto auto auto auto 24px; }
+.radar-command-bar .radar-source-button,
+.radar-command-bar .radar-market-button { height: 25px; cursor: pointer; }
 .radar-columns-toggle {
   height: 25px;
   padding: 0 7px;
@@ -803,7 +844,8 @@ body .orderbook-card .book-ladder-row strong {
   .top-item > :nth-child(n) { display: flex; }
   .radar-columns-panel { grid-template-columns: 1fr; }
   .radar-columns-heading { grid-column: 1; }
-  .radar-command-bar { grid-template-columns: minmax(66px,1fr) auto auto 24px; }
+  .radar-command-bar { grid-template-columns: minmax(50px,1fr) auto auto auto auto 24px; }
+  .radar-filters-toggle span { display: none; }
   .radar-columns-toggle { width: 26px; padding: 0; overflow: hidden; font-size: 0; }
   .radar-columns-toggle::after { content: "☷"; font-size: 12px; }
   .radar-volume-window { display: none; }

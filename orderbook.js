@@ -6,10 +6,12 @@ import {
 } from "./orderbook-tape-layout.js?v=stable-tape-v4";
 import "./orderbook-network.js?v=obs-pr1-1";
 import "./orderbook-depth-projection.js?v=deep-book-v1";
-import "./orderbook-flow-workspace.js?v=26-123-chart-polish-v2";
+import "./orderbook-flow-workspace.js?v=26-124-multi-exchange-v1";
 import "./orderbook-events.js?v=orderbook-events-core-v1";
 import "./orderbook-density.js?v=density-trades-correlation-v1";
-import { normalizeOrderBookMarketKey } from "./orderbook-market-key.js?v=26-123-chart-polish-v2";
+import { normalizeOrderBookMarketKey } from "./orderbook-market-key.js?v=26-124-multi-exchange-v1";
+import { ExchangeOrderBookFeed } from "./exchange-orderbook-feed.js?v=26-124-multi-exchange-v1";
+import { normalizeExchange } from "./exchange-registry.js?v=26-124-multi-exchange-v1";
 import { observability } from "./observability.js?v=worker-bp-v1";
 
 export function applyDepthUpdates(levels, updates) {
@@ -1458,7 +1460,7 @@ class LegacyOrderBookFeed {
 }
 
 
-const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-123-chart-polish-v2", import.meta.url);
+const ORDERBOOK_WORKER_URL = new URL("./orderbook-worker.js?v=26-124-multi-exchange-v1", import.meta.url);
 const ORDERBOOK_WORKER_TAPE_EVENT = "inpuls:tape-data";
 const ORDERBOOK_WORKER_STATUS_EVENT = "inpuls:book-status";
 const ORDERBOOK_RESUBSCRIBE_STAGGER_MS = 180;
@@ -1838,17 +1840,29 @@ export class OrderBookFeed {
     this.onData = options.onData ?? (() => {});
     this.onStatus = options.onStatus ?? (() => {});
     this.symbol = null;
+    this.exchange = normalizeExchange(options.exchange);
     this.market = options.market === "spot" ? "spot" : "futures";
     this.destroyed = false;
     this.fallback = null;
-    this.clientId = orderBookWorkerManager.register(this);
-    if (!orderBookWorkerManager.available()) this._activateFallback();
+    this.generic = this.exchange === "binance" ? null : new ExchangeOrderBookFeed({
+      ...options,
+      exchange: this.exchange,
+      market: this.market,
+      onData: (data) => this._receiveData(data),
+      onStatus: (status) => this._receiveStatus(status),
+    });
+    this.clientId = this.generic ? null : orderBookWorkerManager.register(this);
+    if (!this.generic && !orderBookWorkerManager.available()) this._activateFallback();
   }
 
   select(symbol) {
     if (this.destroyed || !symbol?.endsWith("USDT")) return;
     const previous = this.symbol;
     this.symbol = symbol;
+    if (this.generic) {
+      this.generic.select(symbol);
+      return;
+    }
     if (this.fallback) {
       this.fallback.select(symbol);
       return;
@@ -1863,7 +1877,14 @@ export class OrderBookFeed {
     if (typeof globalThis.dispatchEvent === "function"
       && typeof globalThis.CustomEvent === "function") {
       globalThis.dispatchEvent(new CustomEvent("inpuls:book-data", {
-        detail: { symbol: `${this.market}:${this.symbol}`, market: this.market, data },
+        detail: {
+          symbol: this.exchange === "binance"
+            ? `${this.market}:${this.symbol}`
+            : `${this.exchange}:${this.market}:${this.symbol}`,
+          exchange: this.exchange,
+          market: this.market,
+          data,
+        },
       }));
     }
     this.onData(data);
@@ -1883,7 +1904,9 @@ export class OrderBookFeed {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
-    orderBookWorkerManager.unregister(this.clientId, this.symbol, this.market);
+    this.generic?.destroy();
+    this.generic = null;
+    if (this.clientId !== null) orderBookWorkerManager.unregister(this.clientId, this.symbol, this.market);
     this.fallback?.destroy();
     this.fallback = null;
   }
@@ -2039,7 +2062,8 @@ function cardSymbol(card) {
   const title = String(card.querySelector("[data-book-ticker]")?.textContent ?? card.querySelector("h2")?.textContent ?? "");
   const pair = title.split("·")[0].trim().replace("/", "").toUpperCase();
   const market = card?.dataset?.market === "spot" ? "spot" : "futures";
-  return normalizeOrderBookMarketKey(pair, market);
+  const exchange = normalizeExchange(card?.dataset?.exchange);
+  return normalizeOrderBookMarketKey(exchange === "binance" ? `${market}:${pair}` : `${exchange}:${market}:${pair}`, market);
 }
 
 export function installOrderBookStyles() {

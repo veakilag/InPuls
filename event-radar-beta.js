@@ -213,6 +213,7 @@ class EventRadarBetaWidget {
     this.newCounter = null;
     this.feedStatus = null;
     this.feedSnapshot = null;
+    this.source = { exchange: "binance", market: "futures" };
     this.feedTimer = null;
     this.resizeObserver = null;
     this.mount();
@@ -326,10 +327,15 @@ class EventRadarBetaWidget {
     const receivedAt = Date.now();
     this.now = finite(detail.now) ?? receivedAt;
     this.feedSnapshot = summarizeEventRadarFeed(detail.metrics, receivedAt);
+    this.source = {
+      exchange: String(detail.exchange || "binance"),
+      market: detail.market === "spot" ? "spot" : "futures",
+    };
     this.favorites = new Set(Array.isArray(detail.favorites) ? detail.favorites : []);
     const before = new Set(this.entries.keys());
     const merged = mergeEventRadarEntries(this.entries, detail.metrics, this.now);
     this.entries = merged.entries;
+    for (const key of merged.seen) Object.assign(this.entries.get(key) ?? {}, this.source);
     if (this.frozen && this.frozenKeys) {
       for (const key of merged.seen) {
         if (!this.frozenKeys.includes(key) && !before.has(key)) this.unseenWhileFrozen.add(key);
@@ -368,7 +374,7 @@ class EventRadarBetaWidget {
 
   emptyStateMarkup() {
     const state = eventRadarFeedState(this.feedSnapshot, this.now);
-    if (state === "waiting") return ["Ожидаю рыночный поток", "Binance ещё не передал первый набор метрик в этот виджет."];
+    if (state === "waiting") return ["Ожидаю рыночный поток", "Выбранная биржа ещё не передала первый набор метрик в этот виджет."];
     if (state === "stale") return ["Данные перестали обновляться", "Проверь соединение: последний пакет старше 5 секунд."];
     if (state === "warming") return ["Собираю историю", "Поток уже работает, но формулам нужно накопить контекст."];
     return ["Поток LIVE · сигналов нет", "Рынок обновляется, но условия реальных сигналов сейчас не выполнены."];
@@ -478,7 +484,14 @@ class EventRadarBetaWidget {
         <button data-event-pin type="button" class="${this.pinned.has(entry.key) ? "is-active" : ""}" title="Закрепить">⌖</button>
         <button data-event-favorite type="button" class="${this.favorites.has(entry.symbol) ? "is-active" : ""}" title="Избранное">★</button>
       </div>`;
-    const select = () => window.dispatchEvent(new CustomEvent(SELECT_EVENT, { detail: { symbol: entry.symbol, openOrderBook: true } }));
+    const select = () => window.dispatchEvent(new CustomEvent(SELECT_EVENT, {
+      detail: {
+        symbol: entry.symbol,
+        openOrderBook: true,
+        exchange: entry.exchange || this.source.exchange,
+        market: entry.market || this.source.market,
+      },
+    }));
     row.addEventListener("click", select);
     row.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
