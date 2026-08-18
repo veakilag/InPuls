@@ -50,12 +50,14 @@ export class ExchangeOrderBookFeed {
     onStatus = () => {},
     WebSocketImpl = globalThis.WebSocket,
     fetchImpl = globalThis.fetch,
+    depthOnly = false,
   } = {}) {
     this.source = marketSource({ exchange, market });
     this.onData = onData;
     this.onStatus = onStatus;
     this.WebSocketImpl = WebSocketImpl;
     this.fetchImpl = fetchImpl;
+    this.depthOnly = Boolean(depthOnly);
     this.symbol = null;
     this.socket = null;
     this.reconnectTimer = null;
@@ -101,6 +103,7 @@ export class ExchangeOrderBookFeed {
       const descriptor = await buildOrderBookStream(metadata, {
         fetchImpl: this.fetchImpl,
         signal: this.abortController.signal,
+        depthOnly: this.depthOnly,
       });
       if (generation !== this.generation || this.destroyed) return;
       this.#openSocket(descriptor, generation);
@@ -236,7 +239,7 @@ export class ExchangeOrderBookFeed {
       this.onStatus({ state: "online", text: `LIVE · ${this.source.exchange.toUpperCase()}` });
       return;
     }
-    if (event?.kind === "trades") this.#ingestTrades(event.trades);
+    if (event?.kind === "trades" && !this.depthOnly) this.#ingestTrades(event.trades);
   }
 
   #resyncBook(event) {
@@ -285,6 +288,7 @@ export class ExchangeOrderBookFeed {
   }
 
   #dispatchTape(payload) {
+    if (this.depthOnly) return;
     if (typeof globalThis.dispatchEvent !== "function" || typeof globalThis.CustomEvent !== "function") return;
     const key = marketSourceKey({ ...this.source, symbol: this.symbol });
     globalThis.dispatchEvent(new CustomEvent("inpuls:tape-data", {
