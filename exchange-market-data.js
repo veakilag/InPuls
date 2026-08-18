@@ -927,6 +927,7 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
   const source = await resolveMarketMetadata(sourceValue, options);
   const venue = source.venueSymbol;
   const multiplier = source.quantityMultiplier;
+  const depthOnly = options.depthOnly === true;
   const emitBook = (snapshot, bids, asks, eventTime, sequence = null, sync = {}) => ({
     kind: "book",
     snapshot,
@@ -939,10 +940,23 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
     requiresSnapshot: sync.requiresSnapshot === true,
   });
   const emitTrades = (trades) => ({ kind: "trades", trades: trades.filter(Boolean) });
+  if (source.exchange === "binance") {
+    const host = source.market === "spot" ? "stream.binance.com:9443" : "fstream.binance.com";
+    const stream = venue.toLowerCase();
+    return wsDescriptor(`wss://${host}/ws/${stream}@depth@100ms`, [], (payload) => {
+      if (payload?.e !== "depthUpdate") return [];
+      return [emitBook(false, payload.b ?? payload.bids, payload.a ?? payload.asks, payload.T ?? payload.E, payload.u, {
+        firstSequence: payload.U,
+        previousSequence: payload.pu,
+        requiresSnapshot: true,
+      })];
+    });
+  }
   if (source.exchange === "aster") {
     const host = source.market === "spot" ? "sstream.asterdex.com" : "fstream.asterdex.com";
     const stream = venue.toLowerCase();
-    return wsDescriptor(`wss://${host}/stream?streams=${stream}@depth@100ms/${stream}@aggTrade`, [], (payload) => {
+    const streams = depthOnly ? `${stream}@depth@100ms` : `${stream}@depth@100ms/${stream}@aggTrade`;
+    return wsDescriptor(`wss://${host}/stream?streams=${streams}`, [], (payload) => {
       const row = payload?.data ?? payload;
       if (row?.e === "depthUpdate") return [emitBook(false, row.b ?? row.bids, row.a ?? row.asks, row.T ?? row.E, row.u, {
         firstSequence: row.U,
@@ -957,7 +971,7 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
     const stream = venue.toLowerCase();
     return wsDescriptor("wss://nbstream.binance.com/w3w/wsa/stream", [{
       method: "SUBSCRIBE",
-      params: [`${stream}@fulldepth@500ms`, `${stream}@aggTrade`],
+      params: depthOnly ? [`${stream}@fulldepth@500ms`] : [`${stream}@fulldepth@500ms`, `${stream}@aggTrade`],
       id: 1,
     }], (payload) => {
       const row = payload?.data;
@@ -973,7 +987,7 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
   if (source.exchange === "bybit") {
     const category = source.market === "spot" ? "spot" : "linear";
     return wsDescriptor(`wss://stream.bybit.com/v5/public/${category}`, [{
-      op: "subscribe", args: [`orderbook.200.${venue}`, `publicTrade.${venue}`],
+      op: "subscribe", args: depthOnly ? [`orderbook.200.${venue}`] : [`orderbook.200.${venue}`, `publicTrade.${venue}`],
     }], (payload) => {
       if (payload?.topic?.startsWith("orderbook.")) return [emitBook(payload.type === "snapshot", payload.data?.b, payload.data?.a, payload.data?.cts ?? payload.ts, payload.data?.u)];
       if (payload?.topic?.startsWith("publicTrade.")) return [emitTrades((payload.data ?? []).map((row) => normalizedTrade(row.i, row.T, row.p, row.v, row.S, multiplier)))];
@@ -982,7 +996,9 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
   }
   if (source.exchange === "okx") {
     return wsDescriptor("wss://ws.okx.com:8443/ws/v5/public", [{
-      op: "subscribe", args: [{ channel: "books", instId: venue }, { channel: "trades", instId: venue }],
+      op: "subscribe", args: depthOnly
+        ? [{ channel: "books", instId: venue }]
+        : [{ channel: "books", instId: venue }, { channel: "trades", instId: venue }],
     }], (payload) => {
       if (payload?.arg?.channel === "books") return (payload.data ?? []).map((row) => emitBook(payload.action === "snapshot", row.bids, row.asks, row.ts, row.seqId));
       if (payload?.arg?.channel === "trades") return [emitTrades((payload.data ?? []).map((row) => normalizedTrade(row.tradeId, row.ts, row.px, row.sz, row.side, multiplier)))];
@@ -993,10 +1009,9 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
     const instType = source.market === "spot" ? "SPOT" : "USDT-FUTURES";
     return wsDescriptor("wss://ws.bitget.com/v2/ws/public", [{
       op: "subscribe",
-      args: [
-        { instType, channel: "books", instId: venue },
-        { instType, channel: "trade", instId: venue },
-      ],
+      args: depthOnly
+        ? [{ instType, channel: "books", instId: venue }]
+        : [{ instType, channel: "books", instId: venue }, { instType, channel: "trade", instId: venue }],
     }], (payload) => {
       if (payload?.arg?.channel === "books") return (payload.data ?? []).map((row) => emitBook(payload.action === "snapshot", row.bids, row.asks, row.ts, row.seq));
       if (payload?.arg?.channel === "trade") return [emitTrades((payload.data ?? []).map((row) => Array.isArray(row)
@@ -1009,10 +1024,11 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
     const prefix = source.market === "spot" ? "spot" : "futures";
     const url = source.market === "spot" ? "wss://api.gateio.ws/ws/v4/" : "wss://fx-ws.gateio.ws/v4/ws/usdt";
     const depthPayload = source.market === "spot" ? [venue, "100ms"] : [venue, "100ms", "100"];
-    return wsDescriptor(url, [
+    const subscriptions = [
       { time: Math.floor(Date.now() / 1_000), channel: `${prefix}.order_book_update`, event: "subscribe", payload: depthPayload },
-      { time: Math.floor(Date.now() / 1_000), channel: `${prefix}.trades`, event: "subscribe", payload: [venue] },
-    ], (payload) => {
+    ];
+    if (!depthOnly) subscriptions.push({ time: Math.floor(Date.now() / 1_000), channel: `${prefix}.trades`, event: "subscribe", payload: [venue] });
+    return wsDescriptor(url, subscriptions, (payload) => {
       if (payload?.channel === `${prefix}.order_book_update` && payload?.event === "update") {
         const row = payload.result ?? {};
         return [emitBook(Boolean(row.full), row.b ?? row.bids, row.a ?? row.asks, row.t ?? payload.time_ms, row.u)];
@@ -1027,7 +1043,7 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
   if (source.exchange === "kucoin") {
     const bookTopic = source.market === "spot" ? `/spotMarket/level2Depth50:${venue}` : `/contractMarket/level2Depth50:${venue}`;
     const tradeTopic = source.market === "spot" ? `/market/match:${venue}` : `/contractMarket/execution:${venue}`;
-    return kucoinWsDescriptor(source, [bookTopic, tradeTopic], (payload) => {
+    return kucoinWsDescriptor(source, depthOnly ? [bookTopic] : [bookTopic, tradeTopic], (payload) => {
       if (payload?.type !== "message") return [];
       const row = payload.data ?? {};
       if (payload.topic === bookTopic) return [emitBook(true, row.bids, row.asks, normalizeEpoch(row.timestamp ?? row.ts), row.sequence)];
@@ -1041,7 +1057,7 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
     if (source.market === "spot") {
       const depthChannel = `spot@public.aggre.depth.v3.api.pb@100ms@${venue}`;
       const tradeChannel = `spot@public.aggre.deals.v3.api.pb@100ms@${venue}`;
-      return wsDescriptor("wss://wbs-api.mexc.com/ws", [{ method: "SUBSCRIPTION", params: [depthChannel, tradeChannel] }], (payload) => {
+      return wsDescriptor("wss://wbs-api.mexc.com/ws", [{ method: "SUBSCRIPTION", params: depthOnly ? [depthChannel] : [depthChannel, tradeChannel] }], (payload) => {
         if (payload?.depth) return [emitBook(false, payload.depth.bids, payload.depth.asks, payload.depth.eventTime ?? payload.sendTime, payload.depth.sequence, {
           firstSequence: payload.depth.firstSequence,
           requiresSnapshot: true,
@@ -1052,10 +1068,9 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
         return [];
       }, { binaryType: "arraybuffer", decode: decodeMexcProtobufMessage });
     }
-    return wsDescriptor("wss://contract.mexc.com/edge", [
-      { method: "sub.depth.full", param: { symbol: venue, limit: 20 } },
-      { method: "sub.deal", param: { symbol: venue } },
-    ], (payload) => {
+    const subscriptions = [{ method: "sub.depth.full", param: { symbol: venue, limit: 20 } }];
+    if (!depthOnly) subscriptions.push({ method: "sub.deal", param: { symbol: venue } });
+    return wsDescriptor("wss://contract.mexc.com/edge", subscriptions, (payload) => {
       if (payload?.channel === "push.depth.full") {
         const row = payload.data ?? {};
         return [emitBook(true, row.bids, row.asks, normalizeEpoch(row.timestamp ?? payload.ts), row.version)];
@@ -1070,10 +1085,9 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
   if (source.exchange === "bingx") {
     const bookChannel = `${venue}@depth100`;
     const tradeChannel = `${venue}@trade`;
-    return wsDescriptor("wss://open-api-ws.bingx.com/market", [
-      { id: `inpuls-depth-${Date.now()}`, dataType: bookChannel },
-      { id: `inpuls-trade-${Date.now()}`, dataType: tradeChannel },
-    ], (payload) => {
+    const subscriptions = [{ id: `inpuls-depth-${Date.now()}`, dataType: bookChannel }];
+    if (!depthOnly) subscriptions.push({ id: `inpuls-trade-${Date.now()}`, dataType: tradeChannel });
+    return wsDescriptor("wss://open-api-ws.bingx.com/market", subscriptions, (payload) => {
       if (payload?.dataType === bookChannel) {
         const row = payload.data ?? {};
         return [emitBook(true, row.bids, row.asks, row.T ?? payload.ts, row.T)];
@@ -1097,7 +1111,9 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
     const bookTopic = `market.${venue}.depth.step0`;
     const tradeTopic = `market.${venue}.trade.detail`;
     const url = source.market === "spot" ? "wss://api.huobi.pro/ws" : "wss://api.hbdm.com/linear-swap-ws";
-    return wsDescriptor(url, [{ sub: bookTopic, id: "inpuls-book" }, { sub: tradeTopic, id: "inpuls-trades" }], (payload) => {
+    const subscriptions = [{ sub: bookTopic, id: "inpuls-book" }];
+    if (!depthOnly) subscriptions.push({ sub: tradeTopic, id: "inpuls-trades" });
+    return wsDescriptor(url, subscriptions, (payload) => {
       if (payload?.ch === bookTopic) return [emitBook(true, payload.tick?.bids, payload.tick?.asks, payload.ts, payload.tick?.version)];
       if (payload?.ch === tradeTopic) return [emitTrades((payload.tick?.data ?? []).map((row) => normalizedTrade(
         row.id, normalizeEpoch(row.ts), row.price, row.amount, row.direction, multiplier,
@@ -1114,11 +1130,12 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
     });
   }
   if (source.exchange === "coinbase") {
-    return wsDescriptor("wss://advanced-trade-ws.coinbase.com/", [
+    const subscriptions = [
       { type: "subscribe", product_ids: [venue], channel: "level2" },
-      { type: "subscribe", product_ids: [venue], channel: "market_trades" },
       { type: "subscribe", channel: "heartbeats" },
-    ], (payload) => {
+    ];
+    if (!depthOnly) subscriptions.splice(1, 0, { type: "subscribe", product_ids: [venue], channel: "market_trades" });
+    return wsDescriptor("wss://advanced-trade-ws.coinbase.com/", subscriptions, (payload) => {
       if (["level2", "l2_data"].includes(payload?.channel)) return (payload.events ?? []).map((event) => {
         const bids = [];
         const asks = [];
@@ -1135,11 +1152,14 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
     });
   }
   if (source.exchange === "upbit") {
-    return wsDescriptor("wss://api.upbit.com/websocket/v1", [[
+    const channels = [
       { ticket: `inpuls-${Date.now()}` },
-      { type: "trade", codes: [venue], is_only_realtime: true },
+      ...(depthOnly ? [] : [{ type: "trade", codes: [venue], is_only_realtime: true }]),
       { type: "orderbook", codes: [venue], is_only_realtime: true },
       { format: "DEFAULT" },
+    ];
+    return wsDescriptor("wss://api.upbit.com/websocket/v1", [[
+      ...channels,
     ]], (payload) => {
       if (payload?.type === "orderbook") {
         const units = payload.orderbook_units ?? [];
@@ -1158,10 +1178,9 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
     }, { binaryType: "arraybuffer" });
   }
   if (source.exchange === "hyperliquid") {
-    return wsDescriptor("wss://api.hyperliquid.xyz/ws", [
-      { method: "subscribe", subscription: { type: "l2Book", coin: venue } },
-      { method: "subscribe", subscription: { type: "trades", coin: venue } },
-    ], (payload) => {
+    const subscriptions = [{ method: "subscribe", subscription: { type: "l2Book", coin: venue } }];
+    if (!depthOnly) subscriptions.push({ method: "subscribe", subscription: { type: "trades", coin: venue } });
+    return wsDescriptor("wss://api.hyperliquid.xyz/ws", subscriptions, (payload) => {
       if (payload?.channel === "l2Book") return [emitBook(true, payload.data?.levels?.[0], payload.data?.levels?.[1], payload.data?.time, payload.data?.time)];
       if (payload?.channel === "trades") return [emitTrades((payload.data ?? []).map((row) => normalizedTrade(row.hash ?? row.tid, row.time, row.px, row.sz, row.side, 1)))];
       return [];

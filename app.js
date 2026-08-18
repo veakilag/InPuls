@@ -30,6 +30,7 @@ import {
 } from "./exchange-registry.js?v=26-126-final-exchanges-v1";
 import { fetchExchangeCandles } from "./exchange-market-data.js?v=26-126-final-exchanges-v1";
 import { ExchangeRadarFeed, fetchExchangeTickers } from "./exchange-radar-feed.js?v=26-126-final-exchanges-v1";
+import { DensityMapWidget } from "./density-map-widget.js?v=density-map-v1";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -594,6 +595,7 @@ const symbolMapForSource = (sourceValue = state.workspace.radar) => {
 };
 const extraCharts = new Map();
 const orderBookPanels = new Map();
+const densityMapPanels = new Map();
 const orderBookAutoThresholds = new Map();
 let binanceSpotSymbolsPromise = null;
 
@@ -1782,6 +1784,24 @@ function normalizeWorkspace() {
   };
   const sourceExtras = Array.isArray(raw.extras) ? raw.extras : [];
   for (const source of sourceExtras) {
+    if (source?.type === "density-map") {
+      if (!source.id) continue;
+      const fallback = {
+        id: String(source.id),
+        type: "density-map",
+        minQuote: 100_000,
+        minLifetimeMs: 30_000,
+        x: 0,
+        y: 0,
+        w: 18,
+        h: 12,
+      };
+      const item = clampPanel(source, fallback, { w: 10, h: 6 });
+      item.minQuote = Math.max(1_000, Number(source.minQuote) || fallback.minQuote);
+      item.minLifetimeMs = Math.max(0, Number(source.minLifetimeMs) || 0);
+      if (canPlacePanel(item, workspace)) workspace.extras.push(item);
+      continue;
+    }
     const symbol = normalizeUsdtPerpetualSymbol(source?.symbol);
     if (!source?.id || !symbol) continue;
     const type = source.type === "orderbook" ? "orderbook" : "chart";
@@ -1900,7 +1920,7 @@ function applyWorkspaceLayout() {
   place(primary, state.workspace.primary);
   place(radar, state.workspace.radar);
   place(scanner, state.workspace.scanner);
-  for (const panel of [...extraCharts.values(), ...orderBookPanels.values()]) {
+  for (const panel of [...extraCharts.values(), ...orderBookPanels.values(), ...densityMapPanels.values()]) {
     place(panel.element, panel.model);
   }
   for (const button of els.restorePanelButtons) button.hidden = !state.workspace[button.dataset.restorePanel]?.hidden;
@@ -1918,6 +1938,7 @@ function applyWorkspaceLayout() {
 
 function minimumPanelGridSize(model, element) {
   if (model.type === "scanner") return { w: 10, h: 4 };
+  if (model.type === "density-map") return { w: 10, h: 6 };
   if (model.type === "orderbook" && element?.classList.contains("is-flow-hidden")) {
     return { w: 4, h: 4 };
   }
@@ -2351,7 +2372,85 @@ function mountExtraChart(model) {
   panel.feed.select(model.symbol, model.interval, intervalRange(model.interval), model);
 }
 
+function focusDensityMapPanel(panel) {
+  if (!panel?.element?.isConnected) return;
+  panel.element.scrollIntoView({ behavior: "smooth", block: "center" });
+  panel.element.animate?.(
+    [
+      { boxShadow: "0 0 0 1px rgba(133,92,255,.78), 0 0 30px rgba(35,211,195,.18)" },
+      { boxShadow: "" },
+    ],
+    { duration: 1_100, easing: "ease-out" },
+  );
+}
+
+function mountDensityMap(model) {
+  if (densityMapPanels.has(model.id)) return;
+  const article = document.createElement("article");
+  article.dataset.panel = "density-map";
+  article.dataset.panelId = model.id;
+  els.marketFocus.insertBefore(article, els.addChartTile);
+  const panel = { model, element: article, widget: null };
+  densityMapPanels.set(model.id, panel);
+  panel.widget = new DensityMapWidget({
+    root: article,
+    model,
+    onPersist: persistWorkspace,
+    onClose: () => removeDensityMap(model.id),
+    onOpen: (entry) => {
+      const source = { exchange: entry.exchange, market: entry.market };
+      selectChartSymbolFromSource(entry.symbol, source, true);
+      openOrderBookForSymbol(entry.symbol, source);
+    },
+  });
+  bindGridResizer(article.querySelector(".panel-resizer:not(.panel-resizer-nw)"), model);
+  bindGridResizer(article.querySelector(".panel-resizer-nw"), model, null, "nw");
+  installPanelEdgeResizers(article, model);
+  bindPanelDrag(article.querySelector(".density-map-heading"), model);
+}
+
+function createDensityMapPanel() {
+  const existing = densityMapPanels.values().next().value;
+  if (existing) {
+    focusDensityMapPanel(existing);
+    return true;
+  }
+  const slot = findFreeSlot(18, 12) ?? findFreeSlot(12, 8) ?? findFreeSlot(10, 6);
+  if (!slot) {
+    showToast("Для карты плотностей нет свободного места на рабочем поле");
+    return false;
+  }
+  const model = {
+    id: `density-map-${Date.now()}`,
+    type: "density-map",
+    minQuote: 100_000,
+    minLifetimeMs: 30_000,
+    x: slot.x,
+    y: slot.y,
+    w: slot.w,
+    h: slot.h,
+  };
+  state.workspace.extras.push(model);
+  persistWorkspace();
+  mountDensityMap(model);
+  applyWorkspaceLayout();
+  focusDensityMapPanel(densityMapPanels.get(model.id));
+  return true;
+}
+
+function removeDensityMap(id) {
+  const panel = densityMapPanels.get(id);
+  if (!panel) return;
+  panel.widget.destroy();
+  panel.element.remove();
+  densityMapPanels.delete(id);
+  state.workspace.extras = state.workspace.extras.filter((item) => item.id !== id);
+  persistWorkspace();
+  applyWorkspaceLayout();
+}
+
 function createExtraPanel(symbol, type = "chart", options = {}) {
+  if (type === "density-map") return createDensityMapPanel();
   const normalizedSymbol = normalizeUsdtPerpetualSymbol(symbol);
   if (!normalizedSymbol) return false;
   const preferred = options.preferredSlot;
@@ -3907,7 +4006,8 @@ function bindEvents() {
   renderRadarColumns();
   bindWidgetMarketSource(document.querySelector(".top-card"), state.workspace.radar, selectRadarSource);
   for (const model of state.workspace.extras) {
-    if (model.type === "orderbook") mountOrderBook(model);
+    if (model.type === "density-map") mountDensityMap(model);
+    else if (model.type === "orderbook") mountOrderBook(model);
     else mountExtraChart(model);
   }
   applyWorkspaceLayout();
@@ -4022,12 +4122,17 @@ function bindEvents() {
   for (const button of els.addPanelButtons) {
     button.addEventListener("click", () => {
       panelPickerType = button.dataset.addPanel;
+      if (panelPickerType === "density-map") {
+        createDensityMapPanel();
+        return;
+      }
       els.panelPickerTitle.textContent = panelPickerType === "orderbook" ? "Добавить стакан" : "Добавить график";
       els.chartPickerSearch.value = "";
       renderChartPicker();
       els.addChartDialog.showModal();
     });
     button.addEventListener("dragover", (event) => {
+      if (button.dataset.addPanel === "density-map") return;
       if (!event.dataTransfer.types.includes("text/inpuls-symbol")) return;
       event.preventDefault();
       button.classList.add("is-drop-target");
