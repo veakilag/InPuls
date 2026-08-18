@@ -3,7 +3,7 @@ import fs from "node:fs";
 
 const boot = fs.readFileSync(new URL("./runtime-boot-recovery.js", import.meta.url), "utf8");
 
-assert.ok(boot.includes('const RECOVERY_REVISION = "26-93-runtime-self-heal-v1"'));
+assert.ok(boot.includes('const RECOVERY_REVISION = "26-126-runtime-recovery-v2"'));
 assert.ok(boot.includes("WATCHDOG_DELAY_MS"));
 assert.ok(boot.includes("scheduleRuntimeWatchdog"));
 assert.ok(boot.includes('document.querySelector("#clock")'));
