@@ -2,11 +2,11 @@ import {
   buildOrderBookStream,
   fetchExchangeOrderBook,
   resolveMarketMetadata,
-} from "./exchange-market-data.js?v=26-124-multi-exchange-v1";
+} from "./exchange-market-data.js?v=26-125-aster-alpha-v1";
 import {
   marketSource,
   marketSourceKey,
-} from "./exchange-registry.js?v=26-124-multi-exchange-v1";
+} from "./exchange-registry.js?v=26-125-aster-alpha-v1";
 
 const MAX_LEVELS = 10_000;
 const MAX_TRADES = 60_000;
@@ -69,6 +69,9 @@ export class ExchangeOrderBookFeed {
     this.tradeKeys = new Set();
     this.sequence = null;
     this.depthReady = false;
+    this.snapshotLoaded = false;
+    this.streamSynced = false;
+    this.pendingBookEvents = [];
     this.resyncCount = 0;
     this.lastEmitAt = 0;
     this.emitTimer = null;
@@ -115,13 +118,19 @@ export class ExchangeOrderBookFeed {
         fetchImpl: this.fetchImpl,
         signal: this.abortController?.signal,
       });
-      if (generation !== this.generation || this.destroyed || this.depthReady) return;
+      if (generation !== this.generation || this.destroyed || this.snapshotLoaded) return;
       this.bids.clear();
       this.asks.clear();
       applyRows(this.bids, snapshot.bids);
       applyRows(this.asks, snapshot.asks);
       this.sequence = Number.isFinite(Number(snapshot.sequence)) ? Number(snapshot.sequence) : null;
+      this.snapshotLoaded = true;
+      this.streamSynced = false;
       this.depthReady = this.bids.size > 0 && this.asks.size > 0;
+      const pending = this.pendingBookEvents
+        .splice(0)
+        .sort((left, right) => Number(left.sequence) - Number(right.sequence));
+      for (const event of pending) this.#applyEvent(event);
       if (this.depthReady) {
         this.#emit(Date.now(), true);
         this.onStatus({ state: "online", text: `LIVE · ${this.source.exchange.toUpperCase()}` });
@@ -179,9 +188,39 @@ export class ExchangeOrderBookFeed {
 
   #applyEvent(event) {
     if (event?.kind === "book") {
+      if (event.requiresSnapshot && !this.snapshotLoaded) {
+        this.pendingBookEvents.push(event);
+        if (this.pendingBookEvents.length > 1_000) this.pendingBookEvents.shift();
+        return;
+      }
       if (event.snapshot) {
         this.bids.clear();
         this.asks.clear();
+        this.snapshotLoaded = true;
+        this.streamSynced = true;
+        this.pendingBookEvents = [];
+      }
+      if (event.requiresSnapshot && Number.isFinite(Number(this.sequence))) {
+        const current = Number(this.sequence);
+        const first = Number(event.firstSequence);
+        const previous = Number(event.previousSequence);
+        const final = Number(event.sequence);
+        if (Number.isFinite(final) && final <= current) return;
+        if (!this.streamSynced) {
+          if (Number.isFinite(first) && first > current + 1) {
+            this.#resyncBook(event);
+            return;
+          }
+          this.streamSynced = true;
+        } else {
+          const contiguous = Number.isFinite(previous)
+            ? previous === current
+            : !Number.isFinite(first) || first === current + 1;
+          if (!contiguous) {
+            this.#resyncBook(event);
+            return;
+          }
+        }
       }
       applyRows(this.bids, event.bids);
       applyRows(this.asks, event.asks);
@@ -195,6 +234,19 @@ export class ExchangeOrderBookFeed {
       return;
     }
     if (event?.kind === "trades") this.#ingestTrades(event.trades);
+  }
+
+  #resyncBook(event) {
+    this.resyncCount += 1;
+    this.bids.clear();
+    this.asks.clear();
+    this.sequence = null;
+    this.depthReady = false;
+    this.snapshotLoaded = false;
+    this.streamSynced = false;
+    this.pendingBookEvents = [event];
+    this.onStatus({ state: "loading", text: `Пересобираю глубину ${this.source.exchange.toUpperCase()}` });
+    this.#loadSnapshot(this.source, this.generation);
   }
 
   #ingestTrades(rows) {
@@ -290,6 +342,9 @@ export class ExchangeOrderBookFeed {
     this.tradeKeys.clear();
     this.sequence = null;
     this.depthReady = false;
+    this.snapshotLoaded = false;
+    this.streamSynced = false;
+    this.pendingBookEvents = [];
     this.lastEmitAt = 0;
     clearTimeout(this.emitTimer);
     this.emitTimer = null;

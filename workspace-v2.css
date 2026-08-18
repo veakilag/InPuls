@@ -576,7 +576,10 @@ body { background: #0b0d12; }
 .widget-source-button[data-exchange="bitget"] { color: #54d8cf; }
 .widget-source-button[data-exchange="gate"] { color: #62a8ff; }
 .widget-source-button[data-exchange="hyperliquid"] { color: #69e1bd; }
+.widget-source-button[data-exchange="aster"] { color: #bd8cff; }
+.widget-source-button[data-exchange="binance_alpha"] { color: #f0b90b; }
 .widget-market-button[data-market="spot"] { color: var(--green); }
+.widget-market-button:disabled { cursor: default; opacity: .78; }
 
 @container (max-width: 520px) {
   .widget-source-button { max-width: 44px; overflow: hidden; text-overflow: clip; padding-inline: 2px; }

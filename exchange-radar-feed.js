@@ -2,7 +2,8 @@ import {
   fromVenueSymbol,
   marketSource,
   normalizeCanonicalSymbol,
-} from "./exchange-registry.js?v=26-124-multi-exchange-v1";
+} from "./exchange-registry.js?v=26-125-aster-alpha-v1";
+import { loadBinanceAlphaTokenIndex } from "./binance-alpha-symbols.js?v=26-125-aster-alpha-v1";
 
 function finite(value) {
   const number = Number(value);
@@ -14,7 +15,8 @@ async function fetchJson(url, options = {}, fetchImpl = globalThis.fetch) {
   if (!response?.ok) throw new Error(`HTTP ${response?.status ?? 0}`);
   const payload = await response.json();
   if (payload?.retCode && Number(payload.retCode) !== 0) throw new Error(payload.retMsg || "Bybit error");
-  if (payload?.code && !["0", "00000"].includes(String(payload.code))) throw new Error(payload.msg || "Exchange error");
+  if (payload?.success === false) throw new Error(payload.message || payload.messageDetail || "Exchange error");
+  if (payload?.code && !["0", "00000", "000000"].includes(String(payload.code))) throw new Error(payload.msg || payload.message || "Exchange error");
   return payload;
 }
 
@@ -54,9 +56,38 @@ function hyperSpotSymbol(meta, pair) {
   return `${base}USDT`;
 }
 
+function asterTicker(row, funding = null, nextFundingTime = null) {
+  return ticker({
+    symbol: row?.symbol ?? row?.s,
+    price: row?.lastPrice ?? row?.c,
+    open: row?.openPrice ?? row?.o,
+    high: row?.highPrice ?? row?.h,
+    low: row?.lowPrice ?? row?.l,
+    quoteVolume: row?.quoteVolume ?? row?.q,
+    trades: row?.count ?? row?.n,
+    funding,
+    nextFundingTime,
+  }, row?.closeTime ?? row?.C ?? row?.E ?? Date.now());
+}
+
+function alphaTokenTicker(token, patch = null) {
+  const price = finite(patch?.p) ?? token?.price;
+  const change = finite(patch?.pc24) ?? token?.change24h;
+  return ticker({
+    symbol: token?.symbol,
+    price,
+    open: openFromChange(price, change),
+    high: token?.high24h,
+    low: token?.low24h,
+    quoteVolume: finite(patch?.vol24) ?? token?.quoteVolume24h,
+    trades: finite(patch?.cnt24) ?? token?.trades24h,
+  }, patch?.t ?? Date.now());
+}
+
 export async function fetchExchangeTickers(sourceValue, {
   fetchImpl = globalThis.fetch,
   signal,
+  refresh = false,
 } = {}) {
   const source = marketSource(sourceValue);
   const now = Date.now();
@@ -74,6 +105,29 @@ export async function fetchExchangeTickers(sourceValue, {
       quoteVolume: row.quoteVolume,
       trades: row.count,
     }, row.closeTime ?? now)).filter(Boolean);
+  }
+  if (source.exchange === "aster") {
+    const tickerUrl = source.market === "spot"
+      ? "https://sapi.asterdex.com/api/v3/ticker/24hr"
+      : "https://fapi.asterdex.com/fapi/v3/ticker/24hr";
+    if (source.market === "spot") {
+      const rows = await fetchJson(tickerUrl, { signal }, fetchImpl);
+      return rows.map((row) => asterTicker(row)).filter(Boolean);
+    }
+    const [rows, premiumRows] = await Promise.all([
+      fetchJson(tickerUrl, { signal }, fetchImpl),
+      fetchJson("https://fapi.asterdex.com/fapi/v3/premiumIndex", { signal }, fetchImpl).catch(() => []),
+    ]);
+    const premiumBySymbol = new Map((Array.isArray(premiumRows) ? premiumRows : [premiumRows])
+      .map((row) => [String(row?.symbol ?? "").toUpperCase(), row]));
+    return rows.map((row) => {
+      const premium = premiumBySymbol.get(String(row?.symbol ?? "").toUpperCase());
+      return asterTicker(row, premium?.lastFundingRate, premium?.nextFundingTime);
+    }).filter(Boolean);
+  }
+  if (source.exchange === "binance_alpha") {
+    const index = await loadBinanceAlphaTokenIndex({ fetchImpl, signal, force: refresh });
+    return index.tokens.map((token) => alphaTokenTicker(token)).filter(Boolean);
   }
   if (source.exchange === "bybit") {
     const category = source.market === "spot" ? "spot" : "linear";
@@ -163,6 +217,52 @@ export async function fetchExchangeTickers(sourceValue, {
   }).filter(Boolean);
 }
 
+async function buildLiveTickerStream(source, { fetchImpl, signal }) {
+  if (source.exchange === "aster") {
+    const host = source.market === "spot" ? "sstream.asterdex.com" : "fstream.asterdex.com";
+    return {
+      url: `wss://${host}/ws/!ticker@arr`,
+      open() {},
+      parse(payload) {
+        return (Array.isArray(payload) ? payload : []).map((row) => asterTicker(row)).filter(Boolean);
+      },
+    };
+  }
+  if (source.exchange === "binance_alpha") {
+    const index = await loadBinanceAlphaTokenIndex({ fetchImpl, signal });
+    return {
+      url: "wss://nbstream.binance.com/w3w/wsa/stream",
+      open(socket) {
+        socket.send(JSON.stringify({ method: "SUBSCRIBE", params: ["came@allTokens@ticker24"], id: 1 }));
+      },
+      parse(payload) {
+        return (payload?.data?.d ?? []).map((row) => {
+          const alphaId = String(row?.aid ?? "").trim().toUpperCase();
+          const token = index.byAlphaId.get(alphaId)
+            ?? index.byContract.get(String(row?.ca ?? "").trim().toLowerCase());
+          return token ? alphaTokenTicker(token, row) : null;
+        }).filter(Boolean);
+      },
+    };
+  }
+  return null;
+}
+
+function mergeTicker(previous, next) {
+  if (!previous) return next;
+  return {
+    ...previous,
+    ...next,
+    o: finite(next.o) ?? previous.o,
+    h: finite(next.h) ?? previous.h,
+    l: finite(next.l) ?? previous.l,
+    q: finite(next.q) ?? previous.q,
+    n: finite(next.n) ?? previous.n,
+    r: finite(next.r) ?? previous.r,
+    T: finite(next.T) ?? previous.T,
+  };
+}
+
 export class ExchangeRadarFeed {
   constructor({
     exchange,
@@ -170,15 +270,22 @@ export class ExchangeRadarFeed {
     onSnapshot = () => {},
     onStatus = () => {},
     fetchImpl = globalThis.fetch,
+    WebSocketImpl = globalThis.WebSocket,
     intervalMs = 10_000,
   } = {}) {
     this.source = marketSource({ exchange, market });
     this.onSnapshot = onSnapshot;
     this.onStatus = onStatus;
     this.fetchImpl = fetchImpl;
+    this.WebSocketImpl = WebSocketImpl;
     this.intervalMs = Math.max(5_000, Number(intervalMs) || 10_000);
     this.abortController = null;
     this.timer = null;
+    this.socket = null;
+    this.liveReconnectTimer = null;
+    this.liveEmitTimer = null;
+    this.liveConnecting = false;
+    this.snapshotBySymbol = new Map();
     this.generation = 0;
     this.running = false;
   }
@@ -198,24 +305,105 @@ export class ExchangeRadarFeed {
       const rows = await fetchExchangeTickers(this.source, {
         fetchImpl: this.fetchImpl,
         signal: this.abortController.signal,
+        refresh: this.source.exchange === "binance_alpha",
       });
       if (!this.running || generation !== this.generation) return;
+      this.snapshotBySymbol = new Map(rows.map((row) => [row.s, row]));
       this.onSnapshot(rows, this.source);
       this.onStatus({ state: "online", text: `${this.source.exchange.toUpperCase()} · ${rows.length} рынков` });
+      this.#connectLive(generation);
     } catch (error) {
       if (!this.running || generation !== this.generation || error?.name === "AbortError") return;
       this.onStatus({ state: "warning", text: `${this.source.exchange.toUpperCase()} · повторное подключение` });
     }
     if (this.running && generation === this.generation) {
-      this.timer = setTimeout(() => this.#poll(generation), this.intervalMs);
+      const liveSource = ["aster", "binance_alpha"].includes(this.source.exchange);
+      this.timer = setTimeout(() => this.#poll(generation), liveSource ? Math.max(60_000, this.intervalMs * 6) : this.intervalMs);
     }
+  }
+
+  async #connectLive(generation) {
+    if (
+      !this.running
+      || generation !== this.generation
+      || this.socket
+      || this.liveConnecting
+      || typeof this.WebSocketImpl !== "function"
+      || !["aster", "binance_alpha"].includes(this.source.exchange)
+    ) return;
+    this.liveConnecting = true;
+    let descriptor;
+    try {
+      descriptor = await buildLiveTickerStream(this.source, {
+        fetchImpl: this.fetchImpl,
+        signal: this.abortController?.signal,
+      });
+    } catch {
+      this.liveConnecting = false;
+      this.#scheduleLiveReconnect(generation);
+      return;
+    }
+    this.liveConnecting = false;
+    if (!descriptor || !this.running || generation !== this.generation) return;
+    let socket;
+    try {
+      socket = new this.WebSocketImpl(descriptor.url);
+    } catch {
+      this.#scheduleLiveReconnect(generation);
+      return;
+    }
+    this.socket = socket;
+    socket.addEventListener("open", () => {
+      if (socket !== this.socket || generation !== this.generation) return;
+      descriptor.open(socket);
+    });
+    socket.addEventListener("message", (message) => {
+      if (socket !== this.socket || generation !== this.generation) return;
+      let payload;
+      try { payload = JSON.parse(message.data); } catch { return; }
+      let rows;
+      try { rows = descriptor.parse(payload); } catch { return; }
+      if (!rows?.length) return;
+      for (const row of rows) this.snapshotBySymbol.set(row.s, mergeTicker(this.snapshotBySymbol.get(row.s), row));
+      clearTimeout(this.liveEmitTimer);
+      this.liveEmitTimer = setTimeout(() => {
+        if (!this.running || generation !== this.generation) return;
+        const snapshot = [...this.snapshotBySymbol.values()];
+        this.onSnapshot(snapshot, this.source);
+        this.onStatus({ state: "online", text: `${this.source.exchange.toUpperCase()} · LIVE · ${snapshot.length} рынков` });
+      }, 180);
+    });
+    socket.addEventListener("close", () => {
+      if (socket !== this.socket) return;
+      this.socket = null;
+      this.#scheduleLiveReconnect(generation);
+    });
+    socket.addEventListener("error", () => {
+      if (socket === this.socket) {
+        try { socket.close(); } catch {}
+      }
+    });
+  }
+
+  #scheduleLiveReconnect(generation) {
+    clearTimeout(this.liveReconnectTimer);
+    if (!this.running || generation !== this.generation) return;
+    this.liveReconnectTimer = setTimeout(() => this.#connectLive(generation), 1_800);
   }
 
   #cancel() {
     clearTimeout(this.timer);
+    clearTimeout(this.liveReconnectTimer);
+    clearTimeout(this.liveEmitTimer);
     this.timer = null;
+    this.liveReconnectTimer = null;
+    this.liveEmitTimer = null;
+    this.liveConnecting = false;
     this.abortController?.abort();
     this.abortController = null;
+    try { this.socket?.close(); } catch {}
+    this.socket = null;
+    this.snapshotBySymbol.clear();
   }
 
   destroy() {

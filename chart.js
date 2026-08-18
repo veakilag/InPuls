@@ -3,11 +3,11 @@ import {
   buildCandleStream,
   buildTradeStream,
   fetchExchangeCandles,
-} from "./exchange-market-data.js?v=26-124-multi-exchange-v1";
+} from "./exchange-market-data.js?v=26-125-aster-alpha-v1";
 import {
   marketSource,
   marketSourceKey,
-} from "./exchange-registry.js?v=26-124-multi-exchange-v1";
+} from "./exchange-registry.js?v=26-125-aster-alpha-v1";
 
 const MARKET_WS = "wss://fstream.binance.com/market/ws";
 const KLINES_REST = "https://fapi.binance.com/fapi/v1/klines";

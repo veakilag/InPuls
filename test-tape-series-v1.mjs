@@ -8,7 +8,7 @@ import {
   materializeTapeSeries,
   nextTapeMode,
   normalizeTapeMode,
-} from "./orderbook.js?v=26-124-multi-exchange-v1";
+} from "./orderbook.js?v=26-125-aster-alpha-v1";
 
 function trade(id, time, side, price, quote) {
   return {
