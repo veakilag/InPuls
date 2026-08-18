@@ -1,12 +1,10 @@
 (() => {
   "use strict";
 
-  // Runtime recovery is strictly scoped to stale PWA/runtime state. It must
-  // never mutate product layout, charts, market data, timers, or workspace
-  // panels. Retired Event Radar is cleaned separately without touching the
-  // current scanner/activity surface.
+  // Runtime recovery is deliberately limited to recovery. It must never alter
+  // chart visibility, market fetch(), WebSocket, timers, or workspace state.
   const APP_BUILD = "26-126-final-exchanges-v1";
-  const RECOVERY_REVISION = "26-126-runtime-recovery-v5";
+  const RECOVERY_REVISION = "26-126-runtime-recovery-v2";
   const STORAGE_KEY = "inpuls-runtime-boot-build-v1";
   const REVISION_KEY = "inpuls-runtime-recovery-revision-v1";
   const SESSION_KEY = `inpuls-runtime-recovery:${RECOVERY_REVISION}`;
@@ -30,23 +28,6 @@
       return scope.origin === appScope.origin && scope.pathname === appScope.pathname;
     } catch { return false; }
   }
-
-  // Event Radar is retired. Do not touch the live scanner/activity workspace.
-  // This guard only removes the obsolete Event Radar nodes/module and its CSS.
-  function installRetiredEventRadarCleanup() {
-    const cleanup = () => {
-      document.querySelector("#event-radar-beta")?.remove();
-      document.querySelector("#event-radar-beta-toggle")?.remove();
-      document.querySelectorAll('script[src*="event-radar-beta.js"], link[href*="event-radar-beta.css"]').forEach((node) => node.remove());
-    };
-
-    cleanup();
-    if (!document.body || typeof MutationObserver !== "function") return;
-    const observer = new MutationObserver(cleanup);
-    observer.observe(document.body, { childList: true, subtree: true });
-    window.addEventListener("pagehide", () => observer.disconnect(), { once: true });
-  }
-
   function cleanRecoveryQuery() {
     if (!["_inpuls_recovery", "_inpuls_reload", "_inpuls_reason"].some((key) => url.searchParams.has(key))) return;
     ["_inpuls_recovery", "_inpuls_reload", "_inpuls_reason"].forEach((key) => url.searchParams.delete(key));
@@ -118,8 +99,6 @@
       performScopedRecovery("watchdog", true);
     }, WATCHDOG_DELAY_MS);
   }
-
-  installRetiredEventRadarCleanup();
 
   const needsRevisionRecovery = read(localStorage, STORAGE_KEY) !== APP_BUILD
     || read(localStorage, REVISION_KEY) !== RECOVERY_REVISION;
