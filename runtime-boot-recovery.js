@@ -29,34 +29,32 @@
     } catch { return false; }
   }
 
-  // These two UI blocks were intentionally retired. Keep the cleanup here so
-  // old cached HTML cannot resurrect them, but do not use the old Lite Shell
-  // behavior that also hid the primary chart or intercepted market data.
-  function removeRetiredWidgets() {
-    document.querySelector("#event-radar-beta")?.remove();
-    document.querySelector("#event-radar-beta-toggle")?.remove();
-    document.querySelector('[data-mobile-view="activity"]')?.remove();
+  // Activity and Event Radar are retired product surfaces. They must not be
+  // resurrected by stale HTML, old workspace state, or the legacy beta module.
+  // Keep this cleanup synchronous: runtime-boot-recovery.js is loaded before
+  // event-radar-beta.js, so removing its toggle prevents the legacy module from
+  // mounting at all. The observer protects against later DOM/workspace restores.
+  function installRetiredWidgetCleanup() {
+    const cleanup = () => {
+      document.querySelector("#event-radar-beta-toggle")?.remove();
+      document.querySelector("#event-radar-beta")?.remove();
 
-    const activity = document.querySelector('.workspace-panel[data-panel="scanner"]');
-    activity?.remove();
+      document.querySelectorAll(
+        '.workspace-panel[data-panel-id="scanner"], [data-restore-panel="scanner"], [data-mobile-view="activity"]',
+      ).forEach((element) => {
+        element.hidden = true;
+        element.setAttribute("aria-hidden", "true");
+      });
 
-    document.querySelector('[data-restore-panel="scanner"]')?.remove();
-    document.querySelector("#scanner-resizer")?.remove();
-    document.querySelector("#scanner-resizer-nw")?.remove();
+      document.querySelectorAll('link[href*="event-radar-beta.css"]').forEach((element) => element.remove());
+    };
 
-    // Prevent the retired Event Radar module from executing on this page.
-    document.querySelectorAll('script[src*="event-radar-beta.js"], link[href*="event-radar-beta.css"]').forEach((node) => node.remove());
-  }
+    cleanup();
 
-  function installRetiredWidgetGuard() {
-    removeRetiredWidgets();
-    if (!document.body) return;
-    const observer = new MutationObserver(() => removeRetiredWidgets());
+    if (typeof MutationObserver !== "function" || !document.body) return;
+    const observer = new MutationObserver(cleanup);
     observer.observe(document.body, { childList: true, subtree: true });
-    window.addEventListener("load", () => {
-      removeRetiredWidgets();
-      observer.disconnect();
-    }, { once: true });
+    window.addEventListener("pagehide", () => observer.disconnect(), { once: true });
   }
 
   function cleanRecoveryQuery() {
@@ -131,7 +129,7 @@
     }, WATCHDOG_DELAY_MS);
   }
 
-  installRetiredWidgetGuard();
+  installRetiredWidgetCleanup();
 
   const needsRevisionRecovery = read(localStorage, STORAGE_KEY) !== APP_BUILD
     || read(localStorage, REVISION_KEY) !== RECOVERY_REVISION;
