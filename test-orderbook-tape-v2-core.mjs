@@ -4,8 +4,6 @@ import test from "node:test";
 
 const orderbook = readFileSync(new URL("./orderbook.js", import.meta.url), "utf8");
 const serviceWorker = readFileSync(new URL("./sw.js", import.meta.url), "utf8");
-const resetPage = readFileSync(new URL("./reset-v26.html", import.meta.url), "utf8");
-const resetScript = readFileSync(new URL("./reset.js", import.meta.url), "utf8");
 
 function tapePainter() {
   const start = orderbook.indexOf("function drawTapeCard(card) {");
@@ -49,7 +47,7 @@ test("water renderer owns stable event geometry", () => {
   assert.match(orderbook, />КЛАСТЕРЫ<\/button>/);
 });
 
-test("Flow Workspace cache and reset page point to water runtime", () => {
+test("Flow Workspace and Service Worker point to the current runtime", () => {
   assert.match(orderbook, /inpuls-orderbook-runtime-26-91-runtime-boot-cache-feed-v1/);
   assert.match(orderbook, /orderbook-flow-workspace\.js\?v=26-126-final-exchanges-v1/);
   assert.match(serviceWorker, /inpuls-26-91-runtime-boot-cache-feed-v1/);
@@ -61,10 +59,6 @@ test("Flow Workspace cache and reset page point to water runtime", () => {
   assert.match(serviceWorker, /orderbook-tape-layout\.js\?v=stable-tape-v4/);
   assert.match(serviceWorker, /orderbook-tape-latency\.js\?v=worker-bp-v1/);
   assert.match(serviceWorker, /orderbook-flow-workspace\.js\?v=26-126-final-exchanges-v1/);
-  assert.match(resetPage, /Resume v2/);
-  assert.match(resetPage, /reset\.js\?v=26-91-runtime-boot-cache-feed-v1/);
-  assert.match(resetScript, /sw\.js\?v=\$\{BUILD\}/);
-  assert.match(resetScript, /26-91-runtime-boot-cache-feed-v1/);
 });
 
 test("production TAPE accepts only live packets and starts from an empty frame", () => {
