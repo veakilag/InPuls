@@ -1,11 +1,10 @@
 (() => {
   "use strict";
 
-  // Runtime recovery is strictly scoped to stale PWA/runtime state. It must
-  // never mutate charts, market data, timers, or workspace state. Retired UI
-  // surfaces are cleaned independently before their legacy modules can mount.
+  // Runtime recovery is scoped to stale PWA/runtime state only. It must never
+  // mutate charts, market data, timers, or workspace state.
   const APP_BUILD = "26-126-final-exchanges-v1";
-  const RECOVERY_REVISION = "26-126-runtime-recovery-v6";
+  const RECOVERY_REVISION = "26-127-runtime-recovery-v7";
   const STORAGE_KEY = "inpuls-runtime-boot-build-v1";
   const REVISION_KEY = "inpuls-runtime-recovery-revision-v1";
   const SESSION_KEY = `inpuls-runtime-recovery:${RECOVERY_REVISION}`;
@@ -30,31 +29,48 @@
     } catch { return false; }
   }
 
-  // These two surfaces are retired. The cleanup only removes their obsolete
-  // DOM/module entry points; it does not touch the chart, market feed, Worker,
-  // timers, workspace persistence, or current radar/list of coins.
+  // Retired surfaces must not survive old workspace/HTML state. This is a
+  // compatibility cleanup only; it does not touch chart/data/feed state.
+  function cleanupRetiredSurfaces(root = document) {
+    root.querySelector("#event-radar-beta")?.remove();
+    root.querySelector("#event-radar-beta-toggle")?.remove();
+    root.querySelector('[data-mobile-view="activity"]')?.remove();
+
+    const activity = root.querySelector('.workspace-panel[data-panel-id="scanner"]');
+    activity?.remove();
+    root.querySelector('[data-restore-panel="scanner"]')?.remove();
+    root.querySelector("#scanner-resizer")?.remove();
+    root.querySelector("#scanner-resizer-nw")?.remove();
+
+    root.querySelectorAll(
+      'script[src*="event-radar-beta.js"], link[href*="event-radar-beta.css"]',
+    ).forEach((node) => node.remove());
+  }
+
   function installRetiredSurfaceCleanup() {
-    const cleanup = () => {
-      document.querySelector("#event-radar-beta")?.remove();
-      document.querySelector("#event-radar-beta-toggle")?.remove();
-      document.querySelector('[data-mobile-view="activity"]')?.remove();
+    const run = () => cleanupRetiredSurfaces(document);
 
-      const activity = document.querySelector('.workspace-panel[data-panel-id="scanner"]');
-      activity?.remove();
-      document.querySelector('[data-restore-panel="scanner"]')?.remove();
-      document.querySelector("#scanner-resizer")?.remove();
-      document.querySelector("#scanner-resizer-nw")?.remove();
+    // This file is loaded from <head>. The previous implementation attempted
+    // one cleanup before <body> existed and then returned forever. Run once
+    // after DOM construction and keep a lightweight observer for late mounts.
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", run, { once: true });
+    } else {
+      run();
+    }
 
-      document.querySelectorAll(
-        'script[src*="event-radar-beta.js"], link[href*="event-radar-beta.css"]',
-      ).forEach((node) => node.remove());
+    if (typeof MutationObserver !== "function") return;
+    const observe = () => {
+      if (!document.body) return;
+      const observer = new MutationObserver(() => cleanupRetiredSurfaces(document));
+      observer.observe(document.body, { childList: true, subtree: true });
+      window.addEventListener("pagehide", () => observer.disconnect(), { once: true });
     };
-
-    cleanup();
-    if (!document.body || typeof MutationObserver !== "function") return;
-    const observer = new MutationObserver(cleanup);
-    observer.observe(document.body, { childList: true, subtree: true });
-    window.addEventListener("pagehide", () => observer.disconnect(), { once: true });
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", observe, { once: true });
+    } else {
+      observe();
+    }
   }
 
   function cleanRecoveryQuery() {
@@ -62,10 +78,12 @@
     ["_inpuls_recovery", "_inpuls_reload", "_inpuls_reason"].forEach((key) => url.searchParams.delete(key));
     history.replaceState(history.state, "", url);
   }
+
   function isRuntimeHealthy() {
     const clockText = document.querySelector("#clock")?.textContent?.trim() ?? "";
     return /^\d{2}:\d{2}:\d{2}$/.test(clockText);
   }
+
   function showRecoveryState(message, allowManualRetry = false) {
     const status = document.querySelector("#connection-status");
     const statusText = document.querySelector("#connection-text");
@@ -82,6 +100,7 @@
       performScopedRecovery("manual", true);
     }, { once: true });
   }
+
   async function clearScopedRuntime() {
     const unregister = "serviceWorker" in navigator
       ? navigator.serviceWorker.getRegistrations()
@@ -96,6 +115,7 @@
       : Promise.resolve([]);
     await Promise.allSettled([unregister, clearCaches]);
   }
+
   function performScopedRecovery(reason, force = false) {
     const sessionState = read(sessionStorage, SESSION_KEY);
     if (sessionState === "running" || (!force && sessionState === "done")) return;
@@ -111,6 +131,7 @@
       window.location.replace(url.href);
     });
   }
+
   function scheduleRuntimeWatchdog() {
     window.setTimeout(() => {
       if (isRuntimeHealthy()) {
