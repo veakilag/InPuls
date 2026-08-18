@@ -5,8 +5,8 @@ import test from "node:test";
 import { buildProvisionalCandle } from "./chart.js";
 import { ensureFootprintLiveBucket } from "./orderbook.js";
 
-const RUNTIME_BUILD = "26-124-multi-exchange-v1";
-const CHART_BUILD = "26-124-multi-exchange-v1";
+const RUNTIME_BUILD = "26-125-aster-alpha-v1";
+const CHART_BUILD = "26-125-aster-alpha-v1";
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 
 test("minute boundary creates a zero-volume provisional candle from the last close", () => {

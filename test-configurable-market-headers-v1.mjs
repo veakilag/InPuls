@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { SymbolState } from "./engine.js?v=26-124-multi-exchange-v1";
+import { SymbolState } from "./engine.js?v=26-125-aster-alpha-v1";
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 

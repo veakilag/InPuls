@@ -1,4 +1,4 @@
-const KNOWN_EXCHANGES = new Set(["binance", "bybit", "okx", "bitget", "gate", "hyperliquid"]);
+const KNOWN_EXCHANGES = new Set(["binance", "bybit", "okx", "bitget", "gate", "hyperliquid", "aster", "binance_alpha"]);
 
 export function normalizeOrderBookMarketKey(value, fallbackMarket = "futures") {
   const raw = String(value ?? "").trim();

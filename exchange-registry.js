@@ -5,6 +5,8 @@ export const EXCHANGE_IDS = Object.freeze([
   "bitget",
   "gate",
   "hyperliquid",
+  "aster",
+  "binance_alpha",
 ]);
 
 export const MARKET_TYPES = Object.freeze(["futures", "spot"]);
@@ -16,6 +18,8 @@ export const EXCHANGES = Object.freeze({
   bitget: Object.freeze({ id: "bitget", label: "BITGET", markets: MARKET_TYPES }),
   gate: Object.freeze({ id: "gate", label: "GATE", markets: MARKET_TYPES }),
   hyperliquid: Object.freeze({ id: "hyperliquid", label: "HYPER", markets: MARKET_TYPES }),
+  aster: Object.freeze({ id: "aster", label: "ASTER", markets: MARKET_TYPES }),
+  binance_alpha: Object.freeze({ id: "binance_alpha", label: "BINANCE α", markets: Object.freeze(["spot"]) }),
 });
 
 export function normalizeExchange(value, fallback = "binance") {
@@ -27,6 +31,13 @@ export function normalizeMarket(value, fallback = "futures") {
   const market = String(value ?? "").trim().toLowerCase();
   if (market === "perp" || market === "swap" || market === "linear") return "futures";
   return MARKET_TYPES.includes(market) ? market : fallback;
+}
+
+export function normalizeExchangeMarket(exchangeValue, marketValue) {
+  const exchange = normalizeExchange(exchangeValue);
+  const market = normalizeMarket(marketValue);
+  const supported = EXCHANGES[exchange]?.markets ?? MARKET_TYPES;
+  return supported.includes(market) ? market : supported[0];
 }
 
 export function normalizeCanonicalSymbol(value, fallbackQuote = "USDT") {
@@ -56,6 +67,8 @@ export function toVenueSymbol(exchangeValue, marketValue, symbolValue) {
   if (exchange === "okx") return market === "spot" ? `${base}-USDT` : `${base}-USDT-SWAP`;
   if (exchange === "gate") return `${base}_USDT`;
   if (exchange === "hyperliquid") return market === "spot" ? `${base}/USDC` : base;
+  // Binance Alpha uses an ALPHA_<id> venue symbol resolved from its live token catalog.
+  if (exchange === "binance_alpha") return symbol;
   return symbol;
 }
 
@@ -69,12 +82,13 @@ export function fromVenueSymbol(exchangeValue, marketValue, value) {
     const base = raw.split("/")[0].replace(/^@/, "");
     return /^[A-Z0-9]{1,16}$/.test(base) ? `${base}USDT` : null;
   }
+  if (exchange === "binance_alpha") return null;
   return normalizeCanonicalSymbol(raw, market === "spot" ? "USDT" : "USDT");
 }
 
 export function marketSource(value = {}) {
   const exchange = normalizeExchange(value.exchange);
-  const market = normalizeMarket(value.market);
+  const market = normalizeExchangeMarket(exchange, value.market);
   const symbol = normalizeCanonicalSymbol(value.symbol);
   return Object.freeze({
     exchange,

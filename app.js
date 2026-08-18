@@ -1,4 +1,4 @@
-import { buildBinanceChannelStreams, buildBinanceChannelTransports, isBinanceSubscriptionError, isCoreMiniTickerPacket, nextBinanceTransportIndex, normalizeBinanceRestMiniTicker } from "./binance-stream-routing.js?v=26-124-multi-exchange-v1";
+import { buildBinanceChannelStreams, buildBinanceChannelTransports, isBinanceSubscriptionError, isCoreMiniTickerPacket, nextBinanceTransportIndex, normalizeBinanceRestMiniTicker } from "./binance-stream-routing.js?v=26-125-aster-alpha-v1";
 import { binanceClock } from "./binance-clock.js?v=26-102-tape-live-edge-minute-boundary-v1";
 import {
   DEFAULT_SETTINGS,
@@ -7,9 +7,9 @@ import {
   formatCompactUsd,
   isUsdtPerpetualSymbol,
   normalizeUsdtPerpetualSymbol,
-} from "./engine.js?v=26-124-multi-exchange-v1";
-import { calculateNatr, CandlestickChart, KlineFeed, pearsonCorrelation } from "./chart.js?v=26-124-multi-exchange-v1";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-124-multi-exchange-v1";
+} from "./engine.js?v=26-125-aster-alpha-v1";
+import { calculateNatr, CandlestickChart, KlineFeed, pearsonCorrelation } from "./chart.js?v=26-125-aster-alpha-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-125-aster-alpha-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -19,16 +19,17 @@ import {
   MarketwideSizeScanner,
   detectMarketwideCascade,
 } from "./market-pattern-scanner.js?v=marketwide-patterns-v1";
-import { panelsOverlap, resizeTiledWorkspace, WORKSPACE_COLS, WORKSPACE_ROWS } from "./workspace-layout.js?v=26-124-multi-exchange-v1";
+import { panelsOverlap, resizeTiledWorkspace, WORKSPACE_COLS, WORKSPACE_ROWS } from "./workspace-layout.js?v=26-125-aster-alpha-v1";
 import {
   EXCHANGES,
   marketSourceLabel,
   nextExchange,
   normalizeExchange,
+  normalizeExchangeMarket,
   normalizeMarket,
-} from "./exchange-registry.js?v=26-124-multi-exchange-v1";
-import { fetchExchangeCandles } from "./exchange-market-data.js?v=26-124-multi-exchange-v1";
-import { ExchangeRadarFeed, fetchExchangeTickers } from "./exchange-radar-feed.js?v=26-124-multi-exchange-v1";
+} from "./exchange-registry.js?v=26-125-aster-alpha-v1";
+import { fetchExchangeCandles } from "./exchange-market-data.js?v=26-125-aster-alpha-v1";
+import { ExchangeRadarFeed, fetchExchangeTickers } from "./exchange-radar-feed.js?v=26-125-aster-alpha-v1";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -123,10 +124,11 @@ const DEFAULT_WORKSPACE = {
 
 function normalizePanelSource(panel, fallback = {}) {
   if (!panel || typeof panel !== "object") return panel;
+  const exchange = normalizeExchange(panel.exchange ?? fallback.exchange);
   return {
     ...panel,
-    exchange: normalizeExchange(panel.exchange ?? fallback.exchange),
-    market: normalizeMarket(panel.market ?? fallback.market),
+    exchange,
+    market: normalizeExchangeMarket(exchange, panel.market ?? fallback.market),
   };
 }
 
@@ -583,7 +585,7 @@ function scheduleRender() {
 const radarHistoryLoaded = new Set();
 const radarHistoryLoading = new Set();
 const exchangeSymbolMaps = new Map();
-const radarSourceKey = (sourceValue = state.workspace.radar) => `${normalizeExchange(sourceValue.exchange)}:${normalizeMarket(sourceValue.market)}`;
+const radarSourceKey = (sourceValue = state.workspace.radar) => `${normalizeExchange(sourceValue.exchange)}:${normalizeExchangeMarket(sourceValue.exchange, sourceValue.market)}`;
 const symbolMapForSource = (sourceValue = state.workspace.radar) => {
   const key = radarSourceKey(sourceValue);
   if (key === "binance:futures") return state.symbols;
@@ -723,7 +725,7 @@ applyFontScale(state.fontScale);
 applyComfort(state.comfort);
 const primaryChartSource = () => ({
   exchange: normalizeExchange(state.workspace.primary.exchange),
-  market: normalizeMarket(state.workspace.primary.market),
+  market: normalizeExchangeMarket(state.workspace.primary.exchange, state.workspace.primary.market),
 });
 const klineFeed = new KlineFeed({
   ...primaryChartSource(),
@@ -738,10 +740,19 @@ const klineFeed = new KlineFeed({
     els.chartStatus.replaceChildren(document.createElement("i"), document.createTextNode(text));
   },
 });
-const syncPrimarySourceControls = bindWidgetMarketSource(document.querySelector(".primary-chart"), state.workspace.primary, () => {
+const syncPrimarySourceControls = bindWidgetMarketSource(document.querySelector(".primary-chart"), state.workspace.primary, async () => {
   state.chartCandles = [];
-  klineFeed.select(state.selectedChartSymbol, state.chartInterval, state.chartRange, primaryChartSource());
-  loadChartStats(state.selectedChartSymbol, primaryChartSource());
+  const source = primaryChartSource();
+  const requestedSource = radarSourceKey(source);
+  let symbol;
+  try { symbol = await availableSymbolForSource(source, state.selectedChartSymbol); } catch {}
+  if (!symbol || radarSourceKey(primaryChartSource()) !== requestedSource) return;
+  if (symbol !== state.selectedChartSymbol) {
+    selectChartSymbol(symbol);
+  } else {
+    klineFeed.select(symbol, state.chartInterval, state.chartRange, source);
+    loadChartStats(symbol, source);
+  }
   renderChartMetrics();
 });
 
@@ -1221,7 +1232,7 @@ function collectSignalMemoryFromFeed(now = Date.now()) {
 async function warmupRadarHistory() {
   const source = {
     exchange: normalizeExchange(state.workspace.radar.exchange),
-    market: normalizeMarket(state.workspace.radar.market),
+    market: normalizeExchangeMarket(state.workspace.radar.exchange, state.workspace.radar.market),
   };
   const sourceKey = radarSourceKey(source);
   const symbolsMap = symbolMapForSource(source);
@@ -1253,7 +1264,7 @@ async function warmupRadarHistory() {
 function ingestRadarSnapshot(rows, sourceValue) {
   const source = {
     exchange: normalizeExchange(sourceValue.exchange),
-    market: normalizeMarket(sourceValue.market),
+    market: normalizeExchangeMarket(sourceValue.exchange, sourceValue.market),
   };
   const sourceKey = radarSourceKey(source);
   const symbolsMap = symbolMapForSource(source);
@@ -1288,7 +1299,7 @@ const radarFeed = new ExchangeRadarFeed({
 function selectRadarSource() {
   const source = {
     exchange: normalizeExchange(state.workspace.radar.exchange),
-    market: normalizeMarket(state.workspace.radar.market),
+    market: normalizeExchangeMarket(state.workspace.radar.exchange, state.workspace.radar.market),
   };
   if (radarSourceKey(source) === "binance:futures") radarFeed.destroy();
   else radarFeed.select(source);
@@ -2070,7 +2081,7 @@ function writeMarketSourceTransfer(dataTransfer, sourceValue) {
   if (!dataTransfer) return;
   dataTransfer.setData(MARKET_SOURCE_TRANSFER, JSON.stringify({
     exchange: normalizeExchange(sourceValue?.exchange),
-    market: normalizeMarket(sourceValue?.market),
+    market: normalizeExchangeMarket(sourceValue?.exchange, sourceValue?.market),
   }));
 }
 
@@ -2079,12 +2090,12 @@ function readMarketSourceTransfer(dataTransfer, fallback = primaryChartSource())
     const parsed = JSON.parse(dataTransfer?.getData(MARKET_SOURCE_TRANSFER) || "null");
     if (parsed && typeof parsed === "object") return {
       exchange: normalizeExchange(parsed.exchange),
-      market: normalizeMarket(parsed.market),
+      market: normalizeExchangeMarket(parsed.exchange, parsed.market),
     };
   } catch {}
   return {
     exchange: normalizeExchange(fallback.exchange),
-    market: normalizeMarket(fallback.market),
+    market: normalizeExchangeMarket(fallback.exchange, fallback.market),
   };
 }
 
@@ -2093,8 +2104,9 @@ function bindWidgetMarketSource(root, model, onChange) {
   const marketButton = root?.querySelector?.("[data-chart-market], [data-book-market], [data-radar-market]");
   const sync = () => {
     model.exchange = normalizeExchange(model.exchange);
-    model.market = normalizeMarket(model.market);
+    model.market = normalizeExchangeMarket(model.exchange, model.market);
     const exchangeLabel = EXCHANGES[model.exchange]?.label ?? model.exchange.toUpperCase();
+    const markets = EXCHANGES[model.exchange]?.markets ?? ["futures", "spot"];
     if (exchangeButton) {
       exchangeButton.textContent = exchangeLabel;
       exchangeButton.title = `${marketSourceLabel(model)} · нажми для следующей биржи; Shift — назад`;
@@ -2102,7 +2114,10 @@ function bindWidgetMarketSource(root, model, onChange) {
     }
     if (marketButton) {
       marketButton.textContent = model.market === "spot" ? "SPOT" : "FUTURES";
-      marketButton.title = `Рынок: ${model.market === "spot" ? "спот" : "бессрочные фьючерсы"}`;
+      marketButton.disabled = markets.length < 2;
+      marketButton.title = markets.length < 2
+        ? `${exchangeLabel}: доступен только SPOT`
+        : `Рынок: ${model.market === "spot" ? "спот" : "бессрочные фьючерсы"}`;
       marketButton.dataset.market = model.market;
     }
     root.dataset.exchange = model.exchange;
@@ -2117,6 +2132,7 @@ function bindWidgetMarketSource(root, model, onChange) {
   });
   marketButton?.addEventListener("click", (event) => {
     event.stopPropagation();
+    if ((EXCHANGES[model.exchange]?.markets?.length ?? 2) < 2) return;
     model.market = model.market === "spot" ? "futures" : "spot";
     sync();
     persistWorkspace();
@@ -2124,6 +2140,21 @@ function bindWidgetMarketSource(root, model, onChange) {
   });
   sync();
   return sync;
+}
+
+async function availableSymbolForSource(sourceValue, preferredSymbol) {
+  const source = {
+    exchange: normalizeExchange(sourceValue?.exchange),
+    market: normalizeExchangeMarket(sourceValue?.exchange, sourceValue?.market),
+  };
+  const preferred = normalizeUsdtPerpetualSymbol(preferredSymbol);
+  if (source.exchange !== "binance_alpha") return preferred;
+  const rows = await fetchExchangeTickers(source);
+  const available = rows.find((row) => normalizeUsdtPerpetualSymbol(row?.s) === preferred);
+  if (available) return preferred;
+  return rows
+    .filter((row) => normalizeUsdtPerpetualSymbol(row?.s))
+    .sort((left, right) => Number(right.q) - Number(left.q))[0]?.s ?? null;
 }
 
 function bindTimeframeVisibility(root, readVisible, writeVisible) {
@@ -2257,7 +2288,16 @@ function mountExtraChart(model) {
     onStatus() {},
   });
   extraCharts.set(model.id, panel);
-  const syncChartSourceControls = bindWidgetMarketSource(article, model, () => {
+  const syncChartSourceControls = bindWidgetMarketSource(article, model, async () => {
+    const requestedSource = radarSourceKey(model);
+    let symbol;
+    try { symbol = await availableSymbolForSource(model, model.symbol); } catch {}
+    if (!symbol || radarSourceKey(model) !== requestedSource) return;
+    if (symbol !== model.symbol) {
+      model.symbol = symbol;
+      article.querySelector(".chart-quote h2").textContent = `${symbol.replace("USDT", "")}/USDT`;
+      persistWorkspace();
+    }
     panel.feed.select(model.symbol, model.interval, intervalRange(model.interval), model);
   });
   renderMetricStrip(article.querySelector("[data-chart-metrics]"), getMetricsForSource(model).find((item) => item.symbol === model.symbol));
@@ -2320,12 +2360,13 @@ function createExtraPanel(symbol, type = "chart", options = {}) {
     ? preferredCandidate
     : (findFreeSlot(type === "orderbook" ? 12 : 16, 12) ?? findFreeSlot(8, 6) ?? findFreeSlot(6, 4));
   if (!slot) return false;
+  const exchange = normalizeExchange(options.exchange ?? state.workspace.primary.exchange);
   const model = {
     id: `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     type,
     symbol: normalizedSymbol,
-    exchange: normalizeExchange(options.exchange ?? state.workspace.primary.exchange),
-    market: normalizeMarket(options.market ?? state.workspace.primary.market),
+    exchange,
+    market: normalizeExchangeMarket(exchange, options.market ?? state.workspace.primary.market),
     spotOf: options.spotOf || null,
     interval: state.chartInterval,
     volumeVisible: state.volumeVisible,
@@ -2421,7 +2462,7 @@ function openOrderBookForSymbol(symbol, sourceValue = primaryChartSource()) {
   if (!normalizedSymbol) return false;
   const source = {
     exchange: normalizeExchange(sourceValue.exchange),
-    market: normalizeMarket(sourceValue.market),
+    market: normalizeExchangeMarket(sourceValue.exchange, sourceValue.market),
   };
   const existing = [...orderBookPanels.values()]
     .find((panel) => panel.model.symbol === normalizedSymbol
@@ -2491,7 +2532,7 @@ function mountOrderBook(model) {
   article.dataset.panel = "orderbook";
   article.dataset.panelId = model.id;
   model.exchange = normalizeExchange(model.exchange);
-  model.market = normalizeMarket(model.market);
+  model.market = normalizeExchangeMarket(model.exchange, model.market);
   article.dataset.exchange = model.exchange;
   article.dataset.market = model.market === "spot" ? "spot" : "futures";
   const marketLabel = model.market === "spot" ? "SPOT" : "FUTURES";
@@ -2554,12 +2595,21 @@ function mountOrderBook(model) {
     panel.feed.select(model.symbol);
   };
   orderBookPanels.set(model.id, panel);
-  const syncBookSourceControls = bindWidgetMarketSource(article, model, () => {
+  const syncBookSourceControls = bindWidgetMarketSource(article, model, async () => {
     model.spotOf = null;
     article.dataset.exchange = model.exchange;
     article.dataset.market = model.market;
     const companionButton = article.querySelector("[data-book-spot]");
     if (companionButton) companionButton.hidden = model.exchange !== "binance" || model.market === "spot";
+    const requestedSource = radarSourceKey(model);
+    let symbol;
+    try { symbol = await availableSymbolForSource(model, model.symbol); } catch {}
+    if (!symbol || radarSourceKey(model) !== requestedSource) return;
+    if (symbol !== model.symbol) {
+      model.symbol = symbol;
+      article.querySelector("[data-book-ticker]").textContent = `${symbol.replace("USDT", "")}/USDT`;
+      persistWorkspace();
+    }
     connectPanelFeed();
   });
   const spotButton = article.querySelector("[data-book-spot]");
@@ -3252,7 +3302,7 @@ function updateChartHeader(metrics = state.lastMetrics) {
 function selectChartSymbolFromSource(symbol, sourceValue, scrollToChart = false) {
   const source = {
     exchange: normalizeExchange(sourceValue?.exchange),
-    market: normalizeMarket(sourceValue?.market),
+    market: normalizeExchangeMarket(sourceValue?.exchange, sourceValue?.market),
   };
   const sourceChanged = radarSourceKey(state.workspace.primary) !== radarSourceKey(source);
   const symbolChanged = normalizeUsdtPerpetualSymbol(symbol) !== state.selectedChartSymbol;
@@ -3292,16 +3342,20 @@ async function loadChartStats(symbol, sourceValue = primaryChartSource()) {
   try {
     const source = {
       exchange: normalizeExchange(sourceValue.exchange),
-      market: normalizeMarket(sourceValue.market),
+      market: normalizeExchangeMarket(sourceValue.exchange, sourceValue.market),
     };
+    const bitcoinSource = source.exchange === "binance_alpha"
+      ? { exchange: "binance", market: "spot" }
+      : source;
     const [minuteCandles, fiveMinuteCandles, bitcoinCandles, tickers] = await Promise.all([
       fetchExchangeCandles({ ...source, symbol }, "1m", 120),
       fetchExchangeCandles({ ...source, symbol }, "5m", 120),
-      symbol === "BTCUSDT" ? Promise.resolve(null) : fetchExchangeCandles({ ...source, symbol: "BTCUSDT" }, "1m", 120),
+      symbol === "BTCUSDT" ? Promise.resolve(null) : fetchExchangeCandles({ ...bitcoinSource, symbol: "BTCUSDT" }, "1m", 120),
       fetchExchangeTickers(source).catch(() => []),
     ]);
-    let fundingRate = null;
-    let nextFundingTime = null;
+    const activeTicker = tickers.find((ticker) => normalizeUsdtPerpetualSymbol(ticker?.s) === symbol);
+    let fundingRate = Number.isFinite(Number(activeTicker?.r)) ? Number(activeTicker.r) : null;
+    let nextFundingTime = Number.isFinite(Number(activeTicker?.T)) ? Number(activeTicker.T) : null;
     if (source.exchange === "binance" && source.market === "futures") {
       const response = await fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${encodeURIComponent(symbol)}`, { cache: "no-store" });
       if (response.ok) {
@@ -3863,7 +3917,10 @@ function bindEvents() {
     if (!symbol) return;
     const source = {
       exchange: normalizeExchange(event.detail?.exchange ?? state.workspace.radar.exchange),
-      market: normalizeMarket(event.detail?.market ?? state.workspace.radar.market),
+      market: normalizeExchangeMarket(
+        event.detail?.exchange ?? state.workspace.radar.exchange,
+        event.detail?.market ?? state.workspace.radar.market,
+      ),
     };
     selectChartSymbolFromSource(symbol, source, true);
     if (event.detail?.openOrderBook !== false) openOrderBookForSymbol(symbol, source);
@@ -4385,7 +4442,7 @@ updateClock(new Date(binanceClock.now()));
 scheduleClockTick();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-124-multi-exchange-v1";
+const INPULS_RUNTIME_BUILD = "26-125-aster-alpha-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

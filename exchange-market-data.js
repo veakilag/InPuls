@@ -4,7 +4,8 @@ import {
   marketSource,
   normalizeCanonicalSymbol,
   toVenueSymbol,
-} from "./exchange-registry.js?v=26-124-multi-exchange-v1";
+} from "./exchange-registry.js?v=26-125-aster-alpha-v1";
+import { resolveBinanceAlphaToken } from "./binance-alpha-symbols.js?v=26-125-aster-alpha-v1";
 
 const INTERVAL_MS = Object.freeze({
   "1s": 1_000,
@@ -108,7 +109,8 @@ async function fetchJson(url, options = {}, fetchImpl = globalThis.fetch) {
   if (!response?.ok) throw new Error(`HTTP ${response?.status ?? 0}`);
   const payload = await response.json();
   if (payload?.retCode && Number(payload.retCode) !== 0) throw new Error(payload.retMsg || `Bybit ${payload.retCode}`);
-  if (payload?.code && !["0", "00000"].includes(String(payload.code)) && !Array.isArray(payload)) throw new Error(payload.msg || `Exchange ${payload.code}`);
+  if (payload?.success === false) throw new Error(payload.message || payload.messageDetail || "Exchange error");
+  if (payload?.code && !["0", "00000", "000000"].includes(String(payload.code)) && !Array.isArray(payload)) throw new Error(payload.msg || payload.message || `Exchange ${payload.code}`);
   return payload;
 }
 
@@ -155,6 +157,16 @@ function aggregateCandles(rows, bucketMs) {
 export async function resolveMarketMetadata(sourceValue, { fetchImpl = globalThis.fetch, signal } = {}) {
   const source = marketSource(sourceValue);
   const fallback = { ...source, quantityMultiplier: 1, priceTick: null };
+  if (source.exchange === "binance_alpha") {
+    const token = await resolveBinanceAlphaToken(source.symbol, { fetchImpl, signal });
+    if (!token) throw new Error(`Binance Alpha symbol unavailable: ${source.symbol ?? "unknown"}`);
+    return {
+      ...fallback,
+      venueSymbol: token.venueSymbol,
+      alphaId: token.alphaId,
+      priceTick: 10 ** -token.tradeDecimals,
+    };
+  }
   if (source.exchange === "hyperliquid" && source.market === "spot") {
     try {
       const payload = await fetchJson("https://api.hyperliquid.xyz/info", {
@@ -237,6 +249,17 @@ export async function fetchExchangeCandles(sourceValue, interval, limit = 1_500,
       const query = new URLSearchParams({ symbol: venue, interval, limit: String(capped) });
       const rows = await fetchJson(`https://${host}/${path}?${query}`, { signal: timed.signal }, fetchImpl);
       return finalize(rows.map((row) => candle(row[0], row[1], row[2], row[3], row[4], row[5], row[6], true)));
+    }
+    if (source.exchange === "aster") {
+      const host = source.market === "spot" ? "sapi.asterdex.com/api/v3" : "fapi.asterdex.com/fapi/v3";
+      const query = new URLSearchParams({ symbol: venue, interval: native, limit: String(capped) });
+      const rows = await fetchJson(`https://${host}/klines?${query}`, { signal: timed.signal }, fetchImpl);
+      return finalize(rows.map((row) => candle(row[0], row[1], row[2], row[3], row[4], row[5], row[6], true)));
+    }
+    if (source.exchange === "binance_alpha") {
+      const query = new URLSearchParams({ symbol: venue, interval: native, limit: String(capped) });
+      const payload = await fetchJson(`https://www.binance.com/bapi/defi/v1/public/alpha-trade/klines?${query}`, { signal: timed.signal }, fetchImpl);
+      return finalize((payload?.data ?? []).map((row) => candle(row[0], row[1], row[2], row[3], row[4], row[5], row[6], true)));
     }
     if (source.exchange === "bybit") {
       const query = new URLSearchParams({
@@ -350,6 +373,22 @@ export async function buildCandleStream(sourceValue, interval, options = {}) {
       return row ? [candle(row.t, row.o, row.h, row.l, row.c, row.v, row.T, row.x)] : [];
     });
   }
+  if (source.exchange === "aster") {
+    const host = source.market === "spot" ? "sstream.asterdex.com" : "fstream.asterdex.com";
+    return wsDescriptor(`wss://${host}/ws/${venue.toLowerCase()}@kline_${native}`, [], (payload) => {
+      const row = (payload?.data ?? payload)?.k;
+      return row ? [candle(row.t, row.o, row.h, row.l, row.c, row.v, row.T, row.x)] : [];
+    });
+  }
+  if (source.exchange === "binance_alpha") {
+    const stream = `${venue.toLowerCase()}@kline_${native}`;
+    return wsDescriptor("wss://nbstream.binance.com/w3w/wsa/stream", [
+      { method: "SUBSCRIBE", params: [stream], id: 1 },
+    ], (payload) => {
+      const row = payload?.data?.k;
+      return row ? [candle(row.t, row.o, row.h, row.l, row.c, row.v, row.T, row.x)] : [];
+    });
+  }
   if (source.exchange === "bybit") {
     const category = source.market === "spot" ? "spot" : "linear";
     return wsDescriptor(`wss://stream.bybit.com/v5/public/${category}`, [
@@ -426,6 +465,24 @@ export async function buildTradeStream(sourceValue, options = {}) {
       return trade ? [trade] : [];
     });
   }
+  if (source.exchange === "aster") {
+    const host = source.market === "spot" ? "sstream.asterdex.com" : "fstream.asterdex.com";
+    return wsDescriptor(`wss://${host}/ws/${venue.toLowerCase()}@aggTrade`, [], (payload) => {
+      const row = payload?.data ?? payload;
+      const trade = row?.e === "aggTrade" ? normalizedTrade(row.a, row.T, row.p, row.q, row.m ? "sell" : "buy", 1) : null;
+      return trade ? [trade] : [];
+    });
+  }
+  if (source.exchange === "binance_alpha") {
+    const stream = `${venue.toLowerCase()}@aggTrade`;
+    return wsDescriptor("wss://nbstream.binance.com/w3w/wsa/stream", [
+      { method: "SUBSCRIBE", params: [stream], id: 1 },
+    ], (payload) => {
+      const row = payload?.data;
+      const trade = row?.e === "aggTrade" ? normalizedTrade(row.a, row.T, row.p, row.q, row.m ? "sell" : "buy", 1) : null;
+      return trade ? [trade] : [];
+    });
+  }
   if (source.exchange === "bybit") {
     const category = source.market === "spot" ? "spot" : "linear";
     return wsDescriptor(`wss://stream.bybit.com/v5/public/${category}`, [
@@ -493,6 +550,17 @@ export async function fetchExchangeOrderBook(sourceValue, limit = 1_000, options
     const payload = await fetchJson(`https://${host}/depth?symbol=${encodeURIComponent(venue)}&limit=${Math.min(1_000, limit)}`, { signal }, fetchImpl);
     return { bids: rowsWithMultiplier(payload.bids, multiplier), asks: rowsWithMultiplier(payload.asks, multiplier), sequence: finite(payload.lastUpdateId) };
   }
+  if (source.exchange === "aster") {
+    const host = source.market === "spot" ? "sapi.asterdex.com/api/v3" : "fapi.asterdex.com/fapi/v3";
+    const payload = await fetchJson(`https://${host}/depth?symbol=${encodeURIComponent(venue)}&limit=${Math.min(1_000, limit)}`, { signal }, fetchImpl);
+    return { bids: rowsWithMultiplier(payload.bids, multiplier), asks: rowsWithMultiplier(payload.asks, multiplier), sequence: finite(payload.lastUpdateId) };
+  }
+  if (source.exchange === "binance_alpha") {
+    const url = `https://www.binance.com/bapi/defi/v1/public/alpha-trade/fullDepth?symbol=${encodeURIComponent(venue)}&limit=${Math.min(1_000, limit)}`;
+    const payload = await fetchJson(url, { signal }, fetchImpl);
+    const row = payload?.data ?? {};
+    return { bids: rowsWithMultiplier(row.bids, multiplier), asks: rowsWithMultiplier(row.asks, multiplier), sequence: finite(row.lastUpdateId) };
+  }
   if (source.exchange === "bybit") {
     const category = source.market === "spot" ? "spot" : "linear";
     const query = new URLSearchParams({ category, symbol: venue, limit: String(Math.min(1_000, limit)) });
@@ -532,10 +600,49 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
   const source = await resolveMarketMetadata(sourceValue, options);
   const venue = source.venueSymbol;
   const multiplier = source.quantityMultiplier;
-  const emitBook = (snapshot, bids, asks, eventTime, sequence = null) => ({
-    kind: "book", snapshot, bids: rowsWithMultiplier(bids, multiplier), asks: rowsWithMultiplier(asks, multiplier), eventTime: finite(eventTime) ?? Date.now(), sequence: finite(sequence),
+  const emitBook = (snapshot, bids, asks, eventTime, sequence = null, sync = {}) => ({
+    kind: "book",
+    snapshot,
+    bids: rowsWithMultiplier(bids, multiplier),
+    asks: rowsWithMultiplier(asks, multiplier),
+    eventTime: finite(eventTime) ?? Date.now(),
+    sequence: finite(sequence),
+    firstSequence: finite(sync.firstSequence),
+    previousSequence: finite(sync.previousSequence),
+    requiresSnapshot: sync.requiresSnapshot === true,
   });
   const emitTrades = (trades) => ({ kind: "trades", trades: trades.filter(Boolean) });
+  if (source.exchange === "aster") {
+    const host = source.market === "spot" ? "sstream.asterdex.com" : "fstream.asterdex.com";
+    const stream = venue.toLowerCase();
+    return wsDescriptor(`wss://${host}/stream?streams=${stream}@depth@100ms/${stream}@aggTrade`, [], (payload) => {
+      const row = payload?.data ?? payload;
+      if (row?.e === "depthUpdate") return [emitBook(false, row.b ?? row.bids, row.a ?? row.asks, row.T ?? row.E, row.u, {
+        firstSequence: row.U,
+        previousSequence: row.pu,
+        requiresSnapshot: true,
+      })];
+      if (row?.e === "aggTrade") return [emitTrades([normalizedTrade(row.a, row.T, row.p, row.q, row.m ? "sell" : "buy", 1)])];
+      return [];
+    });
+  }
+  if (source.exchange === "binance_alpha") {
+    const stream = venue.toLowerCase();
+    return wsDescriptor("wss://nbstream.binance.com/w3w/wsa/stream", [{
+      method: "SUBSCRIBE",
+      params: [`${stream}@fulldepth@500ms`, `${stream}@aggTrade`],
+      id: 1,
+    }], (payload) => {
+      const row = payload?.data;
+      if (row?.e === "depthUpdate") return [emitBook(false, row.b, row.a, row.T ?? row.E, row.u, {
+        firstSequence: row.U,
+        previousSequence: row.pu,
+        requiresSnapshot: true,
+      })];
+      if (row?.e === "aggTrade") return [emitTrades([normalizedTrade(row.a, row.T, row.p, row.q, row.m ? "sell" : "buy", 1)])];
+      return [];
+    });
+  }
   if (source.exchange === "bybit") {
     const category = source.market === "spot" ? "spot" : "linear";
     return wsDescriptor(`wss://stream.bybit.com/v5/public/${category}`, [{
