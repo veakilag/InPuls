@@ -3,11 +3,11 @@ import {
   buildCandleStream,
   buildTradeStream,
   fetchExchangeCandles,
-} from "./exchange-market-data.js?v=26-125-aster-alpha-v1";
+} from "./exchange-market-data.js?v=26-126-final-exchanges-v1";
 import {
   marketSource,
   marketSourceKey,
-} from "./exchange-registry.js?v=26-125-aster-alpha-v1";
+} from "./exchange-registry.js?v=26-126-final-exchanges-v1";
 
 const MARKET_WS = "wss://fstream.binance.com/market/ws";
 const KLINES_REST = "https://fapi.binance.com/fapi/v1/klines";
@@ -501,15 +501,18 @@ export class KlineFeed {
       return;
     }
     this.socket = socket;
+    if (descriptor.binaryType) socket.binaryType = descriptor.binaryType;
     socket.addEventListener("open", () => {
       if (generation !== this.generation || socket !== this.socket) return;
       descriptor.open(socket);
       this.onStatus({ state: "online", text: `${this.exchange.toUpperCase()} · свечи онлайн` });
     });
-    socket.addEventListener("message", (message) => {
+    socket.addEventListener("message", async (message) => {
       if (generation !== this.generation || socket !== this.socket) return;
       try {
-        const payload = JSON.parse(message.data);
+        const payload = await descriptor.decode(message.data);
+        if (generation !== this.generation || socket !== this.socket) return;
+        if (descriptor.control(socket, payload)) return;
         const rows = descriptor.parse(payload);
         for (const row of rows ?? []) {
           const candle = secondsMode

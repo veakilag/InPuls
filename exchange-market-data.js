@@ -4,8 +4,13 @@ import {
   marketSource,
   normalizeCanonicalSymbol,
   toVenueSymbol,
-} from "./exchange-registry.js?v=26-125-aster-alpha-v1";
-import { resolveBinanceAlphaToken } from "./binance-alpha-symbols.js?v=26-125-aster-alpha-v1";
+} from "./exchange-registry.js?v=26-126-final-exchanges-v1";
+import { resolveBinanceAlphaToken } from "./binance-alpha-symbols.js?v=26-126-final-exchanges-v1";
+import {
+  decodeGzipJsonMessage,
+  decodeJsonMessage,
+  decodeMexcProtobufMessage,
+} from "./exchange-message-codecs.js?v=26-126-final-exchanges-v1";
 
 const INTERVAL_MS = Object.freeze({
   "1s": 1_000,
@@ -55,6 +60,26 @@ const GATE_INTERVAL = Object.freeze({
   "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m",
   "1h": "1h", "2h": "2h", "4h": "4h", "12h": "12h",
   "1d": "1d", "3d": "3d", "1w": "7d", "1M": "30d",
+});
+const KUCOIN_INTERVAL = Object.freeze({
+  "1m": "1min", "3m": "3min", "5m": "5min", "15m": "15min", "30m": "30min",
+  "1h": "1hour", "2h": "2hour", "4h": "4hour", "12h": "12hour",
+  "1d": "1day", "1w": "1week",
+});
+const KUCOIN_FUTURES_INTERVAL = Object.freeze({
+  "1m": "1", "5m": "5", "15m": "15", "30m": "30", "1h": "60",
+  "2h": "120", "4h": "240", "12h": "720", "1d": "1440", "1w": "10080",
+});
+const MEXC_FUTURES_INTERVAL = Object.freeze({
+  "1m": "Min1", "5m": "Min5", "15m": "Min15", "30m": "Min30",
+  "1h": "Min60", "4h": "Hour4", "1d": "Day1", "1w": "Week1", "1M": "Month1",
+});
+const HTX_INTERVAL = Object.freeze({
+  "1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min",
+  "1h": "60min", "4h": "4hour", "1d": "1day", "1w": "1week", "1M": "1mon",
+});
+const UPBIT_MINUTES = Object.freeze({
+  "1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240,
 });
 
 function finite(value) {
@@ -110,7 +135,8 @@ async function fetchJson(url, options = {}, fetchImpl = globalThis.fetch) {
   const payload = await response.json();
   if (payload?.retCode && Number(payload.retCode) !== 0) throw new Error(payload.retMsg || `Bybit ${payload.retCode}`);
   if (payload?.success === false) throw new Error(payload.message || payload.messageDetail || "Exchange error");
-  if (payload?.code && !["0", "00000", "000000"].includes(String(payload.code)) && !Array.isArray(payload)) throw new Error(payload.msg || payload.message || `Exchange ${payload.code}`);
+  if (payload?.status === "error") throw new Error(payload["err-msg"] || payload.message || "Exchange error");
+  if (payload?.code && !["0", "00000", "000000", "200000"].includes(String(payload.code)) && !Array.isArray(payload)) throw new Error(payload.msg || payload.message || `Exchange ${payload.code}`);
   return payload;
 }
 
@@ -124,6 +150,12 @@ export function nativeInterval(exchange, interval, market = "futures") {
   if (exchange === "okx") return OKX_INTERVAL[interval] ?? null;
   if (exchange === "bitget") return (market === "spot" ? BITGET_SPOT_INTERVAL : BITGET_INTERVAL)[interval] ?? null;
   if (exchange === "gate") return GATE_INTERVAL[interval] ?? null;
+  if (exchange === "kucoin") return (market === "spot" ? KUCOIN_INTERVAL : KUCOIN_FUTURES_INTERVAL)[interval] ?? null;
+  if (exchange === "mexc") return market === "spot" ? (INTERVAL_MS[interval] ? interval : null) : MEXC_FUTURES_INTERVAL[interval] ?? null;
+  if (exchange === "bingx") return INTERVAL_MS[interval] ? interval : null;
+  if (exchange === "htx") return HTX_INTERVAL[interval] ?? null;
+  if (exchange === "coinbase") return ["1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"].includes(interval) ? interval : null;
+  if (exchange === "upbit") return UPBIT_MINUTES[interval] ?? (["1d", "1w", "1M"].includes(interval) ? interval : null);
   return INTERVAL_MS[interval] ? interval : null;
 }
 
@@ -133,6 +165,15 @@ function intervalPlan(source, interval) {
   if (source.exchange === "bybit" && interval === "3d") return { native: "D", aggregate: true };
   if (source.exchange === "bitget" && source.market === "spot" && interval === "3m") return { native: "1m", aggregate: true };
   if (source.exchange === "bitget" && source.market === "spot" && interval === "2h") return { native: "1H", aggregate: true };
+  if (["kucoin", "mexc", "htx", "upbit"].includes(source.exchange)) {
+    const fallback = {
+      "3m": source.exchange === "kucoin" && source.market === "futures" ? "1" : null,
+      "2h": source.exchange === "upbit" ? 60 : (source.exchange === "mexc" ? "Min60" : source.exchange === "htx" ? "60min" : source.market === "futures" ? "120" : "2hour"),
+      "12h": source.exchange === "upbit" ? 240 : (source.exchange === "mexc" ? "Hour4" : source.exchange === "htx" ? "4hour" : "4hour"),
+      "3d": source.exchange === "upbit" ? "1d" : (source.exchange === "mexc" ? "Day1" : source.exchange === "htx" ? "1day" : "1day"),
+    }[interval];
+    if (fallback) return { native: fallback, aggregate: true };
+  }
   return { native: null, aggregate: false };
 }
 
@@ -224,6 +265,32 @@ export async function resolveMarketMetadata(sourceValue, { fetchImpl = globalThi
           : null,
       };
     }
+    if (source.exchange === "kucoin") {
+      const payload = await fetchJson(`https://api-futures.kucoin.com/api/v1/contracts/${encodeURIComponent(source.venueSymbol)}`, { signal }, fetchImpl);
+      const row = payload?.data ?? {};
+      return {
+        ...fallback,
+        venueSymbol: row.symbol || source.venueSymbol,
+        quantityMultiplier: finite(row.multiplier) || 1,
+        priceTick: finite(row.tickSize),
+      };
+    }
+    if (source.exchange === "mexc") {
+      const payload = await fetchJson(`https://contract.mexc.com/api/v1/contract/detail?symbol=${encodeURIComponent(source.venueSymbol)}`, { signal }, fetchImpl);
+      const rows = Array.isArray(payload?.data) ? payload.data : [payload?.data];
+      const row = rows.find((item) => String(item?.symbol ?? "").toUpperCase() === source.venueSymbol) ?? rows[0] ?? {};
+      return { ...fallback, quantityMultiplier: finite(row.contractSize) || 1, priceTick: finite(row.priceUnit) };
+    }
+    if (source.exchange === "bingx") {
+      const payload = await fetchJson("https://open-api.bingx.com/openApi/swap/v2/quote/contracts", { signal }, fetchImpl);
+      const row = (payload?.data ?? []).find((item) => String(item?.symbol ?? "").toUpperCase() === source.venueSymbol) ?? {};
+      return { ...fallback, quantityMultiplier: finite(row.size) || 1, priceTick: finite(row.pricePrecision) !== null ? 10 ** -finite(row.pricePrecision) : null };
+    }
+    if (source.exchange === "htx") {
+      const payload = await fetchJson(`https://api.hbdm.com/linear-swap-api/v1/swap_contract_info?contract_code=${encodeURIComponent(source.venueSymbol)}`, { signal }, fetchImpl);
+      const row = payload?.data?.[0] ?? {};
+      return { ...fallback, quantityMultiplier: finite(row.contract_size) || 1, priceTick: finite(row.price_tick) };
+    }
   } catch {}
   return fallback;
 }
@@ -300,6 +367,85 @@ export async function fetchExchangeCandles(sourceValue, interval, limit = 1_500,
         ? candle(Number(row[0]) * 1_000, row[5], row[3], row[4], row[2], row[6] ?? row[1], Number(row[0]) * 1_000 + exchangeIntervalMs(interval) - 1, true)
         : candle(Number(row.t) * 1_000, row.o, row.h, row.l, row.c, row.v, Number(row.t) * 1_000 + exchangeIntervalMs(interval) - 1, true)));
     }
+    if (source.exchange === "kucoin") {
+      if (source.market === "spot") {
+        const query = new URLSearchParams({ symbol: venue, type: native });
+        const payload = await fetchJson(`https://api.kucoin.com/api/v1/market/candles?${query}`, { signal: timed.signal }, fetchImpl);
+        return finalize((payload?.data ?? []).map((row) => candle(
+          Number(row[0]) * 1_000, row[1], row[3], row[4], row[2], row[5], Number(row[0]) * 1_000 + exchangeIntervalMs(interval) - 1, true,
+        )));
+      }
+      const end = Date.now();
+      const query = new URLSearchParams({
+        symbol: venue,
+        granularity: native,
+        from: String(end - Math.min(200, capped) * Number(native) * 60_000),
+        to: String(end),
+      });
+      const payload = await fetchJson(`https://api-futures.kucoin.com/api/v1/kline/query?${query}`, { signal: timed.signal }, fetchImpl);
+      return finalize((payload?.data ?? []).map((row) => candle(
+        row[0], row[1], row[2], row[3], row[4], row[5], Number(row[0]) + exchangeIntervalMs(interval) - 1, true,
+      )));
+    }
+    if (source.exchange === "mexc") {
+      if (source.market === "spot") {
+        const query = new URLSearchParams({ symbol: venue, interval: native, limit: String(capped) });
+        const rows = await fetchJson(`https://api.mexc.com/api/v3/klines?${query}`, { signal: timed.signal }, fetchImpl);
+        return finalize(rows.map((row) => candle(row[0], row[1], row[2], row[3], row[4], row[5], row[6], true)));
+      }
+      const query = new URLSearchParams({ interval: native });
+      const payload = await fetchJson(`https://contract.mexc.com/api/v1/contract/kline/${encodeURIComponent(venue)}?${query}`, { signal: timed.signal }, fetchImpl);
+      const row = payload?.data ?? {};
+      const times = row.time ?? [];
+      return finalize(times.map((time, index) => candle(
+        Number(time) * 1_000, row.open?.[index], row.high?.[index], row.low?.[index], row.close?.[index], row.vol?.[index], Number(time) * 1_000 + exchangeIntervalMs(interval) - 1, true,
+      )));
+    }
+    if (source.exchange === "bingx") {
+      const path = source.market === "spot" ? "spot/v1/market/kline" : "swap/v2/quote/klines";
+      const query = new URLSearchParams({ symbol: venue, interval: native, limit: String(Math.min(1_440, capped)) });
+      const payload = await fetchJson(`https://open-api.bingx.com/openApi/${path}?${query}`, { signal: timed.signal }, fetchImpl);
+      return finalize((payload?.data ?? []).map((row) => Array.isArray(row)
+        ? candle(row[0], row[1], row[2], row[3], row[4], row[7] ?? row[5], row[6], true)
+        : candle(row.time, row.open, row.high, row.low, row.close, row.volume, Number(row.time) + exchangeIntervalMs(interval) - 1, true)));
+    }
+    if (source.exchange === "htx") {
+      const host = source.market === "spot" ? "api.huobi.pro" : "api.hbdm.com";
+      const prefix = source.market === "spot" ? "" : "linear-swap-ex";
+      const symbolKey = source.market === "spot" ? "symbol" : "contract_code";
+      const query = new URLSearchParams({ [symbolKey]: venue, period: native, size: String(Math.min(2_000, capped)) });
+      const payload = await fetchJson(`https://${host}/${prefix ? `${prefix}/` : ""}market/history/kline?${query}`, { signal: timed.signal }, fetchImpl);
+      return finalize((payload?.data ?? []).map((row) => candle(
+        Number(row.id) * 1_000, row.open, row.high, row.low, row.close, row.vol ?? row.amount, Number(row.id) * 1_000 + exchangeIntervalMs(interval) - 1, true,
+      )));
+    }
+    if (source.exchange === "coinbase") {
+      const granularity = {
+        "1m": "ONE_MINUTE", "5m": "FIVE_MINUTE", "15m": "FIFTEEN_MINUTE", "30m": "THIRTY_MINUTE",
+        "1h": "ONE_HOUR", "2h": "TWO_HOUR", "4h": "FOUR_HOUR", "1d": "ONE_DAY",
+      }[interval];
+      const end = Math.floor(Date.now() / 1_000);
+      const query = new URLSearchParams({
+        granularity,
+        start: String(end - Math.min(350, capped) * exchangeIntervalMs(interval) / 1_000),
+        end: String(end),
+        limit: String(Math.min(350, capped)),
+      });
+      const payload = await fetchJson(`https://api.coinbase.com/api/v3/brokerage/market/products/${encodeURIComponent(venue)}/candles?${query}`, { signal: timed.signal }, fetchImpl);
+      return finalize((payload?.candles ?? []).map((row) => candle(
+        Number(row.start) * 1_000, row.open, row.high, row.low, row.close, row.volume, (Number(row.start) + exchangeIntervalMs(interval) / 1_000) * 1_000 - 1, true,
+      )));
+    }
+    if (source.exchange === "upbit") {
+      let path;
+      if (typeof native === "number") path = `minutes/${native}`;
+      else path = native === "1d" ? "days" : native === "1w" ? "weeks" : "months";
+      const query = new URLSearchParams({ market: venue, count: String(Math.min(200, capped)) });
+      const rows = await fetchJson(`https://api.upbit.com/v1/candles/${path}?${query}`, { signal: timed.signal }, fetchImpl);
+      return finalize(rows.map((row) => candle(
+        Date.parse(`${row.candle_date_time_utc}Z`), row.opening_price, row.high_price, row.low_price, row.trade_price, row.candle_acc_trade_volume, Date.parse(`${row.candle_date_time_utc}Z`) + exchangeIntervalMs(interval) - 1, true,
+      )));
+    }
     if (source.exchange === "hyperliquid") {
       const endTime = Date.now();
       const payload = await fetchJson("https://api.hyperliquid.xyz/info", {
@@ -324,12 +470,16 @@ export async function fetchExchangeCandles(sourceValue, interval, limit = 1_500,
   }
 }
 
-function wsDescriptor(url, subscriptions, parse) {
+function wsDescriptor(url, subscriptions, parse, options = {}) {
   return {
     url,
+    binaryType: options.binaryType ?? null,
+    decode: options.decode ?? decodeJsonMessage,
     open(socket) {
-      for (const payload of subscriptions) socket.send(JSON.stringify(payload));
+      if (typeof options.open === "function") return options.open(socket);
+      for (const payload of subscriptions) socket.send(typeof payload === "string" ? payload : JSON.stringify(payload));
     },
+    control: options.control ?? (() => false),
     parse,
   };
 }
@@ -341,6 +491,9 @@ async function buildSyntheticCandleStream(source, interval, options) {
   return {
     url: trades.url,
     open: trades.open,
+    binaryType: trades.binaryType,
+    decode: trades.decode,
+    control: trades.control,
     parse(payload) {
       const rows = [];
       for (const trade of trades.parse(payload) ?? []) {
@@ -360,12 +513,49 @@ async function buildSyntheticCandleStream(source, interval, options) {
   };
 }
 
+function normalizeEpoch(value) {
+  const timestamp = finite(value);
+  if (!Number.isFinite(timestamp)) return Date.now();
+  if (timestamp > 1e17) return Math.floor(timestamp / 1e6);
+  if (timestamp > 1e14) return Math.floor(timestamp / 1e3);
+  if (timestamp < 1e11) return timestamp * 1_000;
+  return timestamp;
+}
+
+async function kucoinWsDescriptor(source, topics, parse, { fetchImpl = globalThis.fetch, signal } = {}) {
+  const host = source.market === "spot" ? "https://api.kucoin.com" : "https://api-futures.kucoin.com";
+  const payload = await fetchJson(`${host}/api/v1/bullet-public`, { method: "POST", signal }, fetchImpl);
+  const server = payload?.data?.instanceServers?.[0];
+  const token = payload?.data?.token;
+  if (!server?.endpoint || !token) throw new Error("KuCoin WebSocket token unavailable");
+  const url = `${server.endpoint}?token=${encodeURIComponent(token)}&connectId=inpuls-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return wsDescriptor(url, [], parse, {
+    open(socket) {
+      topics.forEach((topic, index) => socket.send(JSON.stringify({
+        id: `${Date.now()}-${index}`,
+        type: "subscribe",
+        topic,
+        privateChannel: false,
+        response: true,
+      })));
+      const pingEvery = Math.max(8_000, Number(server.pingInterval) || 18_000);
+      const timer = setInterval(() => {
+        if (socket.readyState === 1) socket.send(JSON.stringify({ id: String(Date.now()), type: "ping" }));
+      }, pingEvery);
+      socket.addEventListener?.("close", () => clearInterval(timer), { once: true });
+    },
+  });
+}
+
 export async function buildCandleStream(sourceValue, interval, options = {}) {
   const source = await resolveMarketMetadata(sourceValue, options);
   const venue = source.venueSymbol;
   const plan = intervalPlan(source, interval);
   const native = plan.native;
   if (!native || plan.aggregate) return buildSyntheticCandleStream(source, interval, options);
+  if (["kucoin", "mexc", "bingx", "htx", "coinbase", "upbit"].includes(source.exchange)) {
+    return buildSyntheticCandleStream(source, interval, options);
+  }
   if (source.exchange === "binance") {
     const host = source.market === "spot" ? "stream.binance.com:9443" : "fstream.binance.com";
     return wsDescriptor(`wss://${host}/ws/${venue.toLowerCase()}@kline_${interval}`, [], (payload) => {
@@ -524,6 +714,92 @@ export async function buildTradeStream(sourceValue, options = {}) {
       )).filter(Boolean);
     });
   }
+  if (source.exchange === "kucoin") {
+    const topic = source.market === "spot" ? `/market/match:${venue}` : `/contractMarket/execution:${venue}`;
+    return kucoinWsDescriptor(source, [topic], (payload) => {
+      if (payload?.type !== "message" || payload?.topic !== topic) return [];
+      const row = payload.data ?? {};
+      const trade = normalizedTrade(
+        row.tradeId ?? row.sequence,
+        normalizeEpoch(row.time ?? row.ts),
+        row.price,
+        row.size ?? row.matchSize,
+        row.side,
+        multiplier,
+      );
+      return trade ? [trade] : [];
+    }, options);
+  }
+  if (source.exchange === "mexc") {
+    if (source.market === "spot") {
+      const channel = `spot@public.aggre.deals.v3.api.pb@100ms@${venue}`;
+      return wsDescriptor("wss://wbs-api.mexc.com/ws", [{ method: "SUBSCRIPTION", params: [channel] }], (payload) => (
+        payload?.deals ?? []
+      ).map((row) => normalizedTrade(row.id, normalizeEpoch(row.time), row.price, row.quantity, Number(row.tradeType) === 2 ? "sell" : "buy", 1)).filter(Boolean), {
+        binaryType: "arraybuffer",
+        decode: decodeMexcProtobufMessage,
+      });
+    }
+    return wsDescriptor("wss://contract.mexc.com/edge", [{ method: "sub.deal", param: { symbol: venue } }], (payload) => {
+      if (payload?.channel !== "push.deal") return [];
+      const rows = Array.isArray(payload.data) ? payload.data : [payload.data];
+      return rows.map((row) => normalizedTrade(row?.id, normalizeEpoch(row?.t), row?.p, row?.v, Number(row?.T) === 2 ? "sell" : "buy", multiplier)).filter(Boolean);
+    });
+  }
+  if (source.exchange === "bingx") {
+    const channel = `${venue}@trade`;
+    return wsDescriptor("wss://open-api-ws.bingx.com/market", [{ id: `inpuls-${Date.now()}`, dataType: channel }], (payload) => {
+      if (payload?.dataType !== channel) return [];
+      const rows = Array.isArray(payload.data) ? payload.data : [payload.data];
+      return rows.map((row) => normalizedTrade(row?.t, normalizeEpoch(row?.T), row?.p, row?.q ?? row?.v, row?.m ? "sell" : "buy", multiplier)).filter(Boolean);
+    }, {
+      binaryType: "arraybuffer",
+      decode: decodeGzipJsonMessage,
+      control(socket, payload) {
+        if (payload !== "Ping") return false;
+        socket.send("Pong");
+        return true;
+      },
+    });
+  }
+  if (source.exchange === "htx") {
+    const topic = `market.${venue}.trade.detail`;
+    const url = source.market === "spot" ? "wss://api.huobi.pro/ws" : "wss://api.hbdm.com/linear-swap-ws";
+    return wsDescriptor(url, [{ sub: topic, id: `inpuls-${Date.now()}` }], (payload) => {
+      if (payload?.ch !== topic) return [];
+      return (payload?.tick?.data ?? []).map((row) => normalizedTrade(row.id, normalizeEpoch(row.ts), row.price, row.amount, row.direction, multiplier)).filter(Boolean);
+    }, {
+      binaryType: "arraybuffer",
+      decode: decodeGzipJsonMessage,
+      control(socket, payload) {
+        if (!Number.isFinite(Number(payload?.ping))) return false;
+        socket.send(JSON.stringify({ pong: payload.ping }));
+        return true;
+      },
+    });
+  }
+  if (source.exchange === "coinbase") {
+    return wsDescriptor("wss://advanced-trade-ws.coinbase.com/", [
+      { type: "subscribe", product_ids: [venue], channel: "market_trades" },
+      { type: "subscribe", channel: "heartbeats" },
+    ], (payload) => {
+      if (payload?.channel !== "market_trades") return [];
+      return (payload.events ?? []).flatMap((event) => event.trades ?? []).map((row) => normalizedTrade(
+        row.trade_id, Date.parse(row.time), row.price, row.size, row.side, 1,
+      )).filter(Boolean);
+    });
+  }
+  if (source.exchange === "upbit") {
+    return wsDescriptor("wss://api.upbit.com/websocket/v1", [[
+      { ticket: `inpuls-${Date.now()}` },
+      { type: "trade", codes: [venue], is_only_realtime: true },
+      { format: "DEFAULT" },
+    ]], (payload) => {
+      if (payload?.type !== "trade") return [];
+      const trade = normalizedTrade(payload.sequential_id, payload.trade_timestamp, payload.trade_price, payload.trade_volume, payload.ask_bid === "ASK" ? "sell" : "buy", 1);
+      return trade ? [trade] : [];
+    }, { binaryType: "arraybuffer" });
+  }
   return wsDescriptor("wss://api.hyperliquid.xyz/ws", [{
     method: "subscribe",
     subscription: { type: "trades", coin: venue },
@@ -534,8 +810,8 @@ export async function buildTradeStream(sourceValue, options = {}) {
 
 function rowsWithMultiplier(rows, multiplier = 1) {
   return (Array.isArray(rows) ? rows : []).map((row) => {
-    const price = finite(Array.isArray(row) ? row[0] : row?.px ?? row?.p);
-    const quantity = finite(Array.isArray(row) ? row[1] : row?.sz ?? row?.s);
+    const price = finite(Array.isArray(row) ? row[0] : row?.px ?? row?.p ?? row?.price ?? row?.price_level);
+    const quantity = finite(Array.isArray(row) ? row[1] : row?.sz ?? row?.s ?? row?.size ?? row?.quantity ?? row?.new_quantity);
     return [price, Number.isFinite(quantity) ? quantity * multiplier : null];
   }).filter(([price, quantity]) => Number.isFinite(price) && Number.isFinite(quantity));
 }
@@ -586,6 +862,57 @@ export async function fetchExchangeOrderBook(sourceValue, limit = 1_000, options
       : `https://api.gateio.ws/api/v4/futures/usdt/order_book?contract=${encodeURIComponent(venue)}&limit=${Math.min(100, limit)}&with_id=true`;
     const payload = await fetchJson(url, { signal }, fetchImpl);
     return { bids: rowsWithMultiplier(payload.bids, multiplier), asks: rowsWithMultiplier(payload.asks, multiplier), sequence: finite(payload.id) };
+  }
+  if (source.exchange === "kucoin") {
+    const url = source.market === "spot"
+      ? `https://api.kucoin.com/api/v1/market/orderbook/level2_100?symbol=${encodeURIComponent(venue)}`
+      : `https://api-futures.kucoin.com/api/v1/level2/depth100?symbol=${encodeURIComponent(venue)}`;
+    const payload = await fetchJson(url, { signal }, fetchImpl);
+    const row = payload?.data ?? {};
+    return { bids: rowsWithMultiplier(row.bids, multiplier), asks: rowsWithMultiplier(row.asks, multiplier), sequence: finite(row.sequence) };
+  }
+  if (source.exchange === "mexc") {
+    const url = source.market === "spot"
+      ? `https://api.mexc.com/api/v3/depth?symbol=${encodeURIComponent(venue)}&limit=${Math.min(1_000, limit)}`
+      : `https://contract.mexc.com/api/v1/contract/depth/${encodeURIComponent(venue)}`;
+    const payload = await fetchJson(url, { signal }, fetchImpl);
+    const row = source.market === "spot" ? payload : payload?.data ?? {};
+    return { bids: rowsWithMultiplier(row.bids, multiplier), asks: rowsWithMultiplier(row.asks, multiplier), sequence: finite(row.lastUpdateId ?? row.version) };
+  }
+  if (source.exchange === "bingx") {
+    const path = source.market === "spot" ? "spot/v1/market/depth" : "swap/v2/quote/depth";
+    const maximum = source.market === "spot" ? 100 : 1_000;
+    const requested = Math.min(maximum, Math.max(5, Number(limit) || maximum));
+    const depthLimit = [1_000, 500, 100, 50, 20, 10, 5].find((value) => value <= requested && value <= maximum) ?? 5;
+    const query = new URLSearchParams({ symbol: venue, limit: String(depthLimit) });
+    const payload = await fetchJson(`https://open-api.bingx.com/openApi/${path}?${query}`, { signal }, fetchImpl);
+    const row = payload?.data ?? {};
+    return { bids: rowsWithMultiplier(row.bids, multiplier), asks: rowsWithMultiplier(row.asks, multiplier), sequence: finite(row.T ?? row.ts) };
+  }
+  if (source.exchange === "htx") {
+    const host = source.market === "spot" ? "api.huobi.pro" : "api.hbdm.com";
+    const prefix = source.market === "spot" ? "" : "linear-swap-ex/";
+    const symbolKey = source.market === "spot" ? "symbol" : "contract_code";
+    const query = new URLSearchParams({ [symbolKey]: venue, type: "step0", depth: String(Math.min(150, limit)) });
+    const payload = await fetchJson(`https://${host}/${prefix}market/depth?${query}`, { signal }, fetchImpl);
+    const row = payload?.tick ?? {};
+    return { bids: rowsWithMultiplier(row.bids, multiplier), asks: rowsWithMultiplier(row.asks, multiplier), sequence: finite(row.version ?? payload.ts) };
+  }
+  if (source.exchange === "coinbase") {
+    const query = new URLSearchParams({ product_id: venue, limit: String(Math.min(1_000, limit)) });
+    const payload = await fetchJson(`https://api.coinbase.com/api/v3/brokerage/market/product_book?${query}`, { signal }, fetchImpl);
+    const row = payload?.pricebook ?? {};
+    return { bids: rowsWithMultiplier(row.bids, 1), asks: rowsWithMultiplier(row.asks, 1), sequence: finite(row.time) };
+  }
+  if (source.exchange === "upbit") {
+    const payload = await fetchJson(`https://api.upbit.com/v1/orderbook?markets=${encodeURIComponent(venue)}&count=${Math.min(30, limit)}`, { signal }, fetchImpl);
+    const row = payload?.[0] ?? {};
+    const units = row.orderbook_units ?? [];
+    return {
+      bids: units.map((item) => [finite(item.bid_price), finite(item.bid_size)]).filter((item) => item.every(Number.isFinite)),
+      asks: units.map((item) => [finite(item.ask_price), finite(item.ask_size)]).filter((item) => item.every(Number.isFinite)),
+      sequence: finite(row.timestamp),
+    };
   }
   const payload = await fetchJson("https://api.hyperliquid.xyz/info", {
     method: "POST",
@@ -696,6 +1023,139 @@ export async function buildOrderBookStream(sourceValue, options = {}) {
       }
       return [];
     });
+  }
+  if (source.exchange === "kucoin") {
+    const bookTopic = source.market === "spot" ? `/spotMarket/level2Depth50:${venue}` : `/contractMarket/level2Depth50:${venue}`;
+    const tradeTopic = source.market === "spot" ? `/market/match:${venue}` : `/contractMarket/execution:${venue}`;
+    return kucoinWsDescriptor(source, [bookTopic, tradeTopic], (payload) => {
+      if (payload?.type !== "message") return [];
+      const row = payload.data ?? {};
+      if (payload.topic === bookTopic) return [emitBook(true, row.bids, row.asks, normalizeEpoch(row.timestamp ?? row.ts), row.sequence)];
+      if (payload.topic === tradeTopic) return [emitTrades([normalizedTrade(
+        row.tradeId ?? row.sequence, normalizeEpoch(row.time ?? row.ts), row.price, row.size ?? row.matchSize, row.side, multiplier,
+      )])];
+      return [];
+    }, options);
+  }
+  if (source.exchange === "mexc") {
+    if (source.market === "spot") {
+      const depthChannel = `spot@public.aggre.depth.v3.api.pb@100ms@${venue}`;
+      const tradeChannel = `spot@public.aggre.deals.v3.api.pb@100ms@${venue}`;
+      return wsDescriptor("wss://wbs-api.mexc.com/ws", [{ method: "SUBSCRIPTION", params: [depthChannel, tradeChannel] }], (payload) => {
+        if (payload?.depth) return [emitBook(false, payload.depth.bids, payload.depth.asks, payload.depth.eventTime ?? payload.sendTime, payload.depth.sequence, {
+          firstSequence: payload.depth.firstSequence,
+          requiresSnapshot: true,
+        })];
+        if (payload?.deals) return [emitTrades(payload.deals.map((row) => normalizedTrade(
+          row.id, normalizeEpoch(row.time), row.price, row.quantity, Number(row.tradeType) === 2 ? "sell" : "buy", 1,
+        )))];
+        return [];
+      }, { binaryType: "arraybuffer", decode: decodeMexcProtobufMessage });
+    }
+    return wsDescriptor("wss://contract.mexc.com/edge", [
+      { method: "sub.depth.full", param: { symbol: venue, limit: 20 } },
+      { method: "sub.deal", param: { symbol: venue } },
+    ], (payload) => {
+      if (payload?.channel === "push.depth.full") {
+        const row = payload.data ?? {};
+        return [emitBook(true, row.bids, row.asks, normalizeEpoch(row.timestamp ?? payload.ts), row.version)];
+      }
+      if (payload?.channel === "push.deal") {
+        const rows = Array.isArray(payload.data) ? payload.data : [payload.data];
+        return [emitTrades(rows.map((row) => normalizedTrade(row?.id, normalizeEpoch(row?.t), row?.p, row?.v, Number(row?.T) === 2 ? "sell" : "buy", multiplier)))];
+      }
+      return [];
+    });
+  }
+  if (source.exchange === "bingx") {
+    const bookChannel = `${venue}@depth100`;
+    const tradeChannel = `${venue}@trade`;
+    return wsDescriptor("wss://open-api-ws.bingx.com/market", [
+      { id: `inpuls-depth-${Date.now()}`, dataType: bookChannel },
+      { id: `inpuls-trade-${Date.now()}`, dataType: tradeChannel },
+    ], (payload) => {
+      if (payload?.dataType === bookChannel) {
+        const row = payload.data ?? {};
+        return [emitBook(true, row.bids, row.asks, row.T ?? payload.ts, row.T)];
+      }
+      if (payload?.dataType === tradeChannel) {
+        const rows = Array.isArray(payload.data) ? payload.data : [payload.data];
+        return [emitTrades(rows.map((row) => normalizedTrade(row?.t, normalizeEpoch(row?.T), row?.p, row?.q ?? row?.v, row?.m ? "sell" : "buy", multiplier)))];
+      }
+      return [];
+    }, {
+      binaryType: "arraybuffer",
+      decode: decodeGzipJsonMessage,
+      control(socket, payload) {
+        if (payload !== "Ping") return false;
+        socket.send("Pong");
+        return true;
+      },
+    });
+  }
+  if (source.exchange === "htx") {
+    const bookTopic = `market.${venue}.depth.step0`;
+    const tradeTopic = `market.${venue}.trade.detail`;
+    const url = source.market === "spot" ? "wss://api.huobi.pro/ws" : "wss://api.hbdm.com/linear-swap-ws";
+    return wsDescriptor(url, [{ sub: bookTopic, id: "inpuls-book" }, { sub: tradeTopic, id: "inpuls-trades" }], (payload) => {
+      if (payload?.ch === bookTopic) return [emitBook(true, payload.tick?.bids, payload.tick?.asks, payload.ts, payload.tick?.version)];
+      if (payload?.ch === tradeTopic) return [emitTrades((payload.tick?.data ?? []).map((row) => normalizedTrade(
+        row.id, normalizeEpoch(row.ts), row.price, row.amount, row.direction, multiplier,
+      )))];
+      return [];
+    }, {
+      binaryType: "arraybuffer",
+      decode: decodeGzipJsonMessage,
+      control(socket, payload) {
+        if (!Number.isFinite(Number(payload?.ping))) return false;
+        socket.send(JSON.stringify({ pong: payload.ping }));
+        return true;
+      },
+    });
+  }
+  if (source.exchange === "coinbase") {
+    return wsDescriptor("wss://advanced-trade-ws.coinbase.com/", [
+      { type: "subscribe", product_ids: [venue], channel: "level2" },
+      { type: "subscribe", product_ids: [venue], channel: "market_trades" },
+      { type: "subscribe", channel: "heartbeats" },
+    ], (payload) => {
+      if (["level2", "l2_data"].includes(payload?.channel)) return (payload.events ?? []).map((event) => {
+        const bids = [];
+        const asks = [];
+        for (const row of event.updates ?? []) {
+          const target = ["bid", "buy"].includes(String(row.side ?? "").toLowerCase()) ? bids : asks;
+          target.push([row.price_level, row.new_quantity]);
+        }
+        return emitBook(event.type === "snapshot", bids, asks, Date.parse(payload.timestamp), null);
+      });
+      if (payload?.channel === "market_trades") return [emitTrades((payload.events ?? []).flatMap((event) => event.trades ?? []).map((row) => normalizedTrade(
+        row.trade_id, Date.parse(row.time), row.price, row.size, row.side, 1,
+      )))];
+      return [];
+    });
+  }
+  if (source.exchange === "upbit") {
+    return wsDescriptor("wss://api.upbit.com/websocket/v1", [[
+      { ticket: `inpuls-${Date.now()}` },
+      { type: "trade", codes: [venue], is_only_realtime: true },
+      { type: "orderbook", codes: [venue], is_only_realtime: true },
+      { format: "DEFAULT" },
+    ]], (payload) => {
+      if (payload?.type === "orderbook") {
+        const units = payload.orderbook_units ?? [];
+        return [emitBook(
+          true,
+          units.map((row) => [row.bid_price, row.bid_size]),
+          units.map((row) => [row.ask_price, row.ask_size]),
+          payload.timestamp,
+          payload.timestamp,
+        )];
+      }
+      if (payload?.type === "trade") return [emitTrades([normalizedTrade(
+        payload.sequential_id, payload.trade_timestamp, payload.trade_price, payload.trade_volume, payload.ask_bid === "ASK" ? "sell" : "buy", 1,
+      )])];
+      return [];
+    }, { binaryType: "arraybuffer" });
   }
   if (source.exchange === "hyperliquid") {
     return wsDescriptor("wss://api.hyperliquid.xyz/ws", [

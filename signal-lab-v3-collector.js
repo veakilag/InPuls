@@ -4,7 +4,7 @@ import {
   filterUsdtPerpetualTicker,
   isUsdtPerpetualSymbol,
   normalizeUsdtPerpetualSymbol,
-} from "./engine.js?v=26-125-aster-alpha-v1";
+} from "./engine.js?v=26-126-final-exchanges-v1";
 import {
   CandidateEpisodeTracker,
   candidateWatchScore,

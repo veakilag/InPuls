@@ -2,11 +2,11 @@ import {
   buildOrderBookStream,
   fetchExchangeOrderBook,
   resolveMarketMetadata,
-} from "./exchange-market-data.js?v=26-125-aster-alpha-v1";
+} from "./exchange-market-data.js?v=26-126-final-exchanges-v1";
 import {
   marketSource,
   marketSourceKey,
-} from "./exchange-registry.js?v=26-125-aster-alpha-v1";
+} from "./exchange-registry.js?v=26-126-final-exchanges-v1";
 
 const MAX_LEVELS = 10_000;
 const MAX_TRADES = 60_000;
@@ -149,6 +149,7 @@ export class ExchangeOrderBookFeed {
       return;
     }
     this.socket = socket;
+    if (descriptor.binaryType) socket.binaryType = descriptor.binaryType;
     this.watchdogTimer = setTimeout(() => {
       if (generation === this.generation && socket === this.socket && !this.depthReady) {
         try { socket.close(); } catch {}
@@ -161,10 +162,12 @@ export class ExchangeOrderBookFeed {
       this.onStatus({ state: "loading", text: `Синхронизация ${this.source.exchange.toUpperCase()}` });
     });
 
-    socket.addEventListener("message", (message) => {
+    socket.addEventListener("message", async (message) => {
       if (generation !== this.generation || socket !== this.socket) return;
       let payload;
-      try { payload = JSON.parse(message.data); } catch { return; }
+      try { payload = await descriptor.decode(message.data); } catch { return; }
+      if (generation !== this.generation || socket !== this.socket) return;
+      try { if (descriptor.control(socket, payload)) return; } catch { return; }
       let events;
       try { events = descriptor.parse(payload); } catch { return; }
       for (const event of events ?? []) this.#applyEvent(event);
