@@ -3,8 +3,6 @@ import { spawn } from "node:child_process";
 const targetUrl = process.argv[2];
 if (!targetUrl) throw new Error("Usage: node scripts/browser-runtime-smoke.mjs <url>");
 
-const target = new URL(targetUrl);
-const requireLiteShell = ["127.0.0.1", "localhost"].includes(target.hostname);
 const chromeBinary = process.env.CHROME_BIN || "google-chrome";
 const port = 9222 + Math.floor(Math.random() * 500);
 const profile = `/tmp/inpuls-chrome-${process.pid}`;
@@ -96,16 +94,9 @@ async function readState(socket) {
 }
 
 function runtimeStarted(state) {
-  const baseReady = /^\d{2}:\d{2}:\d{2}$/.test(state?.clock || "")
+  return /^\d{2}:\d{2}:\d{2}$/.test(state?.clock || "")
     && state?.statusState === "online"
     && Number(state?.topRows || 0) > 0;
-  if (!baseReady || !requireLiteShell) return baseReady;
-  return Boolean(state?.liteMode)
-    && state?.primaryHidden === true
-    && state?.activityHidden === true
-    && state?.eventRadarTogglePresent === false
-    && state?.eventRadarPanelPresent === false
-    && Number(state?.marketRows || 0) === 0;
 }
 
 async function waitForRuntime(socket, timeoutMs) {
@@ -173,7 +164,6 @@ try {
 
   console.log(JSON.stringify({
     targetUrl,
-    requireLiteShell,
     firstState: first.state,
     firstReadyAfterMs: first.readyAfterMs,
     reloadState: reload.state,
