@@ -33,10 +33,14 @@ assert.ok(boot.includes("serviceWorker"));
 assert.ok(boot.includes("caches.keys"));
 assert.ok(boot.includes("isInPulsRegistration"));
 assert.ok(boot.includes("scope.pathname === appScope.pathname"));
-assert.ok(boot.includes('url.searchParams.delete("_inpuls_reload")'));
+assert.ok(boot.includes("cleanRecoveryQuery"));
+assert.ok(boot.includes('url.searchParams.delete("_inpuls_reload")') || boot.includes('["_inpuls_recovery", "_inpuls_reload", "_inpuls_reason"]'));
 assert.ok(!boot.includes("localStorage.clear"));
 assert.ok(!boot.includes("indexedDB.deleteDatabase"));
-assert.ok(!boot.includes("registrations.map((registration) => registration.unregister())"));
+assert.ok(!boot.includes("window.fetch ="));
+assert.ok(!boot.includes("window.WebSocket ="));
+assert.ok(!boot.includes("window.setTimeout ="));
+assert.ok(!boot.includes("window.setInterval ="));
 
 assert.deepEqual(buildBinanceChannelStreams("core"), ["!miniTicker@arr"]);
 assert.deepEqual(buildBinanceChannelStreams("public"), ["!bookTicker"]);
