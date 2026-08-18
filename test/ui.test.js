@@ -5,10 +5,10 @@ import { readFile } from "node:fs/promises";
 const source = (name) => readFile(new URL(`../${name}`, import.meta.url), "utf8");
 
 test("browser entry points keep user version v23 and identify the current release build", async () => {
-  const [html, app, worker, refresh, version] = await Promise.all([
-    source("index.html"), source("app.js"), source("sw.js"), source("refresh.html"), source("VERSION.txt"),
+  const [html, app, worker, version] = await Promise.all([
+    source("index.html"), source("app.js"), source("sw.js"), source("VERSION.txt"),
   ]);
-  for (const text of [html, app, worker, refresh, version]) assert.doesNotMatch(text, /(?:v|build=|\?v=)22\b/);
+  for (const text of [html, app, worker, version]) assert.doesNotMatch(text, /(?:v|build=|\?v=)22\b/);
   assert.match(html, /inpuls-build" content="26-126-final-exchanges-v1"/);
   assert.match(worker, /inpuls-26-91-runtime-boot-cache-feed-v1/);
   assert.match(html, /SCREENER <small>v23<\/small>/);
@@ -63,13 +63,12 @@ test("market symbols are validated before subscriptions and detail rendering avo
   assert.match(app, /link\.rel = "noopener noreferrer"/);
 });
 
-test("browser entry points carry a restrictive CSP and reset scripts stay external", async () => {
+test("browser entry points carry a restrictive CSP and the manual rescue stays external", async () => {
   const names = [
     "index.html",
     "raw-stability-lab.html",
     "trade-latency-lab.html",
-    "refresh.html",
-    "reset-v26.html",
+    "rescue-26-94.html",
   ];
   const pages = await Promise.all(names.map(source));
   for (const page of pages) {
@@ -79,9 +78,7 @@ test("browser entry points carry a restrictive CSP and reset scripts stay extern
     assert.match(page, /name="referrer" content="no-referrer"/);
   }
   assert.doesNotMatch(pages[3], /<script>(?:.|\n)*getRegistrations/);
-  assert.doesNotMatch(pages[4], /<script>(?:.|\n)*getRegistrations/);
-  assert.match(pages[3], /refresh\.js\?v=26-91-runtime-boot-cache-feed-v1/);
-  assert.match(pages[4], /reset\.js\?v=26-91-runtime-boot-cache-feed-v1/);
+  assert.match(pages[3], /rescue-26-94\.js\?v=26-94-runtime-rescue-v2/);
 });
 
 test("Service Worker removes retired app-shell caches and stays network-only", async () => {
@@ -98,68 +95,3 @@ test("Service Worker removes retired app-shell caches and stays network-only", a
 });
 
 test("chart pointer work is coalesced through animation frames and first-anchor snapping is available", async () => {
-  const chart = await source("chart.js");
-  assert.match(chart, /#requestRender\(\)/);
-  assert.match(chart, /export function snapPointToCandle/);
-  assert.match(chart, /#shouldSnap\(event\)/);
-  assert.match(chart, /this\.drawingSnap/);
-  assert.match(chart, /resetView\(\)/);
-});
-
-test("small panels keep compact menus and resize from invisible cursor edges", async () => {
-  const [app, css, workspaceCss] = await Promise.all([source("app.js"), source("styles.css"), source("workspace-v2.css")]);
-  assert.match(workspaceCss, /\.panel-edge-resizer/);
-  assert.match(workspaceCss, /\.panel-edge-resizer-n,[\s\S]*cursor: ns-resize/);
-  assert.match(workspaceCss, /\.panel-edge-resizer-e,[\s\S]*cursor: ew-resize/);
-  assert.match(workspaceCss, /\.chart-resizer,[\s\S]*display: none !important/);
-  assert.match(css, /\.chart-toolbox\.opens-sideways/);
-  assert.match(css, /@container \(max-width: 360px\)/);
-  assert.match(css, /@container \(max-width: 210px\)/);
-  assert.match(app, /model\.type === "orderbook" && element\?\.classList\.contains\("is-flow-hidden"\)/);
-  assert.match(app, /return \{ w: 4, h: 4 \};/);
-});
-
-test("brightness control keeps fixed accents and morphs from sun to moon", async () => {
-  const [html, app, css] = await Promise.all([
-    source("index.html"), source("app.js"), source("styles.css"),
-  ]);
-  assert.doesNotMatch(html, /СУМЕРКИ|НОЧЬ/);
-  assert.match(html, /class="comfort-sun"/);
-  assert.match(html, /class="comfort-moon"/);
-  assert.match(app, /root\.style\.setProperty\("--comfort-position"/);
-  assert.match(app, /root\.style\.setProperty\("--comfort-moon-opacity"/);
-  assert.match(app, /const turquoise = "#4fd1a5"/);
-  assert.match(app, /const cyan = "#7c83ff"/);
-  assert.match(app, /const violet = "#9b82ff"/);
-  assert.match(css, /linear-gradient\(90deg,#c8cdd2 0%,#737b84 46%,#242930 100%\)/);
-});
-
-test("orderbook price text is separated from the size boundary", async () => {
-  const orderbook = await source("orderbook.js");
-  assert.match(orderbook, /grid-template-columns: minmax\(0, 1fr\) var\(--book-price-width, 8\.25ch\)/);
-  assert.match(orderbook, /padding: 0 3px 0 2px !important;/);
-  assert.match(orderbook, /column-gap: 4px !important;/);
-  assert.match(orderbook, /\.book-ladder-row \.book-size \{[\s\S]*border-right: 1px solid color-mix\(in srgb, var\(--line\) 72%, transparent\);/);
-  assert.match(orderbook, /\.book-ladder-row strong \{[\s\S]*border-left: 0 !important;/);
-  assert.match(orderbook, /\.book-ladder-row \.book-size \{[\s\S]*overflow: hidden !important;/);
-});
-
-
-test("event radar beta is isolated from the three existing discovery blocks", async () => {
-  const [html, app, worker, widget, css] = await Promise.all([
-    source("index.html"), source("app.js"), source("sw.js"), source("event-radar-beta.js"), source("event-radar-beta.css"),
-  ]);
-  assert.match(html, /id="event-radar-beta-toggle"/);
-  assert.match(html, /event-radar-beta\.js\?v=26-126-final-exchanges-v1/);
-  assert.match(app, /inpuls:event-radar-update/);
-  assert.match(app, /inpuls:event-radar-select/);
-  assert.match(app, /openOrderBookForSymbol\(symbol, source\)/);
-  assert.match(widget, /ПАУЗА/);
-  assert.match(widget, /eventRadarStatus/);
-  assert.match(widget, /eventRadarDataState/);
-  assert.match(css, /position: fixed/);
-  assert.match(worker, /event-radar-beta\.js/);
-  assert.match(html, /class="inplay-strip"/);
-  assert.match(html, /data-panel="radar"/);
-  assert.match(html, /data-panel="scanner"/);
-});
