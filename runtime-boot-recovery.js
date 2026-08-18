@@ -4,7 +4,7 @@
   // Runtime recovery is scoped to stale PWA/runtime state only. It must never
   // mutate charts, market data, timers, or workspace state.
   const APP_BUILD = "26-126-final-exchanges-v1";
-  const RECOVERY_REVISION = "26-127-runtime-recovery-v8";
+  const RECOVERY_REVISION = "26-128-binance-kline-market-ws-v1";
   const STORAGE_KEY = "inpuls-runtime-boot-build-v1";
   const REVISION_KEY = "inpuls-runtime-recovery-revision-v1";
   const SESSION_KEY = `inpuls-runtime-recovery:${RECOVERY_REVISION}`;
@@ -28,6 +28,39 @@
       const scope = new URL(registration.scope);
       return scope.origin === appScope.origin && scope.pathname === appScope.pathname;
     } catch { return false; }
+  }
+
+  // Binance moved regular Futures market streams (including kline and aggTrade)
+  // from the legacy /ws route to /market/ws in April 2026. The legacy route can
+  // still complete the WebSocket handshake but stay silent. Keep old chart/feed
+  // modules working until their direct endpoint is migrated by routing only this
+  // exact Futures legacy path. Public /public and already-correct /market routes
+  // are intentionally untouched.
+  function installBinanceFuturesMarketRoute() {
+    const NativeWebSocket = window.WebSocket;
+    if (typeof NativeWebSocket !== "function" || NativeWebSocket.__inpulsMarketRoute) return;
+
+    class InPulsWebSocket extends NativeWebSocket {
+      constructor(socketUrl, protocols) {
+        let routedUrl = socketUrl;
+        try {
+          const candidate = new URL(String(socketUrl));
+          if (
+            candidate.protocol === "wss:"
+            && candidate.hostname === "fstream.binance.com"
+            && candidate.pathname.startsWith("/ws/")
+          ) {
+            candidate.pathname = `/market/ws/${candidate.pathname.slice("/ws/".length)}`;
+            routedUrl = candidate.toString();
+          }
+        } catch {}
+        if (protocols === undefined) super(routedUrl);
+        else super(routedUrl, protocols);
+      }
+    }
+
+    Object.defineProperty(InPulsWebSocket, "__inpulsMarketRoute", { value: true });
+    window.WebSocket = InPulsWebSocket;
   }
 
   // Retired surfaces are removed only after the main application has had time
@@ -137,6 +170,7 @@
     }, WATCHDOG_DELAY_MS);
   }
 
+  installBinanceFuturesMarketRoute();
   installRetiredSurfaceCleanup();
 
   const needsRevisionRecovery = read(localStorage, STORAGE_KEY) !== APP_BUILD
