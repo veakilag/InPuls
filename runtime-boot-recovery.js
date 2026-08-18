@@ -4,7 +4,7 @@
   // Runtime recovery is deliberately limited to recovery. It must never alter
   // chart visibility, market fetch(), WebSocket, timers, or workspace state.
   const APP_BUILD = "26-126-final-exchanges-v1";
-  const RECOVERY_REVISION = "26-126-runtime-recovery-v2";
+  const RECOVERY_REVISION = "26-126-runtime-recovery-v3";
   const STORAGE_KEY = "inpuls-runtime-boot-build-v1";
   const REVISION_KEY = "inpuls-runtime-recovery-revision-v1";
   const SESSION_KEY = `inpuls-runtime-recovery:${RECOVERY_REVISION}`;
@@ -28,6 +28,37 @@
       return scope.origin === appScope.origin && scope.pathname === appScope.pathname;
     } catch { return false; }
   }
+
+  // These two UI blocks were intentionally retired. Keep the cleanup here so
+  // old cached HTML cannot resurrect them, but do not use the old Lite Shell
+  // behavior that also hid the primary chart or intercepted market data.
+  function removeRetiredWidgets() {
+    document.querySelector("#event-radar-beta")?.remove();
+    document.querySelector("#event-radar-beta-toggle")?.remove();
+    document.querySelector('[data-mobile-view="activity"]')?.remove();
+
+    const activity = document.querySelector('.workspace-panel[data-panel="scanner"]');
+    activity?.remove();
+
+    document.querySelector('[data-restore-panel="scanner"]')?.remove();
+    document.querySelector("#scanner-resizer")?.remove();
+    document.querySelector("#scanner-resizer-nw")?.remove();
+
+    // Prevent the retired Event Radar module from executing on this page.
+    document.querySelectorAll('script[src*="event-radar-beta.js"], link[href*="event-radar-beta.css"]').forEach((node) => node.remove());
+  }
+
+  function installRetiredWidgetGuard() {
+    removeRetiredWidgets();
+    if (!document.body) return;
+    const observer = new MutationObserver(() => removeRetiredWidgets());
+    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("load", () => {
+      removeRetiredWidgets();
+      observer.disconnect();
+    }, { once: true });
+  }
+
   function cleanRecoveryQuery() {
     if (!["_inpuls_recovery", "_inpuls_reload", "_inpuls_reason"].some((key) => url.searchParams.has(key))) return;
     ["_inpuls_recovery", "_inpuls_reload", "_inpuls_reason"].forEach((key) => url.searchParams.delete(key));
@@ -99,6 +130,8 @@
       performScopedRecovery("watchdog", true);
     }, WATCHDOG_DELAY_MS);
   }
+
+  installRetiredWidgetGuard();
 
   const needsRevisionRecovery = read(localStorage, STORAGE_KEY) !== APP_BUILD
     || read(localStorage, REVISION_KEY) !== RECOVERY_REVISION;
