@@ -17,5 +17,6 @@ assert.ok(!boot.includes("primaryChart: false"));
 assert.ok(!boot.includes("primary.hidden = true"));
 assert.ok(!boot.includes("window.fetch ="));
 assert.ok(!boot.includes("window.WebSocket ="));
+assert.ok(boot.includes('const APP_BUILD = "26-126-final-exchanges-v1"'));
 
 console.log("runtime boot chart safety contract passed");
