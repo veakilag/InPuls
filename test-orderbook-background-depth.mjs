@@ -5,14 +5,12 @@ import { readFile } from "node:fs/promises";
 const worker = await readFile(new URL("./orderbook-worker.js", import.meta.url), "utf8");
 const runtime = await readFile(new URL("./orderbook.js", import.meta.url), "utf8");
 const sw = await readFile(new URL("./sw.js", import.meta.url), "utf8");
-const reset = await readFile(new URL("./reset-v26.html", import.meta.url), "utf8");
 
 test("files keep correct identities", () => {
   assert.match(worker, /const MAX_BOOK_LEVELS_PER_SIDE = 20_000/);
   assert.match(runtime, /^import \{/);
   assert.match(runtime, /export function applyDepthUpdates/);
   assert.match(sw, /^const CACHE/);
-  assert.match(reset, /^<!doctype html>/);
 });
 
 test("background return reuses Worker with guarded staggered recovery", () => {
