@@ -31,3 +31,48 @@ test("worker-unavailable fallback does not leave a health interval open", () => 
 
 test("hidden tabs close sockets instead of accumulating a stale queue", () => {
   assert.match(worker, /pauseForBackground\(\)/);
+  assert.match(worker, /feed\.pauseForBackground\(\)/);
+  assert.match(worker, /this\.generation \+= 1;[\s\S]*this\.stopSockets\(\)/);
+  assert.match(worker, /restartAfterBackground\(true\)/);
+});
+
+test("workspace order is footprint then Tape then book", () => {
+  assert.match(flow, /grid-template-areas: "clusters split-a tape split-b book"/);
+  assert.match(flow, /data-footprint-select/);
+  assert.match(flow, /data-footprint-favorite/);
+  assert.doesNotMatch(flow, /<span>Δ<\/span>/);
+});
+
+test("Tape and footprint visibility controls stay independent", () => {
+  assert.match(orderbook, /data-inpuls-tape-visible/);
+  assert.match(orderbook, /data-inpuls-clusters-visible/);
+  assert.match(orderbook, /clustersVisible: localStorage\.getItem\(CLUSTERS_VISIBLE_KEY\) !== "0"/);
+  assert.match(orderbook, /is-tape-hidden/);
+  assert.match(orderbook, /is-clusters-hidden/);
+});
+
+test("RX uses calibrated Binance server time", () => {
+  const timing = globalThis.InPulsTapeLatency.normalizeTiming(
+    { T: 1_000, E: 1_000 },
+    1_400,
+    -350,
+  );
+  assert.equal(timing.rxLatencyMs, 50);
+  assert.match(worker, /syncServerClock/);
+  assert.match(worker, /normalizeTiming\(event, receivedAt, serverClockOffsetMs\)/);
+});
+
+test("multi-book worker prioritizes UI without truncating local depth", () => {
+  assert.match(orderbook, /type: "priority"/);
+  assert.match(worker, /prioritySymbols/);
+  assert.match(worker, /emitIntervalMs\(\)/);
+  assert.match(
+    worker,
+    /bookStorageLimit\(\) \{[\s\S]*return MAX_BOOK_LEVELS_PER_SIDE;/,
+  );
+  assert.doesNotMatch(worker, /MULTI_BOOK_LEVEL_LIMIT/);
+  assert.match(
+    worker,
+    /trimSide\(this\.bids, "bid", limit\);[\s\S]*trimSide\(this\.asks, "ask", limit\);/,
+  );
+});
