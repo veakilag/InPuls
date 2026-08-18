@@ -9,7 +9,6 @@ const orderbook = readFileSync(new URL("./orderbook.js", import.meta.url), "utf8
 const worker = readFileSync(new URL("./orderbook-worker.js", import.meta.url), "utf8");
 const flow = readFileSync(new URL("./orderbook-flow-workspace.js", import.meta.url), "utf8");
 const sw = readFileSync(new URL("./sw.js", import.meta.url), "utf8");
-const reset = readFileSync(new URL("./reset-v26.html", import.meta.url), "utf8");
 
 test("normal reload keeps one consistent runtime build", () => {
   assert.match(index, /app\.js\?v=26-126-final-exchanges-v1/);
@@ -20,7 +19,6 @@ test("normal reload keeps one consistent runtime build", () => {
   assert.match(sw, /app\.js\?v=26-126-final-exchanges-v1/);
   assert.match(sw, /orderbook\.js\?v=26-126-final-exchanges-v1/);
   assert.match(sw, /orderbook-flow-workspace\.js\?v=26-126-final-exchanges-v1/);
-  assert.match(reset, /Resume v2/);
   assert.doesNotMatch(app, /getRegistrations\(\).*unregister/s);
 });
 

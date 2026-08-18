@@ -5,10 +5,10 @@ import { readFile } from "node:fs/promises";
 const source = (name) => readFile(new URL(`../${name}`, import.meta.url), "utf8");
 
 test("browser entry points keep user version v23 and identify the current release build", async () => {
-  const [html, app, worker, refresh, version] = await Promise.all([
-    source("index.html"), source("app.js"), source("sw.js"), source("refresh.html"), source("VERSION.txt"),
+  const [html, app, worker, version] = await Promise.all([
+    source("index.html"), source("app.js"), source("sw.js"), source("VERSION.txt"),
   ]);
-  for (const text of [html, app, worker, refresh, version]) assert.doesNotMatch(text, /(?:v|build=|\?v=)22\b/);
+  for (const text of [html, app, worker, version]) assert.doesNotMatch(text, /(?:v|build=|\?v=)22\b/);
   assert.match(html, /inpuls-build" content="26-126-final-exchanges-v1"/);
   assert.match(worker, /inpuls-26-91-runtime-boot-cache-feed-v1/);
   assert.match(html, /SCREENER <small>v23<\/small>/);
@@ -63,13 +63,12 @@ test("market symbols are validated before subscriptions and detail rendering avo
   assert.match(app, /link\.rel = "noopener noreferrer"/);
 });
 
-test("browser entry points carry a restrictive CSP and reset scripts stay external", async () => {
+test("browser entry points carry a restrictive CSP and the manual rescue stays external", async () => {
   const names = [
     "index.html",
     "raw-stability-lab.html",
     "trade-latency-lab.html",
-    "refresh.html",
-    "reset-v26.html",
+    "rescue-26-94.html",
   ];
   const pages = await Promise.all(names.map(source));
   for (const page of pages) {
@@ -79,9 +78,7 @@ test("browser entry points carry a restrictive CSP and reset scripts stay extern
     assert.match(page, /name="referrer" content="no-referrer"/);
   }
   assert.doesNotMatch(pages[3], /<script>(?:.|\n)*getRegistrations/);
-  assert.doesNotMatch(pages[4], /<script>(?:.|\n)*getRegistrations/);
-  assert.match(pages[3], /refresh\.js\?v=26-91-runtime-boot-cache-feed-v1/);
-  assert.match(pages[4], /reset\.js\?v=26-91-runtime-boot-cache-feed-v1/);
+  assert.match(pages[3], /rescue-26-94\.js\?v=26-94-runtime-rescue-v2/);
 });
 
 test("Service Worker removes retired app-shell caches and stays network-only", async () => {
@@ -143,7 +140,6 @@ test("orderbook price text is separated from the size boundary", async () => {
   assert.match(orderbook, /\.book-ladder-row strong \{[\s\S]*border-left: 0 !important;/);
   assert.match(orderbook, /\.book-ladder-row \.book-size \{[\s\S]*overflow: hidden !important;/);
 });
-
 
 test("event radar beta is isolated from the three existing discovery blocks", async () => {
   const [html, app, worker, widget, css] = await Promise.all([
