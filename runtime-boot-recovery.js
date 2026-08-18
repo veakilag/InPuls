@@ -1,10 +1,12 @@
 (() => {
   "use strict";
 
-  // Runtime recovery is deliberately limited to recovery. It must never alter
-  // chart visibility, market fetch(), WebSocket, timers, or workspace state.
+  // Runtime recovery is strictly scoped to stale PWA/runtime state. It must
+  // never mutate product layout, charts, market data, timers, or workspace
+  // panels. Retired Event Radar is cleaned separately without touching the
+  // current scanner/activity surface.
   const APP_BUILD = "26-126-final-exchanges-v1";
-  const RECOVERY_REVISION = "26-126-runtime-recovery-v4";
+  const RECOVERY_REVISION = "26-126-runtime-recovery-v5";
   const STORAGE_KEY = "inpuls-runtime-boot-build-v1";
   const REVISION_KEY = "inpuls-runtime-recovery-revision-v1";
   const SESSION_KEY = `inpuls-runtime-recovery:${RECOVERY_REVISION}`;
@@ -29,30 +31,18 @@
     } catch { return false; }
   }
 
-  // These surfaces were retired from the product. Remove both their stale DOM
-  // and the legacy module before it can mount. This is intentionally isolated
-  // from the old Lite Shell: no chart, market-data, timer, or workspace state
-  // is touched here.
-  function installRetiredWidgetGuard() {
-    const removeRetiredWidgets = () => {
+  // Event Radar is retired. Do not touch the live scanner/activity workspace.
+  // This guard only removes the obsolete Event Radar nodes/module and its CSS.
+  function installRetiredEventRadarCleanup() {
+    const cleanup = () => {
       document.querySelector("#event-radar-beta")?.remove();
       document.querySelector("#event-radar-beta-toggle")?.remove();
-      document.querySelector('[data-mobile-view="activity"]')?.remove();
-
-      const activity = document.querySelector('.workspace-panel[data-panel-id="scanner"]');
-      activity?.remove();
-      document.querySelector('[data-restore-panel="scanner"]')?.remove();
-      document.querySelector("#scanner-resizer")?.remove();
-      document.querySelector("#scanner-resizer-nw")?.remove();
-
-      // runtime-boot-recovery.js is loaded before the legacy beta module.
-      // Removing the script node here prevents its side effects on first load.
       document.querySelectorAll('script[src*="event-radar-beta.js"], link[href*="event-radar-beta.css"]').forEach((node) => node.remove());
     };
 
-    removeRetiredWidgets();
+    cleanup();
     if (!document.body || typeof MutationObserver !== "function") return;
-    const observer = new MutationObserver(removeRetiredWidgets);
+    const observer = new MutationObserver(cleanup);
     observer.observe(document.body, { childList: true, subtree: true });
     window.addEventListener("pagehide", () => observer.disconnect(), { once: true });
   }
@@ -129,7 +119,7 @@
     }, WATCHDOG_DELAY_MS);
   }
 
-  installRetiredWidgetGuard();
+  installRetiredEventRadarCleanup();
 
   const needsRevisionRecovery = read(localStorage, STORAGE_KEY) !== APP_BUILD
     || read(localStorage, REVISION_KEY) !== RECOVERY_REVISION;
