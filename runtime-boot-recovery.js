@@ -4,12 +4,13 @@
   // Runtime recovery is scoped to stale PWA/runtime state only. It must never
   // mutate charts, market data, timers, or workspace state.
   const APP_BUILD = "26-126-final-exchanges-v1";
-  const RECOVERY_REVISION = "26-127-runtime-recovery-v7";
+  const RECOVERY_REVISION = "26-127-runtime-recovery-v8";
   const STORAGE_KEY = "inpuls-runtime-boot-build-v1";
   const REVISION_KEY = "inpuls-runtime-recovery-revision-v1";
   const SESSION_KEY = `inpuls-runtime-recovery:${RECOVERY_REVISION}`;
   const WATCHDOG_ATTEMPT_KEY = `inpuls-runtime-watchdog-attempt:${RECOVERY_REVISION}`;
   const WATCHDOG_DELAY_MS = 8_000;
+  const RETIRED_SURFACE_DELAY_MS = 1_200;
   const url = new URL(window.location.href);
   const appScope = new URL("./", url);
 
@@ -29,15 +30,15 @@
     } catch { return false; }
   }
 
-  // Retired surfaces must not survive old workspace/HTML state. This is a
-  // compatibility cleanup only; it does not touch chart/data/feed state.
+  // Retired surfaces are removed only after the main application has had time
+  // to bind its legacy DOM references. This preserves the data/radar/chart
+  // runtime while keeping the obsolete UI out of the workspace.
   function cleanupRetiredSurfaces(root = document) {
     root.querySelector("#event-radar-beta")?.remove();
     root.querySelector("#event-radar-beta-toggle")?.remove();
     root.querySelector('[data-mobile-view="activity"]')?.remove();
 
-    const activity = root.querySelector('.workspace-panel[data-panel-id="scanner"]');
-    activity?.remove();
+    root.querySelector('.workspace-panel[data-panel-id="scanner"]')?.remove();
     root.querySelector('[data-restore-panel="scanner"]')?.remove();
     root.querySelector("#scanner-resizer")?.remove();
     root.querySelector("#scanner-resizer-nw")?.remove();
@@ -48,29 +49,15 @@
   }
 
   function installRetiredSurfaceCleanup() {
-    const run = () => cleanupRetiredSurfaces(document);
-
-    // This file is loaded from <head>. The previous implementation attempted
-    // one cleanup before <body> existed and then returned forever. Run once
-    // after DOM construction and keep a lightweight observer for late mounts.
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", run, { once: true });
-    } else {
-      run();
-    }
-
-    if (typeof MutationObserver !== "function") return;
-    const observe = () => {
-      if (!document.body) return;
+    const schedule = () => {
+      window.setTimeout(() => cleanupRetiredSurfaces(document), RETIRED_SURFACE_DELAY_MS);
+      if (typeof MutationObserver !== "function" || !document.body) return;
       const observer = new MutationObserver(() => cleanupRetiredSurfaces(document));
       observer.observe(document.body, { childList: true, subtree: true });
       window.addEventListener("pagehide", () => observer.disconnect(), { once: true });
     };
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", observe, { once: true });
-    } else {
-      observe();
-    }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", schedule, { once: true });
+    else schedule();
   }
 
   function cleanRecoveryQuery() {
