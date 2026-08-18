@@ -17,5 +17,10 @@ assert.ok(!boot.includes("localStorage.clear"));
 assert.ok(!boot.includes("sessionStorage.clear"));
 assert.ok(!boot.includes("indexedDB.deleteDatabase"));
 assert.ok(!boot.includes("registrations.map((registration) => registration.unregister())"));
+assert.ok(!boot.includes("__INPULS_LITE_MODE__"));
+assert.ok(!boot.includes("window.fetch ="));
+assert.ok(!boot.includes("window.WebSocket ="));
+assert.ok(!boot.includes("window.setTimeout ="));
+assert.ok(!boot.includes("window.setInterval ="));
 
 console.log("runtime self-healing contracts passed");
