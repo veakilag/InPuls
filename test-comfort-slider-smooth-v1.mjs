@@ -210,8 +210,8 @@ test("release applies the complete palette and heavy visual modules once", () =>
 });
 
 test("Tape-priority comfort build ships fresh cache keys", () => {
-  assert.match(index, /styles\.css\?v=26-125-aster-alpha-v1/);
+  assert.match(index, /styles\.css\?v=26-126-final-exchanges-v1/);
   assert.match(index, /runtime-boot-recovery\.js\?v=26-99-tape-priority-comfort-v1/);
-  assert.match(index, /install-cta\.js\?v=26-125-aster-alpha-v1/);
-  assert.match(index, /app\.js\?v=26-125-aster-alpha-v1/);
+  assert.match(index, /install-cta\.js\?v=26-126-final-exchanges-v1/);
+  assert.match(index, /app\.js\?v=26-126-final-exchanges-v1/);
 });

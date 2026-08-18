@@ -1,4 +1,4 @@
-import { normalizeCanonicalSymbol } from "./exchange-registry.js?v=26-125-aster-alpha-v1";
+import { normalizeCanonicalSymbol } from "./exchange-registry.js?v=26-126-final-exchanges-v1";
 
 export const BINANCE_ALPHA_TOKEN_LIST_URL = "https://www.binance.com/bapi/defi/v1/public/wallet-direct/buw/wallet/cex/alpha/all/token/list";
 export const BINANCE_ALPHA_EXCHANGE_INFO_URL = "https://www.binance.com/bapi/defi/v1/public/alpha-trade/get-exchange-info";

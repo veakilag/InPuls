@@ -1,4 +1,4 @@
-import { buildBinanceChannelStreams, buildBinanceChannelTransports, isBinanceSubscriptionError, isCoreMiniTickerPacket, nextBinanceTransportIndex, normalizeBinanceRestMiniTicker } from "./binance-stream-routing.js?v=26-125-aster-alpha-v1";
+import { buildBinanceChannelStreams, buildBinanceChannelTransports, isBinanceSubscriptionError, isCoreMiniTickerPacket, nextBinanceTransportIndex, normalizeBinanceRestMiniTicker } from "./binance-stream-routing.js?v=26-126-final-exchanges-v1";
 import { binanceClock } from "./binance-clock.js?v=26-102-tape-live-edge-minute-boundary-v1";
 import {
   DEFAULT_SETTINGS,
@@ -7,9 +7,9 @@ import {
   formatCompactUsd,
   isUsdtPerpetualSymbol,
   normalizeUsdtPerpetualSymbol,
-} from "./engine.js?v=26-125-aster-alpha-v1";
-import { calculateNatr, CandlestickChart, KlineFeed, pearsonCorrelation } from "./chart.js?v=26-125-aster-alpha-v1";
-import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-125-aster-alpha-v1";
+} from "./engine.js?v=26-126-final-exchanges-v1";
+import { calculateNatr, CandlestickChart, KlineFeed, pearsonCorrelation } from "./chart.js?v=26-126-final-exchanges-v1";
+import { aggregateFootprintClusters, aggregateTradePath, bookAnomalyQuote, bookDisplayedQuote, bookDistancePercentLabel, bookQuoteScale, bookScaleIndexForWheel, bookScaleLabel, buildDepthLadder, clampDepthViewCenter, ensureFootprintLiveBucket, inferPriceTick, maximumBookScaleIndex, marketAnchoredBookViewCenter, maximumDepthQuote, OrderBookFeed, parseRuntimeNumber, priceStepForScale, sessionBookAnomalyThreshold, tradeTimeWindow } from "./orderbook.js?v=26-126-final-exchanges-v1";
 import { observability } from "./observability.js?v=render-scheduler-v1";
 import { LatestFrameScheduler } from "./render-scheduler.js?v=render-scheduler-v1";
 import { SignalMemoryTracker } from "./market-memory.js?v=26-65-structured-signal-collection-v1";
@@ -19,7 +19,7 @@ import {
   MarketwideSizeScanner,
   detectMarketwideCascade,
 } from "./market-pattern-scanner.js?v=marketwide-patterns-v1";
-import { panelsOverlap, resizeTiledWorkspace, WORKSPACE_COLS, WORKSPACE_ROWS } from "./workspace-layout.js?v=26-125-aster-alpha-v1";
+import { panelsOverlap, resizeTiledWorkspace, WORKSPACE_COLS, WORKSPACE_ROWS } from "./workspace-layout.js?v=26-126-final-exchanges-v1";
 import {
   EXCHANGES,
   marketSourceLabel,
@@ -27,9 +27,9 @@ import {
   normalizeExchange,
   normalizeExchangeMarket,
   normalizeMarket,
-} from "./exchange-registry.js?v=26-125-aster-alpha-v1";
-import { fetchExchangeCandles } from "./exchange-market-data.js?v=26-125-aster-alpha-v1";
-import { ExchangeRadarFeed, fetchExchangeTickers } from "./exchange-radar-feed.js?v=26-125-aster-alpha-v1";
+} from "./exchange-registry.js?v=26-126-final-exchanges-v1";
+import { fetchExchangeCandles } from "./exchange-market-data.js?v=26-126-final-exchanges-v1";
+import { ExchangeRadarFeed, fetchExchangeTickers } from "./exchange-radar-feed.js?v=26-126-final-exchanges-v1";
 
 const STORAGE_KEYS = {
   settings: "inpuls-settings-v1",
@@ -4442,7 +4442,7 @@ updateClock(new Date(binanceClock.now()));
 scheduleClockTick();
 render();
 
-const INPULS_RUNTIME_BUILD = "26-125-aster-alpha-v1";
+const INPULS_RUNTIME_BUILD = "26-126-final-exchanges-v1";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {

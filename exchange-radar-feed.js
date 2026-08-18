@@ -2,8 +2,8 @@ import {
   fromVenueSymbol,
   marketSource,
   normalizeCanonicalSymbol,
-} from "./exchange-registry.js?v=26-125-aster-alpha-v1";
-import { loadBinanceAlphaTokenIndex } from "./binance-alpha-symbols.js?v=26-125-aster-alpha-v1";
+} from "./exchange-registry.js?v=26-126-final-exchanges-v1";
+import { loadBinanceAlphaTokenIndex } from "./binance-alpha-symbols.js?v=26-126-final-exchanges-v1";
 
 function finite(value) {
   const number = Number(value);
@@ -16,7 +16,8 @@ async function fetchJson(url, options = {}, fetchImpl = globalThis.fetch) {
   const payload = await response.json();
   if (payload?.retCode && Number(payload.retCode) !== 0) throw new Error(payload.retMsg || "Bybit error");
   if (payload?.success === false) throw new Error(payload.message || payload.messageDetail || "Exchange error");
-  if (payload?.code && !["0", "00000", "000000"].includes(String(payload.code))) throw new Error(payload.msg || payload.message || "Exchange error");
+  if (payload?.status === "error") throw new Error(payload["err-msg"] || payload.message || "Exchange error");
+  if (payload?.code && !["0", "00000", "000000", "200000"].includes(String(payload.code))) throw new Error(payload.msg || payload.message || "Exchange error");
   return payload;
 }
 
@@ -190,6 +191,112 @@ export async function fetchExchangeTickers(sourceValue, {
         funding: row.funding_rate,
       }, now);
     }).filter(Boolean);
+  }
+  if (source.exchange === "kucoin") {
+    if (source.market === "spot") {
+      const payload = await fetchJson("https://api.kucoin.com/api/v1/market/allTickers", { signal }, fetchImpl);
+      return (payload?.data?.ticker ?? []).map((row) => ticker({
+        symbol: fromVenueSymbol("kucoin", "spot", row.symbol),
+        price: row.last,
+        open: openFromChange(row.last, Number(row.changeRate) * 100),
+        high: row.high,
+        low: row.low,
+        quoteVolume: row.volValue,
+      }, payload?.data?.time ?? now)).filter(Boolean);
+    }
+    const payload = await fetchJson("https://api-futures.kucoin.com/api/v1/contracts/active", { signal }, fetchImpl);
+    return (payload?.data ?? []).map((row) => ticker({
+      symbol: fromVenueSymbol("kucoin", "futures", row.symbol),
+      price: row.lastTradePrice ?? row.markPrice,
+      open: openFromChange(row.lastTradePrice ?? row.markPrice, Number(row.priceChgPct) * 100),
+      high: row.highPrice,
+      low: row.lowPrice,
+      quoteVolume: row.turnoverOf24h,
+      funding: row.fundingFeeRate,
+      nextFundingTime: row.nextFundingRateTime,
+    }, now)).filter(Boolean);
+  }
+  if (source.exchange === "mexc") {
+    const url = source.market === "spot"
+      ? "https://api.mexc.com/api/v3/ticker/24hr"
+      : "https://contract.mexc.com/api/v1/contract/ticker";
+    const payload = await fetchJson(url, { signal }, fetchImpl);
+    const rows = source.market === "spot" ? payload : payload?.data ?? [];
+    return rows.map((row) => ticker({
+      symbol: fromVenueSymbol("mexc", source.market, row.symbol),
+      price: row.lastPrice,
+      open: row.openPrice ?? openFromChange(row.lastPrice, Number(row.riseFallRate) * 100),
+      high: row.highPrice ?? row.high24Price,
+      low: row.lowPrice ?? row.lower24Price,
+      quoteVolume: row.quoteVolume ?? row.amount24,
+      trades: row.count,
+      funding: row.fundingRate,
+    }, row.closeTime ?? row.timestamp ?? now)).filter(Boolean);
+  }
+  if (source.exchange === "bingx") {
+    const url = source.market === "spot"
+      ? "https://open-api.bingx.com/openApi/spot/v1/ticker/24hr"
+      : "https://open-api.bingx.com/openApi/swap/v2/quote/ticker";
+    const payload = await fetchJson(url, { signal }, fetchImpl);
+    const rows = Array.isArray(payload?.data) ? payload.data : [payload?.data];
+    return rows.map((row) => ticker({
+      symbol: fromVenueSymbol("bingx", source.market, row?.symbol),
+      price: row?.lastPrice,
+      open: row?.openPrice ?? openFromChange(row?.lastPrice, row?.priceChangePercent),
+      high: row?.highPrice,
+      low: row?.lowPrice,
+      quoteVolume: row?.quoteVolume,
+      trades: row?.count,
+      funding: row?.fundingRate,
+      nextFundingTime: row?.nextFundingTime,
+    }, row?.time ?? now)).filter(Boolean);
+  }
+  if (source.exchange === "htx") {
+    const url = source.market === "spot"
+      ? "https://api.huobi.pro/market/tickers"
+      : "https://api.hbdm.com/linear-swap-ex/market/detail/batch_merged";
+    const payload = await fetchJson(url, { signal }, fetchImpl);
+    return (payload?.data ?? payload?.ticks ?? []).map((row) => ticker({
+      symbol: fromVenueSymbol("htx", source.market, row.symbol ?? row.contract_code),
+      price: row.close,
+      open: row.open,
+      high: row.high,
+      low: row.low,
+      quoteVolume: row.trade_turnover ?? row.vol,
+      trades: row.count,
+      funding: row.funding_rate,
+    }, row.ts ?? payload.ts ?? now)).filter(Boolean);
+  }
+  if (source.exchange === "coinbase") {
+    const products = [];
+    let cursor = "";
+    for (let page = 0; page < 8; page += 1) {
+      const query = new URLSearchParams({ product_type: "SPOT", limit: "250" });
+      if (cursor) query.set("cursor", cursor);
+      const payload = await fetchJson(`https://api.coinbase.com/api/v3/brokerage/market/products?${query}`, { signal }, fetchImpl);
+      products.push(...(payload?.products ?? []));
+      if (!payload?.pagination?.has_next || !payload.pagination.next_cursor) break;
+      cursor = payload.pagination.next_cursor;
+    }
+    return products.filter((row) => row.quote_currency_id === "USDT" && row.product_type === "SPOT").map((row) => ticker({
+      symbol: fromVenueSymbol("coinbase", "spot", row.product_id),
+      price: row.price,
+      open: openFromChange(row.price, row.price_percentage_change_24h),
+      high: row.price_24h_high,
+      low: row.price_24h_low,
+      quoteVolume: Number(row.volume_24h) * Number(row.price),
+    }, now)).filter(Boolean);
+  }
+  if (source.exchange === "upbit") {
+    const rows = await fetchJson("https://api.upbit.com/v1/ticker/all?quote_currencies=USDT", { signal }, fetchImpl);
+    return rows.map((row) => ticker({
+      symbol: fromVenueSymbol("upbit", "spot", row.market),
+      price: row.trade_price,
+      open: row.opening_price,
+      high: row.high_price,
+      low: row.low_price,
+      quoteVolume: row.acc_trade_price_24h,
+    }, row.timestamp ?? now)).filter(Boolean);
   }
   const type = source.market === "spot" ? "spotMetaAndAssetCtxs" : "metaAndAssetCtxs";
   const payload = await fetchJson("https://api.hyperliquid.xyz/info", {

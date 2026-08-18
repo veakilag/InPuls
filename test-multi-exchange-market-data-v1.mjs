@@ -9,23 +9,33 @@ import {
   fetchExchangeOrderBook,
   nativeInterval,
   resolveMarketMetadata,
-} from "./exchange-market-data.js?v=26-125-aster-alpha-v1";
-import { fetchExchangeTickers } from "./exchange-radar-feed.js?v=26-125-aster-alpha-v1";
+} from "./exchange-market-data.js?v=26-126-final-exchanges-v1";
+import { fetchExchangeTickers } from "./exchange-radar-feed.js?v=26-126-final-exchanges-v1";
+import { decodeGzipJsonMessage, decodeMexcProtobufMessage } from "./exchange-message-codecs.js?v=26-126-final-exchanges-v1";
 import {
   EXCHANGE_IDS,
   marketSource,
   marketSourceKey,
   toVenueSymbol,
-} from "./exchange-registry.js?v=26-125-aster-alpha-v1";
+} from "./exchange-registry.js?v=26-126-final-exchanges-v1";
 
 const jsonResponse = (payload) => ({ ok: true, status: 200, json: async () => payload });
 
 test("all public venues expose their supported markets through one canonical symbol contract", () => {
-  assert.deepEqual(EXCHANGE_IDS, ["binance", "bybit", "okx", "bitget", "gate", "hyperliquid", "aster", "binance_alpha"]);
+  assert.deepEqual(EXCHANGE_IDS, [
+    "binance", "bybit", "okx", "bitget", "gate", "hyperliquid", "aster", "binance_alpha",
+    "kucoin", "mexc", "bingx", "htx", "coinbase", "upbit",
+  ]);
   assert.equal(toVenueSymbol("okx", "futures", "BTCUSDT"), "BTC-USDT-SWAP");
   assert.equal(toVenueSymbol("gate", "spot", "BTCUSDT"), "BTC_USDT");
   assert.equal(toVenueSymbol("hyperliquid", "futures", "BTCUSDT"), "BTC");
   assert.equal(marketSource({ exchange: "binance_alpha", market: "futures", symbol: "KIIUSDT" }).market, "spot");
+  assert.equal(toVenueSymbol("kucoin", "futures", "BTCUSDT"), "XBTUSDTM");
+  assert.equal(toVenueSymbol("mexc", "futures", "ETHUSDT"), "ETH_USDT");
+  assert.equal(toVenueSymbol("bingx", "spot", "SOLUSDT"), "SOL-USDT");
+  assert.equal(toVenueSymbol("htx", "spot", "BTCUSDT"), "btcusdt");
+  assert.equal(toVenueSymbol("upbit", "spot", "BTCUSDT"), "USDT-BTC");
+  assert.equal(marketSource({ exchange: "coinbase", market: "futures", symbol: "BTCUSDT" }).market, "spot");
   assert.equal(marketSourceKey({ exchange: "bybit", market: "spot", symbol: "BTCUSDT" }), "bybit:spot:BTCUSDT");
 });
 
@@ -134,6 +144,90 @@ test("Aster spot and futures adapters use the v3 public market contract", async 
   assert.ok(seen.some((href) => href.includes("sapi.asterdex.com/api/v3")));
 });
 
+test("final exchange radar adapters keep one USDT ticker schema", async () => {
+  const fixtures = {
+    kucoin: { code: "200000", data: { time: 1, ticker: [{ symbol: "BTC-USDT", last: "65000", changeRate: "0.02", high: "66000", low: "63000", volValue: "9000000" }] } },
+    mexc: [{ symbol: "ETHUSDT", lastPrice: "3200", openPrice: "3000", highPrice: "3300", lowPrice: "2900", quoteVolume: "8000000", count: 42 }],
+    bingx: { code: 0, data: [{ symbol: "SOL-USDT", lastPrice: "150", openPrice: "140", highPrice: "155", lowPrice: "135", quoteVolume: "7000000" }] },
+    htx: { status: "ok", ticks: [{ symbol: "xrpusdt", close: "0.6", open: "0.5", high: "0.7", low: "0.4", trade_turnover: "6000000", count: 10 }] },
+    coinbase: { products: [{ product_id: "ADA-USDT", product_type: "SPOT", quote_currency_id: "USDT", price: "0.5", volume_24h: "10000000", price_percentage_change_24h: "5" }] },
+  };
+  for (const [exchange, payload] of Object.entries(fixtures)) {
+    const rows = await fetchExchangeTickers({ exchange, market: "spot" }, { fetchImpl: async () => jsonResponse(payload) });
+    assert.equal(rows.length, 1, exchange);
+    assert.match(rows[0].s, /USDT$/);
+    assert.ok(rows[0].q > 0);
+  }
+
+  const upbit = await fetchExchangeTickers({ exchange: "upbit", market: "spot" }, {
+    fetchImpl: async () => jsonResponse([
+      { market: "USDT-BTC", trade_price: 65000, opening_price: 64000, high_price: 66000, low_price: 63000, acc_trade_price_24h: 5000000 },
+    ]),
+  });
+  assert.deepEqual(upbit.map((row) => row.s), ["BTCUSDT"]);
+});
+
+function protoVarint(value) {
+  let current = BigInt(value);
+  const bytes = [];
+  do {
+    let byte = Number(current & 0x7fn);
+    current >>= 7n;
+    if (current) byte |= 0x80;
+    bytes.push(byte);
+  } while (current);
+  return bytes;
+}
+
+function protoField(field, value, wire = 2) {
+  const tag = protoVarint((field << 3) | wire);
+  if (wire === 0) return [...tag, ...protoVarint(value)];
+  const bytes = typeof value === "string" ? [...new TextEncoder().encode(value)] : [...value];
+  return [...tag, ...protoVarint(bytes.length), ...bytes];
+}
+
+test("binary market codecs decode gzip JSON and MEXC protobuf deals", async () => {
+  const gzip = await new Response(
+    new Blob([JSON.stringify({ ping: 123 })]).stream().pipeThrough(new CompressionStream("gzip")),
+  ).arrayBuffer();
+  assert.deepEqual(await decodeGzipJsonMessage(gzip), { ping: 123 });
+
+  const deal = [
+    ...protoField(1, "65000"),
+    ...protoField(2, "0.25"),
+    ...protoField(3, 2, 0),
+    ...protoField(4, 1_700_000_000_000, 0),
+    ...protoField(5, "trade-1"),
+  ];
+  const deals = protoField(1, deal);
+  const wrapper = new Uint8Array([
+    ...protoField(1, "spot@public.aggre.deals.v3.api.pb@100ms@BTCUSDT"),
+    ...protoField(3, "BTCUSDT"),
+    ...protoField(314, deals),
+  ]);
+  const decoded = await decodeMexcProtobufMessage(wrapper);
+  assert.equal(decoded.symbol, "BTCUSDT");
+  assert.deepEqual(decoded.deals[0], { price: "65000", quantity: "0.25", tradeType: 2, time: 1_700_000_000_000, id: "trade-1" });
+});
+
+test("Coinbase level2 channel applies absolute bid and offer quantities", async () => {
+  const descriptor = await buildOrderBookStream({ exchange: "coinbase", market: "spot", symbol: "BTCUSDT" });
+  const events = descriptor.parse({
+    channel: "l2_data",
+    timestamp: "2026-01-01T00:00:00Z",
+    events: [{
+      type: "snapshot",
+      updates: [
+        { side: "bid", price_level: "65000", new_quantity: "1.5" },
+        { side: "offer", price_level: "65001", new_quantity: "2.5" },
+      ],
+    }],
+  });
+  assert.equal(events[0].snapshot, true);
+  assert.deepEqual(events[0].bids, [[65000, 1.5]]);
+  assert.deepEqual(events[0].asks, [[65001, 2.5]]);
+});
+
 test("every non-Binance venue builds official public candle and book transports", async () => {
   const fixtures = [
     ["bybit", "wss://stream.bybit.com/"],
@@ -143,6 +237,12 @@ test("every non-Binance venue builds official public candle and book transports"
     ["hyperliquid", "wss://api.hyperliquid.xyz/"],
     ["aster", "wss://fstream.asterdex.com/"],
     ["binance_alpha", "wss://nbstream.binance.com/"],
+    ["kucoin", "wss://ws-api-futures.kucoin.com/"],
+    ["mexc", "wss://contract.mexc.com/"],
+    ["bingx", "wss://open-api-ws.bingx.com/"],
+    ["htx", "wss://api.hbdm.com/"],
+    ["coinbase", "wss://advanced-trade-ws.coinbase.com/"],
+    ["upbit", "wss://api.upbit.com/"],
   ];
   const metadataFetch = async (url, options) => {
     const href = String(url);
@@ -153,6 +253,11 @@ test("every non-Binance venue builds official public candle and book transports"
     if (href.includes("alpha/all/token/list")) return jsonResponse({ code: "000000", success: true, data: [{
       symbol: "BTC", alphaId: "ALPHA_1", chainId: "56", contractAddress: "0x1", price: "65000", volume24h: "1000000", count24h: "100", tradeDecimal: 2,
     }] });
+    if (href.includes("bullet-public")) return jsonResponse({ code: "200000", data: { token: "token", instanceServers: [{ endpoint: "wss://ws-api-futures.kucoin.com/endpoint", pingInterval: 18_000 }] } });
+    if (href.includes("api-futures.kucoin.com/api/v1/contracts/")) return jsonResponse({ code: "200000", data: { symbol: "XBTUSDTM", multiplier: "0.001", tickSize: "0.1" } });
+    if (href.includes("contract.mexc.com/api/v1/contract/detail")) return jsonResponse({ success: true, data: { symbol: "BTC_USDT", contractSize: "0.0001", priceUnit: "0.1" } });
+    if (href.includes("bingx.com/openApi/swap/v2/quote/contracts")) return jsonResponse({ code: 0, data: [{ symbol: "BTC-USDT", size: "0.0001", pricePrecision: 1 }] });
+    if (href.includes("swap_contract_info")) return jsonResponse({ status: "ok", data: [{ contract_code: "BTC-USDT", contract_size: "0.001", price_tick: "0.1" }] });
     return jsonResponse({});
   };
   for (const [exchange, prefix] of fixtures) {
@@ -170,11 +275,16 @@ test("browser and server CSP authorize only the implemented public market hosts"
     readFile(new URL("./server.js", import.meta.url), "utf8"),
     readFile(new URL("./sw.js", import.meta.url), "utf8"),
   ]);
-  for (const host of ["api.bybit.com", "www.okx.com", "api.bitget.com", "api.gateio.ws", "api.hyperliquid.xyz", "sapi.asterdex.com", "fapi.asterdex.com", "www.binance.com", "nbstream.binance.com"]) {
+  for (const host of [
+    "api.bybit.com", "www.okx.com", "api.bitget.com", "api.gateio.ws", "api.hyperliquid.xyz",
+    "sapi.asterdex.com", "fapi.asterdex.com", "www.binance.com", "nbstream.binance.com",
+    "api.kucoin.com", "api-futures.kucoin.com", "api.mexc.com", "contract.mexc.com", "open-api.bingx.com",
+    "api.huobi.pro", "api.hbdm.com", "api.coinbase.com", "api.upbit.com",
+  ]) {
     assert.match(html, new RegExp(host.replaceAll(".", "\\.")));
     assert.match(server, new RegExp(host.replaceAll(".", "\\.")));
   }
-  for (const moduleName of ["exchange-registry.js", "binance-alpha-symbols.js", "exchange-market-data.js", "exchange-radar-feed.js", "exchange-orderbook-feed.js"]) {
+  for (const moduleName of ["exchange-registry.js", "binance-alpha-symbols.js", "exchange-message-codecs.js", "exchange-market-data.js", "exchange-radar-feed.js", "exchange-orderbook-feed.js"]) {
     assert.match(serviceWorker, new RegExp(moduleName.replaceAll(".", "\\.")));
   }
 });
