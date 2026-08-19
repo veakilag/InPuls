@@ -1454,7 +1454,10 @@ export class CandlestickChart {
     }
     for (const annotation of visibleRays) {
       const originX = xForTime(annotation.startAt);
-      label(annotation.label, Math.max(margins.left + 4, originX + 6), yForPrice(annotation.price), colorFor(annotation));
+      const labelX = annotation.pinLabelRight
+        ? margins.left + plotWidth - 184
+        : Math.max(margins.left + 4, originX + 6);
+      label(annotation.label, labelX, yForPrice(annotation.price), colorFor(annotation));
     }
     for (const item of visibleSegments) {
       label(item.annotation.label, (item.a.x + item.b.x) / 2, (item.a.y + item.b.y) / 2, colorFor(item.annotation));

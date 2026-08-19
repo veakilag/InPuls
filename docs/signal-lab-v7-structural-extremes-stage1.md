@@ -1,0 +1,106 @@
+# Signal Lab — структурные экстремумы, этап 1
+
+## Статус
+
+Экспериментальное ядро находится в отдельной ветке и **не подключено** к текущим боевым картам уровней, пробоям или каскадам.
+
+Алгоритм: `signal-lab-structural-extremes-stage1-v1-2026-08`.
+
+## Почему заменяется текущее ядро
+
+Текущий `signal-lab-v4-extremes.js` стартует в режиме одновременного поиска high и low (`SEEK_BOTH`), использует слишком чувствительные минимальные пороги и подтверждает точку по одному обратному ходу без отдельного фильтра амплитуды исходного swing. Это создаёт слишком плотную карту на младших таймфреймах.
+
+## Новая модель
+
+Для каждой пары `symbol + timeframe` работает отдельный автомат:
+
+- `UNDEFINED` — определяется первое значимое направление;
+- `TRACKING_UP` — существует только один перемещаемый `candidateHigh`;
+- `TRACKING_DOWN` — существует только один перемещаемый `candidateLow`.
+
+Промежуточные положения кандидата не сохраняются как экстремумы. Подтверждение требует одновременно:
+
+1. достаточной амплитуды swing от предыдущей противоположной точки;
+2. адаптивного обратного движения;
+3. минимального числа закрытых свечей после последнего переноса кандидата.
+
+Адаптивный порог:
+
+`max(minimumPercent, ATRPercent × atrMultiplier, tickSizeBufferPercent)`.
+
+Стартовые параметры вынесены в `DEFAULT_STRUCTURAL_EXTREME_CONFIG` для `1m`, `5m`, `15m`, `1h`, `4h`, `1d`.
+
+## Данные и отсутствие look-ahead
+
+Движок принимает только закрытые свечи. На каждом шаге доступны текущая закрытая свеча, предыдущие свечи и сохранённое состояние. Поля `extremeAt` и `confirmedAt` разделены. До `confirmedAt` точка существует только как candidate.
+
+## Жизненный цикл
+
+Поддержаны состояния:
+
+- `CANDIDATE`;
+- `CONFIRMED_ACTIVE`;
+- `TOUCHED`;
+- `CROSSED`;
+- `ACCEPTED`;
+- `REJECTED`.
+
+Равное касание с учётом tick tolerance не снимает уровень. Первый фактический проход удаляет его только из active-карты, но сохраняет в истории.
+
+## Диагностика
+
+Snapshot показывает:
+
+- направление;
+- текущего кандидата;
+- предыдущий противоположный экстремум;
+- swing amplitude;
+- фактический reversal;
+- требуемый порог;
+- ATR;
+- параметры ТФ;
+- код причины подтверждения, ожидания или переноса.
+
+## Визуальная проверка
+
+Страница `owner-signal-lab-structural-extremes-review.html` загружает 30 дней закрытых свечей Binance USDⓈ-M Futures и позволяет отдельно проверить `1m`, `5m`, `15m`, `1h`, `4h`, `1d`.
+
+Она не включена в навигацию основного Signal Lab и предназначена только для калибровки до пользовательской приёмки.
+
+## Следующий шаг
+
+После зелёных unit/replay-тестов нужно визуально сравнить карту с эталонными скриншотами и классифицировать ошибки. Только после приёмки этапа 1 можно обсуждать подключение к уровням ×2/×3, поджатию, пробою и каскаду.
+
+
+## V3.9 — атака, закол и подтверждённый пробой
+
+Уровень больше не снимается от первого тика за цену.
+
+- формирование экстремума = атака ×1;
+- новая атака ×N считается только при печати ровно того же биржевого tick после достаточного ухода и возврата;
+- недоход до цены — подход, но не атака;
+- первый проход хотя бы на tick за уровень — `PIERCED` (закол / попытка пробоя), а не финальный пробой;
+- если цена закрывается обратно по эту сторону уровня, закол считается отклонённым (`EXTREME_PIERCE_REJECTED`), уровень остаётся активным;
+- подтверждённый пробой наступает только после принятия цены за уровнем; базовая техническая эвристика Stage 1 — `acceptanceBars` последовательных закрытий за уровнем;
+- после отклонённого закола допускается последующая повторная попытка пробоя; её пригодность для повторного входа в каскад будет оцениваться отдельным pattern/context-слоем, а не самим детектором уровня.
+
+Важно: ATR/волатильность используется только для rearm между самостоятельными атаками и не расширяет цену, которая считается атакой.
+
+
+## V4.3 — geometry first, compression aware
+
+- Экстремум сначала определяется геометрией цены и подтверждённым reversal; NATR не создаёт и не отменяет экстремум сам по себе.
+- `baseNatrPct` (median recent NATR) нормализует масштаб монеты и расстояние уровня до текущей цены.
+- `currentNatrPct / baseNatrPct` описывает `COMPRESSION / NORMAL / EXPANSION`; compression может только смягчить scale-admission, но не сделать его жёстче.
+- Близкие экстремумы одного TF не схлопываются в один уровень. Близкий младший TF к старшему остаётся ownership/confluence старшего уровня.
+- Унаследованный старший уровень снимается на младшем TF только после двух последовательных закрытий за уровнем (`CHILD_TIMEFRAME_ACCEPTANCE`); одиночный wick/pierce не является финальным пробоем.
+- Detector/history и точный подсчёт атак ×N не изменены; V4.3 меняет только hierarchical map/calibration semantics.
+
+
+## V5.0 — tradable structure / trend-leg qualification
+
+BICO trader review exposed a separate product problem: on 1m/5m a smooth directional leg can contain many valid local swings, while only a subset are independently tradable liquidity levels. V5 keeps the detector/history recall-first and adds a working-map qualification layer.
+
+First rule: a continuation-side higher LOW or lower HIGH must reset at least 30% of the move from the previous qualified same-side level to the intervening leg extreme. Shallow stair-step pivots stay in event memory but do not become working-map rays. The anchor expires after 60 bars on 1m / 24 bars on 5m. Repeated attacks, senior ownership and multi-timeframe confluence bypass this filter.
+
+This is only V5.0. New lower LOW / higher HIGH cases are intentionally deferred to the next V-reversal / defence-base qualification stage instead of being hidden by an unvalidated rule.
