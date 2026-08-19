@@ -1,5 +1,39 @@
 const textDecoder = new TextDecoder();
 
+// Binance Futures now serves raw market streams under /market/ws.
+// Keep legacy callers working until every stream builder is migrated to the
+// centralized Binance transport router. The bridge is deliberately narrow:
+// it rewrites only fstream.binance.com raw /ws/... market-stream URLs.
+function installBinanceFuturesWsCompatibility() {
+  const NativeWebSocket = globalThis.WebSocket;
+  if (typeof NativeWebSocket !== "function" || NativeWebSocket.__inpulsBinanceMarketRoute) return;
+
+  const RoutedWebSocket = new Proxy(NativeWebSocket, {
+    construct(target, args) {
+      const input = args?.[0];
+      try {
+        const url = new URL(String(input));
+        if (url.protocol === "wss:" && url.hostname === "fstream.binance.com" && url.pathname.startsWith("/ws/")) {
+          url.pathname = `/market/ws/${url.pathname.slice(4)}`;
+          args = [url.toString(), ...args.slice(1)];
+        }
+      } catch {
+        // Preserve native WebSocket validation for malformed/non-URL inputs.
+      }
+      return Reflect.construct(target, args, target);
+    },
+  });
+
+  Object.defineProperty(RoutedWebSocket, "__inpulsBinanceMarketRoute", {
+    value: true,
+    configurable: false,
+    enumerable: false,
+  });
+  globalThis.WebSocket = RoutedWebSocket;
+}
+
+installBinanceFuturesWsCompatibility();
+
 async function messageBytes(data) {
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
   if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
